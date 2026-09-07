@@ -15,10 +15,9 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-from .config import DATA, DRAFT_ROOM_URL, ESPN_S2, LEAGUE_URL, ROOT, SWID
+from .config import CDP_PORT, DATA, DRAFT_ROOM_URL, ESPN_S2, LEAGUE_URL, ROOT, SWID
 
 PROFILE = ROOT / ".chrome-profile"
-CDP_PORT = 9222
 
 
 def espn_cookies() -> list[dict]:

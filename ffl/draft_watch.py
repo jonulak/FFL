@@ -28,7 +28,7 @@ POLL_S = 5
 # a mock/practice run (FFL_DATA_DIR set) must not pollute the real draft log
 PICKS_CSV = (DATA / "picks.csv") if os.environ.get("FFL_DATA_DIR") else (JOURNAL / "draft" / "picks.csv")
 STATE = DATA / "draft_state.json"
-NEED_WEIGHT = {"starter_open": 1.35, "flex_open": 1.1, "bench": 0.9}
+NEED_WEIGHT = {"starter_open": 1.35, "flex_open": 1.1, "bench": 0.9, "unstartable": 0.15}
 
 
 def my_team_id(settings: dict) -> int:
@@ -134,6 +134,22 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
                 w += 0.15  # 2QB league: never leave the draft short at QB
         elif r.pos in flex_pos and flex_slots:
             w = NEED_WEIGHT["flex_open"]
+        elif r.pos not in flex_pos:
+            # He cannot start: every slot he is eligible for is already filled, and the flex
+            # does not take his position. VORP prices a *starter*, so it is the wrong currency
+            # here — his only value is covering an injury or a bye.
+            #
+            # This bites hardest at QB in our 2QB league. The QB pool is ~32 deep, so a
+            # replacement index of starters+bench lands near its bottom (replacement ~194 pts,
+            # about QB28) and every rosterable QB keeps a +50-70 VORP. At 0.9 that still beat
+            # a starting WR: in the 2026-09-06 practice draft the recommender took a QB in
+            # rounds 6, 7 and 8 with WR2 and TE1 empty, and by pick 74 the top four were QBs.
+            #
+            # Discounted rather than zeroed (unlike a second K/DST below): a 2QB league starts
+            # 20 QBs, so the waiver wire is bare and a QB3 is genuinely worth a late pick. The
+            # factor is a judgement call, set so a QB3 lands around rounds 12-14 — where the
+            # mock post-mortem in journal/DECISIONS.md put him.
+            w = NEED_WEIGHT["unstartable"]
         else:
             w = NEED_WEIGHT["bench"]
         if r.pos in ("K", "D/ST") and len(my_roster) < settings["roster_size"] - 3:

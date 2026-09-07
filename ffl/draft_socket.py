@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-CDP_PORT = 9222
+from .config import CDP_PORT
 DRAFT_URL_MATCH = "/football/draft"
 
 

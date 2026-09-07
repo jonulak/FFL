@@ -19,6 +19,9 @@ ESPN_S2 = os.environ.get("ESPN_S2") or None
 SWID = os.environ.get("SWID") or None
 SEASON = int(os.environ.get("SEASON", "2026"))
 MY_TEAM_ID = int(os.environ.get("MY_TEAM_ID", "0") or 0)  # set after settings dump identifies it
+# Chrome remote-debugging port. Override when 9222 is already taken by another project's
+# Chrome: every CDP consumer here would otherwise attach to that browser instead of ours.
+CDP_PORT = int(os.environ.get("FFL_CDP_PORT") or 9222)
 
 DRAFT_ROOM_URL = f"https://fantasy.espn.com/football/draft?leagueId={LEAGUE_ID}"
 LEAGUE_URL = f"https://fantasy.espn.com/football/league?leagueId={LEAGUE_ID}"
