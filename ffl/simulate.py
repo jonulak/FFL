@@ -29,6 +29,7 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
              rollout_sims: int = 100, pick_by: str = "score") -> dict:
     from . import rollout as _ro
     rollout_mod = _ro if _ro.enabled() else None
+    qb_pace = _ro.qb_pace()
     order = order_for_slot(settings, me, slot)
     n = len(order)
     full = snake_order(order, settings["roster_size"])
@@ -88,7 +89,10 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
                     print("        " + rollout_mod.verdict_line(res, int(top["player_id"])))
         else:
             avail = bd[~bd.drafted]
-            with_adp = avail.dropna(subset=["adp"]).sort_values("adp")
+            with_adp = avail.dropna(subset=["adp"]).copy()
+            if qb_pace:  # FFL_QB_PACE: this room takes its QBs that many picks earlier than the feed
+                with_adp.loc[with_adp.pos == "QB", "adp"] = (with_adp.loc[with_adp.pos == "QB", "adp"] - qb_pace).clip(lower=1.0)
+            with_adp = with_adp.sort_values("adp")
             pick = with_adp.iloc[0] if len(with_adp) else avail.sort_values("proj", ascending=False).iloc[0]
             picks.append({"teamId": team, "playerId": int(pick.player_id), "overallPickNumber": p})
     pos_counts = pd.Series([m["pos"] for m in mine]).value_counts().to_dict()

@@ -66,6 +66,15 @@ class Pool:
         if unranked.any():
             order = avail[unranked].proj.rank(ascending=False, method="first")
             avail.loc[unranked, "adp"] = UNRANKED_ADP_START + order
+        # QB pace: how many picks earlier than the FFC feed this room takes its quarterbacks.
+        # The simulated room matches FFC's 2QB logs within ~5 picks at the 20th, 24th and 28th
+        # QB with this at 0 (measured 2026-09-07); a league where every manager hurries a QB3
+        # is faster, and nothing measures by how much until the real draft. Applied to the
+        # opponents' draw order and to my own plan's survival expectations alike.
+        pace = qb_pace()
+        if pace:
+            qb = avail.pos == "QB"
+            avail.loc[qb, "adp"] = (avail.loc[qb, "adp"] - pace).clip(lower=1.0)
         sd = avail["adp_stdev"] if "adp_stdev" in avail.columns else pd.Series(np.nan, index=avail.index)
         sd = pd.to_numeric(sd, errors="coerce").to_numpy(float)
         sd = np.where(np.isnan(sd) | (sd <= 0), DEFAULT_ADP_SD, sd)
@@ -537,6 +546,15 @@ def enabled() -> bool:
     """The rollout is off unless asked for: nothing rehearsed changes without FFL_ROLLOUT=1."""
     import os
     return os.environ.get("FFL_ROLLOUT", "") == "1"
+
+
+def qb_pace() -> float:
+    """FFL_QB_PACE: picks earlier than FFC ADP that this room takes its QBs (default 0)."""
+    import os
+    try:
+        return float(os.environ.get("FFL_QB_PACE") or 0.0)
+    except ValueError:
+        return 0.0
 
 
 def from_state(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, tm: dict,

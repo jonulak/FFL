@@ -205,6 +205,18 @@ def test_verdict_line_reads_the_chosen_pick_against_the_leader():
     assert "not a candidate" in ro.verdict_line(res, 99)
 
 
+def test_qb_pace_pulls_only_quarterbacks_forward(monkeypatch):
+    players, adp = _real_shaped_inputs()
+    bd = board_mod.build(SETTINGS_2QB, players, adp)
+    monkeypatch.delenv("FFL_QB_PACE", raising=False)
+    base = ro.Pool.from_board(bd)
+    monkeypatch.setenv("FFL_QB_PACE", "10")
+    fast = ro.Pool.from_board(bd)
+    qb = np.array(base.pos) == "QB"
+    assert np.allclose(fast.adp[qb], np.maximum(base.adp[qb] - 10, 1.0))
+    assert np.allclose(fast.adp[~qb], base.adp[~qb])
+
+
 def test_candidates_never_add_a_position_at_its_cap():
     players, adp = _real_shaped_inputs()
     bd = board_mod.build(SETTINGS_2QB, players, adp)
