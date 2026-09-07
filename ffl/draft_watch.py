@@ -7,7 +7,7 @@
 Outputs: data/draft_state.json (full state), journal/draft/picks.csv (append-only pick log), stdout.
 ESPN's REST mDraftDetail view is useless *during* a live draft — every slot stays at
 playerId -1 until the draft finishes — so live mode reads the draft room's websocket
-over CDP instead (see ffl/draft_socket.py). REST stays for pre/post-draft checks.
+over CDP instead (see ffl/draft_socket.py). REST stays for pre-draft checks; whether it backfills after a draft is unverified.
 """
 from __future__ import annotations
 
