@@ -52,12 +52,25 @@ INJURY_SHORT = {"ACTIVE": "", "QUESTIONABLE": "Q", "DOUBTFUL": "D", "OUT": "OUT"
 
 
 def my_team_id(settings: dict) -> int:
+    """Which team is mine, in *this* league.
+
+    The SWID is the authority when it identifies a team, because it is per-account and right in
+    every league. MY_TEAM_ID is per-*league* and comes from `.env`, so in a mock room it names
+    somebody else's team — in the 2026-09-07 mock it pointed at "Team 7" while we were team 9,
+    which would have tracked a stranger's roster and predicted the wrong turns all draft. So a
+    disagreement resolves to the SWID, loudly, rather than to the stale number.
+    """
+    by_swid = None
+    if SWID:
+        by_swid = next((t["id"] for t in settings["teams"] if SWID in t.get("owner_swids", [])), None)
+    if by_swid and MY_TEAM_ID and by_swid != MY_TEAM_ID:
+        name = next((t.get("name", "?") for t in settings["teams"] if t["id"] == by_swid), "?")
+        print(f"!! MY_TEAM_ID={MY_TEAM_ID} but the SWID owns team {by_swid} ({name}) "
+              f"in this league — using {by_swid}.", flush=True)
+    if by_swid:
+        return by_swid
     if MY_TEAM_ID:
         return MY_TEAM_ID
-    if SWID:
-        for t in settings["teams"]:
-            if SWID in t.get("owner_swids", []):
-                return t["id"]
     raise SystemExit("Could not identify my team: set MY_TEAM_ID in .env")
 
 
@@ -460,7 +473,7 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
         "decide_pick": decide, "following_pick": following, "horizon": horizon,
         "opp_demand": opp_demand or {},
         "top": avail.head(10)[cols].to_dict("records"),
-        "by_pos": {p: avail[avail.pos == p].head(4)[cols].to_dict("records") for p in ["QB", "RB", "WR", "TE"]},
+        "by_pos": {p: avail[avail.pos == p].head(4)[cols].to_dict("records") for p in POSITIONS},
         "survivors": avail[~avail.likely_gone].head(8)[cols].to_dict("records"),
         "ir_stash": ir.nlargest(4, "proj")[cols].to_dict("records") if len(ir) else [],
     }
