@@ -124,7 +124,9 @@ def _select(page, player_id: int, name: str):
             "button.player--search--match",
             "es => es.map(e => e.getAttribute('data-player-search-playername'))")
         raise PlayerGone(f"{name} not offered (dropdown had: {offered})")
-    match.first.click()
+    # dispatch on the element: the player table overlays the dropdown, so a real mouse click
+    # is intercepted by public_fixedDataTableCell_cellContent and hangs until it times out
+    match.first.evaluate("el => el.click()")
     page.wait_for_timeout(1200)
     return match.first
 

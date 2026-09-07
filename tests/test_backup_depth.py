@@ -32,15 +32,18 @@ def rec_with(mine_by_pos: dict[str, int]):
     return dw.recommend(bd, TWO_QB, bd[bd.player_id.isin(mine)], picks_until_me=1)
 
 
-def qb_score(n_qbs: int) -> float:
-    return next(r["score"] for r in rec_with({"QB": n_qbs, "RB": 4, "WR": 2, "TE": 1})["by_pos"]["QB"])
+def rb_score(n_rbs: int) -> float:
+    """Best available RB with the lineup otherwise full, so he can only be a bench player."""
+    return next(r["score"] for r in
+                rec_with({"QB": 2, "RB": n_rbs, "WR": 2, "TE": 1})["by_pos"]["RB"])
 
 
 def test_each_extra_backup_is_worth_less_than_the_last():
-    """Roster is otherwise full, so every QB on offer is bench-only."""
-    third, fourth, fifth = qb_score(2), qb_score(3), qb_score(4)
-    assert third > fourth > fifth, f"backup QBs did not decay: {third}, {fourth}, {fifth}"
-    assert fifth > 0, "backups zeroed out entirely"
+    """Measured at RB: the flex takes two, so backups five and six are both legal to hold —
+    unlike a QB4, which is blacklisted outright (see tests/test_late_slots.py)."""
+    fifth, sixth, seventh = rb_score(4), rb_score(5), rb_score(6)
+    assert fifth > sixth > seventh, f"backup RBs did not decay: {fifth}, {sixth}, {seventh}"
+    assert seventh > 0, "backups zeroed out entirely"
 
 
 def test_a_full_bench_at_one_position_lets_another_lead():

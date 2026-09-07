@@ -194,8 +194,6 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
             # the largest raw VORP — QB, whose replacement sits at QB28 — and draft 4 replayed
             # into a roster with six quarterbacks on it.
             w = NEED_WEIGHT["unstartable"] / (1 + backups_held(settings, counts, r.pos))
-        if r.pos in ("K", "D/ST") and len(my_roster) < settings["roster_size"] - 3:
-            w = 0.2  # don't reach for K/DST until the end
         weights.append(w)
     # Weight only the positive part: below replacement, raw VORP is already the honest
     # cross-position ranking, and scaling it would penalise the positions we most need.
@@ -213,6 +211,21 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     # A K/DST whose slot is filled is unusable however good its VORP looks: you only start one.
     filled = avail.pos.isin(["K", "D/ST"]) & avail.pos.map(lambda p: left.get(p, 0) == 0)
     avail.loc[filled, "score"] = -999.0
+    # Nor is one worth a pick before the last rounds. Discounting was not enough: the weight is
+    # a multiplier, and by round 12 every skill player left scores 0.0, so 0.2 x a defense's 18
+    # VORP still floated to the top — draft 6 spent rounds 12 and 13 on a kicker and a defense.
+    # The gap between the best D/ST and the tenth is 23 points, about 1.3 a week, and the
+    # eleventh is on waivers all season; a round-13 dart on a role player is worth more. So they
+    # are off the board entirely until the run-in, which is what STRATEGY.md has always said.
+    if my_picks_left is not None and my_picks_left > unfilled:
+        avail.loc[avail.pos.isin(["K", "D/ST"]), "score"] = -999.0
+    # A second backup at a position that cannot flex is dead weight: with a QB3 already
+    # stashed, a QB4 can only ever be the third-string quarterback of a two-quarterback
+    # lineup. Left merely discounted, he still beat every dart, because a dart's upside is
+    # invisible to VORP (it scores 0.0 by construction) while his is not.
+    extra_backup = [p not in flex_pos and backups_held(settings, counts, p) >= 1
+                    for p in avail.pos]
+    avail.loc[extra_backup, "score"] = -999.0
     # Late on, everything left is at or below replacement and scores collapse to a tie at 0 or
     # below. Raw projection then decided the order — and it is not comparable across positions,
     # so a QB always won and the last picks of a replayed draft went QB, QB, QB. Break those
