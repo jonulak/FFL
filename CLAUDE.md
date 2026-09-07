@@ -17,6 +17,7 @@ uv run python -m ffl.browser           # headed Chrome on the draft room (cookie
 uv run python -m ffl.browser shot x.png  # screenshot the running Chrome window
 uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; writes journal/draft/picks.csv
 uv run python -m ffl.advise            # LIVE: the candidate table, recomputed from the raw pick feed
+uv run python -m ffl.avail WR 8        # LIVE: who is left at a position, by projection (the table hides replacement-level players)
 uv run python -m ffl.simulate 7        # dry-run the draft from a slot (opponents pick to 2QB ADP); `all` for every slot
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/

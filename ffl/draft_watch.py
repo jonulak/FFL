@@ -606,6 +606,16 @@ class Watcher:
               f"then #{state['my_following_overall']} ({state['horizon']} picks between) "
               f"| needs {rec['needs']} | opp demand {state['opp_demand']} | runs {state['runs']}{flag}", flush=True)
         print(candidate_table(rec["top"]), flush=True)
+        # The top ten hides whole positions once they sit at replacement (late in the draft no
+        # WR makes it, and the IR stash never does), which is how three already-drafted WRs got
+        # named at pick 101 of practice draft 9. So the on-clock print answers "who is left at
+        # each position" by itself.
+        by_pos = "  ".join(
+            f"{pos}: " + ", ".join(f"{r['name']} ({r['vorp']:.0f}, {r['survive_prob']:.0%})" for r in rows[:3])
+            for pos, rows in rec["by_pos"].items() if rows)
+        print(f"best left  {by_pos}", flush=True)
+        if rec["ir_stash"]:
+            print("IR stash   " + ", ".join(f"{r['name']} ({r['proj']:.0f})" for r in rec["ir_stash"]), flush=True)
 
 
 def numbered(picks: list[dict], n_teams: int, offset: int = 0) -> list[dict]:
