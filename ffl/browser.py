@@ -3,6 +3,7 @@
     uv run python -m ffl.browser            # open draft room, keep window alive
     uv run python -m ffl.browser league     # open league home instead
     uv run python -m ffl.browser shot out.png   # screenshot the running window (via CDP port)
+    uv run python -m ffl.browser goto <url>     # navigate the running window
 
 The window stays open until this process is killed. A second process can attach over CDP
 (port 9222) to take screenshots while the user is drafting in the window.
@@ -49,6 +50,14 @@ def launch(url: str):
             ctx.close()
 
 
+def goto(url: str):
+    with sync_playwright() as p:
+        b = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
+        page = b.contexts[0].pages[0]
+        page.goto(url, wait_until="domcontentloaded")
+        print(page.url)
+
+
 def screenshot(out: str):
     with sync_playwright() as p:
         b = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
@@ -60,7 +69,9 @@ def screenshot(out: str):
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "draft"
-    if cmd == "shot":
+    if cmd == "goto":
+        goto(sys.argv[2])
+    elif cmd == "shot":
         screenshot(sys.argv[2] if len(sys.argv) > 2 else str(DATA / "shot.png"))
     else:
         launch(LEAGUE_URL if cmd == "league" else DRAFT_ROOM_URL)

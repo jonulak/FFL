@@ -45,14 +45,20 @@ def snake_order(pick_order: list[int], rounds: int) -> list[int]:
 def fetch_picks() -> dict:
     d = raw_league_get("mDraftDetail")
     dd = d.get("draftDetail", {})
-    return {"in_progress": dd.get("inProgress"), "drafted": dd.get("drafted"), "picks": dd.get("picks", [])}
+    # before the draft ESPN returns the whole slate as placeholders with playerId == -1
+    picks = [p for p in dd.get("picks", []) if p.get("playerId", 0) > 0]
+    return {"in_progress": dd.get("inProgress"), "drafted": dd.get("drafted"), "picks": picks}
+
+
+def _is_flex(slot: str) -> bool:
+    return slot == "OP" or ("/" in slot and slot != "D/ST")
 
 
 def open_slots(settings: dict, my_pos_counts: dict[str, int]) -> dict[str, int]:
     """How many *starting* slots at each position I still have to fill (flex handled separately)."""
     left = {}
     for slot, n in settings["starters"].items():
-        if "/" in slot or slot == "OP":
+        if _is_flex(slot):
             continue
         left[slot] = max(n - my_pos_counts.get(slot, 0), 0)
     return left
@@ -62,7 +68,7 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     avail = bd[~bd.drafted].copy()
     counts = my_roster.pos.value_counts().to_dict() if len(my_roster) else {}
     left = open_slots(settings, counts)
-    flex_slots = sum(n for s, n in settings["starters"].items() if "/" in s or s == "OP")
+    flex_slots = sum(n for s, n in settings["starters"].items() if _is_flex(s))
     weights = []
     for _, r in avail.iterrows():
         if left.get(r.pos, 0) > 0:

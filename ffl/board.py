@@ -51,6 +51,10 @@ def build(settings: dict, players: pd.DataFrame, adp: pd.DataFrame, drafted_ids:
         for c in adp_dst.columns[1:]:
             df.loc[dst, c] = m[c].values
 
+    # players only in the 1QB feed (e.g. a TE outside the 2QB top-250): use 1QB ADP as a stand-in
+    df["adp_only_1qb"] = df.adp.isna() & df.adp_1qb.notna()
+    df["adp"] = df.adp.fillna(df.adp_1qb)
+    df["adp_rank"] = df.adp_rank.fillna(df.adp_1qb_rank)
     if drafted_ids:
         df["drafted"] = df.player_id.isin(drafted_ids)
     else:
@@ -71,6 +75,13 @@ def build(settings: dict, players: pd.DataFrame, adp: pd.DataFrame, drafted_ids:
     df["board_rank"] = np.where(df.drafted, np.nan, (~df.drafted).cumsum())
     df["pos_rank"] = df.groupby("pos").proj.rank(ascending=False, method="first").astype(int)
     df["value_vs_adp"] = (df.adp_rank - df.board_rank).round(0)  # + means market lets him fall past his value
+    # blended rank: half projection-driven VORP, half what 2QB rooms actually do. Unranked-by-ADP players
+    # get a pessimistic ADP so they don't float up on projection alone.
+    adp_fill = df.adp_rank.fillna(df.board_rank + 40)
+    df["blend"] = ((df.board_rank + adp_fill) / 2).round(1)
+    df.loc[df.drafted, "blend"] = np.nan
+    df = df.sort_values(["drafted", "blend", "vorp"], ascending=[True, True, False]).reset_index(drop=True)
+    df["blend_rank"] = np.where(df.drafted, np.nan, (~df.drafted).cumsum())
 
     # tiers per position by projection gaps
     df["tier"] = 0
@@ -97,14 +108,14 @@ def to_markdown(df: pd.DataFrame, settings: dict, top_n: int = 40) -> str:
          f"{settings['team_count']} teams | starters {settings['starters']} | bench {settings['bench_size']} | "
          f"PPR={ks['ppr']} passTD={ks['pass_td']} passYd={ks['pass_yd']} INT={ks['int']}", "",
          "ADP = FantasyFootballCalculator 2QB drafts; ADP1 = same site's 1QB drafts. value = ADP rank minus board rank (positive = tends to fall past his value).", ""]
-    cols = ["board_rank", "name", "pos", "team", "bye", "proj", "vorp", "tier", "adp", "adp_1qb", "value_vs_adp", "injury"]
+    cols = ["blend_rank", "board_rank", "name", "pos", "team", "bye", "proj", "vorp", "tier", "adp", "adp_1qb", "value_vs_adp", "injury"]
     a = df[~df.drafted]
-    L += ["## Overall (by VORP)", "", a.head(top_n)[cols].to_markdown(index=False), ""]
+    L += ["## Overall (blend of VORP rank and 2QB ADP rank)", "", a.head(top_n)[cols].to_markdown(index=False), ""]
     for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
         sub = a[a.pos == pos]
         n = {"QB": 32, "RB": 45, "WR": 50, "TE": 20, "D/ST": 14, "K": 12}[pos]
         L += [f"## {pos} (replacement ≈ {sub.repl.iloc[0]:.0f} pts)" if len(sub) else f"## {pos}", "",
-              sub.head(n)[["pos_rank", "tier", "name", "team", "bye", "proj", "vorp", "adp", "adp_1qb", "value_vs_adp", "injury"]].to_markdown(index=False), ""]
+              sub.head(n)[["pos_rank", "blend_rank", "tier", "name", "team", "bye", "proj", "vorp", "adp", "adp_1qb", "value_vs_adp", "injury"]].to_markdown(index=False), ""]
     return "\n".join(L)
 
 
@@ -118,7 +129,7 @@ def main():
     print(f"starter counts: {starter_counts(settings)}")
     print(f"replacement: {df.groupby('pos').repl.first().round(0).to_dict()}")
     print(f"\nProjected >60 pts but no ADP match ({len(unmatched)}):\n{unmatched.head(20).to_string(index=False)}")
-    print("\nTop 30:\n" + df.head(30)[["board_rank", "name", "pos", "proj", "vorp", "tier", "adp", "adp_1qb"]].to_string(index=False))
+    print("\nTop 30:\n" + df.head(30)[["blend_rank", "board_rank", "name", "pos", "proj", "vorp", "tier", "adp", "adp_1qb"]].to_string(index=False))
 
 
 if __name__ == "__main__":
