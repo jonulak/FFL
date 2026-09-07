@@ -68,6 +68,6 @@ def test_predraft_replacement_uses_starters_plus_bench():
     counts = board_mod.starter_counts(SETTINGS)
     import math
     for pos in ["RB", "WR", "TE"]:
-        want = math.ceil(counts[pos] + board_mod.BENCH_DEPTH[pos]) - 1
+        want = math.ceil(counts[pos] + board_mod.bench_depth(SETTINGS)[pos]) - 1
         pool = players[players.pos == pos].sort_values("proj", ascending=False).proj.values
         assert bd[bd.pos == pos].repl.iloc[0] == pytest.approx(pool[want])
