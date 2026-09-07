@@ -177,8 +177,19 @@ def pick(player_id: int, name: str, queue: bool = False, timeout_s: float = PICK
         # on by itself after a pick times out, so re-check every time rather than once.
         if not queue:
             autopick_off(page)
-        _select(page, player_id, name)
-        btn = _action(page, player_id, name, want, deadline)
+        # The filtered row sometimes renders with the *previous* player's action button still
+        # in the column (seen on Jordan Mason: his row was there, the only Draft button on the
+        # page belonged to someone else, and waiting never fixed it). Re-running the search
+        # shakes it loose, so give each selection a short budget and select again if it does
+        # not produce our button.
+        btn = None
+        while btn is None:
+            _select(page, player_id, name)
+            try:
+                btn = _action(page, player_id, name, want, min(deadline, time.time() + 4))
+            except RuntimeError:
+                if time.time() >= deadline:
+                    raise
         # The DRAFT button ignores clicks for the first ~3 seconds of the clock (ESPN runs a
         # countdown on it) and says nothing about it, so one click is not enough: keep clicking
         # until the pick shows up on the feed or the clock runs out.

@@ -28,7 +28,7 @@ POLL_S = 5
 # a mock/practice run (FFL_DATA_DIR set) must not pollute the real draft log
 PICKS_CSV = (DATA / "picks.csv") if os.environ.get("FFL_DATA_DIR") else (JOURNAL / "draft" / "picks.csv")
 STATE = DATA / "draft_state.json"
-NEED_WEIGHT = {"starter_open": 1.35, "flex_open": 1.1, "bench": 0.9, "unstartable": 0.15}
+NEED_WEIGHT = {"starter_open": 1.35, "flex_open": 1.1, "unstartable": 0.15}
 
 
 def my_team_id(settings: dict) -> int:
@@ -135,12 +135,34 @@ def flex_left(settings: dict, counts: dict[str, int]) -> int:
     return max(total - spill, 0)
 
 
-def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_until_me: int) -> dict:
+def backups_held(settings: dict, counts: dict[str, int], pos: str) -> int:
+    """How many players I already hold at `pos` who cannot start.
+
+    Anyone past the position's own starting slots is a backup, except that a flex-eligible
+    position can park that many players in the flex first.
+    """
+    flex_room = sum(n for s, n in settings["starters"].items() if _is_flex(s)) \
+        if pos in flex_positions(settings) else 0
+    return max(counts.get(pos, 0) - settings["starters"].get(pos, 0) - flex_room, 0)
+
+
+def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_until_me: int,
+              my_picks_left: int | None = None) -> dict:
     avail = bd[~bd.drafted].copy()
     counts = my_roster.pos.value_counts().to_dict() if len(my_roster) else {}
     left = open_slots(settings, counts)
     flex_slots = flex_left(settings, counts)
     flex_pos = flex_positions(settings)
+    # Fielding a legal lineup beats every VORP argument. Weighting alone does not guarantee it:
+    # the need weight is a flat 1.35, while the VORP gap between the best RB and the best WR
+    # left can be far wider than that, so a position can stay unfilled all draft (draft 3
+    # finished with eight RBs and no WR at all). Once we have only as many picks left as we
+    # have empty starting slots, take from those positions and nowhere else.
+    unfilled = sum(left.values())
+    if my_picks_left is not None and unfilled and my_picks_left <= unfilled:
+        must = avail[avail.pos.isin([p for p, n in left.items() if n > 0])]
+        if len(must):
+            avail = must.copy()
     weights = []
     for _, r in avail.iterrows():
         if left.get(r.pos, 0) > 0:
@@ -149,10 +171,11 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
                 w += 0.15  # 2QB league: never leave the draft short at QB
         elif r.pos in flex_pos and flex_slots:
             w = NEED_WEIGHT["flex_open"]
-        elif r.pos not in flex_pos:
-            # He cannot start: every slot he is eligible for is already filled, and the flex
-            # does not take his position. VORP prices a *starter*, so it is the wrong currency
-            # here — his only value is covering an injury or a bye.
+        else:
+            # He cannot start: his position's slots are full and there is no flex spot left
+            # (either the flex does not take his position, or the roster has already filled
+            # it). VORP prices a *starter*, so it is the wrong currency here — his only value
+            # is covering an injury or a bye.
             #
             # This bites hardest at QB in our 2QB league. The QB pool is ~32 deep, so a
             # replacement index of starters+bench lands near its bottom (replacement ~194 pts,
@@ -164,9 +187,13 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
             # 20 QBs, so the waiver wire is bare and a QB3 is genuinely worth a late pick. The
             # factor is a judgement call, set so a QB3 lands around rounds 12-14 — where the
             # mock post-mortem in journal/DECISIONS.md put him.
-            w = NEED_WEIGHT["unstartable"]
-        else:
-            w = NEED_WEIGHT["bench"]
+            #
+            # Backups have diminishing returns, so the discount compounds with the ones we
+            # already hold at the position: the first covers the injury or bye, the fourth
+            # covers nothing. Without this, every leftover pick went to whichever position had
+            # the largest raw VORP — QB, whose replacement sits at QB28 — and draft 4 replayed
+            # into a roster with six quarterbacks on it.
+            w = NEED_WEIGHT["unstartable"] / (1 + backups_held(settings, counts, r.pos))
         if r.pos in ("K", "D/ST") and len(my_roster) < settings["roster_size"] - 3:
             w = 0.2  # don't reach for K/DST until the end
         weights.append(w)
@@ -186,7 +213,12 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     # A K/DST whose slot is filled is unusable however good its VORP looks: you only start one.
     filled = avail.pos.isin(["K", "D/ST"]) & avail.pos.map(lambda p: left.get(p, 0) == 0)
     avail.loc[filled, "score"] = -999.0
-    avail = avail.sort_values(["score", "proj"], ascending=False)
+    # Late on, everything left is at or below replacement and scores collapse to a tie at 0 or
+    # below. Raw projection then decided the order — and it is not comparable across positions,
+    # so a QB always won and the last picks of a replayed draft went QB, QB, QB. Break those
+    # ties towards positions we are not already stacked at before falling back to projection.
+    avail["depth"] = [backups_held(settings, counts, p) for p in avail.pos]
+    avail = avail.sort_values(["score", "depth", "proj"], ascending=[False, True, False])
     # who is likely to survive until my next pick, by ADP
     current = int(bd.drafted.sum()) + 1
     avail["likely_gone"] = avail.adp.fillna(999) < current + picks_until_me - 2
@@ -256,7 +288,10 @@ class Watcher:
         my_next = next((i for i in range(current - 1, len(self.full_order)) if self.full_order[i] == self.me), None)
         picks_until_me = (my_next - (current - 1)) if my_next is not None else -1
         my_roster = bd[bd.drafted & bd.player_id.isin({p["playerId"] for p in picks if p["teamId"] == self.me})]
-        rec = recommend(bd, self.settings, my_roster, max(picks_until_me, 0))
+        # picks of mine still to come, this one included — the budget for filling starters
+        my_picks_left = sum(1 for i in range(current - 1, len(self.full_order))
+                            if self.full_order[i] == self.me)
+        rec = recommend(bd, self.settings, my_roster, max(picks_until_me, 0), my_picks_left)
         recent = [self.id_to_row.loc[p["playerId"]]["pos"] for p in picks[-6:] if p["playerId"] in self.id_to_row.index]
         runs = {pos: recent.count(pos) for pos in set(recent) if recent.count(pos) >= 3}
         state = {
