@@ -566,10 +566,19 @@ def rollout_lines(res: dict, rec: dict, n: int = 3) -> list[str]:
     lines = [f"rollout    {'  '.join(parts)}   [n={res['n_sims']}, gap se~{gap_se}, {res['elapsed']}s]"]
     score_top5 = {int(r["player_id"]) for r in rec["top"][:5]}
     if rows[0]["player_id"] not in score_top5:
-        second = rows[1]["roll"] if len(rows) > 1 else top
-        lines.append(f"ROLLOUT DISAGREES  {rows[0]['name']} ({rows[0]['pos']}) leads the rollout by "
-                     f"{top - second:.1f} and is outside the score top five")
+        # the gap that matters is to the best of what score would have you take; a lead of a
+        # point over a bench body late in the draft is noise, not a disagreement
+        best_scored = next((r for r in rows[1:] if r["player_id"] in score_top5), None)
+        gap = top - best_scored["roll"] if best_scored else top - (rows[1]["roll"] if len(rows) > 1 else top)
+        se = best_scored["gap_se"] if best_scored and not math.isnan(best_scored["gap_se"]) else 0.0
+        if gap >= max(DISAGREE_MIN_GAP, 2 * se):
+            lines.append(f"ROLLOUT DISAGREES  {rows[0]['name']} ({rows[0]['pos']}) leads the rollout by "
+                         f"{gap:.1f} over {best_scored['name'] if best_scored else 'the field'} "
+                         f"and is outside the score top five")
     return lines
+
+
+DISAGREE_MIN_GAP = 3.0  # season points: below this the two rankings are saying the same thing
 
 
 def verdict_line(res: dict, chosen_id: int) -> str:

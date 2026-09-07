@@ -608,6 +608,8 @@ class Watcher:
         state["_fresh"] = fresh
         state["_rec"] = rec
         state["_rollout_inputs"] = (bd, tm, by_team, my_roster)
+        if fresh:
+            self._roll_gen += 1  # any rollout still running was computed for a board that has moved
         return state
 
     def print_board(self, state: dict):
@@ -636,7 +638,7 @@ class Watcher:
         print(f"best left  {by_pos}", flush=True)
         if rec["ir_stash"]:
             print("IR stash   " + ", ".join(f"{r['name']} ({r['proj']:.0f})" for r in rec["ir_stash"]), flush=True)
-        if self.rollout_mod is not None and 0 <= pum <= 2:
+        if self.rollout_mod is not None and pum in (0, 2):  # the heads-up and the clock, not both and the pick between
             self.rollout_async(state)
 
     def rollout_async(self, state: dict):
@@ -649,8 +651,7 @@ class Watcher:
         """
         bd, tm, by_team, my_roster = state["_rollout_inputs"]
         rec, decide = state["_rec"], state["my_next_overall"]
-        self._roll_gen += 1
-        gen = self._roll_gen
+        gen = self._roll_gen  # advanced by tick() on every fresh pick
 
         def work():
             try:
