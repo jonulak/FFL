@@ -72,6 +72,17 @@ def main(n: int = 8, made: int = 0):
         print("\nIR STASH (draft to bench, move to IR after the draft)")
         for r in rec["ir_stash"]:
             print(f"  {r['name']:<22} {r['pos']:<4} proj {r['proj']:>6}  adp {r['adp']}")
+    from . import rollout as rollout_mod
+    if rollout_mod.enabled() and tm["decide"] is not None:
+        print("\nROLLOUT  (season lineup points if I take him now and the draft plays out to ADP; gap to the leader)")
+        res = rollout_mod.from_state(bd, settings, full_order, me, tm, by_team, my_roster, rec)
+        top = res["rows"][0]["roll"] if res["rows"] else 0.0
+        for r in res["rows"]:
+            nxt = f"then {r['next_pos']} ~{r['next_proj']:.0f}" if r["next_pos"] else ""
+            print(f"  {r['name']:<22} {r['pos']:<4} {r['roll'] - top:>+6.1f} ±{r['gap_se']:<4} {nxt}")
+        for line in rollout_mod.rollout_lines(res, rec)[1:]:
+            print("  " + line)
+        print(f"  [n={res['n_sims']}, {res['elapsed']}s]")
 
 
 if __name__ == "__main__":

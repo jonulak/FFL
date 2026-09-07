@@ -23,6 +23,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -518,6 +519,11 @@ class Watcher:
         self.full_order = snake_order(self.order, self.rounds)
         self.id_to_row = self.players.set_index("player_id")
         self.seen = 0
+        # FFL_ROLLOUT=1: the Monte Carlo second opinion (ffl/rollout.py) is printed under the
+        # table for the heads-up and on-clock picks. Off, nothing here changes.
+        from . import rollout as rollout_mod  # here, not at the top: rollout imports this module
+        self.rollout_mod = rollout_mod if rollout_mod.enabled() else None
+        self._roll_gen = 0
         PICKS_CSV.parent.mkdir(parents=True, exist_ok=True)
         if not PICKS_CSV.exists():
             with PICKS_CSV.open("w", newline="") as f:
@@ -601,6 +607,7 @@ class Watcher:
         STATE.write_text(json.dumps(state, indent=1, default=str))
         state["_fresh"] = fresh
         state["_rec"] = rec
+        state["_rollout_inputs"] = (bd, tm, by_team, my_roster)
         return state
 
     def print_board(self, state: dict):
@@ -629,6 +636,34 @@ class Watcher:
         print(f"best left  {by_pos}", flush=True)
         if rec["ir_stash"]:
             print("IR stash   " + ", ".join(f"{r['name']} ({r['proj']:.0f})" for r in rec["ir_stash"]), flush=True)
+        if self.rollout_mod is not None and 0 <= pum <= 2:
+            self.rollout_async(state)
+
+    def rollout_async(self, state: dict):
+        """Print the rollout under the table once it is done, without holding the table up.
+
+        Runs in a thread: the table is on screen at once and the rollout lands a few seconds
+        later, labelled with the pick it was computed for. If another pick has landed by then
+        the lines are printed anyway but marked stale, since the roster they assumed has moved.
+        A failure prints one line and changes nothing else.
+        """
+        bd, tm, by_team, my_roster = state["_rollout_inputs"]
+        rec, decide = state["_rec"], state["my_next_overall"]
+        self._roll_gen += 1
+        gen = self._roll_gen
+
+        def work():
+            try:
+                res = self.rollout_mod.from_state(bd, self.settings, self.full_order, self.me, tm,
+                                                  by_team, my_roster, rec)
+                lines = self.rollout_mod.rollout_lines(res, rec)
+            except Exception as e:  # never let the second opinion take the first one down
+                lines = [f"rollout    failed: {e!r}"]
+            stale = "" if gen == self._roll_gen else " (STALE: a pick landed since)"
+            for line in lines:
+                print(f"{line}   <- for pick #{decide}{stale}", flush=True)
+
+        threading.Thread(target=work, daemon=True, name=f"rollout-{decide}").start()
 
 
 def numbered(picks: list[dict], n_teams: int, offset: int = 0) -> list[dict]:

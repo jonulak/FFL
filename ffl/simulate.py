@@ -25,7 +25,10 @@ def order_for_slot(settings: dict, me: int, slot: int) -> list[int]:
     return others[:slot - 1] + [me] + others[slot - 1:]
 
 
-def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: bool = True) -> dict:
+def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: bool = True,
+             rollout_sims: int = 100) -> dict:
+    from . import rollout as _ro
+    rollout_mod = _ro if _ro.enabled() else None
     order = order_for_slot(settings, me, slot)
     n = len(order)
     full = snake_order(order, settings["roster_size"])
@@ -42,12 +45,12 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
         opp = opponent_demand(settings, [by_team.get(t, {}) for t in tm["window"]])
         rec = recommend(bd, settings, roster, max(tm["picks_until_me"], 0), tm["my_picks_left"],
                         horizon=tm["horizon"], opp_demand=opp)
-        return bd, roster, rec, tm
+        return bd, roster, rec, tm, by_team
 
     heads_up = None  # (pick it was for, top-3 [(player_id, name)])
     for p in range(1, rounds * n + 1):
         team = full[p - 1]
-        bd, roster, rec, tm = state(p)
+        bd, roster, rec, tm, by_team = state(p)
         if tm["picks_until_me"] == 2:
             heads_up = (p + 2, [(int(r["player_id"]), r["name"]) for r in rec["top"][:3]])
         if team == me:
@@ -68,6 +71,12 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
                 hu = "" if agree else f"   !! heads-up said {heads_up[1][0][1]}"
                 print(f"#{p:>3} R{(p - 1) // n + 1:<2} {top['name']:<22} {top['pos']:<4} score {top['score']:>6} "
                       f"urg {top['urgency']:>5} | then: {alts}{hu}")
+                if rollout_mod is not None:
+                    # the pick is still made by score; the rollout is shown beside it so a
+                    # whole draft's disagreements can be read in one pass
+                    res = rollout_mod.from_state(bd, settings, full, me, tm, by_team, roster, rec,
+                                                 n_sims=rollout_sims, time_budget_s=8.0, seed=p)
+                    print("        " + rollout_mod.verdict_line(res, int(top["player_id"])))
         else:
             avail = bd[~bd.drafted]
             with_adp = avail.dropna(subset=["adp"]).sort_values("adp")
