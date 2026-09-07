@@ -185,3 +185,73 @@ def test_rollout_lines_flag_a_disagreement_outside_the_score_top_five():
     res["rows"].reverse()
     res["rows"][0]["roll"], res["rows"][1]["roll"] = 1500.0, 1490.0
     assert not any("DISAGREES" in l for l in ro.rollout_lines(res, rec))
+
+
+def test_rollout_is_off_unless_asked_for(monkeypatch):
+    monkeypatch.delenv("FFL_ROLLOUT", raising=False)
+    assert not ro.enabled()
+    monkeypatch.setenv("FFL_ROLLOUT", "0")
+    assert not ro.enabled()
+    monkeypatch.setenv("FFL_ROLLOUT", "1")
+    assert ro.enabled()
+
+
+def test_verdict_line_reads_the_chosen_pick_against_the_leader():
+    res = {"rows": [{"player_id": 1, "name": "A", "pos": "RB", "roll": 100.0, "gap_se": 0.0},
+                    {"player_id": 2, "name": "B", "pos": "WR", "roll": 95.0, "gap_se": 1.2}],
+           "n_sims": 50, "elapsed": 1.0}
+    assert ro.verdict_line(res, 1).startswith("rollout: agrees")
+    assert "-5.0" in ro.verdict_line(res, 2) and "A RB leads" in ro.verdict_line(res, 2)
+    assert "not a candidate" in ro.verdict_line(res, 99)
+
+
+def test_assignment_matches_brute_force():
+    import itertools
+    rng = np.random.default_rng(0)
+    for _ in range(30):
+        n_rows, n_cols = int(rng.integers(1, 5)), int(rng.integers(1, 6))
+        v = rng.normal(size=(n_rows, n_cols))
+        col = ro.assign_max(v)
+        got = sum(v[r, c] for r, c in enumerate(col) if c >= 0)
+        assert len({c for c in col if c >= 0}) == sum(1 for c in col if c >= 0)  # distinct columns
+        best = -1e9
+        k = min(n_rows, n_cols)
+        for rows in itertools.combinations(range(n_rows), k):
+            for cols in itertools.permutations(range(n_cols), k):
+                best = max(best, sum(v[r, c] for r, c in zip(rows, cols)))
+        assert got == pytest.approx(best)
+
+
+def test_expected_at_picks_walks_the_adp_tail():
+    players, adp = _real_shaped_inputs()
+    bd = board_mod.build(SETTINGS_2QB, players, adp)
+    pool = ro.Pool.from_board(bd)
+    taken = np.zeros(len(pool), dtype=bool)
+    e = ro.expected_at_picks(pool, taken, "QB", [1, 20, 2000], depth=2)
+    assert e.shape == (3, 2)
+    assert e[0, 0] >= e[1, 0] >= e[2, 0]           # later picks, worse players
+    assert e[0, 0] >= e[0, 1]                      # best before second best
+    assert e[2, 0] == pytest.approx(pool.repl["QB"])  # nobody left: replacement
+
+
+def test_plan_takes_the_position_whose_wait_is_dearest():
+    """Two open slots, two picks. At the second pick the RB left is far worse than the WR left,
+    so the plan must fill RB now and WR later."""
+    rows = []
+    pid = 1
+    for i, (proj, adp) in enumerate([(300, 1), (200, 30), (150, 60)]):
+        rows.append({"player_id": pid, "name": f"RB{i}", "pos": "RB", "team": "T", "proj": proj,
+                     "injury": "ACTIVE", "adp": adp})
+        pid += 1
+    for i, (proj, adp) in enumerate([(290, 2), (280, 30), (270, 60)]):
+        rows.append({"player_id": pid, "name": f"WR{i}", "pos": "WR", "team": "T", "proj": proj,
+                     "injury": "ACTIVE", "adp": adp})
+        pid += 1
+    df = pd.DataFrame(rows)
+    df["drafted"] = False
+    df["bye"] = np.nan
+    df["repl"] = 100.0
+    pool = ro.Pool.from_board(df)
+    st = {"team_count": 2, "starters": {"RB": 1, "WR": 1}, "roster_size": 2, "name": "t", "season": 2026}
+    team = ro.Team({}, picks_left=2)
+    assert ro.plan_position(pool, np.zeros(len(pool), bool), team, st, [5, 25]) == "RB"

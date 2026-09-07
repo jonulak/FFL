@@ -19,6 +19,9 @@ uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; 
 uv run python -m ffl.advise            # LIVE: the candidate table, recomputed from the raw pick feed
 uv run python -m ffl.avail WR 8        # LIVE: who is left at a position, by projection (the table hides replacement-level players)
 uv run python -m ffl.simulate 7        # dry-run the draft from a slot (opponents pick to 2QB ADP); `all` for every slot
+FFL_ROLLOUT=1 uv run python -m ffl.<mod>  # draft_watch / advise / simulate: add the Monte Carlo rollout (second opinion)
+uv run python -m ffl.replay journal/draft/practice-8-slot4.csv   # a finished draft through score + rollout, from my seat
+uv run python -m ffl.ffc fetch         # FantasyFootballCalculator 10-team 2QB draft logs -> data/ffc/ (replay --human)
 uv run python -m ffl.practice 4        # start a League Specific Practice Draft from slot 4 (see journal/PRACTICE_DRAFT.md)
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
@@ -54,6 +57,11 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   until then; `FFL_PICK_ORDER` overrides it and `learn_order()` rebuilds it from round 1's picks. Never
   hard-code a slot. `turn_math()` owns all pick-number maths and is shared by the watcher, `advise` and
   `simulate` so they cannot drift.
+- `ffl/rollout.py` is the Monte Carlo second opinion, off unless `FFL_ROLLOUT=1`. It is pure over (board,
+  order, rosters, candidate table) and printed *under* the table, never merged into `score`. Opponents draft
+  to ADP + spread under roster constraints; my later picks are planned by assignment of open slots to remaining
+  picks (`plan_position`); candidates are scored by `season_points` (best lineup, byes out, per week).
+  Judge it with `ffl.replay` on real logs, not by tuning it until a simulation looks right.
 - Projections: `proj` is the mean of ESPN (`proj_espn`, league-scored by ESPN) and Sleeper (`proj_sleeper`, raw stats rescored
   in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed

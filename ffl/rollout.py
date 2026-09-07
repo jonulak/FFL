@@ -73,8 +73,9 @@ class Pool:
             else np.full(len(avail), np.nan)
         pool = cls(ids=avail.player_id.to_numpy(int), names=list(avail.name), pos=list(avail.pos),
                    proj=avail.proj.to_numpy(float), bye=bye, adp=avail.adp.to_numpy(float), adp_sd=sd)
-        for i, p in enumerate(pool.pos):
-            pool.by_pos.setdefault(p, []).append(i)
+        # by projection, best first: the board frame arrives in blend order, which is not that
+        for i in np.argsort(-pool.proj, kind="stable"):
+            pool.by_pos.setdefault(pool.pos[i], []).append(int(i))
         if "repl" in avail.columns:
             pool.repl = {p: float(v) for p, v in avail.groupby("pos").repl.first().items()}
         return pool
@@ -180,34 +181,210 @@ def opponent_pick(order: np.ndarray, taken: np.ndarray, pool: Pool, team: Team, 
     return _anyone_left(taken, pool, team)
 
 
+def _norm_sf(z: np.ndarray) -> np.ndarray:
+    """1 - Phi(z), vectorised (Abramowitz & Stegun 7.1.26, error under 2e-7)."""
+    x = np.abs(z) / math.sqrt(2)
+    t = 1.0 / (1.0 + 0.3275911 * x)
+    poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))))
+    erf = 1.0 - poly * np.exp(-x * x)
+    erf = np.where(z < 0, -erf, erf)
+    return 0.5 * (1.0 - erf)
+
+
+PLAN_DEPTH_PLAYERS = 60  # per position, by projection: deeper than this the replacement level decides
+
+
+def expected_at_picks(pool: Pool, taken: np.ndarray, pos: str, picks: list[int], depth: int) -> np.ndarray:
+    """For each of my picks, the expected projection of the best (and second best, ...)
+    player at `pos` still there when it comes up.
+
+    picks[0] is the pick being decided, where everyone available is certain. For a later pick
+    q, a player available now survives with probability P(X >= q | X >= now) under the normal
+    the survival column uses (his ADP mean and spread); the expected best is the sum over
+    players, best first, of proj x P(he survives and everyone better does not), and the
+    expected second best counts the ways exactly one better player survives. The league's
+    replacement level stands in for the case that nobody does.
+
+    A hard ADP cut-off was tried first and treated a 50% survivor as a certainty; on the QB
+    plateau that meant deferring the second QB pick by pick until only the cliff was left.
+
+    Shape (len(picks), depth).
+    """
+    idx = [i for i in pool.by_pos.get(pos, []) if not taken[i]][:PLAN_DEPTH_PLAYERS]  # proj desc
+    repl = pool.repl.get(pos, 0.0)
+    out = np.full((len(picks), depth), repl)
+    if not idx or not picks:
+        return out
+    proj = pool.proj[idx][:, None]
+    adp = pool.adp[idx][:, None]
+    sd = pool.adp_sd[idx][:, None]
+    now = picks[0]
+    q = np.asarray(picks, dtype=float)[None, :]
+    p_now = np.maximum(_norm_sf((now - 0.5 - adp) / sd), 1e-9)
+    s = np.clip(_norm_sf((q - 0.5 - adp) / sd) / p_now, 0.0, 1.0)
+    s[:, 0] = 1.0                                    # the pick on the clock: he is here
+    s = np.clip(s, 1e-9, 1 - 1e-9)
+    none_better = np.vstack([np.ones((1, s.shape[1])), np.cumprod(1 - s, axis=0)[:-1]])  # (n, P)
+    out[:, 0] = (proj * s * none_better).sum(axis=0) + repl * np.prod(1 - s, axis=0)
+    if depth > 1:
+        ratio = s / (1 - s)
+        one_better = none_better * np.vstack([np.zeros((1, s.shape[1])), np.cumsum(ratio, axis=0)[:-1]])
+        p_le1_all = np.prod(1 - s, axis=0) * (1 + ratio.sum(axis=0))
+        out[:, 1] = (proj * s * one_better).sum(axis=0) + repl * p_le1_all
+        for k in range(2, depth):
+            out[:, k] = np.minimum(out[:, k - 1], repl)   # deeper than two: settle for replacement
+    return out
+
+
+def assign_max(value: np.ndarray) -> list[int]:
+    """Assignment of rows to distinct columns maximising the total (Hungarian, small sizes).
+
+    Rectangular: with more columns than rows some columns stay free; with more rows than
+    columns the surplus rows get -1. Cost is O(rows^2 x cols), pure Python, fine at 11 x 17.
+    """
+    n_rows, n_cols = value.shape
+    if n_rows > n_cols:
+        col = assign_max(value.T)  # assign columns to rows instead, then invert
+        out = [-1] * n_rows
+        for c, r in enumerate(col):
+            if r >= 0:
+                out[r] = c
+        return out
+    n, m = n_rows, n_cols
+    cost = (-value).tolist()  # minimise the negative
+    INF = float("inf")
+    u = [0.0] * (n + 1)
+    v = [0.0] * (m + 1)
+    p = [0] * (m + 1)       # column -> row
+    way = [0] * (m + 1)
+    for i in range(1, n + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (m + 1)
+        used = [False] * (m + 1)
+        row = None
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            row = cost[i0 - 1]
+            ui = u[i0]
+            delta = INF
+            j1 = 0
+            for j in range(1, m + 1):
+                if not used[j]:
+                    cur = row[j - 1] - ui - v[j]
+                    if cur < minv[j]:
+                        minv[j] = cur
+                        way[j] = j0
+                    if minv[j] < delta:
+                        delta = minv[j]
+                        j1 = j
+            for j in range(m + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    col_of_row = [-1] * n_rows
+    for j in range(1, m + 1):
+        if p[j]:
+            col_of_row[p[j] - 1] = j - 1
+    return col_of_row
+
+
+def plan_position(pool: Pool, taken: np.ndarray, team: Team, settings: dict, my_picks: list[int]) -> str | None:
+    """Which position to take at my_picks[0], from a plan for every pick I have left.
+
+    Each open starting slot must be filled by one of my remaining picks, and what a slot is
+    worth depends on when it is filled: the best available at a position only gets worse
+    with every pick, and at different rates — the QB plateau is flat for two rounds and then
+    drops off a cliff, while WR falls steadily. So assign slots to picks to maximise the total
+    expected projection (Hungarian on a slots x picks matrix), and take now whatever the plan
+    fills now. A bench slot's value is a slice of the best projection available at that pick.
+
+    This is what a cost-of-waiting rule cannot do one step at a time: it saw a cheap wait on
+    QB at every single pick and finished with Willis and Daniel Jones at quarterback.
+
+    Returns None when nothing usable is left.
+    """
+    ok = allowed_positions(team, settings)
+    if not ok:
+        return None
+    fixed, flex_n, flex_pos = starter_slots(settings)
+    left = open_starters(team.counts, settings)
+    n_flex = flex_open(team.counts, settings)
+    slots: list[tuple[str, int]] = []           # (position or "FLEX", rank within position)
+    for p, n in left.items():
+        slots += [(p, k) for k in range(n)]
+    slots += [("FLEX", k) for k in range(n_flex)]
+    if not slots:
+        return "BENCH"                          # every starter is set: nothing left to plan
+    depth = {p: left.get(p, 0) + (n_flex if p in flex_pos else 0) for p in POSITIONS}
+    expect = {p: expected_at_picks(pool, taken, p, my_picks, max(depth[p], 1)) for p in POSITIONS if depth[p] > 0}
+    n_bench = max(team.picks_left - len(slots), 0)
+    rows = []
+    for p, k in slots:
+        if p == "FLEX":
+            # the flex takes the best of its positions left after their own slots
+            cand = [expect[q][:, left.get(q, 0) + k] for q in flex_pos if q in expect]
+            rows.append(np.max(cand, axis=0) if cand else np.zeros(len(my_picks)))
+        else:
+            rows.append(expect[p][:, k])
+    if n_bench:
+        # a bench pick is worth a slice of the best skill player expected at that pick
+        best_any = np.max([e[:, 0] for p, e in expect.items() if p in ("QB", "RB", "WR", "TE")] or [np.zeros(len(my_picks))], axis=0)
+        rows += [best_any * BENCH_VALUE.get(0, 0.1)] * n_bench
+    value = np.array(rows)
+    col = assign_max(value)
+    now = [r for r, c in enumerate(col) if c == 0]
+    if not now:
+        return None
+    r = now[0]
+    if r < len(slots):
+        p, k = slots[r]
+        if p == "FLEX":
+            cand = {q: expect[q][0, left.get(q, 0) + k] for q in flex_pos if q in expect and q in ok}
+            return max(cand, key=cand.get) if cand else None
+        return p if p in ok else None
+    return "BENCH"
+
+
 def my_pick(taken: np.ndarray, pool: Pool, mine: list[int], team: Team, settings: dict,
             have_proj: list[float] | None = None, have_pos: list[str] | None = None,
-            per_pos: int = 4) -> int:
-    """My greedy pick inside a simulation: the biggest lineup gain over replacement.
+            my_picks: list[int] | None = None, per_pos: int = 4) -> int:
+    """My pick inside a simulation: the position the plan fills now, its best available player.
 
-    The gain is what the player adds to my best lineup; replacement is what the board says a
-    starter at his position is worth once the pool runs down. Raw gain alone would take the
-    highest projection for any open slot, which in a 2QB league means QB, QB before any RB —
-    replacement is what makes a 280-point RB worth more than a 315-point QB. A bench player's
-    value is a slice of his projection, thinner with every backup already held.
-
-    Considers the top few available at each usable position by projection; the lineup gain
-    is exact for those, and a deeper candidate at the same position cannot beat a better one.
+    `my_picks` are the overall numbers of this pick and every one I have left; the plan
+    (`plan_position`) decides the position. Without it, or for a bench pick, fall back to the
+    biggest lineup gain, with bench value as the tie-break: a slice of projection, thinner
+    with every backup already held.
     """
     ok = allowed_positions(team, settings)
     cur_proj = (have_proj or []) + [pool.proj[i] for i in mine]
     cur_pos = (have_pos or []) + [pool.pos[i] for i in mine]
     base = lineup_points(cur_proj, cur_pos, settings)
     fixed, _, flex_pos = starter_slots(settings)
+    planned = plan_position(pool, taken, team, settings, my_picks) if my_picks else None
+    if planned not in (None, "BENCH"):
+        i = next((j for j in pool.by_pos.get(planned, []) if not taken[j]), -1)
+        if i >= 0:
+            return i
     best, best_val = -1, -1e9
     for p in ok:
         cands = [i for i in pool.by_pos.get(p, []) if not taken[i]][:per_pos]
         repl = pool.repl.get(p, 0.0)
         for i in cands:
             gain = lineup_points(cur_proj + [pool.proj[i]], cur_pos + [p], settings) - base
-            if gain > 0:
-                # He starts. Worth the part of his gain above replacement, plus a sliver of
-                # the rest so a usable starter always beats a bench body.
+            if gain > 0 and planned != "BENCH":
                 val = max(gain - repl, 0.0) + min(gain, repl) * 0.05
             else:
                 backups = max(team.counts.get(p, 0) - fixed.get(p, 0)
@@ -280,6 +457,9 @@ def rollout(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, de
     assert remaining and remaining[0] == me, "decide must be one of my picks"
     picks_left = Counter(remaining)
     have_proj, have_pos, have_bye = _existing_roster(my_roster)
+    # for each of my picks in `remaining` (by index), the overall numbers of it and every one after
+    my_idx = [k for k, t in enumerate(remaining) if t == me]
+    my_picks_at = {k: [decide + j for j in my_idx if j >= k] for k in my_idx}
 
     results = {i: [] for i in cand}
     nexts = {i: [] for i in cand}
@@ -299,7 +479,8 @@ def rollout(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, de
             for k, t in enumerate(remaining):
                 team = teams[t]
                 if t == me:
-                    i = c if k == 0 else my_pick(taken, pool, mine, team, settings, have_proj, have_pos)
+                    i = c if k == 0 else my_pick(taken, pool, mine, team, settings, have_proj, have_pos,
+                                                 my_picks_at[k])
                     if i < 0:
                         break
                     mine.append(i)
