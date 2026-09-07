@@ -205,6 +205,17 @@ def test_verdict_line_reads_the_chosen_pick_against_the_leader():
     assert "not a candidate" in ro.verdict_line(res, 99)
 
 
+def test_candidates_never_add_a_position_at_its_cap():
+    players, adp = _real_shaped_inputs()
+    bd = board_mod.build(SETTINGS_2QB, players, adp)
+    pool = ro.Pool.from_board(bd)
+    rec = {"top": []}
+    # two TEs rostered, TE slot filled, flex open: the flex must not put a third TE on the list
+    cands = ro.candidate_indices(pool, rec, {"TE": 2, "QB": 2}, SETTINGS_2QB)
+    assert cands and all(pool.pos[i] != "TE" for i in cands)
+    assert {pool.pos[i] for i in cands} >= {"RB", "WR"}
+
+
 def test_assignment_matches_brute_force():
     import itertools
     rng = np.random.default_rng(0)

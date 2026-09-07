@@ -420,7 +420,9 @@ def candidate_indices(pool: Pool, rec: dict, my_counts: dict[str, int], settings
         for p in starter_slots(settings)[2]:
             left[p] = left.get(p, 0) + 1
     for p, n in left.items():
-        if n <= 0 or p in ("K", "D/ST"):
+        # the flex adds every flex position, including one already at its roster cap (a
+        # third TE via the flex is how a rollout-drafted slot 4 ended with three tight ends)
+        if n <= 0 or p in ("K", "D/ST") or my_counts.get(p, 0) >= ROSTER_CAP.get(p, 99):
             continue
         for i in pool.by_pos.get(p, []):
             if i not in out:
