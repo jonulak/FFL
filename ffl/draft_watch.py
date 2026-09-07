@@ -86,6 +86,8 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
             w = NEED_WEIGHT["bench"]
         if r.pos in ("K", "D/ST") and len(my_roster) < settings["roster_size"] - 3:
             w = 0.2  # don't reach for K/DST until the end
+        if r.pos in ("K", "D/ST") and left.get(r.pos, 0) == 0:
+            w = 0.05  # slot already filled; a backup K/DST never earns a bench spot
         weights.append(w)
     avail["score"] = (avail.vorp.clip(lower=0) * weights).round(1)
     # clipping at 0 ties every below-replacement player together; break those ties on
