@@ -18,6 +18,7 @@ import sys
 import time
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 
 from . import board as board_mod
@@ -69,29 +70,50 @@ def open_slots(settings: dict, my_pos_counts: dict[str, int]) -> dict[str, int]:
     return left
 
 
+def flex_positions(settings: dict) -> set[str]:
+    """Which positions the league's flex slots actually accept.
+
+    "OP" is a superflex (QB included); "RB/WR/TE" is not. Reading this off the slot name
+    matters: treating QB as flex-eligible in a non-superflex league floats backup QBs up the
+    board once the QB slots are full.
+    """
+    out: set[str] = set()
+    for slot in settings["starters"]:
+        if not _is_flex(slot):
+            continue
+        out |= {"QB", "RB", "WR", "TE"} if slot == "OP" else set(slot.split("/"))
+    return out
+
+
 def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_until_me: int) -> dict:
     avail = bd[~bd.drafted].copy()
     counts = my_roster.pos.value_counts().to_dict() if len(my_roster) else {}
     left = open_slots(settings, counts)
     flex_slots = sum(n for s, n in settings["starters"].items() if _is_flex(s))
+    flex_pos = flex_positions(settings)
     weights = []
     for _, r in avail.iterrows():
         if left.get(r.pos, 0) > 0:
             w = NEED_WEIGHT["starter_open"]
             if r.pos == "QB":
                 w += 0.15  # 2QB league: never leave the draft short at QB
-        elif r.pos in ("RB", "WR", "TE", "QB") and flex_slots:
+        elif r.pos in flex_pos and flex_slots:
             w = NEED_WEIGHT["flex_open"]
         else:
             w = NEED_WEIGHT["bench"]
         if r.pos in ("K", "D/ST") and len(my_roster) < settings["roster_size"] - 3:
             w = 0.2  # don't reach for K/DST until the end
-        if r.pos in ("K", "D/ST") and left.get(r.pos, 0) == 0:
-            w = 0.05  # slot already filled; a backup K/DST never earns a bench spot
         weights.append(w)
-    avail["score"] = (avail.vorp.clip(lower=0) * weights).round(1)
-    # clipping at 0 ties every below-replacement player together; break those ties on
-    # projection so a zero-projection placeholder can never lead a position's list
+    # Weight only the positive part: below replacement, raw VORP is already the honest
+    # cross-position ranking, and scaling it would penalise the positions we most need.
+    # Clipping instead (the old behaviour) flattened every such player to 0, leaving the
+    # tie-break to raw projection — which is not comparable across positions and floated
+    # backup QBs and spare defenses above usable starters late in the draft.
+    vorp = avail.vorp.to_numpy()
+    avail["score"] = np.where(vorp > 0, vorp * weights, vorp).round(1)
+    # A K/DST whose slot is filled is unusable however good its VORP looks: you only start one.
+    filled = avail.pos.isin(["K", "D/ST"]) & avail.pos.map(lambda p: left.get(p, 0) == 0)
+    avail.loc[filled, "score"] = -999.0
     avail = avail.sort_values(["score", "proj"], ascending=False)
     # who is likely to survive until my next pick, by ADP
     current = int(bd.drafted.sum()) + 1

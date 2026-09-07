@@ -40,3 +40,34 @@ def test_open_slot_outranks_bench_at_equal_value():
     rec = dw.recommend(bd, SETTINGS, my_roster, picks_until_me=1)
     top_positions = [r["pos"] for r in rec["top"][:3]]
     assert "TE" not in top_positions or top_positions[0] != "TE"
+
+
+def test_backup_dst_never_leads_when_skill_players_are_below_replacement():
+    """Late-draft case: everything usable is below replacement, so a spare D/ST must not lead.
+
+    Seen live in a mock — with K and D/ST already rostered, three defenses headed the board
+    ahead of every usable skill player, because their VORP was the only positive number left.
+    Every skill position has to be drained for this to reproduce: one undrained position (a
+    QB pool, say) will top the board on its own and mask the bug.
+    """
+    players = make_players()
+    mine, drafted = set(), set()
+    for pos, n in [("QB", 1), ("RB", 2), ("WR", 2), ("TE", 1), ("D/ST", 1), ("K", 1)]:
+        sub = players[players.pos == pos].sort_values("proj", ascending=False)
+        mine |= {int(p) for p in sub.head(n).player_id}
+    # drain every skill position past its replacement level so nothing left scores above 0
+    for pos in ["QB", "RB", "WR", "TE"]:
+        sub = players[players.pos == pos].sort_values("proj", ascending=False)
+        drafted |= {int(p) for p in sub.head(55).player_id}
+
+    bd = board_mod.build(SETTINGS, players, EMPTY_ADP, drafted_ids=mine | drafted)
+    my_roster = bd[bd.player_id.isin(mine)]
+    rec = dw.recommend(bd, SETTINGS, my_roster, picks_until_me=1)
+
+    assert rec["needs"]["D/ST"] == 0 and rec["needs"]["K"] == 0, "fixture did not fill K/DST"
+    skill = [r for r in rec["top"] if r["pos"] in ("QB", "RB", "WR", "TE")]
+    assert skill, "no usable player in the top 10 at all — K/DST have taken over the board"
+    assert max(r["vorp"] for r in skill) <= 0, (
+        "fixture did not drain the skill pool; the bug would be masked")
+    assert rec["top"][0]["pos"] not in ("K", "D/ST"), (
+        f"backup {rec['top'][0]['pos']} leads the late-round board")
