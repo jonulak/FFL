@@ -10,6 +10,7 @@ pre-draft board/strategy and a live draft assistant; then in-season tracking of 
 ```
 uv run python -m ffl.settings          # league settings -> data/settings.json + settings.md (run first)
 uv run python -m ffl.players           # ESPN player pool w/ league-scored projections -> data/espn_players.csv
+uv run python -m ffl.sleeper           # Sleeper projections rescored to league -> data/sleeper_players.csv
 uv run python -m ffl.adp               # FFC 2QB + 1QB ADP -> data/adp.csv (re-run morning of draft)
 uv run python -m ffl.board             # merge + VORP + tiers -> data/board.csv, data/board.md
 uv run python -m ffl.browser           # headed Chrome on the draft room (cookies injected, CDP :9222)
@@ -17,7 +18,7 @@ uv run python -m ffl.browser shot x.png  # screenshot the running Chrome window
 uv run python -m ffl.draft_watch       # poll picks every 5s; recommendations; writes journal/draft/picks.csv
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/
 ```
-Pipeline order: settings -> players -> adp -> board -> (browser + draft_watch).
+Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + draft_watch).
 
 ## Config
 `.env` (gitignored): `LEAGUE_ID`, `ESPN_S2`, `SWID`, `SEASON`, optional `MY_TEAM_ID` (auto-detected from SWID).
@@ -30,6 +31,8 @@ Pipeline order: settings -> players -> adp -> board -> (browser + draft_watch).
 - `ffl/board.py::build()` is pure over (settings, players, adp, drafted_ids) so the watcher rebuilds it every poll;
   replacement level is computed from the still-available pool. Starter counts come from `settings["starters"]`
   with FLEX/OP slots split across positions (see `FLEX_SPLIT`).
+- Projections: `proj` is the mean of ESPN (`proj_espn`, league-scored by ESPN) and Sleeper (`proj_sleeper`, raw stats rescored
+  in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
   is primary; `adp_1qb` is kept for comparison.
 

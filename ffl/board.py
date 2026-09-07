@@ -15,7 +15,7 @@ FLEX_SPLIT = {"RB/WR/TE": {"RB": 0.5, "WR": 0.4, "TE": 0.1}, "RB/WR": {"RB": 0.5
               "WR/TE": {"WR": 0.8, "TE": 0.2}, "OP": {"QB": 0.85, "RB": 0.1, "WR": 0.05}}
 # extra players past the starter line that still carry value (bench depth / injury replacement)
 BENCH_DEPTH = {"QB": 3, "RB": 8, "WR": 8, "TE": 2, "D/ST": 0, "K": 0}
-TIER_GAP = {"QB": 12, "RB": 12, "WR": 12, "TE": 10, "D/ST": 6, "K": 4}
+TIER_GAP = {"QB": 8, "RB": 10, "WR": 10, "TE": 9, "D/ST": 6, "K": 4}
 
 
 def starter_counts(settings: dict) -> dict[str, float]:
@@ -34,7 +34,29 @@ def load_inputs():
     settings = load()
     players = pd.read_csv(DATA / "espn_players.csv")
     adp = pd.read_csv(DATA / "adp.csv")
+    sl = DATA / "sleeper_players.csv"
+    if sl.exists():
+        players = merge_sleeper(players, pd.read_csv(sl))
     return settings, players, adp
+
+
+def merge_sleeper(players: pd.DataFrame, sleeper: pd.DataFrame) -> pd.DataFrame:
+    """Average ESPN and Sleeper projections (both scored to league settings). D/ST matched on team."""
+    df = players.copy()
+    df["key"] = df["name"].map(norm_name)
+    df = df.rename(columns={"proj": "proj_espn"})
+    non = sleeper[sleeper.pos != "D/ST"][["key", "pos", "proj_sleeper", "adp_2qb_sleeper"]]
+    df = df.merge(non, on=["key", "pos"], how="left")
+    dst = sleeper[sleeper.pos == "D/ST"][["team", "proj_sleeper"]].rename(columns={"proj_sleeper": "_dst"})
+    df = df.merge(dst, on="team", how="left")
+    is_dst = df.pos == "D/ST"
+    df.loc[is_dst, "proj_sleeper"] = df.loc[is_dst, "_dst"]
+    df = df.drop(columns=["_dst"])
+    # ESPN's 0-projection rows are placeholders; don't average them in
+    espn = df.proj_espn.where(df.proj_espn > 0)
+    df["proj"] = pd.concat([espn, df.proj_sleeper], axis=1).mean(axis=1, skipna=True).fillna(0).round(1)
+    df["proj_sources"] = espn.notna().astype(int) + df.proj_sleeper.notna().astype(int)
+    return df.drop(columns=["key"])
 
 
 def build(settings: dict, players: pd.DataFrame, adp: pd.DataFrame, drafted_ids: set[int] | None = None) -> pd.DataFrame:
@@ -108,14 +130,14 @@ def to_markdown(df: pd.DataFrame, settings: dict, top_n: int = 40) -> str:
          f"{settings['team_count']} teams | starters {settings['starters']} | bench {settings['bench_size']} | "
          f"PPR={ks['ppr']} passTD={ks['pass_td']} passYd={ks['pass_yd']} INT={ks['int']}", "",
          "ADP = FantasyFootballCalculator 2QB drafts; ADP1 = same site's 1QB drafts. value = ADP rank minus board rank (positive = tends to fall past his value).", ""]
-    cols = ["blend_rank", "board_rank", "name", "pos", "team", "bye", "proj", "vorp", "tier", "adp", "adp_1qb", "value_vs_adp", "injury"]
+    cols = ["blend_rank", "board_rank", "name", "pos", "team", "bye", "proj", "proj_espn", "proj_sleeper", "vorp", "tier", "adp", "adp_1qb", "value_vs_adp", "injury"]
     a = df[~df.drafted]
     L += ["## Overall (blend of VORP rank and 2QB ADP rank)", "", a.head(top_n)[cols].to_markdown(index=False), ""]
     for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
         sub = a[a.pos == pos]
         n = {"QB": 32, "RB": 45, "WR": 50, "TE": 20, "D/ST": 14, "K": 12}[pos]
         L += [f"## {pos} (replacement ≈ {sub.repl.iloc[0]:.0f} pts)" if len(sub) else f"## {pos}", "",
-              sub.head(n)[["pos_rank", "blend_rank", "tier", "name", "team", "bye", "proj", "vorp", "adp", "adp_1qb", "value_vs_adp", "injury"]].to_markdown(index=False), ""]
+              sub.head(n)[["pos_rank", "blend_rank", "tier", "name", "team", "bye", "proj", "proj_espn", "proj_sleeper", "vorp", "adp", "adp_1qb", "value_vs_adp", "injury"]].to_markdown(index=False), ""]
     return "\n".join(L)
 
 
