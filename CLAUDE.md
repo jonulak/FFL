@@ -19,6 +19,8 @@ uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; 
 uv run python -m ffl.advise            # LIVE: the candidate table, recomputed from the raw pick feed
 uv run python -m ffl.avail WR 8        # LIVE: who is left at a position, by projection (the table hides replacement-level players)
 uv run python -m ffl.simulate 7        # dry-run the draft from a slot (opponents pick to 2QB ADP); `all` for every slot
+uv run python -m ffl.practice 4        # start a League Specific Practice Draft from slot 4 (see journal/PRACTICE_DRAFT.md)
+uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/
 ```
@@ -28,6 +30,7 @@ Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + dra
 `.env` (gitignored): `LEAGUE_ID`, `ESPN_S2`, `SWID`, `SEASON`, optional `MY_TEAM_ID` (auto-detected from SWID).
 Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
 real board and pick log untouched.
+Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
 `data/` is regenerable and gitignored. `journal/` and `STRATEGY.md` are the durable record and are committed.
 
 ## Architecture notes
