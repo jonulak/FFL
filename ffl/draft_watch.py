@@ -231,11 +231,46 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     # so a QB always won and the last picks of a replayed draft went QB, QB, QB. Break those
     # ties towards positions we are not already stacked at before falling back to projection.
     avail["depth"] = [backups_held(settings, counts, p) for p in avail.pos]
-    avail = avail.sort_values(["score", "depth", "proj"], ascending=[False, True, False])
     # who is likely to survive until my next pick, by ADP
     current = int(bd.drafted.sum()) + 1
     avail["likely_gone"] = avail.adp.fillna(999) < current + picks_until_me - 2
-    cols = ["name", "pos", "team", "bye", "proj", "vorp", "tier", "adp", "score", "bye_risk", "likely_gone", "injury"]
+    # An open starting slot whose whole usable pool will be gone by our next turn has to be
+    # filled *now*, however small the VORP left in it looks.
+    #
+    # VORP compares against a league-wide replacement level, which rises as a position drains
+    # — so a run on WRs makes the WRs still available look worthless, exactly when they are
+    # scarcest. But our real alternative is not league replacement, it is whoever survives to
+    # our next pick. Practice draft 7 (slot 10, 18 picks between turns) lost 36 projected
+    # points to this: at pick 91 a startable Mike Evans had been cut to 3.0 VORP by a WR run,
+    # so a 6th RB at 37.6 won on 0.15 x 37.6 > 1.35 x 3.0. Two more WR runs followed and the
+    # slot was eventually filled 36 points worse. Counting picks cannot catch it — there were
+    # nine rounds left — so this reads the pool instead.
+    #
+    # "Usable" is VORP >= 0, not > 0: replacement level is measured against the *available*
+    # pool, so once a position is drained past its league-wide demand the best man left sits
+    # at exactly 0.0. He can still start, which beats a bench player who cannot.
+    # Priced rather than forced: the cost of waiting is what we would lose by filling the slot
+    # at our next turn instead of now — best available at the position now, minus the best one
+    # ADP says will still be there. Adding that to the whole position lifts it without hiding
+    # anything else, so a genuinely elite player who slid is still visible; a hard filter would
+    # have blanked the board if the ADP feed ever made a position look falsely doomed.
+    avail["urgency"] = 0.0
+    if picks_until_me > 0:
+        for pos, n in left.items():
+            if n <= 0:
+                continue
+            pool = avail[avail.pos == pos]
+            if not len(pool):
+                continue
+            surviving = pool[~pool.likely_gone]
+            # nobody survives: the fallback is the bottom of the position's board
+            best_later = surviving.vorp.max() if len(surviving) else pool.vorp.min()
+            cost = round(max(pool.vorp.max() - best_later, 0.0), 1)
+            avail.loc[avail.pos == pos, "urgency"] = cost
+    avail["score"] = (avail.score + avail.urgency).round(1)
+    avail = avail.sort_values(["score", "depth", "proj"], ascending=[False, True, False])
+    cols = ["name", "pos", "team", "bye", "proj", "vorp", "tier", "adp", "score", "bye_risk",
+            "urgency", "likely_gone", "injury"]
     return {
         "needs": left,
         "top": avail.head(10)[cols].to_dict("records"),
