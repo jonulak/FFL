@@ -26,7 +26,7 @@ def order_for_slot(settings: dict, me: int, slot: int) -> list[int]:
 
 
 def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: bool = True,
-             rollout_sims: int = 100) -> dict:
+             rollout_sims: int = 100, pick_by: str = "score") -> dict:
     from . import rollout as _ro
     rollout_mod = _ro if _ro.enabled() else None
     order = order_for_slot(settings, me, slot)
@@ -55,6 +55,17 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
             heads_up = (p + 2, [(int(r["player_id"]), r["name"]) for r in rec["top"][:3]])
         if team == me:
             top = rec["top"][0]
+            res = None
+            if rollout_mod is not None:
+                res = rollout_mod.from_state(bd, settings, full, me, tm, by_team, roster, rec,
+                                             n_sims=rollout_sims, time_budget_s=8.0, seed=p)
+                if pick_by == "rollout" and res["rows"]:
+                    # let the rollout draft, unfiltered by the hard rules: the test of whether
+                    # it reaches STRATEGY.md's deadlines on its own
+                    lead = res["rows"][0]
+                    top = next((r for r in rec["top"] if int(r["player_id"]) == lead["player_id"]), None) or {
+                        **{k: lead.get(k) for k in ("player_id", "name", "pos", "proj")},
+                        "score": float("nan"), "urgency": float("nan"), "survive_prob": float("nan")}
             # A real disagreement is the heads-up's man still being there and the on-clock
             # table preferring someone else. His being drafted in between is expected — that
             # is what the decision tree in the heads-up is for.
@@ -71,11 +82,9 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
                 hu = "" if agree else f"   !! heads-up said {heads_up[1][0][1]}"
                 print(f"#{p:>3} R{(p - 1) // n + 1:<2} {top['name']:<22} {top['pos']:<4} score {top['score']:>6} "
                       f"urg {top['urgency']:>5} | then: {alts}{hu}")
-                if rollout_mod is not None:
-                    # the pick is still made by score; the rollout is shown beside it so a
-                    # whole draft's disagreements can be read in one pass
-                    res = rollout_mod.from_state(bd, settings, full, me, tm, by_team, roster, rec,
-                                                 n_sims=rollout_sims, time_budget_s=8.0, seed=p)
+                if res is not None:
+                    # by default the pick is made by score and the rollout is shown beside it,
+                    # so a whole draft's disagreements can be read in one pass
                     print("        " + rollout_mod.verdict_line(res, int(top["player_id"])))
         else:
             avail = bd[~bd.drafted]
@@ -107,6 +116,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("slot", help="1..n, or 'all'")
     ap.add_argument("--rounds", type=int, default=None)
+    ap.add_argument("--pick-by", choices=["score", "rollout"], default="score",
+                    help="who makes my picks: score (default) or the rollout (needs FFL_ROLLOUT=1)")
     a = ap.parse_args()
     settings, players, adp = board_mod.load_inputs()
     me = my_team_id(settings)
@@ -115,7 +126,7 @@ def main():
     slots = range(1, n + 1) if a.slot == "all" else [int(a.slot)]
     for slot in slots:
         print(f"\n=== SLOT {slot} ({rounds} rounds) ===")
-        res = run_slot(settings, players, adp, me, slot, rounds, verbose=(a.slot != "all"))
+        res = run_slot(settings, players, adp, me, slot, rounds, verbose=(a.slot != "all"), pick_by=a.pick_by)
         if a.slot == "all":
             print("  " + " | ".join(f"#{m['pick']} {short(m['name'])} {m['pos']}" for m in res["mine"]))
         qbs = [m["pick"] for m in res["mine"] if m["pos"] == "QB"]
