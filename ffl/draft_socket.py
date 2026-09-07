@@ -93,10 +93,22 @@ class DraftFeed:
                 "Run `uv run python -m ffl.browser` and open the draft room first."
             )
         self._page = pages[-1]
+        # A page dialog (ESPN confirm/alert) with no handler makes the driver auto-dismiss it;
+        # if the dialog is already gone by then the driver process dies with an uncaught
+        # ProtocolError (live draft 2026-09-07, 18:33). Handle it ourselves and swallow errors.
+        self._page.on("dialog", self._on_dialog)
         self._cdp = ctx.new_cdp_session(self._page)
         self._cdp.on("Network.webSocketFrameReceived", self._on_frame)
         self._cdp.send("Network.enable")
         return self._page.url
+
+    @staticmethod
+    def _on_dialog(dialog):
+        try:
+            print(f"  page dialog ({dialog.type}): {dialog.message!r} — dismissed", flush=True)
+            dialog.dismiss()
+        except Exception:
+            pass
 
     # -- frames ----------------------------------------------------------
     def _on_frame(self, ev):
