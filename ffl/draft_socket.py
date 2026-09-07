@@ -41,6 +41,7 @@ class DraftFeed:
         self.url_match = url_match
         self.cache = cache
         self.url = None
+        self.offset = 0  # picks made before we attached (see sync_offset)
         self._pw = self._browser = self._page = self._cdp = None
         if cache and cache.exists():  # resume after a crash/restart mid-draft
             self.picks = json.loads(cache.read_text())
@@ -117,6 +118,67 @@ class DraftFeed:
             self.on_clock, self.ms_left = int(parts[1]), int(parts[2])
         elif kind == "CLOCK" and len(parts) >= 4:
             self.ms_left, self.on_clock = int(parts[2]), int(parts[3])
+
+    def sync_offset(self) -> int:
+        """Count picks made before we attached, from the room's own "ON THE CLOCK: PICK n".
+
+        Overall pick numbers are derived from the order frames arrive, so attaching even a
+        few seconds late silently shifts every round/pick number AND leaves those players
+        marked available — the board then recommends someone already drafted. Observed live:
+        attached 3 picks late, and the board offered Josh Allen at every turn for the rest of
+        the draft because his pick was never seen.
+        """
+        import re
+
+        try:
+            txt = self._page.locator("[class*=current-pick-module], [class*=pickTrain]").first.inner_text()
+        except Exception:
+            return self.offset
+        m = re.search(r"PICK\s+(\d+)", txt, re.I)
+        if not m:
+            return self.offset
+        made = int(m.group(1)) - 1  # the pick on the clock has not happened yet
+        self.offset = max(made - len(self.picks), 0)
+        return self.offset
+
+    def backfill(self, name_to_id: dict[str, int]) -> list[str]:
+        """Recover picks made before we attached, from the room's always-rendered Picks rail.
+
+        Each entry reads "<Player> / <TEAM> <POS>" then "R<r>, P<p> - <team name>", so the
+        rail is a complete pick log we can read without clicking anything in the user's room
+        (switching them to the Pick History tab mid-draft would yank their view).
+
+        Only fills in ahead of what we have seen: socket frames stay authoritative.
+        """
+        if not self.offset:
+            return []
+        try:
+            entries = self._page.eval_on_selector_all(
+                "[class*=pick-message__container], [class*=picks] li",
+                "es => es.map(e => e.textContent.trim())")
+        except Exception:
+            return []
+        found, unmatched = [], []
+        seen_ids = {p["playerId"] for p in self.picks}
+        for text in entries:
+            player = text.split("/")[0].strip()
+            pid = name_to_id.get(player.lower())
+            if pid is None:
+                unmatched.append(player)
+                continue
+            if pid in seen_ids:
+                continue
+            seen_ids.add(pid)
+            found.append({"teamId": 0, "playerId": pid, "lineupSlotId": -1,
+                          "overall": len(found) + 1, "backfilled": True})
+        if not found:
+            return unmatched
+        # earliest first, then everything the socket already gave us
+        self.picks = found[: self.offset] + self.picks
+        self.offset = max(self.offset - len(found), 0)
+        if self.cache:
+            self.cache.write_text(json.dumps(self.picks))
+        return [f["playerId"] for f in found]
 
     def pump(self, ms: int = 1000) -> bool:
         """Let queued socket events dispatch. Returns False if the CDP link died."""

@@ -190,7 +190,8 @@ class Watcher:
         print(f"Watching league {self.settings['league_id']} via {source} — I am team {self.me} "
               f"({self.teams[self.me]['name']}), slot {slot} of {len(self.order)}", flush=True)
 
-    def tick(self, picks: list[dict], on_clock: int | None = None, done: bool = False) -> dict:
+    def tick(self, picks: list[dict], on_clock: int | None = None, done: bool = False,
+             offset: int = 0) -> dict:
         """Ingest the current pick list; log anything new; return (and persist) full state."""
         drafted_ids = {p["playerId"] for p in picks}
         bd = board_mod.build(self.settings, self.players, self.adp, drafted_ids=drafted_ids)
@@ -218,7 +219,7 @@ class Watcher:
                                 row["proj"] if row is not None else "", datetime.now().isoformat(timespec="seconds")])
             self.seen = len(picks)
 
-        current = len(picks) + 1
+        current = len(picks) + offset + 1  # offset = picks made before we attached
         if on_clock is None:  # no live feed: infer from the snake order
             on_clock = self.full_order[current - 1] if current - 1 < len(self.full_order) else None
         my_next = next((i for i in range(current - 1, len(self.full_order)) if self.full_order[i] == self.me), None)
@@ -250,11 +251,17 @@ class Watcher:
         print(pd.DataFrame(rec["top"])[["name", "pos", "proj", "vorp", "tier", "adp", "score", "likely_gone"]].to_string(index=False), flush=True)
 
 
-def numbered(picks: list[dict], n_teams: int) -> list[dict]:
-    """Socket picks arrive in draft order; derive round / round-pick numbers."""
+def numbered(picks: list[dict], n_teams: int, offset: int = 0) -> list[dict]:
+    """Socket picks arrive in draft order; derive round / round-pick numbers.
+
+    `offset` is how many picks were made before we attached — without it every number is
+    shifted and the board thinks those players are still available.
+    """
     out = []
     for i, p in enumerate(picks):
-        out.append({**p, "overallPickNumber": i + 1, "roundId": i // n_teams + 1, "roundPickNumber": i % n_teams + 1})
+        j = i + offset
+        out.append({**p, "overallPickNumber": j + 1, "roundId": j // n_teams + 1,
+                    "roundPickNumber": j % n_teams + 1})
     return out
 
 
@@ -270,7 +277,17 @@ def run_socket():
         w.banner("draft-room socket")
         if feed.picks:
             print(f"Resuming with {len(feed.picks)} picks from cache", flush=True)
-        w.print_board(w.tick(numbered(feed.picks, n_teams), feed.on_clock))
+        if feed.sync_offset():
+            missed = feed.offset
+            got = feed.backfill({str(n).lower(): int(i) for n, i in
+                                 zip(w.players.name, w.players.player_id)})
+            print(f"!! ATTACHED LATE: {missed} pick(s) made before we attached; "
+                  f"recovered {len(got)} from the room's Picks rail.", flush=True)
+            if feed.offset:
+                print(f"   {feed.offset} still unaccounted for — those players will show as "
+                      f"available. Cross-check the room before trusting a recommendation.", flush=True)
+        w.print_board(w.tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock,
+                             offset=feed.offset))
         while True:
             if not feed.pump(1000):  # CDP link dropped (tab reloaded, Chrome restarted)
                 print(f"[{datetime.now():%H:%M:%S}] lost the draft tab; reattaching…", flush=True)
@@ -282,7 +299,8 @@ def run_socket():
                 except Exception as e:
                     print(f"  reattach failed: {e}", flush=True)
                 continue
-            state = w.tick(numbered(feed.picks, n_teams), feed.on_clock, done=len(feed.picks) >= total)
+            state = w.tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock,
+                           done=len(feed.picks) + feed.offset >= total, offset=feed.offset)
             if state["_fresh"]:
                 w.print_board(state)
             if state["drafted"]:
