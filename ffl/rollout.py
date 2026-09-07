@@ -540,9 +540,14 @@ def enabled() -> bool:
 def from_state(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, tm: dict,
                by_team: dict[int, dict[str, int]], my_roster: pd.DataFrame, rec: dict,
                n_sims: int = 300, time_budget_s: float | None = 12.0, seed: int | None = None) -> dict:
-    """The rollout for the pick `turn_math` says I am choosing for. Empty when I have none left."""
+    """The rollout for the pick `turn_math` says I am choosing for. Empty when I have none left.
+
+    FFL_ROLLOUT_SIMS overrides the simulation count (fewer on a slow machine; tests use 20).
+    """
+    import os
     if tm.get("decide") is None:
         return {"rows": [], "n_sims": 0, "elapsed": 0.0}
+    n_sims = int(os.environ.get("FFL_ROLLOUT_SIMS") or n_sims)
     return rollout(bd, settings, full_order, me, tm["decide"], by_team, my_roster, rec,
                    n_sims=n_sims, time_budget_s=time_budget_s, seed=seed)
 
