@@ -53,7 +53,8 @@ def launch(url: str):
 def goto(url: str):
     with sync_playwright() as p:
         b = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
-        page = b.contexts[0].pages[0]
+        ctx = b.contexts[0]
+        page = next((pg for pg in ctx.pages if "espn.com" in pg.url), None) or ctx.new_page()
         page.goto(url, wait_until="domcontentloaded")
         print(page.url)
 
