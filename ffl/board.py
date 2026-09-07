@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 
 import numpy as np
 import pandas as pd
@@ -46,10 +47,35 @@ def starter_counts(settings: dict) -> dict[str, float]:
     return counts
 
 
+def adp_mode() -> str:
+    """Which FFC feed is the market: our 2QB league, or a 1QB room.
+
+    Public ESPN mock drafts are all Standard (one QB), and 2QB ADP is badly wrong there —
+    quarterbacks look wildly mispriced and every survival probability with them. Set
+    `FFL_ADP_MODE=1qb` for a mock in such a room; the default stays the 2QB feed, which is the
+    right market for our league.
+    """
+    return "1qb" if (os.environ.get("FFL_ADP_MODE") or "").lower() == "1qb" else "2qb"
+
+
+def load_adp() -> pd.DataFrame:
+    """The ADP table, with `adp`/`adp_rank` set to whichever feed `adp_mode()` names.
+
+    The 1QB feed is read from its own file rather than the merged one, because the merge only
+    carried its mean and rank across — the spread (`adp_stdev`), which drives every survival
+    probability, stays with the 2QB numbers in `adp.csv`.
+    """
+    if adp_mode() == "2qb":
+        return pd.read_csv(DATA / "adp.csv")
+    one = pd.read_csv(DATA / "adp_1qb.csv")
+    one["adp_1qb"], one["adp_1qb_rank"] = one["adp"], one["adp_rank"]
+    return one
+
+
 def load_inputs():
     settings = load()
     players = pd.read_csv(DATA / "espn_players.csv")
-    adp = pd.read_csv(DATA / "adp.csv")
+    adp = load_adp()
     sl = DATA / "sleeper_players.csv"
     if sl.exists():
         players = merge_sleeper(players, pd.read_csv(sl))
