@@ -73,7 +73,8 @@ def screenshot(out: str, match: str | None = None):
         b = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
         ctx = b.contexts[0]
         page = pick_page(ctx, match)
-        page.bring_to_front()
+        # no bring_to_front(): screenshotting must not steal the user's focus. CDP captures
+        # a backgrounded tab fine.
         page.screenshot(path=out, full_page=False)
         print(f"{page.url} -> {out}")
 

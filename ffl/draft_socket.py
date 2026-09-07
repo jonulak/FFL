@@ -37,6 +37,10 @@ class DraftFeed:
     def __init__(self, cache: Path | None = None, url_match: str = DRAFT_URL_MATCH):
         self.picks: list[dict] = []          # [{teamId, playerId, lineupSlotId, overall}]
         self.on_clock: int | None = None
+        # how many picks had been made when that SELECTING arrived: the frame lags the pick
+        # that ended the previous turn, so "who is on the clock" is only trustworthy while
+        # this still matches len(self.picks) (see on_clock_now)
+        self.on_clock_after = 0
         self.ms_left: int | None = None
         self.url_match = url_match
         self.cache = cache
@@ -116,8 +120,21 @@ class DraftFeed:
                 self.cache.write_text(json.dumps(self.picks))
         elif kind == "SELECTING" and len(parts) >= 3:
             self.on_clock, self.ms_left = int(parts[1]), int(parts[2])
+            self.on_clock_after = len(self.picks)
         elif kind == "CLOCK" and len(parts) >= 4:
             self.ms_left, self.on_clock = int(parts[2]), int(parts[3])
+            self.on_clock_after = len(self.picks)
+
+    def on_clock_now(self) -> int | None:
+        """The team on the clock, or None if the socket has not caught up with the last pick.
+
+        SELECTING arrives a beat after the pick that ended the previous turn, so between the
+        two the last frame still names whoever just picked. Reporting that as "on the clock"
+        told us it was our turn one pick too long — a driver then tried to draft out of turn
+        (seen in practice draft 3 at pick 15). None makes the caller fall back to the snake
+        order, which is right by construction.
+        """
+        return self.on_clock if self.on_clock_after == len(self.picks) else None
 
     def sync_offset(self) -> int:
         """Count picks made before we attached, from the room's own "ON THE CLOCK: PICK n".

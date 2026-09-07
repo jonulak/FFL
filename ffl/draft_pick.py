@@ -9,19 +9,26 @@ connection boots you out of your own draft (see ffl/draft_socket.py).
 How the room actually works, learned the hard way in a practice draft:
   - The player table is virtualised, so a player you have not scrolled to has no row in the
     DOM. Finding a row by name only works for whoever happens to be rendered.
-  - The search box does not filter the table; it opens a dropdown of
+  - Typing in the search box does not filter the table by itself; it opens a dropdown of
     `button.player--search--match` elements carrying `data-player-search-playerid`. That id is
     ESPN's, the same one on our board, so we select by id and never match on name text.
+    *Clicking* a suggestion filters the table down to that one player.
   - Only undrafted players appear in that dropdown (unless "Show Drafted" is on), so a missing
     suggestion means the player is already gone — worth distinguishing from a broken selector.
-  - The Draft button is NOT in the player table. Selecting a search result opens a player
-    panel (`div.draft-column`) holding `button.Button--draft[data-player-id=...]`, which has
-    no table-row ancestor — row-based lookups find nothing. It renders uppercase via a `ttu`
-    class while its DOM text is "Draft".
-  - Practice drafts open with Autopick ON, and ESPN silently switches it back on after a
-    pick times out. While it is on the panel button reads Queue, not Draft, so every pick
-    must re-check it. Read the toggle's checked state — the "DISABLE AUTOPICK" banner button
-    is missing while the room is still rendering and makes an on room look off.
+  - The action button lives on the player's own table row and carries his id, so match on
+    `[data-player-id]` and never on row text. Three things can occupy that cell:
+    `Button--draft` ("Draft", we are on the clock with autopick off), `Button--queue`
+    ("Queue", autopick is on or we are not on the clock), or the bare text "DRAFTED" with no
+    button at all (he is gone). There is also one `Button--draft` outside the table, on the
+    "your autopick would be X" panel — it drafts ESPN's suggestion, not our man, which is why
+    the id has to match.
+  - The Draft button ignores clicks for its first ~3 seconds (ESPN runs a countdown on it) and
+    reports nothing, so a single click is not enough: click until the feed confirms.
+  - Practice drafts open with Autopick ON, and ESPN switches it back on after every pick that
+    times out. While it is on every row reads Queue, which is what a practice draft's worth of
+    "no DRAFT button" failures turned out to be. Read the toggle's checked state — the
+    "DISABLE AUTOPICK" banner button is missing while the room is still rendering and makes an
+    on room look off — and treat "toggle not rendered" as unknown, not as off.
 """
 from __future__ import annotations
 
@@ -50,24 +57,39 @@ def _room(ctx):
 AUTOPICK_TOGGLE = "[class*=autoPick-toggle] input"
 
 
-def autopick_on(page) -> bool:
-    """Read the toggle itself, not the banner.
+def autopick_on(page) -> bool | None:
+    """Read the toggle itself, not the banner. None when the toggle is not in the DOM yet.
 
     The "DISABLE AUTOPICK" button is absent while the room is still rendering, so checking for
     it reports "already off" on a room that is very much on — which is how a practice draft
-    autopicked our first round out from under us.
+    autopicked our first round out from under us. "Not rendered" is not "off" either, so an
+    empty match returns None and the caller has to decide, rather than getting a cheerful False.
+
+    Note the selector matches two inputs (ESPN reuses the class on the sound control); the
+    autopick toggle is the first, the one whose container is labelled "Autopick".
     """
     states = page.eval_on_selector_all(AUTOPICK_TOGGLE, "es => es.map(e => e.checked)")
-    return bool(states) and bool(states[0])
+    return bool(states[0]) if states else None
 
 
 def autopick_off(page) -> str:
-    """Turn autopick off and confirm it took. ESPN re-enables it after a missed pick."""
-    if not autopick_on(page):
+    """Turn autopick off and confirm it took.
+
+    ESPN re-enables autopick every time a pick times out, so this runs before *every* pick,
+    not once at the start of the draft. While it is on, the action cell on every player row
+    reads Queue instead of Draft — which is what a whole practice draft's worth of "no DRAFT
+    button" failures turned out to be.
+    """
+    state = autopick_on(page)
+    if state is False:
         return "autopick already off"
-    btn = page.get_by_role("button", name="DISABLE AUTOPICK", exact=False)
-    if btn.count() and btn.first.is_visible():
-        btn.first.evaluate("el => el.click()")
+    banner = page.get_by_role("button", name="DISABLE AUTOPICK", exact=False)
+    if banner.count() and banner.first.is_visible():
+        banner.first.evaluate("el => el.click()")
+    elif state is None:
+        # toggle not rendered and no banner: nothing to click and nothing to verify, so say
+        # so rather than reporting success on a room that may be drafting for us
+        return "autopick state unknown (toggle not rendered)"
     else:
         page.locator(AUTOPICK_TOGGLE).first.evaluate("el => el.click()")
     page.wait_for_timeout(900)
@@ -76,8 +98,21 @@ def autopick_off(page) -> str:
     return "autopick disabled"
 
 
+def _row_text(page) -> list[str]:
+    return page.eval_on_selector_all(
+        ".fixedDataTableRowLayout_rowWrapper",
+        "es => es.map(e => e.innerText.replace(/\\n/g, ' ')).filter(t => t.trim())")
+
+
 def _select(page, player_id: int, name: str):
-    """Open one player's panel via the search dropdown."""
+    """Filter the player table down to one player, via the search box.
+
+    The search box does not filter the table as you type — it opens a dropdown of
+    `button.player--search--match` elements carrying `data-player-search-playerid` (ESPN's id,
+    the same one on our board, so we select by id and never on name text). *Clicking* one of
+    those filters the table to that single player, and his row carries the action button we
+    want. Only undrafted players are offered in the dropdown.
+    """
     box = page.locator("input[placeholder='Player Name']").first
     box.click()
     box.fill("")
@@ -94,52 +129,80 @@ def _select(page, player_id: int, name: str):
     return match.first
 
 
-def pick(player_id: int, name: str, queue: bool = False) -> str:
+def _action(page, player_id: int, name: str, want: str, deadline: float):
+    """The player's own button on his (now filtered) table row, once it says what we want.
+
+    Three things can be in that action cell, and telling them apart is the whole game:
+      - "Draft"  — we are on the clock with autopick off: what we are after.
+      - "Queue"  — autopick is on, or we are not on the clock. Turning autopick off flips it.
+      - "DRAFTED" as plain text, no button — he is gone; the row renders but offers nothing.
+    """
+    css = f'button.Button--{want.lower()}[data-player-id="{player_id}"]'
+    while time.time() < deadline:
+        btn = page.locator(css)
+        if btn.count() and btn.first.is_visible():
+            return btn.first
+        rows = _row_text(page)
+        if any("DRAFTED" in r for r in rows if name.split()[-1] in r):
+            raise PlayerGone(f"{name} is already drafted (his row reads DRAFTED)")
+        if page.locator(f'button.Button--queue[data-player-id="{player_id}"]').count():
+            # his row exists but offers Queue: autopick came back on between our check and now
+            autopick_off(page)
+        page.wait_for_timeout(400)
+    offered = page.eval_on_selector_all(
+        "button[data-player-id]",
+        "es => es.map(e => e.textContent.trim() + ' ' + e.getAttribute('data-player-id'))")
+    raise RuntimeError(
+        f"no {want} button for {name} (are you on the clock?). "
+        f"autopick={autopick_on(page)} rows={_row_text(page)[:3]} buttons={offered}")
+
+
+PICK_TIMEOUT_S = 20.0
+
+
+def pick(player_id: int, name: str, queue: bool = False, timeout_s: float = PICK_TIMEOUT_S) -> str:
+    """Draft (or queue) one player, and do not report success unless the feed says so.
+
+    The clock is the budget: a practice room gives 30s and our league 90s, so everything here
+    retries against a deadline rather than failing on the first miss.
+    """
     want = "QUEUE" if queue else "DRAFT"
+    deadline = time.time() + timeout_s
     with sync_playwright() as p:
         b = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
         page = _room(b.contexts[0])
-        page.bring_to_front()
-        # With autopick on, the panel offers Queue instead of Draft — and ESPN turns it back
+        # never bring_to_front(): the room does not need focus for these clicks, and
+        # stealing it yanks the user's screen away mid-draft
+        # With autopick on, every row offers Queue instead of Draft — and ESPN turns it back
         # on by itself after a pick times out, so re-check every time rather than once.
         if not queue:
             autopick_off(page)
         _select(page, player_id, name)
-        # The action button is NOT in the player table — it lives in the player panel that the
-        # search selection opens (`div.draft-column`), with no `tr` ancestor at all, which is
-        # why every row-based lookup found nothing. It carries the ESPN player id, so match on
-        # that and never on row text.
-        css = f'button.Button--{"queue" if queue else "draft"}[data-player-id="{player_id}"]'
-        btn = page.locator(css).first
-        try:
-            # wait for the panel to actually switch to this player — it lags the suggestion
-            # click, and checking once caught the previous player's button instead
-            btn.wait_for(state="visible", timeout=6000)
-        except Exception:
-            visible = page.eval_on_selector_all(
-                "button[data-player-id]",
-                "es => es.map(e => e.className + '#' + e.getAttribute('data-player-id'))")
-            raise RuntimeError(
-                f"no {want} button for {name} (are you on the clock?). "
-                f"buttons with a player id: {visible}")
-        # the sticky column headers overlay the table and swallow a real mouse click, so
-        # dispatch it directly on the element instead of hit-testing through the page
-        btn.evaluate("el => el.click()")
-        page.wait_for_timeout(700)
-        for label in ["Draft Player", "Confirm", "Yes"]:
-            c = page.get_by_role("button", name=re.compile(rf"^\s*{label}\s*$", re.I))
-            if c.count() and c.first.is_visible():
-                c.first.evaluate("el => el.click()")
-                break
-        # Verify against the socket feed, which is ground truth. Checking the DOM instead gave
-        # false negatives — a drafted player still shows up in the search dropdown, so two
-        # picks that actually landed (Jordan Love, Brandon Aubrey) were reported as failures.
-        if queue:
-            return f"queued {name}"
-        landed = confirm_drafted(player_id)
-        if landed is False:
-            raise RuntimeError(f"clicked DRAFT on {name} but no pick arrived on the feed")
-        return f"drafted {name}" + ("" if landed else " (unconfirmed: no watcher feed)")
+        btn = _action(page, player_id, name, want, deadline)
+        # The DRAFT button ignores clicks for the first ~3 seconds of the clock (ESPN runs a
+        # countdown on it) and says nothing about it, so one click is not enough: keep clicking
+        # until the pick shows up on the feed or the clock runs out.
+        last = None
+        while time.time() < deadline:
+            # the sticky column headers overlay the table and swallow a real mouse click, so
+            # dispatch it directly on the element instead of hit-testing through the page
+            btn.evaluate("el => el.click()")
+            page.wait_for_timeout(500)
+            for label in ["Draft Player", "Confirm", "Yes"]:
+                c = page.get_by_role("button", name=re.compile(rf"^\s*{label}\s*$", re.I))
+                if c.count() and c.first.is_visible():
+                    c.first.evaluate("el => el.click()")
+                    break
+            if queue:
+                return f"queued {name}"
+            # Verify against the socket feed, which is ground truth. Checking the DOM instead
+            # gave false negatives — a drafted player still shows up in the search dropdown, so
+            # two picks that actually landed (Jordan Love, Brandon Aubrey) were reported failed.
+            last = confirm_drafted(player_id, timeout_s=2.0)
+            if last is not False:  # True, or None when no watcher feed is running
+                return f"drafted {name}" + ("" if last else " (unconfirmed: no watcher feed)")
+        raise RuntimeError(f"clicked {want} on {name} until the clock ran out but no pick "
+                           f"arrived on the feed")
 
 
 def confirm_drafted(player_id: int, timeout_s: float = 8.0):

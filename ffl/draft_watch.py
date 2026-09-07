@@ -120,11 +120,26 @@ def bye_penalty(pos: str, bye, my_roster: pd.DataFrame, settings: dict, vorp: fl
     return round(shortfall ** 1.5 * max(vorp, 0.0) / SEASON_WEEKS, 1)
 
 
+def flex_left(settings: dict, counts: dict[str, int]) -> int:
+    """Flex slots still open, after the players I already have fill them.
+
+    Everyone past a position's own starter count spills into the flex, so this has to be
+    decremented as the roster fills. Leaving it at the league total made every extra RB look
+    startable for the whole draft: in practice draft 3 the board had five RBs and no WR by
+    round 6, and at pick 74 a sixth RB (flex weight, 1.1) still outranked a WR filling one of
+    two genuinely open WR slots (starter weight, 1.35).
+    """
+    total = sum(n for s, n in settings["starters"].items() if _is_flex(s))
+    spill = sum(max(counts.get(pos, 0) - settings["starters"].get(pos, 0), 0)
+                for pos in flex_positions(settings))
+    return max(total - spill, 0)
+
+
 def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_until_me: int) -> dict:
     avail = bd[~bd.drafted].copy()
     counts = my_roster.pos.value_counts().to_dict() if len(my_roster) else {}
     left = open_slots(settings, counts)
-    flex_slots = sum(n for s, n in settings["starters"].items() if _is_flex(s))
+    flex_slots = flex_left(settings, counts)
     flex_pos = flex_positions(settings)
     weights = []
     for _, r in avail.iterrows():
@@ -302,7 +317,7 @@ def run_socket():
             if feed.offset:
                 print(f"   {feed.offset} still unaccounted for — those players will show as "
                       f"available. Cross-check the room before trusting a recommendation.", flush=True)
-        w.print_board(w.tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock,
+        w.print_board(w.tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock_now(),
                              offset=feed.offset))
         while True:
             if not feed.pump(1000):  # CDP link dropped (tab reloaded, Chrome restarted)
@@ -315,7 +330,7 @@ def run_socket():
                 except Exception as e:
                     print(f"  reattach failed: {e}", flush=True)
                 continue
-            state = w.tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock,
+            state = w.tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock_now(),
                            done=len(feed.picks) + feed.offset >= total, offset=feed.offset)
             if state["_fresh"]:
                 w.print_board(state)
