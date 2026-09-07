@@ -50,6 +50,16 @@ def launch(url: str):
             ctx.close()
 
 
+def pick_page(ctx, match: str | None = None):
+    """The tab we care about: an explicit match, else the draft room, else any ESPN tab."""
+    pages = [pg for pg in ctx.pages if not pg.is_closed()]
+    for want in ([match] if match else []) + ["/football/draft", "espn.com"]:
+        page = next((pg for pg in pages if want in pg.url), None)
+        if page:
+            return page
+    return pages[0] if pages else ctx.new_page()
+
+
 def goto(url: str):
     with sync_playwright() as p:
         b = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
@@ -59,11 +69,12 @@ def goto(url: str):
         print(page.url)
 
 
-def screenshot(out: str):
+def screenshot(out: str, match: str | None = None):
     with sync_playwright() as p:
         b = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
         ctx = b.contexts[0]
-        page = next((pg for pg in ctx.pages if "espn.com" in pg.url), ctx.pages[0])
+        page = pick_page(ctx, match)
+        page.bring_to_front()
         page.screenshot(path=out, full_page=False)
         print(f"{page.url} -> {out}")
 
@@ -73,6 +84,7 @@ if __name__ == "__main__":
     if cmd == "goto":
         goto(sys.argv[2])
     elif cmd == "shot":
-        screenshot(sys.argv[2] if len(sys.argv) > 2 else str(DATA / "shot.png"))
+        screenshot(sys.argv[2] if len(sys.argv) > 2 else str(DATA / "shot.png"),
+                   sys.argv[3] if len(sys.argv) > 3 else None)
     else:
         launch(LEAGUE_URL if cmd == "league" else DRAFT_ROOM_URL)

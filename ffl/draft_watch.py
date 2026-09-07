@@ -1,15 +1,19 @@
 """Live draft watcher: polls ESPN's draft endpoint, tracks picks, recommends best available.
 
-    uv run python -m ffl.draft_watch            # loop forever (5s poll)
-    uv run python -m ffl.draft_watch once       # single snapshot
+    uv run python -m ffl.draft_watch            # live: read picks off the draft room socket
+    uv run python -m ffl.draft_watch once       # single REST snapshot (pre-draft sanity check)
+    uv run python -m ffl.draft_watch rest       # REST polling loop (post-draft recap only)
 
 Outputs: data/draft_state.json (full state), journal/draft/picks.csv (append-only pick log), stdout.
-Uses the raw mDraftDetail view because espn-api's League.draft is empty until `drafted` is true.
+ESPN's REST mDraftDetail view is useless *during* a live draft — every slot stays at
+playerId -1 until the draft finishes — so live mode reads the draft room's websocket
+over CDP instead (see ffl/draft_socket.py). REST stays for pre/post-draft checks.
 """
 from __future__ import annotations
 
 import csv
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -20,7 +24,8 @@ from . import board as board_mod
 from .config import DATA, JOURNAL, MY_TEAM_ID, SWID, raw_league_get
 
 POLL_S = 5
-PICKS_CSV = JOURNAL / "draft" / "picks.csv"
+# a mock/practice run (FFL_DATA_DIR set) must not pollute the real draft log
+PICKS_CSV = (DATA / "picks.csv") if os.environ.get("FFL_DATA_DIR") else (JOURNAL / "draft" / "picks.csv")
 STATE = DATA / "draft_state.json"
 NEED_WEIGHT = {"starter_open": 1.35, "flex_open": 1.1, "bench": 0.9}
 
@@ -83,7 +88,9 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
             w = 0.2  # don't reach for K/DST until the end
         weights.append(w)
     avail["score"] = (avail.vorp.clip(lower=0) * weights).round(1)
-    avail = avail.sort_values("score", ascending=False)
+    # clipping at 0 ties every below-replacement player together; break those ties on
+    # projection so a zero-projection placeholder can never lead a position's list
+    avail = avail.sort_values(["score", "proj"], ascending=False)
     # who is likely to survive until my next pick, by ADP
     current = int(bd.drafted.sum()) + 1
     avail["likely_gone"] = avail.adp.fillna(999) < current + picks_until_me - 2
@@ -96,21 +103,137 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     }
 
 
-def run(once: bool = False):
-    settings, players, adp = board_mod.load_inputs()
-    me = my_team_id(settings)
-    teams = {t["id"]: t for t in settings["teams"]}
-    order = settings["draft"]["pick_order"] or [t["id"] for t in settings["teams"]]
-    rounds = settings["roster_size"]
-    full_order = snake_order(order, rounds)
-    id_to_row = players.set_index("player_id")
-    seen = 0
-    PICKS_CSV.parent.mkdir(parents=True, exist_ok=True)
-    if not PICKS_CSV.exists():
-        with PICKS_CSV.open("w", newline="") as f:
-            csv.writer(f).writerow(["overall", "round", "pick", "team_id", "team", "player_id", "player", "pos", "nfl", "adp_2qb", "board_rank_at_pick", "proj", "ts"])
+class Watcher:
+    """Board state + logging, driven by whatever pick feed it is handed."""
 
-    print(f"Watching league {settings['league_id']} — I am team {me} ({teams[me]['name']}), slot {order.index(me)+1 if me in order else '?'} of {len(order)}", flush=True)
+    def __init__(self):
+        self.settings, self.players, self.adp = board_mod.load_inputs()
+        self.me = my_team_id(self.settings)
+        self.teams = {t["id"]: t for t in self.settings["teams"]}
+        self.order = self.settings["draft"]["pick_order"] or [t["id"] for t in self.settings["teams"]]
+        self.rounds = self.settings["roster_size"]
+        self.full_order = snake_order(self.order, self.rounds)
+        self.id_to_row = self.players.set_index("player_id")
+        self.seen = 0
+        PICKS_CSV.parent.mkdir(parents=True, exist_ok=True)
+        if not PICKS_CSV.exists():
+            with PICKS_CSV.open("w", newline="") as f:
+                csv.writer(f).writerow(["overall", "round", "pick", "team_id", "team", "player_id", "player", "pos", "nfl", "adp_2qb", "board_rank_at_pick", "proj", "ts"])
+
+    def banner(self, source: str):
+        slot = self.order.index(self.me) + 1 if self.me in self.order else "?"
+        print(f"Watching league {self.settings['league_id']} via {source} — I am team {self.me} "
+              f"({self.teams[self.me]['name']}), slot {slot} of {len(self.order)}", flush=True)
+
+    def tick(self, picks: list[dict], on_clock: int | None = None, done: bool = False) -> dict:
+        """Ingest the current pick list; log anything new; return (and persist) full state."""
+        drafted_ids = {p["playerId"] for p in picks}
+        bd = board_mod.build(self.settings, self.players, self.adp, drafted_ids=drafted_ids)
+        fresh = len(picks) > self.seen
+        if fresh:
+            pre = board_mod.build(self.settings, self.players, self.adp,
+                                  drafted_ids={p["playerId"] for p in picks[:self.seen]})
+            pre_rank = pre.set_index("player_id").board_rank
+            adp_by_id = bd.set_index("player_id").adp
+            with PICKS_CSV.open("a", newline="") as f:
+                w = csv.writer(f)
+                for p in picks[self.seen:]:
+                    pid = p["playerId"]
+                    row = self.id_to_row.loc[pid] if pid in self.id_to_row.index else None
+                    name = row["name"] if row is not None else f"id{pid}"
+                    pos = row["pos"] if row is not None else "?"
+                    br, a = pre_rank.get(pid), adp_by_id.get(pid)
+                    tag = " <== ME" if p["teamId"] == self.me else ""
+                    print(f"[{datetime.now():%H:%M:%S}] {p['roundId']}.{p['roundPickNumber']:02d} (#{p['overallPickNumber']}) "
+                          f"{self.teams.get(p['teamId'],{}).get('abbrev','?'):>5} -> {name} ({pos}) "
+                          f"board#{br if pd.notna(br) else '-'} adp {a if pd.notna(a) else '-'}{tag}", flush=True)
+                    w.writerow([p["overallPickNumber"], p["roundId"], p["roundPickNumber"], p["teamId"],
+                                self.teams.get(p["teamId"], {}).get("name"), pid, name, pos,
+                                row["team"] if row is not None else "", a, br,
+                                row["proj"] if row is not None else "", datetime.now().isoformat(timespec="seconds")])
+            self.seen = len(picks)
+
+        current = len(picks) + 1
+        if on_clock is None:  # no live feed: infer from the snake order
+            on_clock = self.full_order[current - 1] if current - 1 < len(self.full_order) else None
+        my_next = next((i for i in range(current - 1, len(self.full_order)) if self.full_order[i] == self.me), None)
+        picks_until_me = (my_next - (current - 1)) if my_next is not None else -1
+        my_roster = bd[bd.drafted & bd.player_id.isin({p["playerId"] for p in picks if p["teamId"] == self.me})]
+        rec = recommend(bd, self.settings, my_roster, max(picks_until_me, 0))
+        recent = [self.id_to_row.loc[p["playerId"]]["pos"] for p in picks[-6:] if p["playerId"] in self.id_to_row.index]
+        runs = {pos: recent.count(pos) for pos in set(recent) if recent.count(pos) >= 3}
+        state = {
+            "ts": datetime.now().isoformat(timespec="seconds"), "drafted": done,
+            "picks_made": len(picks), "current_pick": current, "round": (current - 1) // len(self.order) + 1,
+            "on_clock": self.teams.get(on_clock, {}).get("name") if on_clock else None, "on_clock_is_me": on_clock == self.me,
+            "picks_until_me": picks_until_me, "my_next_overall": (my_next + 1) if my_next is not None else None,
+            "my_roster": my_roster[["name", "pos", "team", "bye", "proj", "tier"]].to_dict("records"),
+            "runs": runs, "recommend": rec,
+            "rosters": {self.teams[t]["name"]: [self.id_to_row.loc[p["playerId"]]["name"] + f" ({self.id_to_row.loc[p['playerId']]['pos']})"
+                                                for p in picks if p["teamId"] == t and p["playerId"] in self.id_to_row.index] for t in self.teams},
+        }
+        STATE.write_text(json.dumps(state, indent=1, default=str))
+        state["_fresh"] = fresh
+        state["_rec"] = rec
+        return state
+
+    def print_board(self, state: dict):
+        rec = state["_rec"]
+        print(f"--- pick #{state['current_pick']} R{state['round']} | on clock: {state['on_clock']}"
+              f"{' (ME)' if state['on_clock_is_me'] else ''} | my next in {state['picks_until_me']} "
+              f"| needs {rec['needs']} | runs {state['runs']}", flush=True)
+        print(pd.DataFrame(rec["top"])[["name", "pos", "proj", "vorp", "tier", "adp", "score", "likely_gone"]].to_string(index=False), flush=True)
+
+
+def numbered(picks: list[dict], n_teams: int) -> list[dict]:
+    """Socket picks arrive in draft order; derive round / round-pick numbers."""
+    out = []
+    for i, p in enumerate(picks):
+        out.append({**p, "overallPickNumber": i + 1, "roundId": i // n_teams + 1, "roundPickNumber": i % n_teams + 1})
+    return out
+
+
+def run_socket():
+    """Live mode: read picks off the draft room websocket via the open Chrome tab."""
+    from .draft_socket import DraftFeed
+
+    w = Watcher()
+    n_teams = len(w.order)
+    total = n_teams * w.rounds
+    with DraftFeed(cache=DATA / "socket_picks.json") as feed:
+        print(f"Attached to {feed.url}", flush=True)
+        w.banner("draft-room socket")
+        if feed.picks:
+            print(f"Resuming with {len(feed.picks)} picks from cache", flush=True)
+        w.print_board(w.tick(numbered(feed.picks, n_teams), feed.on_clock))
+        while True:
+            if not feed.pump(1000):  # CDP link dropped (tab reloaded, Chrome restarted)
+                print(f"[{datetime.now():%H:%M:%S}] lost the draft tab; reattaching…", flush=True)
+                time.sleep(2)
+                try:
+                    print(f"  reattached to {feed.reconnect()}", flush=True)
+                    print("  NOTE: picks made while detached were missed — check the room's "
+                          "Pick History against journal/draft/picks.csv", flush=True)
+                except Exception as e:
+                    print(f"  reattach failed: {e}", flush=True)
+                continue
+            state = w.tick(numbered(feed.picks, n_teams), feed.on_clock, done=len(feed.picks) >= total)
+            if state["_fresh"]:
+                w.print_board(state)
+            if state["drafted"]:
+                print("Draft complete.", flush=True)
+                break
+
+
+def run(once: bool = False):
+    """REST mode: only good for pre-draft sanity checks and post-draft recaps.
+
+    ESPN leaves mDraftDetail at playerId -1 for the whole live draft, so this sees nothing
+    while picks are actually happening. Use run_socket() during the draft.
+    """
+    w = Watcher()
+    w.banner("REST mDraftDetail (pre/post-draft only)")
+    printed = False
     while True:
         try:
             d = fetch_picks()
@@ -119,57 +242,23 @@ def run(once: bool = False):
             time.sleep(POLL_S)
             continue
         picks = sorted(d["picks"], key=lambda p: p.get("overallPickNumber", 0))
-        drafted_ids = {p["playerId"] for p in picks if p.get("playerId", 0) > 0}
-        bd = board_mod.build(settings, players, adp, drafted_ids=drafted_ids)
-        pre_board = None
-        if len(picks) > seen:
-            pre_board = board_mod.build(settings, players, adp, drafted_ids={p["playerId"] for p in picks[:seen]})
-            pre_rank = pre_board.set_index("player_id").board_rank
-            with PICKS_CSV.open("a", newline="") as f:
-                w = csv.writer(f)
-                for p in picks[seen:]:
-                    pid = p["playerId"]
-                    row = id_to_row.loc[pid] if pid in id_to_row.index else None
-                    name = row["name"] if row is not None else f"id{pid}"
-                    pos = row["pos"] if row is not None else "?"
-                    br = pre_rank.get(pid)
-                    a = bd.set_index("player_id").adp.get(pid)
-                    tag = " <== ME" if p["teamId"] == me else ""
-                    print(f"[{datetime.now():%H:%M:%S}] {p['roundId']}.{p['roundPickNumber']:02d} (#{p['overallPickNumber']}) "
-                          f"{teams.get(p['teamId'],{}).get('abbrev','?'):>5} -> {name} ({pos}) board#{br if pd.notna(br) else '-'} adp {a if pd.notna(a) else '-'}{tag}", flush=True)
-                    w.writerow([p["overallPickNumber"], p["roundId"], p["roundPickNumber"], p["teamId"], teams.get(p["teamId"], {}).get("name"),
-                                pid, name, pos, row["team"] if row is not None else "", a, br, row["proj"] if row is not None else "", datetime.now().isoformat(timespec="seconds")])
-            seen = len(picks)
-
-        current = len(picks) + 1
-        on_clock = full_order[current - 1] if current - 1 < len(full_order) else None
-        my_next = next((i for i in range(current - 1, len(full_order)) if full_order[i] == me), None)
-        picks_until_me = (my_next - (current - 1)) if my_next is not None else -1
-        my_roster = bd[bd.drafted & bd.player_id.isin({p["playerId"] for p in picks if p["teamId"] == me})]
-        rec = recommend(bd, settings, my_roster, max(picks_until_me, 0))
-        recent = [id_to_row.loc[p["playerId"]]["pos"] for p in picks[-6:] if p["playerId"] in id_to_row.index]
-        runs = {pos: recent.count(pos) for pos in set(recent) if recent.count(pos) >= 3}
-        state = {
-            "ts": datetime.now().isoformat(timespec="seconds"), "in_progress": d["in_progress"], "drafted": d["drafted"],
-            "picks_made": len(picks), "current_pick": current, "round": (current - 1) // len(order) + 1,
-            "on_clock": teams.get(on_clock, {}).get("name") if on_clock else None, "on_clock_is_me": on_clock == me,
-            "picks_until_me": picks_until_me, "my_next_overall": (my_next + 1) if my_next is not None else None,
-            "my_roster": my_roster[["name", "pos", "team", "bye", "proj", "tier"]].to_dict("records"),
-            "runs": runs, "recommend": rec,
-            "rosters": {teams[t]["name"]: [id_to_row.loc[p["playerId"]]["name"] + f" ({id_to_row.loc[p['playerId']]['pos']})" for p in picks if p["teamId"] == t and p["playerId"] in id_to_row.index] for t in teams},
-        }
-        STATE.write_text(json.dumps(state, indent=1, default=str))
-        if pre_board is not None or once or len(picks) == 0 and seen == 0:
-            hdr = f"--- pick #{current} R{state['round']} | on clock: {state['on_clock']}{' (ME)' if state['on_clock_is_me'] else ''} | my next in {picks_until_me} | needs {rec['needs']} | runs {runs}"
-            print(hdr, flush=True)
-            print(pd.DataFrame(rec["top"])[["name", "pos", "proj", "vorp", "tier", "adp", "score", "likely_gone"]].to_string(index=False), flush=True)
+        state = w.tick(picks, done=bool(d["drafted"]))
+        if state["_fresh"] or once or not printed:
+            w.print_board(state)
+            printed = True
         if once:
             break
-        if d["drafted"]:
+        if state["drafted"]:
             print("Draft complete.", flush=True)
             break
         time.sleep(POLL_S)
 
 
 if __name__ == "__main__":
-    run(once=len(sys.argv) > 1 and sys.argv[1] == "once")
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "socket"
+    if cmd == "once":
+        run(once=True)
+    elif cmd == "rest":
+        run()
+    else:
+        run_socket()

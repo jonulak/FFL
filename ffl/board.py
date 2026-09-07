@@ -88,7 +88,12 @@ def build(settings: dict, players: pd.DataFrame, adp: pd.DataFrame, drafted_ids:
     repl = {}
     for pos, n in counts.items():
         pool = avail[avail.pos == pos].sort_values("proj", ascending=False).proj.values
-        idx = int(math.ceil(n + BENCH_DEPTH[pos])) - 1 if drafted_ids is None else max(int(math.ceil(n)) - 1 - _taken(df, pos), 0)
+        # league-wide demand at this position, minus what's already off the board: the
+        # replacement player is the last one who still gets rostered. Bench depth has to stay
+        # in the count mid-draft — dropping it drove the index to 0 once a position ran hot,
+        # which made replacement == best available and zeroed out every VORP at that position.
+        demand = int(math.ceil(n + BENCH_DEPTH[pos]))
+        idx = demand - 1 - (_taken(df, pos) if drafted_ids else 0)
         idx = min(max(idx, 0), max(len(pool) - 1, 0))
         repl[pos] = float(pool[idx]) if len(pool) else 0.0
     df["repl"] = df.pos.map(repl)

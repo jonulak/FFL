@@ -15,19 +15,27 @@ uv run python -m ffl.adp               # FFC 2QB + 1QB ADP -> data/adp.csv (re-r
 uv run python -m ffl.board             # merge + VORP + tiers -> data/board.csv, data/board.md
 uv run python -m ffl.browser           # headed Chrome on the draft room (cookies injected, CDP :9222)
 uv run python -m ffl.browser shot x.png  # screenshot the running Chrome window
-uv run python -m ffl.draft_watch       # poll picks every 5s; recommendations; writes journal/draft/picks.csv
+uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; writes journal/draft/picks.csv
+uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/
 ```
 Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + draft_watch).
 
 ## Config
 `.env` (gitignored): `LEAGUE_ID`, `ESPN_S2`, `SWID`, `SEASON`, optional `MY_TEAM_ID` (auto-detected from SWID).
+Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
+real board and pick log untouched.
 `data/` is regenerable and gitignored. `journal/` and `STRATEGY.md` are the durable record and are committed.
 
 ## Architecture notes
 - `ffl/config.py` owns env + the `League` singleton; `raw_league_get(view, ...)` hits ESPN views directly.
-- `ffl/draft_watch.py` reads the raw `mDraftDetail` view, not `League.draft`, because espn-api leaves
-  `League.draft` empty until the draft is *finished*.
+- `ffl/draft_watch.py` gets live picks from the draft room's **websocket**, read passively over CDP
+  from the open Chrome tab (`ffl/draft_socket.py`). ESPN's REST `mDraftDetail` view is useless during
+  a live draft — every slot stays at `playerId: -1` until the draft finishes — so REST mode
+  (`draft_watch once` / `rest`) is only for pre-draft checks and post-draft recaps.
+- **Never open a second draft-room connection.** ESPN allows one per team and kicks the earlier
+  session out: a duplicate tab, or a standalone websocket client, will boot you out of your own
+  draft mid-pick. The watcher only listens to the tab you are already drafting in.
 - `ffl/board.py::build()` is pure over (settings, players, adp, drafted_ids) so the watcher rebuilds it every poll;
   replacement level is computed from the still-available pool. Starter counts come from `settings["starters"]`
   with FLEX/OP slots split across positions (see `FLEX_SPLIT`).

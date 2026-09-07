@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
+DATA = ROOT / (os.environ.get("FFL_DATA_DIR") or "data")  # override for mock/practice runs
 JOURNAL = ROOT / "journal"
 DATA.mkdir(exist_ok=True)
 
