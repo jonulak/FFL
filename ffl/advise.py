@@ -54,8 +54,10 @@ def main(n: int = 8):
     for r in rec["top"][:n]:
         gone = "  <-- likely gone by your pick" if r["likely_gone"] else ""
         inj = f" [{r['injury']}]" if isinstance(r.get("injury"), str) and r["injury"] != "ACTIVE" else ""
+        bye = f" bye{r['bye']:.0f}" if pd.notna(r.get("bye")) else ""
+        risk = f" (-{r['bye_risk']} bye clash)" if r.get("bye_risk") else ""
         print(f"  {r['name']:<22} {r['pos']:<4} proj {r['proj']:>5}  vorp {r['vorp']:>6}  "
-              f"tier {r['tier']}  adp {r['adp']}{inj}{gone}")
+              f"tier {r['tier']}  adp {r['adp']}{bye}{risk}{inj}{gone}")
     print("\nBEST AT EACH POSITION")
     for pos, rows in rec["by_pos"].items():
         if rows:

@@ -85,6 +85,41 @@ def flex_positions(settings: dict) -> set[str]:
     return out
 
 
+SEASON_WEEKS = 17
+
+
+def bye_penalty(pos: str, bye, my_roster: pd.DataFrame, settings: dict, vorp: float) -> float:
+    """Points lost in the bye week if adding this player leaves the lineup short.
+
+    Priced, not guessed: for each starting slot left unfilled that week, the cost is this
+    player's weekly points above replacement — replacement being what you can actually put in
+    the slot instead. That self-scales by position. A stacked bye at K costs ~nothing because
+    the fallback is just as good; in a 2QB league, where all 20+ usable QBs are rostered and
+    the waiver wire is bare, two starting QBs sharing a bye is expensive.
+
+    Only applies once the starting slots at the position are already filled — before that the
+    empty slot itself is the problem, and the need weighting handles it.
+
+    On concentration: two QBs sharing a bye and two QBs on different byes lose the same total
+    points over a season (two starter-weeks either way). Stacking is still worse, because head
+    to head you bank no credit for a comfortable win — one week with two replacement QBs is a
+    likely loss, while two weeks one man down are often still wins. So the shortfall is priced
+    super-linearly (**1.5), which is the whole reason this penalty distinguishes the two cases.
+    """
+    need = settings["starters"].get(pos, 0)
+    if not need or bye is None or pd.isna(bye) or "bye" not in my_roster.columns:
+        return 0.0  # byes ride in on the ADP feed; without them there is nothing to price
+    same = my_roster[my_roster.pos == pos]
+    have = len(same) + 1
+    if have < need:
+        return 0.0
+    on_bye = int((same.bye == bye).sum()) + 1
+    shortfall = max(need - (have - on_bye), 0)
+    if not shortfall:
+        return 0.0
+    return round(shortfall ** 1.5 * max(vorp, 0.0) / SEASON_WEEKS, 1)
+
+
 def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_until_me: int) -> dict:
     avail = bd[~bd.drafted].copy()
     counts = my_roster.pos.value_counts().to_dict() if len(my_roster) else {}
@@ -111,6 +146,12 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     # backup QBs and spare defenses above usable starters late in the draft.
     vorp = avail.vorp.to_numpy()
     avail["score"] = np.where(vorp > 0, vorp * weights, vorp).round(1)
+    # Bye-week collisions among players who would start. Priced against the best replacement
+    # still on the board, so it barely moves K/DST and bites hardest where the pool is thin.
+    avail["bye_risk"] = [
+        bye_penalty(r.pos, r.bye, my_roster, settings, r.vorp) for r in avail.itertuples()
+    ]
+    avail["score"] = (avail.score - avail.bye_risk).round(1)
     # A K/DST whose slot is filled is unusable however good its VORP looks: you only start one.
     filled = avail.pos.isin(["K", "D/ST"]) & avail.pos.map(lambda p: left.get(p, 0) == 0)
     avail.loc[filled, "score"] = -999.0
@@ -118,7 +159,7 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     # who is likely to survive until my next pick, by ADP
     current = int(bd.drafted.sum()) + 1
     avail["likely_gone"] = avail.adp.fillna(999) < current + picks_until_me - 2
-    cols = ["name", "pos", "team", "bye", "proj", "vorp", "tier", "adp", "score", "likely_gone", "injury"]
+    cols = ["name", "pos", "team", "bye", "proj", "vorp", "tier", "adp", "score", "bye_risk", "likely_gone", "injury"]
     return {
         "needs": left,
         "top": avail.head(10)[cols].to_dict("records"),

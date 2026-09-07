@@ -13,13 +13,19 @@ SETTINGS = {
 }
 
 
+# roughly the real shape of each position: kickers and defenses live on a much flatter,
+# lower scale than skill players, which is what makes their replacement level cheap
+SCALE = {"QB": (360.0, 4.0), "RB": (350.0, 4.0), "WR": (340.0, 4.0),
+         "TE": (250.0, 3.0), "D/ST": (120.0, 1.0), "K": (150.0, 0.8)}
+
+
 def make_players(n_per_pos: int = 60) -> pd.DataFrame:
     rows = []
     pid = 1
-    for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
+    for pos, (top, step) in SCALE.items():
         for i in range(n_per_pos):
             rows.append({"player_id": pid, "name": f"{pos}{i}", "pos": pos, "team": f"T{i}",
-                         "proj": 300.0 - i * 3, "injury": "ACTIVE"})
+                         "proj": top - i * step, "injury": "ACTIVE"})
             pid += 1
     return pd.DataFrame(rows)
 
