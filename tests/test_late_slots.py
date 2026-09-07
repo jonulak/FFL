@@ -47,3 +47,11 @@ def test_the_third_qb_himself_is_still_available():
     r = rec(STARTERS_SET, my_picks_left=4)
     qbs = [q for q in r["by_pos"]["QB"] if q["score"] > -900]
     assert qbs, "QB3 was blacklisted along with the QB4s"
+
+
+def test_a_third_tight_end_is_dead_weight():
+    """TE is flex-eligible so the QB4 rule never caught it; a full replay ended with seven TEs."""
+    two = rec({**STARTERS_SET, "TE": 2}, my_picks_left=6)
+    assert not any(t["score"] > -900 for t in two["by_pos"]["TE"]), "a TE3 is still priced"
+    one = rec(STARTERS_SET, my_picks_left=6)
+    assert any(t["score"] > -900 for t in one["by_pos"]["TE"]), "a TE2 must stay available"

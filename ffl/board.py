@@ -79,10 +79,13 @@ def build(settings: dict, players: pd.DataFrame, adp: pd.DataFrame, drafted_ids:
     df = players.copy()
     df["key"] = df["name"].map(norm_name)
     # D/ST names differ across sources ("Eagles D/ST" vs "Philadelphia Defense"); match on team instead
+    adp_cols = ["adp", "adp_rank", "adp_pos_rank", "adp_1qb", "adp_1qb_rank", "bye"]
+    # the spread matters as much as the mean: ADP 30 with stdev 12 is a very different bet on
+    # surviving eight more picks than ADP 30 with stdev 3 (draft_watch.survival uses it)
+    adp_cols += [c for c in ("adp_stdev", "times_drafted") if c in adp.columns]
     adp_pl = adp[adp.pos != "D/ST"]
-    df = df.merge(adp_pl[["key", "pos", "adp", "adp_rank", "adp_pos_rank", "adp_1qb", "adp_1qb_rank", "bye"]],
-                  on=["key", "pos"], how="left")
-    adp_dst = adp[adp.pos == "D/ST"][["team", "adp", "adp_rank", "adp_pos_rank", "adp_1qb", "adp_1qb_rank", "bye"]]
+    df = df.merge(adp_pl[["key", "pos"] + adp_cols], on=["key", "pos"], how="left")
+    adp_dst = adp[adp.pos == "D/ST"][["team"] + adp_cols]
     if len(adp_dst):
         dst = df.pos == "D/ST"
         m = df.loc[dst, ["team"]].merge(adp_dst, on="team", how="left")

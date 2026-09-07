@@ -67,8 +67,57 @@ def test_no_urgency_when_the_pool_will_survive():
     assert all(r["urgency"] == 0 for r in rec["top"]), "priced urgency on a pool that will last"
 
 
-def test_no_urgency_when_we_pick_again_immediately():
-    """At the turn, nothing can be taken in between."""
+def test_urgency_fires_while_we_are_on_the_clock():
+    """The pick being decided is the one that needs the price on it.
+
+    `likely_gone` used to be `adp < current + picks_until_me - 2`, so on the clock
+    (picks_until_me == 0) nothing ever qualified and urgency was 0.0 at the only moment it had to
+    work. What matters is the gap to my pick *after* this one.
+    """
     bd, mine = build(wr_adp=5.0, other_adp=900.0, mine_by_pos=ROSTER)
-    rec = dw.recommend(bd, TWO_QB, mine, picks_until_me=0, my_picks_left=9)
+    rec = dw.recommend(bd, TWO_QB, mine, picks_until_me=0, my_picks_left=9, horizon=18)
+    assert rec["horizon"] == 18
+    assert rec["top"][0]["pos"] == "WR", f"the doomed WR slot was not lifted: {rec['top'][0]}"
+    assert rec["top"][0]["urgency"] > 0, "no cost of waiting priced on the clock"
+
+
+def test_back_to_back_picks_have_no_urgency():
+    """At the turn there is genuinely nothing in between, so nothing can be taken."""
+    bd, mine = build(wr_adp=5.0, other_adp=900.0, mine_by_pos=ROSTER)
+    rec = dw.recommend(bd, TWO_QB, mine, picks_until_me=0, my_picks_left=9, horizon=0)
     assert all(r["urgency"] == 0 for r in rec["top"]), "priced urgency with no picks in between"
+    assert all(r["survive_prob"] == 1.0 and not r["likely_gone"] for r in rec["top"])
+
+
+def test_heads_up_and_on_clock_price_the_same_window():
+    """Advice given two picks early must not change when the clock reaches us: both tables are
+    about the same pick of ours, so they have to agree on who survives it."""
+    bd, mine = build(wr_adp=5.0, other_adp=900.0, mine_by_pos=ROSTER)
+    early = dw.recommend(bd, TWO_QB, mine, picks_until_me=2, my_picks_left=9, horizon=18)
+    now = dw.recommend(bd, TWO_QB, mine, picks_until_me=0, my_picks_left=9, horizon=18)
+    assert [r["name"] for r in early["top"]] == [r["name"] for r in now["top"]]
+    assert [r["urgency"] for r in early["top"]] == [r["urgency"] for r in now["top"]]
+
+
+def test_a_run_at_a_capped_position_is_limited_by_what_the_teams_ahead_need():
+    """ADP says every TE goes; no team picking before us can still start one."""
+    bd, mine = build(wr_adp=900.0, other_adp=5.0, mine_by_pos={"QB": 2, "RB": 5, "WR": 2})
+    assert dw.open_slots(TWO_QB, {"QB": 2, "RB": 5, "WR": 2})["TE"] == 1
+
+    def te_urgency(demand):
+        rec = dw.recommend(bd, TWO_QB, mine, picks_until_me=0, my_picks_left=9, horizon=18,
+                           opp_demand=demand)
+        return rec["by_pos"]["TE"][0]["urgency"]
+
+    uncapped, capped = te_urgency(None), te_urgency({"TE": 0})
+    assert uncapped > capped > 0, f"cap should shrink the run, not erase it: {uncapped} -> {capped}"
+
+
+def test_survival_uses_the_spread_not_just_the_mean():
+    """A tight ADP is a near-certainty; a wide one is a coin flip at the same mean."""
+    tight, wide = dw.survival([30.0, 30.0], [2.0, 12.0], at_pick=40)
+    assert tight < 0.05
+    assert 0.15 < wide < 0.5
+    assert dw.survival([30.0], [3.0], at_pick=20)[0] > 0.99
+    assert dw.survival([float("nan")], [float("nan")], at_pick=40)[0] == 1.0
+    assert dw.survival([30.0], None, at_pick=40)[0] < 0.2  # no stdev column at all

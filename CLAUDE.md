@@ -16,6 +16,8 @@ uv run python -m ffl.board             # merge + VORP + tiers -> data/board.csv,
 uv run python -m ffl.browser           # headed Chrome on the draft room (cookies injected, CDP :9222)
 uv run python -m ffl.browser shot x.png  # screenshot the running Chrome window
 uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; writes journal/draft/picks.csv
+uv run python -m ffl.advise            # LIVE: the candidate table, recomputed from the raw pick feed
+uv run python -m ffl.simulate 7        # dry-run the draft from a slot (opponents pick to 2QB ADP); `all` for every slot
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/
 ```
@@ -39,6 +41,15 @@ real board and pick log untouched.
 - `ffl/board.py::build()` is pure over (settings, players, adp, drafted_ids) so the watcher rebuilds it every poll;
   replacement level is computed from the still-available pool. Starter counts come from `settings["starters"]`
   with FLEX/OP slots split across positions (see `FLEX_SPLIT`).
+- `ffl/draft_watch.py::recommend()` returns a **candidate table, not a verdict**: `score` is the default
+  ordering; the decision is made on the columns beside it (`survive_prob`, `opp_demand`, `urgency`,
+  `bye_risk`, `spread`, `injury`) against STRATEGY.md's hard rules. Do not encode new judgment as weights —
+  seven practice drafts of that is how the board came to disagree with STRATEGY.md. Roster rules that are
+  genuinely hard (QB4, K2, TE3) are blacklists; everything else is a rule in STRATEGY.md.
+- **The draft order is drawn at draft start.** `settings.json` holds ESPN's placeholder (teams in id order)
+  until then; `FFL_PICK_ORDER` overrides it and `learn_order()` rebuilds it from round 1's picks. Never
+  hard-code a slot. `turn_math()` owns all pick-number maths and is shared by the watcher, `advise` and
+  `simulate` so they cannot drift.
 - Projections: `proj` is the mean of ESPN (`proj_espn`, league-scored by ESPN) and Sleeper (`proj_sleeper`, raw stats rescored
   in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
