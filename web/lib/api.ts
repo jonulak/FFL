@@ -16,6 +16,7 @@ export type Player = {
   injury: string; proj_espn: number; proj_sleeper: number | null; proj: number; spread: number | null;
   espn_only: boolean; actual: number; game_played: number; season_proj: number;
   season_proj_sleeper: number | null; return_week: number | null; injury_note: string | null;
+  opponent: string | null; kickoff: string | null;
 };
 export type LineupEntry = { slot: string; player_id: number | null; name: string; proj: number };
 export type Swap = { slot: string; out: string; in: string; gain: number };

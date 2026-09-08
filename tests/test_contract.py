@@ -14,7 +14,7 @@ from tests.test_season import TWO_QB, P, roster
 # web/lib/api.ts: type Player
 PLAYER = {"player_id", "name", "pos", "team", "slot", "bye", "injury", "proj_espn", "proj_sleeper",
           "proj", "spread", "espn_only", "actual", "game_played", "season_proj", "season_proj_sleeper",
-          "return_week", "injury_note"}
+          "return_week", "injury_note", "opponent", "kickoff"}
 # web/lib/api.ts: type LineupEntry
 LINEUP_ENTRY = {"slot", "player_id", "name", "proj"}
 # web/lib/api.ts: type Swap

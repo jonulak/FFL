@@ -25,7 +25,7 @@ def test_flatten_box_player():
                  "bye": False, "injury": "ACTIVE", "proj_espn": 21.4, "proj_sleeper": None, "proj": 21.4,
                  "spread": None, "espn_only": True, "actual": 0.0, "game_played": 0,
                  "season_proj": 320.5, "season_proj_sleeper": None,
-                 "return_week": None, "injury_note": None}
+                 "return_week": None, "injury_note": None, "opponent": None, "kickoff": None}
 
 
 def test_flatten_dst_uses_team_position():
@@ -39,6 +39,21 @@ def test_flatten_free_agent_keeps_its_weekly_projection():
     p = espn_season.flatten_box_player(fa)
     assert p["slot"] == "FA", "BoxPlayer defaults slot_position to FA; the getattr covers a plain Player"
     assert p["proj"] == 11.5 and p["season_proj"] == 90.0
+
+
+def test_flatten_carries_opponent_and_a_local_iso_kickoff():
+    from datetime import datetime
+    p = espn_season.flatten_box_player(bp(pro_opponent="GB", game_date=datetime(2026, 9, 13, 13, 0)))
+    assert p["opponent"] == "GB"
+    assert p["kickoff"] == datetime(2026, 9, 13, 13, 0).astimezone().isoformat()
+
+
+def test_flatten_bye_has_no_opponent_or_kickoff():
+    from datetime import datetime
+    p = espn_season.flatten_box_player(bp(on_bye_week=True, pro_opponent="None", game_date=datetime(2026, 9, 13, 13, 0)))
+    assert p["opponent"] is None and p["kickoff"] is None
+    q = espn_season.flatten_box_player(bp(pro_opponent="None"))
+    assert q["opponent"] is None, 'espn-api writes the string "None" when it has no schedule'
 
 
 def test_merge_weekly_averages_and_flags_misses():
@@ -144,6 +159,21 @@ def test_week_state_gives_no_opponent_on_a_bye(monkeypatch):
     assert st["week"] == 1 and st["opp"] is None
     assert "stale" not in st, "the freshness flag is stale_since, added by the API's cache"
     assert st["me"]["team"] == "Mine" and len(st["me"]["lineup"]) == 11
+
+
+def test_roster_state_builds_cards_for_my_side_only(monkeypatch):
+    matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
+                              home_lineup=[as_box(p) for p in season_roster()],
+                              away_team=SimpleNamespace(team_id=2, team_name="Them"),
+                              away_lineup=[as_box(season_roster()[0])])
+    lg = SimpleNamespace(box_scores=lambda week: [matchup], current_week=1)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={})
+    assert st["week"] == 1 and isinstance(st["live"], bool)
+    assert len(st["cards"]) == 15 and {c["group"] for c in st["cards"]} == {"starter", "bench", "ir"}
+    assert all("call" in c and "reason" in c for c in st["cards"])
 
 
 class FakeLeagueFactory:

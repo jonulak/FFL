@@ -57,15 +57,22 @@ def fresh_league():
 
 def flatten_box_player(bp, season_proj: float | None = None) -> dict:
     proj = float(getattr(bp, "projected_points", 0) or 0)
+    bye = bool(getattr(bp, "on_bye_week", False))
+    # espn-api's BoxPlayer writes the string "None" for pro_opponent when it has no schedule
+    # entry, and game_date is a naive datetime in the host's zone (fromtimestamp).
+    opp = getattr(bp, "pro_opponent", None)
+    gd = getattr(bp, "game_date", None)
     return {"player_id": bp.playerId, "name": bp.name, "pos": bp.position, "team": bp.proTeam,
             # BoxPlayer already defaults slot_position to "FA" (free agents come back as
             # BoxPlayers too); the getattr is belt-and-braces for a plain Player.
-            "slot": getattr(bp, "slot_position", "FA"), "bye": bool(getattr(bp, "on_bye_week", False)),
+            "slot": getattr(bp, "slot_position", "FA"), "bye": bye,
             "injury": bp.injuryStatus or "ACTIVE", "proj_espn": proj, "proj_sleeper": None, "proj": proj,
             "spread": None, "espn_only": True, "actual": float(getattr(bp, "points", 0) or 0),
             "game_played": int(getattr(bp, "game_played", 0) or 0),
             "season_proj": float(season_proj if season_proj is not None else getattr(bp, "projected_total_points", 0) or 0),
-            "season_proj_sleeper": None, "return_week": None, "injury_note": None}
+            "season_proj_sleeper": None, "return_week": None, "injury_note": None,
+            "opponent": None if bye or opp in (None, "None") else opp,
+            "kickoff": gd.astimezone().isoformat() if gd is not None and not bye else None}
 
 
 def fetch_sleeper_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
@@ -344,6 +351,24 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
             f["slot"] = "FA"
         out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, week)
     return {"week": week, "positions": out}
+
+
+def roster_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
+                 injuries: dict | None = None) -> dict:
+    """My roster as cards (season.roster_cards) for the Roster page. Same enrichment as week_state."""
+    lg = fresh_league()
+    settings = load()
+    week = week or lg.current_week
+    me = my_team_id(lg)
+    sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
+    seas = _season_for(settings, season)
+    inj, w1 = _injuries_for(injuries), _week1_start(settings)
+    boxes = _boxes_by_team(lg, week)
+    if me not in boxes:
+        raise RuntimeError(f"no box score for team {me} in week {week}")
+    players = apply_injuries(
+        apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1)
+    return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week)}
 
 
 def league_state() -> dict:
