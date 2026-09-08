@@ -1,7 +1,11 @@
 """Flattening espn-api objects and merging Sleeper's weekly projections (no network)."""
+import json
+from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import requests
 
 from ffl import espn_season
 from tests.test_season import TWO_QB, roster as season_roster
@@ -20,7 +24,8 @@ def test_flatten_box_player():
     assert p == {"player_id": 1, "name": "Jahmyr Gibbs", "pos": "RB", "team": "DET", "slot": "RB",
                  "bye": False, "injury": "ACTIVE", "proj_espn": 21.4, "proj_sleeper": None, "proj": 21.4,
                  "spread": None, "espn_only": True, "actual": 0.0, "game_played": 0,
-                 "season_proj": 320.5, "season_proj_sleeper": None}
+                 "season_proj": 320.5, "season_proj_sleeper": None,
+                 "return_week": None, "injury_note": None}
 
 
 def test_flatten_dst_uses_team_position():
@@ -135,7 +140,7 @@ def test_week_state_gives_no_opponent_on_a_bye(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.week_state(week=1, sleeper={}, season={})
+    st = espn_season.week_state(week=1, sleeper={}, season={}, injuries={})
     assert st["week"] == 1 and st["opp"] is None
     assert "stale" not in st, "the freshness flag is stale_since, added by the API's cache"
     assert st["me"]["team"] == "Mine" and len(st["me"]["lineup"]) == 11
@@ -193,3 +198,86 @@ def test_refresh_league_forces_the_next_build(monkeypatch):
     espn_season.fresh_league()
     espn_season.refresh_league()
     assert espn_season.fresh_league().current_week == 2, "POST /refresh must not wait out the TTL"
+
+
+INJ_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "espn_injuries.json").read_text())
+WEEK1 = date(2026, 9, 8)  # the Tuesday settings.nfl_week1_start(2026) returns
+LOVE, BRISSETT, CARTER, SENN, PENIX = 4870808, 2578570, 4240619, 4428458, 4360423
+
+
+def test_parse_injuries_keys_on_the_player_card_link():
+    inj = espn_season.parse_injuries(INJ_FIXTURE)
+    assert set(inj) == {LOVE, BRISSETT, CARTER, SENN, PENIX}, "the row with no links is dropped"
+    assert inj[CARTER]["return_date"] == date(2026, 10, 11) and inj[CARTER]["body_part"] == "Knee"
+    assert inj[CARTER]["note"].startswith("The Cardinals placed Carter (knee) on injured reserve")
+
+
+def test_parse_injuries_keeps_active_rows_and_survives_missing_details():
+    inj = espn_season.parse_injuries(INJ_FIXTURE)
+    assert inj[BRISSETT]["return_date"] is None and inj[BRISSETT]["body_part"] is None
+    assert "depth chart" in inj[BRISSETT]["note"], "an Active row's comment is still real news"
+    assert inj[SENN]["note"] is None, "both comments blank is no note at all"
+
+
+def test_parse_injuries_falls_back_to_the_long_comment():
+    row = {"shortComment": "  ", "longComment": "The long one.",
+           "athlete": {"links": [{"href": "https://www.espn.com/nfl/player/_/id/42/x"}]}}
+    inj = espn_season.parse_injuries({"injuries": [{"displayName": "T", "injuries": [row]}]})
+    assert inj[42]["note"] == "The long one."
+
+
+def test_apply_injuries_sets_the_return_week_and_note():
+    players = [espn_season.flatten_box_player(bp(playerId=CARTER)),
+               espn_season.flatten_box_player(bp(playerId=BRISSETT)),
+               espn_season.flatten_box_player(bp(playerId=99))]
+    out = espn_season.apply_injuries(players, espn_season.parse_injuries(INJ_FIXTURE), WEEK1)
+    assert out[0]["return_week"] == 5, "2026-10-11 is week 5 off a 2026-09-08 week 1"
+    assert out[1]["return_week"] is None and out[1]["injury_note"].startswith("Brissett")
+    assert out[2] == players[2], "an id the feed does not carry is untouched"
+    assert players[0]["return_week"] is None, "pure: the input list is untouched"
+
+
+def test_apply_injuries_without_week1_start_keeps_only_the_notes():
+    """A settings.json written before ffl.settings added week1_start: no date maths is possible."""
+    players = [espn_season.flatten_box_player(bp(playerId=CARTER))]
+    out = espn_season.apply_injuries(players, espn_season.parse_injuries(INJ_FIXTURE), None)
+    assert out[0]["return_week"] is None and out[0]["injury_note"] is not None
+
+
+def test_week_state_attaches_injuries_to_both_sides(monkeypatch):
+    mine = season_roster()
+    mine[0]["player_id"] = CARTER
+    matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
+                              home_lineup=[as_box(p) for p in mine],
+                              away_team=SimpleNamespace(team_id=8, team_name="Theirs"),
+                              away_lineup=[as_box(p) for p in season_roster()])
+    monkeypatch.setattr(espn_season, "league", lambda: SimpleNamespace(box_scores=lambda week: [matchup], current_week=1))
+    monkeypatch.setattr(espn_season, "load", lambda: {**TWO_QB, "week1_start": WEEK1.isoformat()})
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    st = espn_season.week_state(week=1, sleeper={}, season={},
+                               injuries=espn_season.parse_injuries(INJ_FIXTURE))
+    hurt = next(p for p in st["me"]["lineup"] if p["player_id"] == CARTER)
+    assert hurt["return_week"] == 5 and hurt["injury_note"]
+    assert all(p["return_week"] is None for p in st["opp"]["lineup"]), "the opponent side gets the keys too"
+
+
+def test_fetch_injuries_serves_the_last_good_data_then_an_empty_dict(monkeypatch):
+    """ESPN going down must not blank the notes: season.injury_terms' constants are the last resort."""
+    espn_season._INJ.clear()
+    calls = []
+
+    def fake_get(url, **kw):
+        calls.append(url)
+        if len(calls) == 1:
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: INJ_FIXTURE)
+        raise requests.ConnectionError("espn down")
+
+    monkeypatch.setattr(espn_season.requests, "get", fake_get)
+    monkeypatch.setattr(espn_season.time, "time", lambda: 1_000_000.0)
+    good = espn_season.fetch_injuries()
+    assert CARTER in good
+    assert espn_season.fetch_injuries() is good and len(calls) == 1, "cached inside CACHE_S"
+    monkeypatch.setattr(espn_season.time, "time", lambda: 1_000_000.0 + espn_season.CACHE_S + 1)
+    assert espn_season.fetch_injuries() == good, "expired and ESPN down: the stale data still serves"
+    espn_season._INJ.clear()
+    assert espn_season.fetch_injuries() == {}, "with nothing cached there is nothing to serve"

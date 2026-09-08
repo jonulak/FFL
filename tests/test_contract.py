@@ -13,7 +13,8 @@ from tests.test_season import TWO_QB, P, roster
 
 # web/lib/api.ts: type Player
 PLAYER = {"player_id", "name", "pos", "team", "slot", "bye", "injury", "proj_espn", "proj_sleeper",
-          "proj", "spread", "espn_only", "actual", "game_played", "season_proj", "season_proj_sleeper"}
+          "proj", "spread", "espn_only", "actual", "game_played", "season_proj", "season_proj_sleeper",
+          "return_week", "injury_note"}
 # web/lib/api.ts: type LineupEntry
 LINEUP_ENTRY = {"slot", "player_id", "name", "proj"}
 # web/lib/api.ts: type Swap
@@ -81,4 +82,4 @@ def test_week_state_top_level_keys(monkeypatch):
     monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    assert set(espn_season.week_state(week=1, sleeper={}, season={})) == WEEK
+    assert set(espn_season.week_state(week=1, sleeper={}, season={}, injuries={})) == WEEK

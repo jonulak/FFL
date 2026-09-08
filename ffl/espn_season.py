@@ -6,7 +6,9 @@ pure seams the tests cover.
 from __future__ import annotations
 
 import csv
+import re
 import time
+from datetime import date
 
 import requests
 
@@ -19,6 +21,9 @@ from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
 
 SLEEPER_WEEK = "https://api.sleeper.app/projections/nfl/{season}/{week}"
 SLEEPER_POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
+INJURIES = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries"
+# the feed's rows carry no athlete id, only player-card links with it in the path
+INJ_ID_RE = re.compile(r"/id/(\d+)/")
 CACHE_S = 1800
 # espn_api reads current_week, the teams and their records once, in League.__init__. Under
 # launchd this process lives for months, so a League built at boot would freeze the week, the
@@ -28,6 +33,7 @@ LEAGUE_TTL_S = 3600
 _LEAGUE_BUILT_AT = 0.0
 _SEASON_CACHE: list = []  # [fetched_at, lookup]
 _SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
+_INJ: list = []  # [expires_at, data]
 
 
 def refresh_league() -> None:
@@ -59,7 +65,7 @@ def flatten_box_player(bp, season_proj: float | None = None) -> dict:
             "spread": None, "espn_only": True, "actual": float(getattr(bp, "points", 0) or 0),
             "game_played": int(getattr(bp, "game_played", 0) or 0),
             "season_proj": float(season_proj if season_proj is not None else getattr(bp, "projected_total_points", 0) or 0),
-            "season_proj_sleeper": None}
+            "season_proj_sleeper": None, "return_week": None, "injury_note": None}
 
 
 def fetch_sleeper_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
@@ -183,6 +189,64 @@ def season_lookup(settings: dict) -> dict[int, dict]:
     return lookup
 
 
+def parse_injuries(payload: dict) -> dict[int, dict]:
+    """ESPN's public injuries feed keyed by ESPN player id (= BoxPlayer.playerId).
+
+    A row without a player-card link cannot be matched to a roster, so it is dropped. `Active`
+    rows are kept: their comment is real news (a depth-chart move, a return to practice) even
+    though they carry no `details` and so no return date.
+    """
+    out: dict[int, dict] = {}
+    for team in payload.get("injuries", []):
+        for row in team.get("injuries", []):
+            hrefs = (link.get("href") or "" for link in row.get("athlete", {}).get("links", []))
+            pid = next((int(m.group(1)) for h in hrefs if (m := INJ_ID_RE.search(h))), None)
+            if pid is None:
+                continue
+            det = row.get("details") or {}
+            rd = det.get("returnDate")
+            note = (row.get("shortComment") or "").strip() or (row.get("longComment") or "").strip()
+            out[pid] = {"return_date": date.fromisoformat(rd) if rd else None,
+                        "note": note or None, "body_part": det.get("type")}
+    return out
+
+
+def fetch_injuries() -> dict[int, dict]:
+    """Every team's injury rows, cached for CACHE_S; an outage serves the last good data.
+
+    Nothing is logged on failure: season.injury_terms falls back to its per-status constants, so
+    a missing return week is degraded advice, not an error.
+    """
+    if _INJ and _INJ[0] > time.time():
+        return _INJ[1]
+    try:
+        r = requests.get(INJURIES, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        r.raise_for_status()
+        data = parse_injuries(r.json())
+    except requests.RequestException:
+        return _INJ[1] if _INJ else {}
+    _INJ[:] = [time.time() + CACHE_S, data]
+    return data
+
+
+def apply_injuries(players: list[dict], injuries: dict[int, dict], week1_start: date | None) -> list[dict]:
+    """The return week and injury note from the feed, where it has the player.
+
+    Without week1_start — a settings.json written before that key existed — a return date cannot
+    be turned into a week, so only the note is applied and season.games_out stays None.
+    """
+    out = []
+    for p in players:
+        q = dict(p)
+        got = injuries.get(p["player_id"])
+        if got:
+            q["injury_note"] = got["note"]
+            rd = got["return_date"]
+            q["return_week"] = S.week_of(rd, week1_start) if rd and week1_start else None
+        out.append(q)
+    return out
+
+
 def _sleeper_for(week: int, settings: dict) -> dict:
     """Sleeper's weekly projections, cached for CACHE_S per week (POST /refresh clears _SL)."""
     hit = _SL.get(week)
@@ -197,6 +261,16 @@ def _season_for(settings: dict, season: dict | None) -> dict:
     return season if season is not None else season_lookup(settings)
 
 
+def _injuries_for(injuries: dict | None) -> dict:
+    return injuries if injuries is not None else fetch_injuries()
+
+
+def _week1_start(settings: dict) -> date | None:
+    """settings.json's week 1 Tuesday, absent from files written before ffl.settings wrote it."""
+    d = settings.get("week1_start")
+    return date.fromisoformat(d) if d else None
+
+
 def _boxes_by_team(lg, week: int) -> dict[int, list]:
     """Every team's roster for the week, from a single box_scores call."""
     out: dict[int, list] = {}
@@ -207,13 +281,15 @@ def _boxes_by_team(lg, week: int) -> dict[int, list]:
     return out
 
 
-def week_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None) -> dict:
+def week_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
+               injuries: dict | None = None) -> dict:
     lg = fresh_league()
     settings = load()
     week = week or lg.current_week
     me = my_team_id(lg)
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
     seas = _season_for(settings, season)
+    inj, w1 = _injuries_for(injuries), _week1_start(settings)
     for m in lg.box_scores(week):
         sides = [(m.home_team, m.home_lineup), (m.away_team, m.away_lineup)]
         if not any(getattr(t, "team_id", None) == me for t, _ in sides):
@@ -222,29 +298,33 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
         for t, lineup in sides:
             if not hasattr(t, "team_id"):
                 continue  # a bye or placeholder side: no opponent to build
-            players = apply_season(merge_weekly([flatten_box_player(bp) for bp in lineup], sl), seas)
+            players = apply_injuries(
+                apply_season(merge_weekly([flatten_box_player(bp) for bp in lineup], sl), seas), inj, w1)
             built["me" if t.team_id == me else "opp"] = build_side(t, players, settings)
         return {"week": week, "live": S.is_live(), "me": built["me"], "opp": built.get("opp")}
     raise RuntimeError(f"no matchup for team {me} in week {week}")
 
 
 def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None,
-                    season: dict | None = None) -> dict:
+                    season: dict | None = None, injuries: dict | None = None) -> dict:
     lg = fresh_league()
     settings = load()
     week = week or lg.current_week
     me = my_team_id(lg)
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
     seas = _season_for(settings, season)
+    inj, w1 = _injuries_for(injuries), _week1_start(settings)
     boxes = _boxes_by_team(lg, week)
     if me not in boxes:
         raise RuntimeError(f"no box score for team {me} in week {week}")
-    my_players = apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas)
-    rostered = apply_season([flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas)
+    my_players = apply_injuries(
+        apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1)
+    rostered = apply_injuries(
+        apply_season([flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas), inj, w1)
     out = {}
     for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
-        frees = apply_season(
-            merge_weekly([flatten_box_player(bp) for bp in lg.free_agents(week=week, size=size, position=pos)], sl), seas)
+        box = [flatten_box_player(bp) for bp in lg.free_agents(week=week, size=size, position=pos)]
+        frees = apply_injuries(apply_season(merge_weekly(box, sl), seas), inj, w1)
         for f in frees:
             f["slot"] = "FA"
         out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, week)

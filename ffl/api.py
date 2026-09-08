@@ -162,9 +162,10 @@ def refresh():
     # expire_all, not clear: a refresh while ESPN is down must still leave the stale payloads
     # behind for the fallback to serve, flagged — never a blank page on Sunday.
     cache.expire_all()
-    # the Sleeper-week and season-projection caches live in espn_season; Refresh must bust those too
+    # the Sleeper-week, season-projection and injury caches live in espn_season; Refresh busts those too
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
+    espn_season._INJ.clear()
     try:
         synced = sync_all()
     except HTTPException:

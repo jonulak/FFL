@@ -1,0 +1,232 @@
+{
+ "timestamp": "2026-09-08T18:14:55Z",
+ "status": "success",
+ "season": {
+  "year": 2026,
+  "type": 2,
+  "name": "Regular Season",
+  "displayName": "2026"
+ },
+ "injuries": [
+  {
+   "id": "22",
+   "displayName": "Arizona Cardinals",
+   "injuries": [
+    {
+     "id": "636350",
+     "longComment": "Love was moving around at practice Monday, but LaFleur would only go as far as to say the rookie running back is \"progressing\" in his recovery from his mid-Augu",
+     "shortComment": "Coach Mike LaFleur said he's \"optimistic\" Love (ankle) will be able to play Sunday against the Chargers, Darren Urban of the Cardinals' official site reports.",
+     "status": "Questionable",
+     "date": "2026-09-07T20:34Z",
+     "athlete": {
+      "firstName": "Jeremiyah",
+      "lastName": "Love",
+      "displayName": "Jeremiyah Love",
+      "links": [
+       {
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nfl/player/_/id/4870808/jeremiyah-love",
+        "text": "Player Card"
+       }
+      ]
+     },
+     "type": {
+      "id": "2",
+      "name": "INJURY_STATUS_QUESTIONABLE",
+      "description": "questionable",
+      "abbreviation": "Q"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "QUESTIONABLE",
+       "abbreviation": "QUESTIONABLE"
+      },
+      "type": "Ankle",
+      "location": "Leg",
+      "detail": "Sprain",
+      "side": "Not Specified",
+      "returnDate": "2026-09-13"
+     }
+    },
+    {
+     "id": "636276",
+     "longComment": "After Arizona released Kyler Murray in March, the team signed Gardner Minshew in free agency and then rounded out the QB room by drafting Carson Beck (ribs) in ",
+     "shortComment": "Brissett is listed with the first-team offense on the Cardinals' unofficial depth chart.",
+     "status": "Active",
+     "date": "2026-09-04T21:36Z",
+     "athlete": {
+      "firstName": "Jacoby",
+      "lastName": "Brissett",
+      "displayName": "Jacoby Brissett",
+      "links": [
+       {
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nfl/player/_/id/2578570/jacoby-brissett",
+        "text": "Player Card"
+       }
+      ]
+     },
+     "type": {
+      "id": "0",
+      "name": "INJURY_STATUS_ACTIVE",
+      "description": "active",
+      "abbreviation": "A"
+     }
+    },
+    {
+     "id": "635645",
+     "longComment": "Carter will be forced to miss at least the first four games of the regular season due to a knee injury he sustained in training camp practice in early August. W",
+     "shortComment": "The Cardinals placed Carter (knee) on injured reserve Sunday with a designation to return, Darren Urban of the team's official site reports.",
+     "status": "Injured Reserve",
+     "date": "2026-08-31T22:42Z",
+     "athlete": {
+      "firstName": "Zachary",
+      "lastName": "Carter",
+      "displayName": "Zachary Carter",
+      "links": [
+       {
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nfl/player/_/id/4240619/zachary-carter",
+        "text": "Player Card"
+       }
+      ]
+     },
+     "type": {
+      "id": "5",
+      "name": "INJURY_STATUS_IR",
+      "description": "Injured Reserve",
+      "abbreviation": "IR"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "IR-R",
+       "abbreviation": "IR-R"
+      },
+      "type": "Knee",
+      "location": "Leg",
+      "detail": "Not Specified",
+      "side": "Not Specified",
+      "returnDate": "2026-10-11"
+     }
+    },
+    {
+     "id": "-1987105",
+     "longComment": "",
+     "shortComment": "",
+     "status": "Active",
+     "date": "2026-08-19T12:07Z",
+     "athlete": {
+      "firstName": "Valentin",
+      "lastName": "Senn",
+      "displayName": "Valentin Senn",
+      "links": [
+       {
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nfl/player/_/id/4428458/valentin-senn",
+        "text": "Player Card"
+       }
+      ]
+     },
+     "type": {
+      "id": "0",
+      "name": "INJURY_STATUS_ACTIVE",
+      "description": "active",
+      "abbreviation": "A"
+     }
+    }
+   ]
+  },
+  {
+   "id": "1",
+   "displayName": "Atlanta Falcons",
+   "injuries": [
+    {
+     "id": "636331",
+     "longComment": "While addressing the media shortly after the Falcons named Tua Tagovailoa their Week 1 starter Monday, Stefanski noted that Penix had taken part in only six 11-",
+     "shortComment": "Falcons head coach Kevin Stefanski said that Penix (knee) will be inactive for Sunday's season opener in Pittsburgh, Marc Raimondi of ESPN.com reports.",
+     "status": "Out",
+     "date": "2026-09-07T15:00Z",
+     "athlete": {
+      "firstName": "Michael",
+      "lastName": "Penix Jr.",
+      "displayName": "Michael Penix Jr.",
+      "links": [
+       {
+        "rel": [
+         "playercard",
+         "desktop",
+         "athlete"
+        ],
+        "href": "https://www.espn.com/nfl/player/_/id/4360423/michael-penix-jr",
+        "text": "Player Card"
+       }
+      ]
+     },
+     "type": {
+      "id": "4",
+      "name": "INJURY_STATUS_OUT",
+      "description": "out",
+      "abbreviation": "O"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "OUT",
+       "abbreviation": "OUT"
+      },
+      "type": "Knee - ACL",
+      "location": "Leg",
+      "detail": "Surgery",
+      "side": "Left",
+      "returnDate": "2026-09-20"
+     }
+    },
+    {
+     "id": "999999",
+     "longComment": "While addressing the media shortly after the Falcons named Tua Tagovailoa their Week 1 starter Monday, Stefanski noted that Penix had taken part in only six 11-",
+     "shortComment": "A row whose athlete has no player-card link.",
+     "status": "Out",
+     "date": "2026-09-07T15:00Z",
+     "athlete": {
+      "firstName": "No",
+      "lastName": "Link",
+      "displayName": "No Link",
+      "links": []
+     },
+     "type": {
+      "id": "4",
+      "name": "INJURY_STATUS_OUT",
+      "description": "out",
+      "abbreviation": "O"
+     },
+     "details": {
+      "fantasyStatus": {
+       "description": "OUT",
+       "abbreviation": "OUT"
+      },
+      "type": "Knee - ACL",
+      "location": "Leg",
+      "detail": "Surgery",
+      "side": "Left",
+      "returnDate": "2026-09-20"
+     }
+    }
+   ]
+  }
+ ]
+}
