@@ -24,7 +24,6 @@ from .settings import load
 
 TTL = 120.0
 DECISIONS = JOURNAL / "DECISIONS.md"
-POSITIONS = ("QB", "RB", "WR", "TE", "D/ST", "K")
 
 
 class Cache:

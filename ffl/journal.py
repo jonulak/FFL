@@ -51,6 +51,7 @@ def sync_results(lg, settings):
                 mine, opp = (m.home_score, m.away_score) if m.home_team == me else (m.away_score, m.home_score)
                 other = m.away_team if m.home_team == me else m.home_team
                 rows.append([wk, other.team_name, mine, opp, "W" if mine > opp else "L" if mine < opp else "T"])
+    WEEKLY_CSV.parent.mkdir(parents=True, exist_ok=True)  # /refresh calls this without journal.main
     with WEEKLY_CSV.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["week", "opponent", "my_score", "opp_score", "result"])
@@ -66,7 +67,6 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "sync"
     settings = load()
     lg = league()
-    WEEKLY_CSV.parent.mkdir(parents=True, exist_ok=True)
     if cmd == "sync":
         sync_transactions(lg)
         sync_results(lg, settings)
