@@ -26,6 +26,10 @@ uv run python -m ffl.practice 4        # start a League Specific Practice Draft 
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/
+uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
+cd web && pnpm dev                     # season UI on :3301 against the API above
+scripts/deploy.sh                      # rebuild + restart the launchd agents (post-merge hook runs it)
+scripts/install.sh                     # one-time: launchd agents, hooks path, tailscale serve :3300
 ```
 Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + draft_watch).
 
@@ -66,12 +70,18 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
   is primary; `adp_1qb` is kept for comparison.
+- **Season UI** (`web/`, Next 15 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
+  components fetching the API through a `/api/*` rewrite; `ffl/season.py` is pure (lineup-optimal,
+  waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production
+  runs from the main checkout under launchd (`launchd/`), on :3300, exposed tailnet-only via
+  `tailscale serve` at https://macbook-pro.tailnet.ts.net:3300. Ports 3000/8000 are other projects'.
 
 ## Rules for working here
 - Every roster decision made in a session is appended to `journal/DECISIONS.md` (decision, reasoning, alternatives)
   before committing. Draft picks are logged automatically to `journal/draft/picks.csv`; add the reasoning by hand.
 - Commit and push (`git push`) at the end of every session; the GitHub repo is the backup.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
+- `journal/results/` is written by `journal sync` / the UI's Refresh and is committed like the rest of `journal/`.
 
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
