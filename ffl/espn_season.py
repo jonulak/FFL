@@ -21,6 +21,7 @@ SLEEPER_WEEK = "https://api.sleeper.app/projections/nfl/{season}/{week}"
 SLEEPER_POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
 CACHE_S = 1800
 _SEASON_CACHE: list = []  # [fetched_at, lookup]
+_SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
 
 
 def flatten_box_player(bp, season_proj: float | None = None) -> dict:
@@ -158,7 +159,13 @@ def season_lookup(settings: dict) -> dict[int, dict]:
 
 
 def _sleeper_for(week: int, settings: dict) -> dict:
-    return fetch_sleeper_week(week, key_scoring(settings["scoring"]))
+    """Sleeper's weekly projections, cached for CACHE_S per week (POST /refresh clears _SL)."""
+    hit = _SL.get(week)
+    if hit and hit[0] > time.time():
+        return hit[1]
+    data = fetch_sleeper_week(week, key_scoring(settings["scoring"]))
+    _SL[week] = (time.time() + CACHE_S, data)
+    return data
 
 
 def _season_for(settings: dict, season: dict | None) -> dict:
