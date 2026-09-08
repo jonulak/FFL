@@ -133,11 +133,37 @@ def test_waiver_deltas_against_roster_and_pool():
     assert set(rows[0]) >= {"ros_proj", "week_proj", "delta_roster", "delta_pool", "would_start", "week_delta", "add"}
 
 
-def test_delta_uses_the_higher_of_roster_and_pool_replacement():
+def test_add_uses_the_roster_arm_when_my_weakest_is_the_higher_replacement():
     mine = roster()
     frees = [fa(100, "FA RB", "RB", 12, 150)]
-    # the pool is only my roster + this FA: replacement index lands high, above my weakest
+    # Pool is only my roster + this FA: 6 RBs, so the replacement index (demand 38) clamps to the
+    # last one — the FA himself, 150 — while my weakest non-IR RB is RB D (10*17 = 170). 170 is the
+    # higher replacement, so the roster arm binds: delta_roster -20 < delta_pool 0.
     rows = season.waiver_deltas(frees, mine, mine + frees, TWO_QB, week=1)
     r = rows[0]
-    assert r["delta_pool"] != r["delta_roster"]
+    assert r["delta_pool"] == pytest.approx(0.0)
+    assert r["delta_roster"] == pytest.approx(-20.0)
     assert r["add"] == pytest.approx(min(r["delta_roster"], r["delta_pool"]) + r["week_delta"])
+
+
+def test_add_uses_the_pool_arm_when_my_roster_is_thin():
+    # My weakest RB is a scrub (season 5), so the roster arm would say the FA is a huge gain; the
+    # league-wide pool says otherwise and must bind.
+    mine = roster() + [fa(50, "RB scrub", "RB", 1, 5)]
+    mine[-1]["slot"] = "BE"
+    frees = [fa(100, "FA RB", "RB", 12, 150)]
+    # 40 filler RBs at season 100 make the pool deep enough to reach the replacement index.
+    filler = [fa(200 + i, f"fill RB{i}", "RB", 1, 100) for i in range(40)]
+    pool = mine + frees + filler
+    rows = season.waiver_deltas(frees, mine, pool, TWO_QB, week=1)
+    r = rows[0]
+    # RB demand = starters (2*10 + flex 2*10*0.5 = 30) + bench (0.8*10 = 8) = 38 -> index 37.
+    # Pool RBs sorted desc: 510, 272, 255, 238, 170, 150(FA), then 40x100, then 5 -> index 37 is 100.
+    assert season.pool_replacement(pool, TWO_QB, "RB", 1) == pytest.approx(100.0)
+    assert season.weakest_rostered(mine, "RB", 1) == pytest.approx(5.0)
+    assert r["delta_pool"] == pytest.approx(150 - 100)
+    assert r["delta_roster"] == pytest.approx(150 - 5)
+    assert r["delta_pool"] < r["delta_roster"], "the pool arm is the binding one here"
+    # He is the better flex than RB D (10), so week_delta = 12 - 10 = 2; add = 50 + 2.
+    assert r["week_delta"] == pytest.approx(2.0)
+    assert r["add"] == pytest.approx(52.0)
