@@ -254,3 +254,62 @@ def test_is_live_window():
     assert season.is_live(datetime(2026, 9, 15, 1, 0, tzinfo=ny))      # Monday night spills past midnight
     assert not season.is_live(datetime(2026, 9, 15, 9, 0, tzinfo=ny))  # Tuesday morning
     assert not season.is_live(datetime(2026, 9, 16, 12, 0, tzinfo=ny))  # Wednesday
+
+
+def test_roster_cards_groups_calls_and_orders_by_kickoff():
+    rs = roster()
+    rs[3]["kickoff"] = "2026-09-13T16:25:00-04:00"   # RB A, a starter, late game
+    rs[5]["kickoff"] = "2026-09-13T13:00:00-04:00"   # RB C, a starter, early game
+    cards = season.roster_cards(rs, TWO_QB, 2)
+    by_name = {c["name"]: c for c in cards}
+    assert by_name["QB C"]["group"] == "starter" and by_name["QB C"]["call"] == "START"
+    assert by_name["QB B"]["group"] == "bench" and by_name["QB B"]["call"] == "BENCH"
+    assert by_name["IR guy"]["group"] == "ir" and by_name["IR guy"]["call"] == "IR"
+    assert by_name["IR guy"]["reason"] == "IR slot" and by_name["IR guy"]["gap"] is None
+    groups = [c["group"] for c in cards]
+    assert groups == sorted(groups, key=["starter", "bench", "ir"].index)
+    starters = [c["name"] for c in cards if c["group"] == "starter"]
+    assert starters.index("RB C") < starters.index("RB A"), "earlier kickoff first"
+    assert starters[-1] not in ("RB A", "RB C"), "players without a kickoff sort last"
+
+
+def test_roster_cards_starter_gap_is_against_the_best_bench_alternative():
+    cards = {c["name"]: c for c in season.roster_cards(roster(), TWO_QB, 2)}
+    # QB A (20) starts at QB; the best bench QB is QB B (18)
+    assert cards["QB A"]["gap"] == 2.0
+    assert cards["QB A"]["reason"] == "starts at QB: 20.0 vs 18.0 for QB B"
+    assert cards["QB A"]["close_call"] is False, "a 2.0 gap is not under CLOSE_GAP"
+    # TE A (8) starts at TE; TE B (7) is the alternative: under 2 points is a close call
+    assert cards["TE A"]["gap"] == 1.0 and cards["TE A"]["close_call"] is True
+    # DST has no bench alternative
+    assert cards["DST"]["gap"] is None
+    assert cards["DST"]["reason"] == "starts at D/ST: no bench alternative"
+
+
+def test_roster_cards_bench_gap_is_against_the_weakest_starter_he_could_replace():
+    cards = {c["name"]: c for c in season.roster_cards(roster(), TWO_QB, 2)}
+    # WR C (9) sits; the weakest starter in a slot that takes a WR is RB D (10) at flex
+    assert cards["WR C"]["call"] == "BENCH" and cards["WR C"]["gap"] == -1.0
+    assert cards["WR C"]["reason"] == "bench: 1.0 behind RB D at RB/WR/TE"
+    assert cards["WR C"]["close_call"] is True
+
+
+def test_roster_cards_spread_makes_a_close_call_and_questionable_adds_the_suffix():
+    rs = roster()
+    rs[0]["spread"] = 3.0                # QB A: sources disagree by 3
+    rs[6]["injury"] = "QUESTIONABLE"     # WR A
+    cards = {c["name"]: c for c in season.roster_cards(rs, TWO_QB, 2)}
+    assert cards["QB A"]["close_call"] is True
+    assert cards["WR A"]["reason"].endswith(" — his status is your call")
+    assert cards["WR A"]["call"] == "START"
+
+
+def test_roster_cards_bye_and_out_have_no_gap():
+    rs = roster()
+    rs[7]["bye"] = True                  # WR B
+    rs[8]["injury"] = "OUT"              # WR C
+    cards = {c["name"]: c for c in season.roster_cards(rs, TWO_QB, 2)}
+    assert cards["WR B"] == {**cards["WR B"], "group": "bench", "call": "BYE", "gap": None,
+                             "close_call": False, "reason": "bye week"}
+    assert cards["WR C"]["call"] == "OUT" and cards["WR C"]["reason"] == "out: OUT"
+    assert cards["WR C"]["close_call"] is False

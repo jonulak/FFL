@@ -26,6 +26,11 @@ NFL_WEEKS = 18
 # fallback for a player that feed has no date for: OUT is usually one game, IR a four-game minimum.
 GAMES_OUT = {"OUT": 1, "INJURY_RESERVE": 4, "SUSPENSION": 4}
 INJURY_FACTOR = {"QUESTIONABLE": 0.85, "DOUBTFUL": 0.7}
+# STRATEGY.md, "Lineup": a starter within CLOSE_GAP points of his bench alternative, or a player
+# whose two sources disagree by CLOSE_SPREAD or more, is a close call — flagged, not re-decided.
+CLOSE_GAP = 2.0
+CLOSE_SPREAD = 3.0
+GROUP_ORDER = ["starter", "bench", "ir"]
 
 
 def playable_proj(p: dict) -> float:
@@ -98,6 +103,58 @@ def lineup_diff(current: list[dict], optimal: list[dict]) -> list[dict]:
         for i in opt[len(cur):]:  # an empty slot being filled: pure gain
             swaps.append({"slot": slot, "out": "—", "in": i["name"], "gain": round(i["proj"], 1)})
     return sorted(swaps, key=lambda d: -d["gain"])
+
+
+def _card_sort_key(c: dict) -> tuple:
+    return (GROUP_ORDER.index(c["group"]), c.get("kickoff") is None, c.get("kickoff") or "", c["name"])
+
+
+def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
+    """STRATEGY.md, "Lineup": one card per rostered player with the call and its reason.
+
+    The call is optimal_lineup's; the card adds the gap that decides it (starter vs the best bench
+    alternative for his slot; bench player vs the weakest starter in a slot that takes him), a
+    close-call flag on that gap or on the source spread, and a one-line reason from a template.
+    QUESTIONABLE/DOUBTFUL keep the projection's call — the status is his call, and the line says so.
+    """
+    optimal = optimal_lineup(roster, settings)
+    slot_of = {e["player_id"]: e["slot"] for e in optimal if e["player_id"] is not None}
+    by_id = {p["player_id"]: p for p in roster}
+    bench = [p for p in roster if p["player_id"] not in slot_of and p.get("slot") != "IR" and playable_proj(p) > 0]
+    cards = []
+    for p in roster:
+        gap: float | None = None
+        if p.get("slot") == "IR":
+            group, call, reason = "ir", "IR", "IR slot"
+        elif p.get("bye"):
+            group, call, reason = "bench", "BYE", "bye week"
+        elif p.get("injury") in UNPLAYABLE:
+            group, call, reason = "bench", "OUT", f"out: {p['injury']}"
+        elif p["player_id"] in slot_of:
+            group, call = "starter", "START"
+            slot = slot_of[p["player_id"]]
+            alt = max((b for b in bench if b["pos"] in _slot_accepts(slot)), key=playable_proj, default=None)
+            if alt is None:
+                reason = f"starts at {slot}: no bench alternative"
+            else:
+                gap = round(playable_proj(p) - playable_proj(alt), 1)
+                reason = f"starts at {slot}: {playable_proj(p):.1f} vs {playable_proj(alt):.1f} for {alt['name']}"
+        else:
+            group, call = "bench", "BENCH"
+            takers = [(by_id[e["player_id"]], e["slot"]) for e in optimal
+                      if e["player_id"] is not None and p["pos"] in _slot_accepts(e["slot"])]
+            weakest = min(takers, key=lambda t: playable_proj(t[0]), default=None)
+            if weakest is None:
+                reason = f"bench: no slot takes a {p['pos']}"
+            else:
+                gap = round(playable_proj(p) - playable_proj(weakest[0]), 1)
+                reason = f"bench: {abs(gap):.1f} behind {weakest[0]['name']} at {weakest[1]}"
+        close = call in ("START", "BENCH") and (
+            (gap is not None and abs(gap) < CLOSE_GAP) or float(p.get("spread") or 0.0) >= CLOSE_SPREAD)
+        if call in ("START", "BENCH") and p.get("injury") in INJURY_FACTOR:
+            reason += " — his status is your call"
+        cards.append({**p, "group": group, "call": call, "gap": gap, "close_call": close, "reason": reason})
+    return sorted(cards, key=_card_sort_key)
 
 
 def ros_fraction(week: int) -> float:
