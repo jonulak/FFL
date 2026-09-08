@@ -70,7 +70,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
   is primary; `adp_1qb` is kept for comparison.
-- **Season UI** (`web/`, Next 15 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
+- **Season UI** (`web/`, Next 16 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
   components fetching the API through a `/api/*` rewrite; `ffl/season.py` is pure (lineup-optimal,
   waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production
   runs from the main checkout under launchd (`launchd/`), on :3300, exposed tailnet-only via

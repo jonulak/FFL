@@ -1,7 +1,9 @@
 """In-season maths, pure over plain dicts (same player shape the season box scores are flattened to).
 
 Same shape as board.build / draft_watch.recommend: facts, no verdicts. Nothing here reads the
-network or the clock, so every number the in-season UI shows can be reproduced in a test.
+network, and every projection function is pure over its arguments, so every number the in-season
+UI shows can be reproduced in a test. Two deliberate exceptions: is_live() reads the clock, and
+append_decision() appends to journal/DECISIONS.md on disk.
 """
 from __future__ import annotations
 
