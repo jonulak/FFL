@@ -26,12 +26,12 @@ def test_flatten_dst_uses_team_position():
     assert p["pos"] == "D/ST" and p["team"] == "PHI"
 
 
-def test_flatten_free_agent_without_a_lineup_slot():
+def test_flatten_free_agent_keeps_its_weekly_projection():
     fa = SimpleNamespace(playerId=9, name="Waiver Guy", position="WR", proTeam="NYJ",
-                         injuryStatus="ACTIVE", projected_total_points=90.0)
+                         injuryStatus="ACTIVE", projected_points=11.5, projected_total_points=90.0)
     p = espn_season.flatten_box_player(fa)
-    assert p["slot"] == "FA", "lg.free_agents returns Player, which has no slot_position"
-    assert p["proj"] == 0.0 and p["season_proj"] == 90.0
+    assert p["slot"] == "FA", "BoxPlayer defaults slot_position to FA; the getattr covers a plain Player"
+    assert p["proj"] == 11.5 and p["season_proj"] == 90.0
 
 
 def test_merge_weekly_averages_and_flags_misses():
@@ -83,3 +83,25 @@ def test_build_side_splits_lineup_bench_ir_and_diffs():
     assert side["optimal_total"] >= side["proj_total"]
     assert any(s["in"] == "QB C" for s in side["optimal_swaps"])
     assert side["actual_total"] == 0.0
+
+
+def as_box(p):
+    """A roster dict from tests.test_season back as the espn-api object flatten reads."""
+    return SimpleNamespace(playerId=p["player_id"], name=p["name"], position=p["pos"],
+                           proTeam=p["team"], slot_position=p["slot"], on_bye_week=p["bye"],
+                           injuryStatus=p["injury"], projected_points=p["proj"], points=p["actual"],
+                           game_played=0, projected_total_points=p["season_proj"])
+
+
+def test_week_state_gives_no_opponent_on_a_bye(monkeypatch):
+    """A placeholder side carries no team_id; the week still builds, with opp None."""
+    matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
+                              home_lineup=[as_box(p) for p in season_roster()],
+                              away_team=SimpleNamespace(), away_lineup=[])
+    lg = SimpleNamespace(box_scores=lambda week: [matchup], current_week=1)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    st = espn_season.week_state(week=1, sleeper={})
+    assert st["week"] == 1 and st["opp"] is None and st["stale"] is None
+    assert st["me"]["team"] == "Mine" and len(st["me"]["lineup"]) == 11

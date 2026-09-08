@@ -22,7 +22,8 @@ SLEEPER_POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
 def flatten_box_player(bp, season_proj: float | None = None) -> dict:
     proj = float(getattr(bp, "projected_points", 0) or 0)
     return {"player_id": bp.playerId, "name": bp.name, "pos": bp.position, "team": bp.proTeam,
-            # free agents come back as plain Player objects, which carry no lineup slot
+            # BoxPlayer already defaults slot_position to "FA" (free agents come back as
+            # BoxPlayers too); the getattr is belt-and-braces for a plain Player.
             "slot": getattr(bp, "slot_position", "FA"), "bye": bool(getattr(bp, "on_bye_week", False)),
             "injury": bp.injuryStatus or "ACTIVE", "proj_espn": proj, "proj_sleeper": None, "proj": proj,
             "spread": None, "espn_only": True, "actual": float(getattr(bp, "points", 0) or 0),
@@ -131,6 +132,8 @@ def week_state(week: int | None = None, sleeper: dict | None = None) -> dict:
             continue
         built = {}
         for t, lineup in sides:
+            if not hasattr(t, "team_id"):
+                continue  # a bye or placeholder side: no opponent to build
             players = merge_weekly([flatten_box_player(bp) for bp in lineup], sl)
             built["me" if t.team_id == me else "opp"] = build_side(t, players, settings)
         return {"week": week, "live": S.is_live(), "me": built["me"], "opp": built.get("opp"), "stale": None}
@@ -144,6 +147,8 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
     me = my_team_id(lg)
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
     boxes = _boxes_by_team(lg, week)
+    if me not in boxes:
+        raise RuntimeError(f"no box score for team {me} in week {week}")
     my_players = merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl)
     rostered = [flatten_box_player(bp) for lineup in boxes.values() for bp in lineup]
     out = {}
