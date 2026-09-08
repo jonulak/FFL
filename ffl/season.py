@@ -5,7 +5,8 @@ network or the clock, so every number the in-season UI shows can be reproduced i
 """
 from __future__ import annotations
 
-from .draft_watch import _is_flex
+from .board import bench_depth, starter_counts
+from .draft_watch import SEASON_WEEKS, _is_flex
 
 # The order lineups are printed in — ESPN's own slot order, fixed positions before flex.
 SLOT_ORDER = ["QB", "RB", "WR", "TE", "RB/WR/TE", "RB/WR", "WR/TE", "OP", "D/ST", "K"]
@@ -13,6 +14,10 @@ SLOT_ORDER = ["QB", "RB", "WR", "TE", "RB/WR/TE", "RB/WR", "WR/TE", "OP", "D/ST"
 # playable on purpose: that call is his, on practice-report news the tree cannot see.
 UNPLAYABLE = {"OUT", "INJURY_RESERVE", "SUSPENSION"}
 BENCH_SLOTS = {"BE", "IR"}
+NFL_WEEKS = 18
+# ESPN publishes no return date. OUT is usually one game; IR is a four-game minimum.
+GAMES_OUT = {"OUT": 1, "INJURY_RESERVE": 4, "SUSPENSION": 4}
+INJURY_FACTOR = {"QUESTIONABLE": 0.85, "DOUBTFUL": 0.7}
 
 
 def playable_proj(p: dict) -> float:
@@ -85,3 +90,68 @@ def lineup_diff(current: list[dict], optimal: list[dict]) -> list[dict]:
         for i in opt[len(cur):]:  # an empty slot being filled: pure gain
             swaps.append({"slot": slot, "out": "—", "in": i["name"], "gain": round(i["proj"], 1)})
     return sorted(swaps, key=lambda d: -d["gain"])
+
+
+def ros_fraction(week: int) -> float:
+    return min(max((NFL_WEEKS - week) / SEASON_WEEKS, 0.0), 1.0)
+
+
+def ros_proj(season_proj: float, week: int) -> float:
+    return round(float(season_proj or 0.0) * ros_fraction(week), 1)
+
+
+def injury_terms(injury: str, week: int) -> tuple[float, float]:
+    """(multiplier, share of the remaining games he can play)."""
+    if injury in GAMES_OUT:
+        left = NFL_WEEKS - week
+        avail = max(left - GAMES_OUT[injury], 0) / left if left > 0 else 0.0
+        return 1.0, avail
+    return INJURY_FACTOR.get(injury or "", 1.0), 1.0
+
+
+def add_score(ros_delta: float, week_delta: float, injury: str, week: int) -> float:
+    """STRATEGY.md, "Waivers": add = (ros_delta + week_delta if he would start) × injury factor;
+    OUT/IR count only the games after return and get no week term."""
+    factor, avail = injury_terms(injury, week)
+    if injury in GAMES_OUT:
+        return round(ros_delta * avail, 1)
+    return round((ros_delta + week_delta) * factor, 1)
+
+
+def weakest_rostered(my_roster: list[dict], pos: str, week: int) -> float:
+    mine = [ros_proj(p["season_proj"], week) for p in my_roster if p["pos"] == pos and p.get("slot") != "IR"]
+    return min(mine) if mine else 0.0
+
+
+def pool_replacement(pool: list[dict], settings: dict, pos: str, week: int) -> float:
+    """The last player at `pos` who still gets rostered league-wide, by season projection — the
+    same demand count board.build uses (starters + bench depth), on the rostered+free pool."""
+    demand = int(round(starter_counts(settings)[pos] + bench_depth(settings)[pos]))
+    ranked = sorted((float(p.get("season_proj") or 0.0) for p in pool if p["pos"] == pos), reverse=True)
+    if not ranked:
+        return 0.0
+    idx = min(max(demand - 1, 0), len(ranked) - 1)
+    return ros_proj(ranked[idx], week)
+
+
+def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dict],
+                  settings: dict, week: int) -> list[dict]:
+    """Per free agent: ROS projection against my weakest at his position and against the pool's
+    replacement level, whether he would start this week and for how much, and `add`."""
+    current = optimal_lineup(my_roster, settings)
+    cur_total = lineup_total(current)
+    rows = []
+    for fa in free_agents:
+        pos = fa["pos"]
+        ros = ros_proj(fa.get("season_proj"), week)
+        d_roster = round(ros - weakest_rostered(my_roster, pos, week), 1)
+        d_pool = round(ros - pool_replacement(pool, settings, pos, week), 1)
+        with_him = optimal_lineup(my_roster + [{**fa, "slot": "BE"}], settings)
+        week_delta = round(lineup_total(with_him) - cur_total, 1)
+        would_start = week_delta > 0
+        ros_delta = min(d_roster, d_pool)
+        rows.append({**fa, "ros_proj": ros, "week_proj": playable_proj(fa), "delta_roster": d_roster,
+                     "delta_pool": d_pool, "would_start": would_start,
+                     "week_delta": week_delta if would_start else 0.0,
+                     "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"), week)})
+    return sorted(rows, key=lambda r: -r["add"])

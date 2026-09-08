@@ -78,3 +78,66 @@ def test_lineup_diff_lists_swaps_with_gain():
 def test_lineup_diff_is_empty_when_already_optimal():
     opt = season.optimal_lineup(roster(), TWO_QB)
     assert season.lineup_diff(opt, opt) == []
+
+
+def test_ros_fraction_is_one_in_week_one_and_zero_after_the_season():
+    assert season.ros_fraction(1) == 1.0
+    assert season.ros_fraction(18) == 0.0
+    assert season.ros_fraction(10) == pytest.approx(8 / 17)
+    assert season.ros_proj(170.0, 10) == pytest.approx(80.0)
+
+
+def test_injury_factors():
+    assert season.injury_terms("ACTIVE", 1) == (1.0, 1.0)
+    assert season.injury_terms("QUESTIONABLE", 1) == (0.85, 1.0)
+    assert season.injury_terms("DOUBTFUL", 1) == (0.7, 1.0)
+    f, avail = season.injury_terms("OUT", 1)
+    assert f == 1.0 and avail == pytest.approx(16 / 17)
+    f, avail = season.injury_terms("INJURY_RESERVE", 1)
+    assert avail == pytest.approx(13 / 17)
+    f, avail = season.injury_terms("INJURY_RESERVE", 17)
+    assert avail == 0.0, "no games left after return"
+
+
+def test_add_score_formula():
+    # healthy, would start: (ros + week) × 1
+    assert season.add_score(30.0, 4.0, "ACTIVE", 1) == pytest.approx(34.0)
+    # questionable: × 0.85
+    assert season.add_score(30.0, 4.0, "QUESTIONABLE", 1) == pytest.approx(28.9)
+    # out: no week term, ros scaled to the games after return
+    assert season.add_score(34.0, 4.0, "OUT", 1) == pytest.approx(34.0 * 16 / 17)
+
+
+def fa(pid, name, pos, week_proj, season_proj, injury="ACTIVE"):
+    return P(pid, name, pos, week_proj, "FA", injury=injury, season_proj=season_proj)
+
+
+def test_waiver_deltas_against_roster_and_pool():
+    mine = roster()
+    frees = [fa(100, "FA RB hot", "RB", 17, 200), fa(101, "FA RB cold", "RB", 5, 60),
+             fa(102, "FA QB", "QB", 19, 300)]
+    # a big free pool so replacement is well below my players
+    filler = [fa(200 + i, f"fill RB{i}", "RB", 3, 40 - i) for i in range(40)]
+    pool = mine + frees + filler
+    rows = season.waiver_deltas(frees, mine, pool, TWO_QB, week=1)
+    hot = next(r for r in rows if r["name"] == "FA RB hot")
+    cold = next(r for r in rows if r["name"] == "FA RB cold")
+    # my weakest non-IR RB by ROS is RB D (10*17 = 170); hot gains 30 vs roster
+    assert hot["delta_roster"] == pytest.approx(200 - 170)
+    assert hot["would_start"] is True and hot["week_delta"] == pytest.approx(17 - 10), "displaces RB D (10) in flex"
+    assert hot["add"] == pytest.approx(30 + 7)
+    assert cold["would_start"] is False and cold["week_delta"] == 0.0
+    assert cold["delta_roster"] < 0
+    assert rows[0]["name"] == "FA RB hot" or rows[0]["name"] == "FA QB"
+    assert [r["add"] for r in rows] == sorted((r["add"] for r in rows), reverse=True)
+    assert set(rows[0]) >= {"ros_proj", "week_proj", "delta_roster", "delta_pool", "would_start", "week_delta", "add"}
+
+
+def test_delta_uses_the_higher_of_roster_and_pool_replacement():
+    mine = roster()
+    frees = [fa(100, "FA RB", "RB", 12, 150)]
+    # the pool is only my roster + this FA: replacement index lands high, above my weakest
+    rows = season.waiver_deltas(frees, mine, mine + frees, TWO_QB, week=1)
+    r = rows[0]
+    assert r["delta_pool"] != r["delta_roster"]
+    assert r["add"] == pytest.approx(min(r["delta_roster"], r["delta_pool"]) + r["week_delta"])
