@@ -47,10 +47,19 @@ def fact_hash(card: dict) -> str:
 
 
 def _kickoff_text(card: dict) -> str:
+    """A missing kickoff is only a bye when the card says so — ESPN also leaves it empty
+    for a player it has no schedule entry for, and calling that a bye puts a false fact on the sheet."""
     k = card.get("kickoff")
     if not k:
-        return "no game (bye)"
+        return "no game (bye)" if card.get("bye") else "not scheduled"
     return datetime.fromisoformat(k).strftime("%A %-I:%M %p")
+
+
+def _opponent_text(card: dict) -> str:
+    o = card.get("opponent")
+    if o:
+        return o
+    return "none (bye)" if card.get("bye") else "not scheduled"
 
 
 def fact_sheet(card: dict, week: int) -> str:
@@ -58,7 +67,7 @@ def fact_sheet(card: dict, week: int) -> str:
     lines = [
         f"Week {week} fact sheet",
         f"Player: {card['name']}, {card['pos']}, {card['team']}",
-        f"Opponent: {card.get('opponent') or 'none (bye)'}; kickoff: {_kickoff_text(card)}",
+        f"Opponent: {_opponent_text(card)}; kickoff: {_kickoff_text(card)}",
         f"This week's projection: {card.get('proj')} points (ESPN {card.get('proj_espn')}, "
         f"Sleeper {card.get('proj_sleeper')}, spread {card.get('spread')})",
         f"Season projection: {card.get('season_proj')}",

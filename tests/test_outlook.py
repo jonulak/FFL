@@ -48,6 +48,13 @@ def test_fact_sheet_on_a_bye_says_so():
     assert "none (bye)" in sheet and "no game" in sheet
 
 
+def test_fact_sheet_without_a_schedule_is_not_a_bye():
+    """ESPN leaves opponent/kickoff empty for an unscheduled player too; that is not a bye week."""
+    sheet = outlook.fact_sheet(card(bye=False, opponent=None, kickoff=None), 2)
+    assert "not scheduled" in sheet
+    assert "bye" not in sheet.lower()
+
+
 def test_load_and_save_round_trip_and_tolerate_a_missing_or_corrupt_file(outlook_dir):
     assert outlook.load(2) == {}
     outlook.save(2, {1: {"hash": "abc", "text": "t", "generated_at": "2026-09-10T09:00"}})
