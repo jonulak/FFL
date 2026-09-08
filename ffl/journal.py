@@ -25,10 +25,12 @@ def sync_transactions(lg):
     if TX_CSV.exists():
         with TX_CSV.open() as f:
             existing = {r["id"] for r in csv.DictReader(f)}
+    # header on a missing/empty file only — an existing header-only file must not get a second one
+    write_header = not TX_CSV.exists() or TX_CSV.stat().st_size == 0
     new = 0
     with TX_CSV.open("a", newline="") as f:
         w = csv.writer(f)
-        if not existing:
+        if write_header:
             w.writerow(["id", "date", "type", "team", "player", "action", "bid", "reasoning"])
         for act in lg.recent_activity(size=100):
             for team, action, player, bid in act.actions:

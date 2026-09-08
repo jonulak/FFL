@@ -31,3 +31,16 @@ def test_sync_results_creates_results_dir(monkeypatch, tmp_path):
     assert weekly.exists() and standings.exists()
     assert weekly.read_text().startswith("week,opponent,my_score,opp_score,result")
     assert "Me (me)" in standings.read_text()
+
+
+def test_sync_transactions_writes_header_once(monkeypatch, tmp_path):
+    """The UI's Refresh button syncs on every click; a header-only file must not grow headers."""
+    tx = tmp_path / "transactions.csv"
+    monkeypatch.setattr(journal, "TX_CSV", tx)
+    lg = SimpleNamespace(recent_activity=lambda size=100: [])
+
+    journal.sync_transactions(lg)
+    journal.sync_transactions(lg)
+
+    lines = tx.read_text().splitlines()
+    assert lines == ["id,date,type,team,player,action,bid,reasoning"]
