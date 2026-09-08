@@ -1,6 +1,7 @@
 """The queue file is edited between turns, sometimes seconds before a pick, so its parsing
 has to be forgiving of comments and blank lines and exact about which picks a section covers.
 """
+from ffl import autodraft
 from ffl.autodraft import candidates, parse_queue
 
 QUEUE = """
@@ -32,7 +33,9 @@ def test_pick_range_section_is_inclusive():
     assert (3052587, "Baker Mayfield") not in parse_queue(QUEUE, 121)
 
 
-def test_candidates_put_the_queue_first_then_the_table():
+def test_candidates_put_the_queue_first_then_the_table(monkeypatch):
+    # drafted_ids() reads the live pick feed; Gibbs went 1.03 for real on 2026-09-07
+    monkeypatch.setattr(autodraft, "drafted_ids", set)
     state = {"recommend": {"top": [
         {"player_id": 1, "name": "Table Man", "score": 12.0},
         {"player_id": 4429795, "name": "Jahmyr Gibbs", "score": 30.0},  # already queued
