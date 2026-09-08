@@ -226,6 +226,14 @@ def test_parse_injuries_falls_back_to_the_long_comment():
     assert inj[42]["note"] == "The long one."
 
 
+def test_parse_injuries_survives_a_return_date_that_is_not_a_date():
+    """One bad row costs its own return date; the whole /week build must not fail on it."""
+    row = {"shortComment": "Out indefinitely.", "details": {"returnDate": "TBD", "type": "Knee"},
+           "athlete": {"links": [{"href": "https://www.espn.com/nfl/player/_/id/42/x"}]}}
+    inj = espn_season.parse_injuries({"injuries": [{"displayName": "T", "injuries": [row]}]})
+    assert inj[42] == {"return_date": None, "note": "Out indefinitely.", "body_part": "Knee"}
+
+
 def test_apply_injuries_sets_the_return_week_and_note():
     players = [espn_season.flatten_box_player(bp(playerId=CARTER)),
                espn_season.flatten_box_player(bp(playerId=BRISSETT)),
@@ -245,12 +253,13 @@ def test_apply_injuries_without_week1_start_keeps_only_the_notes():
 
 
 def test_week_state_attaches_injuries_to_both_sides(monkeypatch):
-    mine = season_roster()
+    mine, theirs = season_roster(), season_roster()
     mine[0]["player_id"] = CARTER
+    theirs[0]["player_id"] = LOVE
     matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
                               home_lineup=[as_box(p) for p in mine],
                               away_team=SimpleNamespace(team_id=8, team_name="Theirs"),
-                              away_lineup=[as_box(p) for p in season_roster()])
+                              away_lineup=[as_box(p) for p in theirs])
     monkeypatch.setattr(espn_season, "league", lambda: SimpleNamespace(box_scores=lambda week: [matchup], current_week=1))
     monkeypatch.setattr(espn_season, "load", lambda: {**TWO_QB, "week1_start": WEEK1.isoformat()})
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
@@ -258,7 +267,9 @@ def test_week_state_attaches_injuries_to_both_sides(monkeypatch):
                                injuries=espn_season.parse_injuries(INJ_FIXTURE))
     hurt = next(p for p in st["me"]["lineup"] if p["player_id"] == CARTER)
     assert hurt["return_week"] == 5 and hurt["injury_note"]
-    assert all(p["return_week"] is None for p in st["opp"]["lineup"]), "the opponent side gets the keys too"
+    theirs_hurt = next(p for p in st["opp"]["lineup"] if p["player_id"] == LOVE)
+    assert theirs_hurt["return_week"] == 1, "the opponent side is enriched too: 2026-09-13 is week 1"
+    assert theirs_hurt["injury_note"].startswith("Coach Mike LaFleur")
 
 
 def test_fetch_injuries_serves_the_last_good_data_then_an_empty_dict(monkeypatch):

@@ -189,6 +189,18 @@ def season_lookup(settings: dict) -> dict[int, dict]:
     return lookup
 
 
+def _return_date(raw) -> date | None:
+    """One returnDate, or None when ESPN writes something that is not a date ("TBD", "").
+
+    Eight hundred rows go through here on every fetch: one unparseable one must cost its own
+    return date, not the whole /week and /waivers build.
+    """
+    try:
+        return date.fromisoformat(raw) if raw else None
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_injuries(payload: dict) -> dict[int, dict]:
     """ESPN's public injuries feed keyed by ESPN player id (= BoxPlayer.playerId).
 
@@ -199,14 +211,13 @@ def parse_injuries(payload: dict) -> dict[int, dict]:
     out: dict[int, dict] = {}
     for team in payload.get("injuries", []):
         for row in team.get("injuries", []):
-            hrefs = (link.get("href") or "" for link in row.get("athlete", {}).get("links", []))
+            hrefs = (link.get("href") or "" for link in (row.get("athlete") or {}).get("links", []))
             pid = next((int(m.group(1)) for h in hrefs if (m := INJ_ID_RE.search(h))), None)
             if pid is None:
                 continue
             det = row.get("details") or {}
-            rd = det.get("returnDate")
             note = (row.get("shortComment") or "").strip() or (row.get("longComment") or "").strip()
-            out[pid] = {"return_date": date.fromisoformat(rd) if rd else None,
+            out[pid] = {"return_date": _return_date(det.get("returnDate")),
                         "note": note or None, "body_part": det.get("type")}
     return out
 
