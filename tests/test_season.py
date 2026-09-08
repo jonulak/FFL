@@ -111,6 +111,38 @@ def test_add_score_formula():
     assert season.add_score(34.0, 4.0, "OUT", 1) == pytest.approx(34.0 * 16 / 17)
 
 
+def test_week_of_counts_seven_day_blocks_from_week_one():
+    w1 = date(2026, 9, 8)
+    assert season.week_of(w1, w1) == 1
+    assert season.week_of(date(2026, 9, 14), w1) == 1, "the seventh day is still week 1"
+    assert season.week_of(date(2026, 9, 15), w1) == 2
+    assert season.week_of(date(2026, 10, 11), w1) == 5, "a return date lands in the week it falls in"
+
+
+def test_games_out_is_measured_from_the_current_week():
+    assert season.games_out(None, 3) is None
+    assert season.games_out(5, 1) == 4
+    assert season.games_out(5, 3) == 2
+    assert season.games_out(5, 7) == 0, "a return already past costs no games"
+
+
+def test_injury_terms_prefers_a_known_return_over_the_constant():
+    _, avail = season.injury_terms("INJURY_RESERVE", 1, games_out=2)
+    assert avail == pytest.approx(15 / 17)
+    _, avail = season.injury_terms("INJURY_RESERVE", 1, games_out=None)
+    assert avail == pytest.approx(13 / 17), "falls back to the IR constant"
+    _, avail = season.injury_terms("INJURY_RESERVE", 1, games_out=0)
+    assert avail == 1.0, "back this week: every remaining game counts"
+
+
+def test_add_score_takes_games_out_but_only_for_the_out_statuses():
+    assert season.add_score(34.0, 4.0, "INJURY_RESERVE", 1, games_out=2) == pytest.approx(34.0 * 15 / 17)
+    assert season.add_score(34.0, 4.0, "INJURY_RESERVE", 1) == pytest.approx(34.0 * 13 / 17)
+    assert season.add_score(34.0, 4.0, "INJURY_RESERVE", 1, games_out=0) == pytest.approx(34.0), "no week term even so"
+    q = season.add_score(30.0, 4.0, "QUESTIONABLE", 1)
+    assert season.add_score(30.0, 4.0, "QUESTIONABLE", 1, games_out=6) == pytest.approx(q)
+
+
 def fa(pid, name, pos, week_proj, season_proj, injury="ACTIVE"):
     return P(pid, name, pos, week_proj, "FA", injury=injury, season_proj=season_proj)
 
@@ -170,6 +202,26 @@ def test_add_uses_the_pool_arm_when_my_roster_is_thin():
     # He is the better flex than RB D (10), so week_delta = 12 - 10 = 2; add = 50 + 2.
     assert r["week_delta"] == pytest.approx(2.0)
     assert r["add"] == pytest.approx(52.0)
+
+
+def test_waiver_deltas_price_an_ir_player_off_his_return_week():
+    mine = roster()
+    known = {**fa(100, "IR back soon", "RB", 0, 200, injury="INJURY_RESERVE"),
+             "return_week": 4, "injury_note": "Expected back Week 4"}
+    unknown = {**fa(101, "IR no date", "RB", 0, 200, injury="INJURY_RESERVE"),
+               "return_week": None, "injury_note": None}
+    filler = [fa(200 + i, f"fill RB{i}", "RB", 3, 40 - i) for i in range(40)]
+    rows = season.waiver_deltas([known, unknown], mine, mine + [known, unknown] + filler, TWO_QB, week=3)
+    by_name = {r["name"]: r for r in rows}
+    left = season.NFL_WEEKS - 3
+    r = by_name["IR back soon"]
+    ros_delta = min(r["delta_roster"], r["delta_pool"])  # the two of them differ only in return_week
+    assert by_name["IR back soon"]["add"] == pytest.approx(round(ros_delta * (left - 1) / left, 1))
+    assert by_name["IR no date"]["add"] == pytest.approx(round(ros_delta * (left - 4) / left, 1))
+    assert by_name["IR back soon"]["add"] > by_name["IR no date"]["add"]
+    assert by_name["IR back soon"]["return_week"] == 4
+    assert by_name["IR back soon"]["injury_note"] == "Expected back Week 4"
+    assert by_name["IR no date"]["return_week"] is None and by_name["IR no date"]["injury_note"] is None
 
 
 def test_append_decision_writes_the_journal_block(tmp_path):

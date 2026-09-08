@@ -22,7 +22,8 @@ SLOT_ORDER = ["QB", "RB", "WR", "TE", "RB/WR/TE", "RB/WR", "WR/TE", "OP", "D/ST"
 UNPLAYABLE = {"OUT", "INJURY_RESERVE", "SUSPENSION"}
 BENCH_SLOTS = {"BE", "IR"}
 NFL_WEEKS = 18
-# ESPN publishes no return date. OUT is usually one game; IR is a four-game minimum.
+# ESPN's fantasy status carries no return date; the public injuries feed does. These are the
+# fallback for a player that feed has no date for: OUT is usually one game, IR a four-game minimum.
 GAMES_OUT = {"OUT": 1, "INJURY_RESERVE": 4, "SUSPENSION": 4}
 INJURY_FACTOR = {"QUESTIONABLE": 0.85, "DOUBTFUL": 0.7}
 
@@ -107,19 +108,31 @@ def ros_proj(season_proj: float, week: int) -> float:
     return round(float(season_proj or 0.0) * ros_fraction(week), 1)
 
 
-def injury_terms(injury: str, week: int) -> tuple[float, float]:
+def week_of(d: date, week1_start: date) -> int:
+    """The fantasy week a date falls in; week 1 is the seven days from week1_start."""
+    return (d - week1_start).days // 7 + 1
+
+
+def games_out(return_week: int | None, week: int) -> int | None:
+    """Games he still misses, counted from this week. None when no return week is known."""
+    return None if return_week is None else max(return_week - week, 0)
+
+
+def injury_terms(injury: str, week: int, games_out: int | None = None) -> tuple[float, float]:
     """(multiplier, share of the remaining games he can play)."""
     if injury in GAMES_OUT:
         left = NFL_WEEKS - week
-        avail = max(left - GAMES_OUT[injury], 0) / left if left > 0 else 0.0
+        missed = games_out if games_out is not None else GAMES_OUT[injury]
+        avail = max(left - missed, 0) / left if left > 0 else 0.0
         return 1.0, avail
     return INJURY_FACTOR.get(injury or "", 1.0), 1.0
 
 
-def add_score(ros_delta: float, week_delta: float, injury: str, week: int) -> float:
+def add_score(ros_delta: float, week_delta: float, injury: str, week: int,
+              games_out: int | None = None) -> float:
     """STRATEGY.md, "Waivers": add = (ros_delta + week_delta if he would start) × injury factor;
     OUT/IR count only the games after return and get no week term."""
-    factor, avail = injury_terms(injury, week)
+    factor, avail = injury_terms(injury, week, games_out)
     if injury in GAMES_OUT:
         return round(ros_delta * avail, 1)
     return round((ros_delta + week_delta) * factor, 1)
@@ -160,7 +173,8 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
         rows.append({**fa, "ros_proj": ros, "week_proj": playable_proj(fa), "delta_roster": d_roster,
                      "delta_pool": d_pool, "would_start": would_start,
                      "week_delta": week_delta if would_start else 0.0,
-                     "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"), week)})
+                     "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"), week,
+                                      games_out(fa.get("return_week"), week))})
     return sorted(rows, key=lambda r: -r["add"])
 
 

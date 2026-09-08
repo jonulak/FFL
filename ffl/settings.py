@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from espn_api.football.constant import POSITION_MAP, SETTINGS_SCORING_FORMAT_MAP
 
 from .config import DATA, league, raw_league_get
 
 NON_STARTER_SLOTS = {20, 21}  # bench, IR
+
+
+def nfl_week1_start(season: int) -> date:
+    """The Tuesday week 1 starts on: kickoff is the Thursday after the first Monday of September."""
+    sep1 = date(season, 9, 1)
+    first_monday = sep1 + timedelta(days=(0 - sep1.weekday()) % 7)
+    return first_monday + timedelta(days=1)  # kickoff Thursday minus two days
 
 
 def starters_by_position(slot_counts: dict[int, int]) -> dict[str, int]:
@@ -43,6 +50,7 @@ def collect() -> dict:
     return {
         "league_id": lg.league_id,
         "season": lg.year,
+        "week1_start": nfl_week1_start(lg.year).isoformat(),
         "name": s["name"],
         "team_count": s["size"],
         "scoring_type": s["scoringSettings"].get("scoringType"),
@@ -96,6 +104,7 @@ def to_markdown(d: dict) -> str:
          f"- Teams: {d['team_count']}  |  Reg season: {d['reg_season_weeks']} wks  |  Playoff teams: {d['playoff_teams']}",
          f"- Draft: {dr['type']} / order={dr['order_type']} / {when} / {dr['time_per_pick_s']}s per pick / keepers={dr['keeper_count']}",
          f"- FAAB: {d['faab']} (budget {d['faab_budget']})  |  waiver hours: {d['waiver_hours']}",
+         f"- Week 1 starts: {d['week1_start']}",
          "", "## Roster", "| Slot | Count |", "|---|---|"]
     L += [f"| {k} | {v} |" for k, v in d["roster_slots"].items()]
     L += ["", f"Starters: {d['starters']}  |  Bench: {d['bench_size']}  |  IR: {d['ir_size']}", "",
