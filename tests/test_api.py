@@ -1,7 +1,9 @@
 """API glue: caching, stale fallback, validation. espn_season is stubbed; no network."""
 import time
+from types import SimpleNamespace
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
 from ffl import api
@@ -135,3 +137,21 @@ def test_health_and_journal_and_draft(client):
     assert client.get("/health").json() == {"ok": True}
     assert client.get("/journal").json()["stale_since"] is None
     assert client.get("/draft").json()["stale_since"] is None
+
+
+def test_refresh_expires_the_injury_cache_but_keeps_the_last_good_data(client, monkeypatch):
+    """_INJ is a last-good store: Refresh must bust its TTL, not throw the data away."""
+    inj = api.espn_season
+    calls = []
+
+    def fake_get(url, **kw):
+        calls.append(url)
+        raise requests.ConnectionError("espn down")
+
+    monkeypatch.setattr(inj.requests, "get", fake_get)
+    inj._INJ[:] = [time.time() + inj.CACHE_S, {1: {"return_date": None, "note": "n", "body_part": None}}]
+    good = inj._INJ[1]
+    client.post("/refresh")
+    assert inj._INJ and inj._INJ[0] == 0.0, "expired, not cleared"
+    assert inj.fetch_injuries() == good, "ESPN down after a Refresh: the stale data still serves"
+    assert calls, "the expiry did force a refetch attempt"

@@ -206,14 +206,15 @@ def parse_injuries(payload: dict) -> dict[int, dict]:
 
     A row without a player-card link cannot be matched to a roster, so it is dropped. `Active`
     rows are kept: their comment is real news (a depth-chart move, a return to practice) even
-    though they carry no `details` and so no return date.
+    though they carry no `details` and so no return date. A team lists a player's rows
+    newest-first, so the first row for an id wins.
     """
     out: dict[int, dict] = {}
-    for team in payload.get("injuries", []):
-        for row in team.get("injuries", []):
+    for team in payload.get("injuries") or []:
+        for row in team.get("injuries") or []:
             hrefs = (link.get("href") or "" for link in (row.get("athlete") or {}).get("links", []))
             pid = next((int(m.group(1)) for h in hrefs if (m := INJ_ID_RE.search(h))), None)
-            if pid is None:
+            if pid is None or pid in out:
                 continue
             det = row.get("details") or {}
             note = (row.get("shortComment") or "").strip() or (row.get("longComment") or "").strip()
@@ -330,8 +331,9 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
         raise RuntimeError(f"no box score for team {me} in week {week}")
     my_players = apply_injuries(
         apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1)
-    rostered = apply_injuries(
-        apply_season([flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas), inj, w1)
+    # not enriched: `rostered` is only the replacement-level pool and reads season_proj alone
+    rostered = apply_season(
+        [flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas)
     out = {}
     for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
         box = [flatten_box_player(bp) for bp in lg.free_agents(week=week, size=size, position=pos)]

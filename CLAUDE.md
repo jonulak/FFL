@@ -68,6 +68,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   Judge it with `ffl.replay` on real logs, not by tuning it until a simulation looks right.
 - Projections: `proj` is the mean of ESPN (`proj_espn`, league-scored by ESPN) and Sleeper (`proj_sleeper`, raw stats rescored
   in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
+- Injury return dates come from ESPN's public NFL injuries feed (`ffl/espn_season.py::fetch_injuries`, no auth,
+  30-min cache, last-good on failure). `ffl.settings` writes `week1_start`, which `season.week_of` needs to turn a
+  return date into a week — re-run `uv run python -m ffl.settings` on the main checkout after deploying this, or the
+  feed degrades to notes only and the OUT/IR constants keep pricing.
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
   is primary; `adp_1qb` is kept for comparison.
 - **Season UI** (`web/`, Next 16 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server

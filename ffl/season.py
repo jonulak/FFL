@@ -114,8 +114,9 @@ def week_of(d: date, week1_start: date) -> int:
 
 
 def games_out(return_week: int | None, week: int) -> int | None:
-    """Games he still misses, counted from this week. None when no return week is known."""
-    return None if return_week is None else max(return_week - week, 0)
+    """Games he still misses, counted from this week. None when no return week is known — and when
+    the reported week has already passed while the status still says OUT/IR, the date is stale."""
+    return None if return_week is None or return_week <= week else return_week - week
 
 
 def injury_terms(injury: str, week: int, games_out: int | None = None) -> tuple[float, float]:

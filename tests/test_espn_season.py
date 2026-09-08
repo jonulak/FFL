@@ -234,6 +234,23 @@ def test_parse_injuries_survives_a_return_date_that_is_not_a_date():
     assert inj[42] == {"return_date": None, "note": "Out indefinitely.", "body_part": "Knee"}
 
 
+def test_parse_injuries_tolerates_null_lists():
+    """ESPN sends `"injuries": null` on a quiet day; a TypeError out of here breaks the whole build."""
+    assert espn_season.parse_injuries({"injuries": None}) == {}
+    assert espn_season.parse_injuries({"injuries": [{"displayName": "T", "injuries": None}]}) == {}
+
+
+def test_parse_injuries_keeps_the_first_row_for_a_player():
+    """A team's rows are newest-first, so the first row for an id is the current one."""
+    link = {"href": "https://www.espn.com/nfl/player/_/id/42/x"}
+    rows = [{"shortComment": "Now.", "details": {"returnDate": "2026-10-11"},
+             "athlete": {"links": [link]}},
+            {"shortComment": "Older.", "details": {"returnDate": "2026-09-13"},
+             "athlete": {"links": [link]}}]
+    inj = espn_season.parse_injuries({"injuries": [{"displayName": "T", "injuries": rows}]})
+    assert inj[42]["return_date"] == date(2026, 10, 11) and inj[42]["note"] == "Now."
+
+
 def test_apply_injuries_sets_the_return_week_and_note():
     players = [espn_season.flatten_box_player(bp(playerId=CARTER)),
                espn_season.flatten_box_player(bp(playerId=BRISSETT)),

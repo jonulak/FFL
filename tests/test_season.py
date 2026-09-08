@@ -123,7 +123,8 @@ def test_games_out_is_measured_from_the_current_week():
     assert season.games_out(None, 3) is None
     assert season.games_out(5, 1) == 4
     assert season.games_out(5, 3) == 2
-    assert season.games_out(5, 7) == 0, "a return already past costs no games"
+    assert season.games_out(5, 7) is None, "a return already past is a stale date: fall back to the constant"
+    assert season.games_out(5, 5) is None, "back this week, still OUT: the date is stale too"
 
 
 def test_injury_terms_prefers_a_known_return_over_the_constant():

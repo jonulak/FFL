@@ -165,7 +165,8 @@ def refresh():
     # the Sleeper-week, season-projection and injury caches live in espn_season; Refresh busts those too
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
-    espn_season._INJ.clear()
+    if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
+        espn_season._INJ[0] = 0.0
     try:
         synced = sync_all()
     except HTTPException:
