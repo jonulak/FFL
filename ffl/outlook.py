@@ -109,3 +109,93 @@ def attach(cards: list[dict], entries: dict[int, dict]) -> list[dict]:
         out.append({**c, "outlook": e["text"] if e else None, "outlook_at": e["generated_at"] if e else None,
                     "outlook_stale": bool(e) and e["hash"] != fact_hash(c)})
     return out
+
+
+def parse_envelope(stdout: str) -> str:
+    """The outlook string out of `claude -p --output-format json`.
+
+    The envelope is one JSON object: `is_error` + `result` on failure ("Not logged in …"),
+    `structured_output` holding the schema'd object on success; older CLIs put that JSON in
+    `result` instead.
+    """
+    d = json.loads(stdout)
+    if d.get("is_error"):
+        raise RuntimeError(f"claude: {d.get('result')}")
+    out = d.get("structured_output")
+    if not isinstance(out, dict):
+        out = json.loads(d.get("result") or "{}")
+    text = str(out.get("outlook") or "").strip()
+    if not text:
+        raise RuntimeError("claude returned no outlook")
+    return text
+
+
+def run_claude(prompt: str) -> str:
+    """One outlook through the Claude Code CLI: Opus, tools off, structured output, the sheet on stdin."""
+    exe = shutil.which("claude")
+    if not exe:
+        raise RuntimeError("claude CLI not on PATH")
+    # Run from inside a Claude Code session, the CLI answers "Not logged in" — its CLAUDE* variables
+    # mark a nested session. Dropping them is harmless under launchd, where they never exist.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    r = subprocess.run([exe, "-p", "--bare", "--model", MODEL, "--tools", "", "--no-session-persistence",
+                        "--output-format", "json", "--json-schema", json.dumps(SCHEMA)],
+                       input=prompt, capture_output=True, text=True, timeout=TIMEOUT_S, env=env)
+    if r.returncode != 0:
+        raise RuntimeError(f"claude exited {r.returncode}: {r.stderr.strip()[:200]}")
+    return parse_envelope(r.stdout)
+
+
+def pending(cards: list[dict], entries: dict[int, dict]) -> list[dict]:
+    """Cards a run would write: not played, not IR/BYE, and no entry with the current hash."""
+    out = []
+    for c in cards:
+        old = entries.get(c["player_id"])
+        if c.get("game_played") or c.get("call") in SKIP_CALLS or (old and old["hash"] == fact_hash(c)):
+            continue
+        out.append(c)
+    return out
+
+
+def generate(cards: list[dict], week: int, run=run_claude, now: datetime | None = None) -> dict:
+    """Write text for every pending card, one CLI call each, in order. A failed call keeps the old
+    entry and moves on; the file is written once at the end, so a run that dies keeps nothing."""
+    entries = load(week)
+    todo = pending(cards, entries)
+    counts = {"generated": 0, "skipped": len(cards) - len(todo), "failed": 0}
+    for c in todo:
+        try:
+            text = run(fact_sheet(c, week))
+        except Exception:  # noqa: BLE001 — a missing CLI, a timeout or bad JSON costs one card, not the run
+            counts["failed"] += 1
+            continue
+        entries[c["player_id"]] = {"hash": fact_hash(c), "text": text,
+                                   "generated_at": (now or datetime.now()).isoformat(timespec="minutes")}
+        counts["generated"] += 1
+    save(week, entries)
+    return counts
+
+
+def running() -> bool:
+    return LOCK.locked()
+
+
+def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
+    """Run generate() on a daemon thread under LOCK; Busy when one is already running.
+
+    POST /outlook/refresh cannot wait: a week rollover is a dozen serial Opus calls and the
+    page's fetch gives up at twenty seconds. LAST carries the finished run's counts to the page.
+    """
+    if not LOCK.acquire(blocking=False):
+        raise Busy("outlook refresh already running")
+
+    def work():
+        try:
+            counts = generate(cards, week, run=run)
+            LAST.update(counts, at=datetime.now().isoformat(timespec="minutes"))
+        finally:
+            LOCK.release()
+
+    t = threading.Thread(target=work, name="outlook", daemon=True)
+    t.start()
+    return t

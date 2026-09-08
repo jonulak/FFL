@@ -74,3 +74,99 @@ def test_attach_marks_stale_when_the_facts_moved():
     assert (b["outlook"], b["outlook_stale"]) == ("old", True)
     n, = outlook.attach([c], {})
     assert (n["outlook"], n["outlook_at"], n["outlook_stale"]) == (None, None, False)
+
+
+def test_generate_skips_matched_played_and_ir_bye_and_keeps_old_text_on_failure(outlook_dir):
+    cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, call="IR", group="ir"),
+             card(player_id=4, name="Fails"), card(player_id=5, name="New")]
+    outlook.save(2, {1: {"hash": outlook.fact_hash(cards[0]), "text": "same", "generated_at": "x"},
+                     4: {"hash": "old", "text": "kept", "generated_at": "y"}})
+    seen = []
+
+    def run(prompt):
+        seen.append(prompt)
+        if "Fails" in prompt:
+            raise RuntimeError("claude exited 1")
+        return "fresh text"
+
+    from datetime import datetime
+    counts = outlook.generate(cards, 2, run=run, now=datetime(2026, 9, 10, 9, 30))
+    assert counts == {"generated": 1, "skipped": 3, "failed": 1}
+    assert len(seen) == 2 and all("Week 2" in p for p in seen)
+    got = outlook.load(2)
+    assert got[1]["text"] == "same"
+    assert got[4] == {"hash": "old", "text": "kept", "generated_at": "y"}
+    assert got[5] == {"hash": outlook.fact_hash(cards[4]), "text": "fresh text", "generated_at": "2026-09-10T09:30"}
+    assert 2 not in got and 3 not in got
+
+
+def test_pending_lists_only_the_cards_a_run_would_write():
+    cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, call="BYE")]
+    assert [c["player_id"] for c in outlook.pending(cards, {})] == [1]
+    assert outlook.pending(cards, {1: {"hash": outlook.fact_hash(cards[0]), "text": "t", "generated_at": "x"}}) == []
+
+
+def test_start_runs_in_the_background_under_the_lock_and_records_last(outlook_dir):
+    gate = threading.Event()
+
+    def run(prompt):
+        gate.wait(5)
+        return "done"
+
+    t = outlook.start([card()], 2, run=run)
+    assert outlook.running() is True
+    with pytest.raises(outlook.Busy):
+        outlook.start([card()], 2, run=run)
+    gate.set()
+    t.join(5)
+    assert outlook.running() is False
+    assert outlook.LAST["generated"] == 1 and outlook.LAST["at"] is not None
+    assert outlook.load(2)[1]["text"] == "done"
+
+
+def test_start_releases_the_lock_when_the_run_raises(outlook_dir, monkeypatch):
+    monkeypatch.setattr(outlook, "generate", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    t = outlook.start([card()], 2, run=lambda p: "x")
+    t.join(5)
+    assert outlook.running() is False
+
+
+def test_parse_envelope_reads_structured_output_and_refuses_errors():
+    ok = json.dumps({"type": "result", "is_error": False, "result": "{\"outlook\": \"ignored\"}",
+                     "structured_output": {"outlook": "  He starts.  "}})
+    assert outlook.parse_envelope(ok) == "He starts."
+    older = json.dumps({"type": "result", "is_error": False, "result": "{\"outlook\": \"From result\"}"})
+    assert outlook.parse_envelope(older) == "From result"
+    with pytest.raises(RuntimeError, match="Not logged in"):
+        outlook.parse_envelope(json.dumps({"is_error": True, "result": "Not logged in · Please run /login"}))
+    with pytest.raises(RuntimeError):
+        outlook.parse_envelope(json.dumps({"is_error": False, "structured_output": {"outlook": ""}}))
+
+
+def test_run_claude_invokes_the_cli_exactly(monkeypatch):
+    calls = {}
+
+    class R:
+        returncode = 0
+        stdout = json.dumps({"is_error": False, "structured_output": {"outlook": "ok"}})
+        stderr = ""
+
+    def fake_run(args, **kw):
+        calls["args"], calls["kw"] = args, kw
+        return R()
+
+    monkeypatch.setattr(outlook.shutil, "which", lambda name: "/Users/x/.local/bin/claude")
+    monkeypatch.setattr(outlook.subprocess, "run", fake_run)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert outlook.run_claude("the sheet") == "ok"
+    assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--bare", "--model", "opus", "--tools", "",
+                             "--no-session-persistence", "--output-format", "json",
+                             "--json-schema", json.dumps(outlook.SCHEMA)]
+    assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 120
+    assert "CLAUDECODE" not in calls["kw"]["env"]
+
+
+def test_run_claude_without_the_cli_raises(monkeypatch):
+    monkeypatch.setattr(outlook.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="claude CLI"):
+        outlook.run_claude("x")
