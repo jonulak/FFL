@@ -6,17 +6,21 @@ pure seams the tests cover.
 from __future__ import annotations
 
 import csv
+import time
 
 import requests
 
 from . import season as S
 from .adp import norm_name
 from .config import JOURNAL, MY_TEAM_ID, SEASON, SWID, league
+from .players import fetch_pool
 from .settings import key_scoring, load
-from .sleeper import TEAM_FIX, score
+from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
 
 SLEEPER_WEEK = "https://api.sleeper.app/projections/nfl/{season}/{week}"
 SLEEPER_POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
+CACHE_S = 1800
+_SEASON_CACHE: list = []  # [fetched_at, lookup]
 
 
 def flatten_box_player(bp, season_proj: float | None = None) -> dict:
@@ -106,8 +110,59 @@ def build_side(team, players: list[dict], settings: dict) -> dict:
             "actual_total": round(sum(p["actual"] for p in lineup), 1)}
 
 
+def merge_season(espn_rows: list[dict], sleeper) -> dict[int, dict]:
+    """Season projections by ESPN player id, averaged across sources like board.merge_sleeper.
+
+    Non-D/ST match on (normalised name, position); D/ST on team, with ESPN's abbreviation
+    normalised through TEAM_FIX. An ESPN 0 is a placeholder row, not a projection.
+    """
+    rows = sleeper.to_dict("records") if hasattr(sleeper, "to_dict") else list(sleeper)
+    by_name = {(r["key"], r["pos"]): r["proj_sleeper"] for r in rows if r["pos"] != "D/ST"}
+    by_team = {r["team"]: r["proj_sleeper"] for r in rows if r["pos"] == "D/ST"}
+    out: dict[int, dict] = {}
+    for row in espn_rows:
+        team = TEAM_FIX.get(row["team"], row["team"])
+        sl = by_team.get(team) if row["pos"] == "D/ST" else by_name.get((norm_name(row["name"]), row["pos"]))
+        espn = row["proj"] if (row.get("proj") or 0) > 0 else None
+        have = [float(x) for x in (espn, sl) if x is not None]
+        out[row["player_id"]] = {"season_proj": round(sum(have) / len(have), 1) if have else 0.0,
+                                 "season_proj_sleeper": float(sl) if sl is not None else None}
+    return out
+
+
+def apply_season(players: list[dict], lookup: dict[int, dict]) -> list[dict]:
+    """Season projections from the full-pool lookup, where it has the player.
+
+    box_scores comes from ESPN's mMatchupScore view, which carries only weekly stats — every
+    BoxPlayer's projected_total_points is 0 there — so the flattened value is only a fallback.
+    """
+    out = []
+    for p in players:
+        q = dict(p)
+        got = lookup.get(p["player_id"])
+        if got:
+            q["season_proj"] = got["season_proj"]
+            q["season_proj_sleeper"] = got["season_proj_sleeper"]
+        out.append(q)
+    return out
+
+
+def season_lookup(settings: dict) -> dict[int, dict]:
+    """The whole player pool's season projections, cached for CACHE_S (one ESPN + one Sleeper call)."""
+    now = time.time()
+    if _SEASON_CACHE and now - _SEASON_CACHE[0] < CACHE_S:
+        return _SEASON_CACHE[1]
+    lookup = merge_season(fetch_pool(), fetch_sleeper_season())
+    _SEASON_CACHE[:] = [now, lookup]
+    return lookup
+
+
 def _sleeper_for(week: int, settings: dict) -> dict:
     return fetch_sleeper_week(week, key_scoring(settings["scoring"]))
+
+
+def _season_for(settings: dict, season: dict | None) -> dict:
+    return season if season is not None else season_lookup(settings)
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:
@@ -120,12 +175,13 @@ def _boxes_by_team(lg, week: int) -> dict[int, list]:
     return out
 
 
-def week_state(week: int | None = None, sleeper: dict | None = None) -> dict:
+def week_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None) -> dict:
     lg = league()
     settings = load()
     week = week or lg.current_week
     me = my_team_id(lg)
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
+    seas = _season_for(settings, season)
     for m in lg.box_scores(week):
         sides = [(m.home_team, m.home_lineup), (m.away_team, m.away_lineup)]
         if not any(getattr(t, "team_id", None) == me for t, _ in sides):
@@ -134,26 +190,29 @@ def week_state(week: int | None = None, sleeper: dict | None = None) -> dict:
         for t, lineup in sides:
             if not hasattr(t, "team_id"):
                 continue  # a bye or placeholder side: no opponent to build
-            players = merge_weekly([flatten_box_player(bp) for bp in lineup], sl)
+            players = apply_season(merge_weekly([flatten_box_player(bp) for bp in lineup], sl), seas)
             built["me" if t.team_id == me else "opp"] = build_side(t, players, settings)
         return {"week": week, "live": S.is_live(), "me": built["me"], "opp": built.get("opp"), "stale": None}
     raise RuntimeError(f"no matchup for team {me} in week {week}")
 
 
-def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None) -> dict:
+def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None,
+                    season: dict | None = None) -> dict:
     lg = league()
     settings = load()
     week = week or lg.current_week
     me = my_team_id(lg)
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
+    seas = _season_for(settings, season)
     boxes = _boxes_by_team(lg, week)
     if me not in boxes:
         raise RuntimeError(f"no box score for team {me} in week {week}")
-    my_players = merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl)
-    rostered = [flatten_box_player(bp) for lineup in boxes.values() for bp in lineup]
+    my_players = apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas)
+    rostered = apply_season([flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas)
     out = {}
     for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
-        frees = merge_weekly([flatten_box_player(bp) for bp in lg.free_agents(week=week, size=size, position=pos)], sl)
+        frees = apply_season(
+            merge_weekly([flatten_box_player(bp) for bp in lg.free_agents(week=week, size=size, position=pos)], sl), seas)
         for f in frees:
             f["slot"] = "FA"
         out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, week)

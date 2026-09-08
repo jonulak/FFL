@@ -1,6 +1,8 @@
 """Flattening espn-api objects and merging Sleeper's weekly projections (no network)."""
 from types import SimpleNamespace
 
+import pandas as pd
+
 from ffl import espn_season
 from tests.test_season import TWO_QB, roster as season_roster
 
@@ -85,6 +87,37 @@ def test_build_side_splits_lineup_bench_ir_and_diffs():
     assert side["actual_total"] == 0.0
 
 
+SEASON_ESPN = [{"player_id": 1, "name": "Jalen Hurts", "pos": "QB", "team": "PHI", "proj": 380.0},
+               {"player_id": 2, "name": "No Sleeper Row", "pos": "WR", "team": "NYJ", "proj": 100.0},
+               {"player_id": 3, "name": "Commanders D/ST", "pos": "D/ST", "team": "WSH", "proj": 90.0},
+               {"player_id": 4, "name": "Zero Guy", "pos": "TE", "team": "DAL", "proj": 0.0}]
+SEASON_SLEEPER = [{"key": "jalen hurts", "pos": "QB", "team": "PHI", "proj_sleeper": 360.0},
+                  {"key": "commanders dst", "pos": "D/ST", "team": "WAS", "proj_sleeper": 80.0},
+                  {"key": "zero guy", "pos": "TE", "team": "DAL", "proj_sleeper": 150.0}]
+
+
+def test_merge_season_averages_sources_and_matches_dst_on_team():
+    out = espn_season.merge_season(SEASON_ESPN, SEASON_SLEEPER)
+    assert out[1] == {"season_proj": 370.0, "season_proj_sleeper": 360.0}
+    assert out[2] == {"season_proj": 100.0, "season_proj_sleeper": None}, "a Sleeper miss keeps ESPN alone"
+    assert out[3]["season_proj"] == 85.0, "ESPN WSH D/ST matches Sleeper WAS on team"
+    assert out[4]["season_proj"] == 150.0, "an ESPN 0 is a placeholder, not a projection"
+
+
+def test_merge_season_takes_a_dataframe_too():
+    out = espn_season.merge_season(SEASON_ESPN, pd.DataFrame(SEASON_SLEEPER))
+    assert out[1]["season_proj"] == 370.0 and out[3]["season_proj"] == 85.0
+
+
+def test_apply_season_overrides_only_the_ids_it_knows():
+    players = [espn_season.flatten_box_player(bp(playerId=1)),
+               espn_season.flatten_box_player(bp(playerId=99))]
+    out = espn_season.apply_season(players, {1: {"season_proj": 370.0, "season_proj_sleeper": 360.0}})
+    assert out[0]["season_proj"] == 370.0 and out[0]["season_proj_sleeper"] == 360.0
+    assert out[1]["season_proj"] == 320.5, "an unknown id keeps the flattened fallback"
+    assert players[0]["season_proj"] == 320.5, "pure: the input list is untouched"
+
+
 def as_box(p):
     """A roster dict from tests.test_season back as the espn-api object flatten reads."""
     return SimpleNamespace(playerId=p["player_id"], name=p["name"], position=p["pos"],
@@ -102,6 +135,6 @@ def test_week_state_gives_no_opponent_on_a_bye(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.week_state(week=1, sleeper={})
+    st = espn_season.week_state(week=1, sleeper={}, season={})
     assert st["week"] == 1 and st["opp"] is None and st["stale"] is None
     assert st["me"]["team"] == "Mine" and len(st["me"]["lineup"]) == 11
