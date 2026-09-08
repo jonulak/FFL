@@ -11,6 +11,7 @@ POST /refresh runs the journal sync. Every GET is read-only.
 from __future__ import annotations
 
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Callable, Literal
 
@@ -56,7 +57,30 @@ class Cache:
 
 
 cache = Cache(TTL)
-app = FastAPI(title="FFL season API")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # The journal is the durable record: the API reads and appends to it, and never creates it.
+    # Booting without it would mean a 500 on /journal and a silent new file on the first
+    # decision, so refuse to start instead. Read the module global so tests can repoint it.
+    if not DECISIONS.exists():
+        raise RuntimeError(f"journal decisions log missing: {DECISIONS} (the API never creates it)")
+    yield
+
+
+app = FastAPI(title="FFL season API", lifespan=lifespan)
+
+
+def _journal_serve(fn: Callable[[], dict]) -> dict:
+    """Journal reads/writes are local files, but a missing or unreadable one must still come back
+    in the shape the UI's error card expects, never as a bare 500 traceback."""
+    try:
+        return fn()
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 — any journal failure is reported like a source failure
+        raise HTTPException(status_code=502, detail={"source": "journal", "error": str(e)})
 
 
 def _serve(key: str, fn: Callable[[], dict]) -> dict:
@@ -93,7 +117,7 @@ def league_():
 
 @app.get("/journal")
 def journal_():
-    return {**espn_season.journal_state(), "stale_since": None}
+    return {**_journal_serve(espn_season.journal_state), "stale_since": None}
 
 
 @app.get("/draft")
@@ -117,13 +141,16 @@ class Decision(BaseModel):
 
 @app.post("/decisions")
 def post_decision(d: Decision):
-    text = season.append_decision(DECISIONS, d.title, d.decision, d.reasoning, d.alternatives)
+    text = _journal_serve(
+        lambda: season.append_decision(DECISIONS, d.title, d.decision, d.reasoning, d.alternatives))
     return {"decisions_md": text}
 
 
 def sync_all() -> dict:
-    from .config import league
-    lg = league()
+    # espn_api caches current_week and the records in League.__init__; a months-old League would
+    # make sync_results rewrite journal/results/weekly.csv truncated to the boot week.
+    espn_season.refresh_league()
+    lg = espn_season.fresh_league()
     settings = load()
     sync_transactions(lg)
     sync_results(lg, settings)
@@ -132,9 +159,16 @@ def sync_all() -> dict:
 
 @app.post("/refresh")
 def refresh():
-    cache.clear()
+    # expire_all, not clear: a refresh while ESPN is down must still leave the stale payloads
+    # behind for the fallback to serve, flagged — never a blank page on Sunday.
+    cache.expire_all()
     # the Sleeper-week and season-projection caches live in espn_season; Refresh must bust those too
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
-    synced = sync_all()
+    try:
+        synced = sync_all()
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 — an ESPN failure is a 502, not a bare traceback
+        raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
     return {"synced": synced, "at": datetime.now().strftime("%H:%M")}
