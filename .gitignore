@@ -16,3 +16,6 @@ data-mock/
 # bd's cross-process gate lock, written to the repo root as `.beads.gate.lock`
 # (plus suffixed variants) rather than under .beads/, so the patterns above miss it.
 *.gate.lock*
+web/node_modules/
+web/.next/
+web/openapi.json
