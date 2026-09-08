@@ -26,7 +26,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
         add = projected points gained this season (STRATEGY.md, Waivers). Δ roster = ROS vs my
         weakest at the position; Δ pool = ROS vs league replacement.
       </p>
-      <WaiverTable rows={data.rows} />
+      <WaiverTable rows={data.rows} week={data.week} />
     </div>
   );
 }

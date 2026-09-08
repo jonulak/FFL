@@ -11,3 +11,8 @@ export function injuryTone(status: string): "ok" | "warn" | "bad" {
   if (status === "OUT" || status === "INJURY_RESERVE" || status === "SUSPENSION") return "bad";
   return "ok";
 }
+
+// ESPN's injury status, plus the week the player is expected back while that is still ahead of us.
+export function injuryLabel(status: string, returnWeek: number | null, week: number): string {
+  return returnWeek != null && returnWeek > week ? `${status} · wk ${returnWeek}` : status;
+}

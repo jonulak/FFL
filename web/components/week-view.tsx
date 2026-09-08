@@ -2,12 +2,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Player, Side, Week } from "@/lib/api";
-import { injuryTone, pts, signed } from "@/lib/format";
+import { injuryLabel, injuryTone, pts, signed } from "@/lib/format";
 import { StaleBadge } from "./stale-badge";
 
 const TONE = { ok: "secondary", warn: "outline", bad: "destructive" } as const;
 
-function Row({ p }: { p: Player }) {
+function Row({ p, week }: { p: Player; week: number }) {
   return (
     <TableRow className={p.bye || injuryTone(p.injury) === "bad" ? "opacity-60" : ""}>
       <TableCell className="font-mono text-xs">{p.slot}</TableCell>
@@ -19,7 +19,11 @@ function Row({ p }: { p: Player }) {
         </div>
       </TableCell>
       <TableCell>
-        {p.injury !== "ACTIVE" && <Badge variant={TONE[injuryTone(p.injury)]}>{p.injury}</Badge>}
+        {p.injury !== "ACTIVE" && (
+          <Badge variant={TONE[injuryTone(p.injury)]} title={p.injury_note ?? undefined}>
+            {injuryLabel(p.injury, p.return_week, week)}
+          </Badge>
+        )}
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {pts(p.proj)}
@@ -34,7 +38,7 @@ function Row({ p }: { p: Player }) {
   );
 }
 
-function SideCard({ side, title }: { side: Side; title: string }) {
+function SideCard({ side, title, week }: { side: Side; title: string; week: number }) {
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-x-2">
@@ -57,9 +61,9 @@ function SideCard({ side, title }: { side: Side; title: string }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {side.lineup.map((p) => <Row key={p.player_id} p={p} />)}
-            {side.bench.map((p) => <Row key={p.player_id} p={p} />)}
-            {side.ir.map((p) => <Row key={p.player_id} p={p} />)}
+            {side.lineup.map((p) => <Row key={p.player_id} p={p} week={week} />)}
+            {side.bench.map((p) => <Row key={p.player_id} p={p} week={week} />)}
+            {side.ir.map((p) => <Row key={p.player_id} p={p} week={week} />)}
           </TableBody>
         </Table>
         {side.optimal_swaps.length > 0 && (
@@ -90,8 +94,8 @@ export function WeekView({ data }: { data: Week }) {
         <StaleBadge since={data.stale_since} />
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <SideCard side={data.me} title="Me" />
-        {data.opp && <SideCard side={data.opp} title="Opponent" />}
+        <SideCard side={data.me} title="Me" week={data.week} />
+        {data.opp && <SideCard side={data.opp} title="Opponent" week={data.week} />}
       </div>
     </div>
   );

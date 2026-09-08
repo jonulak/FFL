@@ -1,10 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { WaiverRow } from "@/lib/api";
-import { injuryTone, pts, signed } from "@/lib/format";
+import { injuryLabel, injuryTone, pts, signed } from "@/lib/format";
 
 // Rows are rendered in the order the API returns them (by `add`); never re-sort here.
-export function WaiverTable({ rows }: { rows: WaiverRow[] }) {
+export function WaiverTable({ rows, week }: { rows: WaiverRow[]; week: number }) {
   return (
     <div className="overflow-x-auto">
       <Table>
@@ -26,8 +26,11 @@ export function WaiverTable({ rows }: { rows: WaiverRow[] }) {
                 <div className="flex flex-wrap items-center gap-1.5 font-medium">
                   <span className="whitespace-nowrap">{r.name}</span>
                   {r.injury !== "ACTIVE" && (
-                    <Badge variant={injuryTone(r.injury) === "bad" ? "destructive" : "outline"}>
-                      {r.injury}
+                    <Badge
+                      variant={injuryTone(r.injury) === "bad" ? "destructive" : "outline"}
+                      title={r.injury_note ?? undefined}
+                    >
+                      {injuryLabel(r.injury, r.return_week, week)}
                     </Badge>
                   )}
                 </div>
