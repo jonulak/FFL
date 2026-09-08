@@ -136,5 +136,60 @@ def test_week_state_gives_no_opponent_on_a_bye(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     st = espn_season.week_state(week=1, sleeper={}, season={})
-    assert st["week"] == 1 and st["opp"] is None and st["stale"] is None
+    assert st["week"] == 1 and st["opp"] is None
+    assert "stale" not in st, "the freshness flag is stale_since, added by the API's cache"
     assert st["me"]["team"] == "Mine" and len(st["me"]["lineup"]) == 11
+
+
+class FakeLeagueFactory:
+    """Stands in for config.league: an lru_cache'd callable with a cache_clear()."""
+
+    def __init__(self):
+        self.builds = 0
+        self.cleared = 0
+        self.cached = None
+
+    def __call__(self):
+        if self.cached is None:
+            self.builds += 1
+            self.cached = SimpleNamespace(current_week=self.builds)
+        return self.cached
+
+    def cache_clear(self):
+        self.cleared += 1
+        self.cached = None
+
+
+def test_fresh_league_reuses_the_league_inside_the_ttl(monkeypatch):
+    fake = FakeLeagueFactory()
+    monkeypatch.setattr(espn_season, "league", fake)
+    monkeypatch.setattr(espn_season, "_LEAGUE_BUILT_AT", 0.0)
+    now = [1_000_000.0]
+    monkeypatch.setattr(espn_season.time, "time", lambda: now[0])
+    assert espn_season.fresh_league().current_week == 1
+    now[0] += espn_season.LEAGUE_TTL_S - 1
+    assert espn_season.fresh_league().current_week == 1
+    assert fake.builds == 1 and fake.cleared == 1, "one build, one clear on the very first call"
+
+
+def test_fresh_league_rebuilds_after_the_ttl(monkeypatch):
+    """espn_api reads current_week in League.__init__, so a launchd process that lives for
+    months would sit on the boot week forever without this."""
+    fake = FakeLeagueFactory()
+    monkeypatch.setattr(espn_season, "league", fake)
+    monkeypatch.setattr(espn_season, "_LEAGUE_BUILT_AT", 0.0)
+    now = [1_000_000.0]
+    monkeypatch.setattr(espn_season.time, "time", lambda: now[0])
+    assert espn_season.fresh_league().current_week == 1
+    now[0] += espn_season.LEAGUE_TTL_S + 1
+    assert espn_season.fresh_league().current_week == 2
+    assert fake.builds == 2
+
+
+def test_refresh_league_forces_the_next_build(monkeypatch):
+    fake = FakeLeagueFactory()
+    monkeypatch.setattr(espn_season, "league", fake)
+    monkeypatch.setattr(espn_season, "_LEAGUE_BUILT_AT", 0.0)
+    espn_season.fresh_league()
+    espn_season.refresh_league()
+    assert espn_season.fresh_league().current_week == 2, "POST /refresh must not wait out the TTL"

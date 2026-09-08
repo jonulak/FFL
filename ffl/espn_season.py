@@ -20,8 +20,33 @@ from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
 SLEEPER_WEEK = "https://api.sleeper.app/projections/nfl/{season}/{week}"
 SLEEPER_POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
 CACHE_S = 1800
+# espn_api reads current_week, the teams and their records once, in League.__init__. Under
+# launchd this process lives for months, so a League built at boot would freeze the week, the
+# standings and journal.sync_results' range forever. Every builder goes through fresh_league(),
+# which rebuilds it once an hour; POST /refresh forces it immediately.
+LEAGUE_TTL_S = 3600
+_LEAGUE_BUILT_AT = 0.0
 _SEASON_CACHE: list = []  # [fetched_at, lookup]
 _SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
+
+
+def refresh_league() -> None:
+    """Drop the cached League so the next fresh_league() fetches ESPN again."""
+    global _LEAGUE_BUILT_AT
+    _LEAGUE_BUILT_AT = 0.0
+    cache_clear = getattr(league, "cache_clear", None)  # None when tests stub `league`
+    if cache_clear is not None:
+        cache_clear()
+
+
+def fresh_league():
+    """config.league(), rebuilt when the cached one is older than LEAGUE_TTL_S."""
+    global _LEAGUE_BUILT_AT
+    now = time.time()
+    if now - _LEAGUE_BUILT_AT >= LEAGUE_TTL_S:
+        refresh_league()
+        _LEAGUE_BUILT_AT = now
+    return league()
 
 
 def flatten_box_player(bp, season_proj: float | None = None) -> dict:
@@ -183,7 +208,7 @@ def _boxes_by_team(lg, week: int) -> dict[int, list]:
 
 
 def week_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None) -> dict:
-    lg = league()
+    lg = fresh_league()
     settings = load()
     week = week or lg.current_week
     me = my_team_id(lg)
@@ -199,13 +224,13 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
                 continue  # a bye or placeholder side: no opponent to build
             players = apply_season(merge_weekly([flatten_box_player(bp) for bp in lineup], sl), seas)
             built["me" if t.team_id == me else "opp"] = build_side(t, players, settings)
-        return {"week": week, "live": S.is_live(), "me": built["me"], "opp": built.get("opp"), "stale": None}
+        return {"week": week, "live": S.is_live(), "me": built["me"], "opp": built.get("opp")}
     raise RuntimeError(f"no matchup for team {me} in week {week}")
 
 
 def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None,
                     season: dict | None = None) -> dict:
-    lg = league()
+    lg = fresh_league()
     settings = load()
     week = week or lg.current_week
     me = my_team_id(lg)
@@ -227,7 +252,7 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
 
 
 def league_state() -> dict:
-    lg = league()
+    lg = fresh_league()
     me = my_team_id(lg)
     wk = lg.current_week
     standings = [{"rank": i, "team_id": t.team_id, "team": t.team_name, "wins": t.wins, "losses": t.losses,
