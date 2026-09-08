@@ -12,3 +12,7 @@ data-mock/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+.beads/interactions.jsonl
+# bd's cross-process gate lock, written to the repo root as `.beads.gate.lock`
+# (plus suffixed variants) rather than under .beads/, so the patterns above miss it.
+*.gate.lock*

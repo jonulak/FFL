@@ -92,7 +92,20 @@ bd close <id>         # Complete work
 
 - Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
 - Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+
+### Two memory stores, split by shape
+
+**`bd prime` injects every bd memory's full body every session; `MEMORY.md` injects only its
+one-line index, bodies loading on recall.** So bd's cost grows with every memory kept and
+MEMORY.md's does not.
+
+- **`bd remember`** — rules that must fire **unprompted**: prohibitions, and anything applying to
+  every change. Recall cannot carry these — a rule about what *not* to do has no term in the prompt
+  to trigger it. Keep it small; store the operative rule, not its history.
+- **`MEMORY.md`** — situational knowledge a topic in the prompt will recall. Detail is nearly free.
+
+`bd prime` prints "do NOT use MEMORY.md files"; that is its default guidance, deliberately
+overridden here, and not editable without a `.beads/PRIME.md` override.
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 
