@@ -3,6 +3,7 @@ export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 export class ApiError extends Error {
   constructor(public status: number, public source: string, message: string) {
     super(message);
+    this.name = "ApiError";
   }
 }
 
@@ -41,12 +42,34 @@ async function handle<T>(r: Response): Promise<T> {
   throw new ApiError(r.status, detail.source ?? "api", detail.error ?? r.statusText);
 }
 
+// A failed fetch() rejects with a TypeError whose `cause` is an AggregateError of
+// ECONNREFUSED errors. React Flight cannot serialise that chain (Next 16 crashes with
+// `chunk.reason.enqueueModel is not a function`), so never let it escape: flatten it into
+// a fresh ApiError with no `cause`.
+function unreachable(e: unknown): never {
+  const cause = e instanceof Error ? (e.cause as { code?: string } | undefined) : undefined;
+  const detail = cause?.code ?? (e instanceof Error ? e.message : String(e));
+  throw new ApiError(0, "api", `cannot reach the API: ${detail}`);
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
-  return handle<T>(await fetch(`${API_BASE}${path}`, { cache: "no-store" }));
+  let r: Response;
+  try {
+    r = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+  } catch (e) {
+    unreachable(e);
+  }
+  return handle<T>(r);
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  return handle<T>(await fetch(`${API_BASE}${path}`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), cache: "no-store",
-  }));
+  let r: Response;
+  try {
+    r = await fetch(`${API_BASE}${path}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), cache: "no-store",
+    });
+  } catch (e) {
+    unreachable(e);
+  }
+  return handle<T>(r);
 }
