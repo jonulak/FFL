@@ -1,5 +1,9 @@
 export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 
+// The API is loopback FastAPI; anything slower than this is a hung ESPN call, and a server
+// component must not hold the page open waiting for it.
+export const API_TIMEOUT_MS = 20_000;
+
 export class ApiError extends Error {
   constructor(public status: number, public source: string, message: string) {
     super(message);
@@ -45,17 +49,19 @@ async function handle<T>(r: Response): Promise<T> {
 // A failed fetch() rejects with a TypeError whose `cause` is an AggregateError of
 // ECONNREFUSED errors. React Flight cannot serialise that chain (Next 16 crashes with
 // `chunk.reason.enqueueModel is not a function`), so never let it escape: flatten it into
-// a fresh ApiError with no `cause`.
-function unreachable(e: unknown): never {
+// a fresh ApiError with no `cause`. An AbortSignal.timeout abort arrives as a bare
+// TimeoutError DOMException with no `cause`, so name it by its `name`.
+export function unreachable(e: unknown): never {
   const cause = e instanceof Error ? (e.cause as { code?: string } | undefined) : undefined;
-  const detail = cause?.code ?? (e instanceof Error ? e.message : String(e));
+  const named = e instanceof Error && e.name && e.name !== "Error" ? e.name : undefined;
+  const detail = cause?.code ?? named ?? (e instanceof Error ? e.message : String(e));
   throw new ApiError(0, "api", `cannot reach the API: ${detail}`);
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
   let r: Response;
   try {
-    r = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+    r = await fetch(`${API_BASE}${path}`, { cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
   } catch (e) {
     unreachable(e);
   }
@@ -66,7 +72,8 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   let r: Response;
   try {
     r = await fetch(`${API_BASE}${path}`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), cache: "no-store",
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS),
     });
   } catch (e) {
     unreachable(e);
