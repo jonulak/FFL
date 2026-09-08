@@ -5,6 +5,11 @@ network or the clock, so every number the in-season UI shows can be reproduced i
 """
 from __future__ import annotations
 
+import os
+from datetime import date, datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
 from .board import bench_depth, starter_counts
 from .draft_watch import SEASON_WEEKS, _is_flex
 
@@ -155,3 +160,35 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
                      "week_delta": week_delta if would_start else 0.0,
                      "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"), week)})
     return sorted(rows, key=lambda r: -r["add"])
+
+
+def append_decision(path: Path, title: str, decision: str, reasoning: str, alternatives: str,
+                    today: date | None = None) -> str:
+    """Append one DECISIONS.md entry in the journal's format. Never creates the file."""
+    if not all(s and s.strip() for s in (title, decision, reasoning)):
+        raise ValueError("title, decision and reasoning are required")
+    if not path.exists():
+        raise FileNotFoundError(path)
+    day = (today or date.today()).isoformat()
+    block = (f"\n## {day} — {title.strip()}\n- **Decision:** {decision.strip()}\n"
+             f"- **Reasoning:** {reasoning.strip()}\n- **Alternatives rejected:** {alternatives.strip()}\n"
+             f"- **Outcome (fill in later):**\n")
+    with path.open("a") as f:
+        f.write(block)
+        f.flush()
+        os.fsync(f.fileno())
+    return path.read_text()
+
+
+def is_live(now: datetime | None = None) -> bool:
+    """Games are on: Thursday 8 PM ET through Monday night (2 AM Tuesday)."""
+    ny = ZoneInfo("America/New_York")
+    t = (now or datetime.now(ny)).astimezone(ny)
+    wd, h = t.weekday(), t.hour  # Mon=0
+    if wd == 3:
+        return h >= 20
+    if wd in (4, 5, 6, 0):
+        return True
+    if wd == 1:
+        return h < 2
+    return False

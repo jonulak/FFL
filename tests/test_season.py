@@ -1,4 +1,7 @@
 """Pure in-season maths: lineup-optimal, waiver deltas, the decisions append."""
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from ffl import season
@@ -167,3 +170,34 @@ def test_add_uses_the_pool_arm_when_my_roster_is_thin():
     # He is the better flex than RB D (10), so week_delta = 12 - 10 = 2; add = 50 + 2.
     assert r["week_delta"] == pytest.approx(2.0)
     assert r["add"] == pytest.approx(52.0)
+
+
+def test_append_decision_writes_the_journal_block(tmp_path):
+    p = tmp_path / "DECISIONS.md"
+    p.write_text("# Decisions log\n\n---\n")
+    text = season.append_decision(p, "Claim X", "Claim X, drop Y", "Y is done", "Z was worse",
+                                  today=date(2026, 9, 10))
+    assert text == p.read_text()
+    assert text.endswith(
+        "\n## 2026-09-10 — Claim X\n- **Decision:** Claim X, drop Y\n- **Reasoning:** Y is done\n"
+        "- **Alternatives rejected:** Z was worse\n- **Outcome (fill in later):**\n")
+
+
+def test_append_decision_rejects_blank_fields_and_missing_file(tmp_path):
+    p = tmp_path / "DECISIONS.md"
+    p.write_text("x\n")
+    with pytest.raises(ValueError):
+        season.append_decision(p, " ", "d", "r", "")
+    with pytest.raises(FileNotFoundError):
+        season.append_decision(tmp_path / "nope.md", "t", "d", "r", "")
+    assert p.read_text() == "x\n"
+
+
+def test_is_live_window():
+    ny = ZoneInfo("America/New_York")
+    assert season.is_live(datetime(2026, 9, 13, 13, 0, tzinfo=ny))     # Sunday
+    assert season.is_live(datetime(2026, 9, 10, 20, 30, tzinfo=ny))    # Thursday night
+    assert not season.is_live(datetime(2026, 9, 10, 19, 0, tzinfo=ny))
+    assert season.is_live(datetime(2026, 9, 15, 1, 0, tzinfo=ny))      # Monday night spills past midnight
+    assert not season.is_live(datetime(2026, 9, 15, 9, 0, tzinfo=ny))  # Tuesday morning
+    assert not season.is_live(datetime(2026, 9, 16, 12, 0, tzinfo=ny))  # Wednesday
