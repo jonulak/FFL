@@ -232,7 +232,9 @@ def fetch_injuries() -> dict[int, dict]:
     if _INJ and _INJ[0] > time.time():
         return _INJ[1]
     try:
-        r = requests.get(INJURIES, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        # site.api.espn.com answers 403 to anything browser-shaped in User-Agent (Mozilla/…, or a
+        # descriptive custom string) and 200 to requests' default — so no header here.
+        r = requests.get(INJURIES, timeout=30)
         r.raise_for_status()
         data = parse_injuries(r.json())
     except requests.RequestException:
