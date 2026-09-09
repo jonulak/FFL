@@ -21,7 +21,7 @@ OWN-WORLD: Same board as Roster and Matchup: field, panel, condensed numerals, G
 
 STORY: He reads his rank and record against the playoff line, then scans the week's five scorebugs for scores or projections, finds his own by the ring and the ME chip, and switches weeks from the Select to see a past result or a coming pairing.
 
-FIRST VIEWPORT: Title "League" + week + live chip + stale badge, the week Select at the right. STANDINGS heading, the full-width table (rank, mark, name, W-L, PF, PA, streak; PA and streak hide on the phone). Then SCOREBOARD with the count and the cards, two across from `md`.
+FIRST VIEWPORT: Title "League" + stale badge. STANDINGS heading, the full-width table (rank, mark, name, W-L, PF, PA, streak; PA and streak hide on the phone). Then the SCOREBOARD heading with the count, the live chip and the week Select at its end, and the cards, two across from `md`.
 
 FORM: Extension of the Roster page's world; user-specified ("extend the design to the league page"), shadcn primitives by default (Table, Card, Badge, Select), custom only for the image fallback.
 

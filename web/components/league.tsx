@@ -15,13 +15,15 @@ function record(t: Club) {
   return `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ""}`;
 }
 
-// The section heading the Roster page uses: condensed caps, a muted count, a hairline running out.
-function Heading({ title, count }: { title: string; count?: number }) {
+// The section heading the Roster page uses: condensed caps, a muted count, a hairline running
+// out; `children` sit at the far end of the line (the scoreboard's week picker).
+function Heading({ title, count, children }: { title: string; count?: number; children?: React.ReactNode }) {
   return (
-    <div className="flex items-baseline gap-3">
+    <div className="flex items-center gap-3">
       <h2 className="font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</h2>
       {count != null && <span className="font-display text-base font-medium tabular-nums text-muted-foreground">{count}</span>}
-      <Separator className="mb-1.5 flex-1 self-end bg-foreground/12" />
+      <Separator className="flex-1 bg-foreground/12" />
+      {children}
     </div>
   );
 }
@@ -131,15 +133,8 @@ export function LeagueView({ data }: { data: League }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-        <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
-          League
-          <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
-        </h1>
-        {data.live && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
+        <h1 className="font-display text-4xl font-bold leading-none tracking-tight">League</h1>
         <StaleBadge since={data.stale_since} />
-        <div className="ml-auto">
-          <WeekSelect week={data.week} current={data.current_week} weeks={data.weeks} base="/league" />
-        </div>
       </div>
       <section className="space-y-3">
         <Heading title="Standings" />
@@ -147,7 +142,10 @@ export function LeagueView({ data }: { data: League }) {
         <p className="text-xs text-muted-foreground">Top {data.playoff_teams} make the playoffs. PF and PA are season points for and against.</p>
       </section>
       <section className="space-y-3">
-        <Heading title="Scoreboard" count={data.scoreboard.length} />
+        <Heading title="Scoreboard" count={data.scoreboard.length}>
+          {data.live && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
+          <WeekSelect week={data.week} current={data.current_week} weeks={data.weeks} base="/league" />
+        </Heading>
         {data.scoreboard.length === 0
           ? <p className="text-sm text-muted-foreground">No matchups scheduled for week {data.week}.</p>
           : (

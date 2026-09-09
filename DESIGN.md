@@ -279,7 +279,7 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 - A fantasy team's mark: an abbreviation tile (ink at 10%, condensed 600 at 11px) with the owner's ESPN image fading in over it on load, so a missing, slow or refused upload (ESPN's own uploads answer 401 off-site) never shows a broken glyph. 6px corners at every size.
 
 ### Week select (`week-select.tsx`, shadcn Select)
-- The `sm` trigger with the label style (condensed 600, 15px, 0.12em) reading "WEEK n"; items in body Geist with a muted "now" beside the current week; the popup anchored to the trigger's end. Choosing navigates to `?week=n` and the trigger dims to 60% while the page is in flight.
+- Sits at the end of the SCOREBOARD heading line, after the hairline, with the live chip beside it; the week applies to the scoreboard only, so the page title is plain "League". The `sm` trigger with the label style (condensed 600, 15px, 0.12em) reading "WEEK n"; items in body Geist with a muted "now" beside the current week; the popup anchored to the trigger's end. Choosing navigates to `?week=n` and the trigger dims to 60% while the page is in flight.
 
 ### Stock surfaces (Waivers, Journal, Draft)
 - shadcn Table, Tabs, Card (muted footer), Input, Textarea, Dialog, Skeleton as shipped; pill badges `secondary`/`outline`/`destructive` for injury tone; `text-xl font-semibold` Geist titles. These predate the board and are to be converted to it, not extended.
