@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { RefreshButton } from "@/components/refresh-button";
 
-const LINKS = [["/", "Week"], ["/league", "League"], ["/waivers", "Waivers"], ["/journal", "Journal"], ["/draft", "Draft"]] as const;
+const LINKS = [["/", "Week"], ["/roster", "Roster"], ["/league", "League"], ["/waivers", "Waivers"], ["/journal", "Journal"], ["/draft", "Draft"]] as const;
 
 export function Nav() {
   return (

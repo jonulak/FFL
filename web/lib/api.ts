@@ -18,6 +18,17 @@ export type Player = {
   season_proj_sleeper: number | null; return_week: number | null; injury_note: string | null;
   opponent: string | null; kickoff: string | null;
 };
+export type Card = Player & {
+  group: "starter" | "bench" | "ir"; call: "START" | "BENCH" | "OUT" | "BYE" | "IR";
+  gap: number | null; close_call: boolean; reason: string;
+  outlook: string | null; outlook_at: string | null; outlook_stale: boolean;
+};
+export type OutlookRun = {
+  at: string | null; generated: number; skipped: number; failed: number; running: boolean;
+  error: string | null;
+};
+export type Roster = { week: number; live: boolean; cards: Card[]; outlook_run: OutlookRun; stale_since: string | null };
+export type OutlookStarted = { started: boolean; pending: number };
 export type LineupEntry = { slot: string; player_id: number | null; name: string; proj: number };
 export type Swap = { slot: string; out: string; in: string; gain: number };
 export type Side = {
