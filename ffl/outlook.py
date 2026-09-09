@@ -31,7 +31,7 @@ VOICE = ("Write this player's outlook for the week in two or three sentences, at
          "Third person about the player, written to his manager.")
 LOCK = threading.Lock()
 # the last generation run, shown on the Roster page beside the button
-LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0}
+LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None}
 
 
 class Busy(RuntimeError):
@@ -190,12 +190,20 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
         raise Busy("outlook refresh already running")
 
     def work():
+        # Nothing above this thread can see an exception it raises, so a run that dies has to leave
+        # its own record: the counts stay at the last finished run's and `error` says this one failed.
         try:
             counts = generate(cards, week, run=run)
-            LAST.update(counts, at=datetime.now().isoformat(timespec="minutes"))
+            LAST.update(counts, at=datetime.now().isoformat(timespec="minutes"), error=None)
+        except Exception as e:  # noqa: BLE001 — the page needs the reason, not a lost traceback
+            LAST.update(at=datetime.now().isoformat(timespec="minutes"), error=f"{type(e).__name__}: {e}")
         finally:
             LOCK.release()
 
     t = threading.Thread(target=work, name="outlook", daemon=True)
-    t.start()
+    try:
+        t.start()
+    except Exception:  # noqa: BLE001 — a thread that never ran will never release the lock
+        LOCK.release()
+        raise
     return t

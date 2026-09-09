@@ -22,6 +22,8 @@ def card(**kw):
 @pytest.fixture(autouse=True)
 def outlook_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(outlook, "OUTLOOK_DIR", tmp_path / "outlook")
+    # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
+    monkeypatch.setattr(outlook, "LAST", {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None})
     return tmp_path / "outlook"
 
 
@@ -121,13 +123,33 @@ def test_start_runs_in_the_background_under_the_lock_and_records_last(outlook_di
     t.join(5)
     assert outlook.running() is False
     assert outlook.LAST["generated"] == 1 and outlook.LAST["at"] is not None
+    assert outlook.LAST["error"] is None
     assert outlook.load(2)[1]["text"] == "done"
 
 
+@pytest.mark.filterwarnings("error")
 def test_start_releases_the_lock_when_the_run_raises(outlook_dir, monkeypatch):
+    """A dying run must record its error and never let the exception escape the thread."""
     monkeypatch.setattr(outlook, "generate", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     t = outlook.start([card()], 2, run=lambda p: "x")
     t.join(5)
+    assert outlook.running() is False
+    assert outlook.LAST["error"].startswith("RuntimeError")
+    assert outlook.LAST["at"] is not None
+
+
+def test_start_releases_the_lock_when_the_thread_will_not_start(outlook_dir, monkeypatch):
+    """A thread that never ran will never release the lock: refresh would answer 409 forever."""
+    class DeadThread:
+        def __init__(self, *a, **kw):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(outlook.threading, "Thread", DeadThread)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        outlook.start([card()], 2, run=lambda p: "x")
     assert outlook.running() is False
 
 
