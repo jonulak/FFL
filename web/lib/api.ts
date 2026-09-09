@@ -41,11 +41,14 @@ export type WaiverRow = Player & {
   would_start: boolean; week_delta: number; add: number;
 };
 export type Waivers = { week: number; pos: string; rows: WaiverRow[]; stale_since: string | null };
+// A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
+export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
+export type Standing = Club & { rank: number; points_for: number; points_against: number; streak: string; me: boolean };
+export type ScoreSide = Club & { score: number; proj: number; me: boolean };
 export type League = {
-  week: number;
-  standings: { rank: number; team_id: number; team: string; wins: number; losses: number; ties: number; points_for: number; points_against: number; me: boolean }[];
-  scoreboard: { home: string; away: string; home_score: number; away_score: number }[];
-  power: { team: string; score: number }[];
+  week: number; current_week: number; weeks: number; playoff_teams: number; live: boolean;
+  standings: Standing[];
+  scoreboard: { home: ScoreSide; away: ScoreSide }[];
   stale_since: string | null;
 };
 export type Journal = { decisions_md: string; transactions: Record<string, string>[]; stale_since: null };

@@ -112,8 +112,8 @@ def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
 
 
 @app.get("/league")
-def league_():
-    return _serve("league", espn_season.league_state)
+def league_(week: int | None = None):
+    return _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week))
 
 
 @app.get("/journal")

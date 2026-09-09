@@ -19,7 +19,7 @@ def client(monkeypatch, tmp_path):
 
     monkeypatch.setattr(api.espn_season, "week_state", fake_week)
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 3, "positions": {"RB": []}})
-    monkeypatch.setattr(api.espn_season, "league_state", lambda: {"week": 3, "standings": [], "scoreboard": [], "power": []})
+    monkeypatch.setattr(api.espn_season, "league_state", lambda week=None: {"week": week or 3, "standings": [], "scoreboard": []})
     monkeypatch.setattr(api.espn_season, "journal_state", lambda: {"decisions_md": "# x", "transactions": []})
     monkeypatch.setattr(api.espn_season, "draft_recap", lambda: {"picks": [], "recap_md": ""})
     monkeypatch.setattr(api.espn_season, "roster_state",
@@ -127,7 +127,7 @@ def test_stale_payload_served_when_source_fails(client, monkeypatch):
 
 
 def test_502_when_nothing_cached(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "league_state", lambda: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(api.espn_season, "league_state", lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
     r = client.get("/league")
     assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
 

@@ -25,10 +25,12 @@ SIDE = {"team_id", "team", "lineup", "bench", "ir", "optimal", "optimal_swaps", 
 # web/lib/api.ts: type WaiverRow = Player & {...}
 WAIVER_EXTRA = {"ros_proj", "week_proj", "delta_roster", "delta_pool", "would_start", "week_delta", "add"}
 # web/lib/api.ts: type League["standings"][number]
-STANDINGS_ROW = {"rank", "team_id", "team", "wins", "losses", "ties", "points_for", "points_against", "me"}
+STANDINGS_ROW = {"rank", "team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "points_for", "points_against",
+                 "streak", "me"}
+SCORE_SIDE = {"team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me"}
 # web/lib/api.ts: type Week / type League top level (stale_since is added by the API's cache)
 WEEK = {"week", "live", "me", "opp"}
-LEAGUE = {"week", "standings", "scoreboard", "power"}
+LEAGUE = {"week", "current_week", "weeks", "playoff_teams", "live", "standings", "scoreboard"}
 
 
 def test_player_keys():
@@ -60,19 +62,30 @@ def test_waiver_row_keys():
 
 def test_standings_row_keys(monkeypatch):
     """league_state's shape, from a fake league — no ESPN call."""
-    team = SimpleNamespace(team_id=7, team_name="Mine", wins=2, losses=1, ties=0,
-                           points_for=250.5, points_against=210.25)
-    match = SimpleNamespace(home_team=team, away_team=SimpleNamespace(team_name="Them"),
-                            home_score=110.0, away_score=99.5)
-    lg = SimpleNamespace(current_week=3, standings=lambda: [team], scoreboard=lambda wk: [match],
-                         power_rankings=lambda wk: [("12.34", team)])
+    team = SimpleNamespace(team_id=7, team_name="Mine", team_abbrev="MINE", logo_url="", wins=2, losses=1, ties=0,
+                           points_for=250.5, points_against=210.25, streak_type="WIN", streak_length=2)
+    them = SimpleNamespace(team_id=3, team_name="Them", team_abbrev="THEM", logo_url="http://x/l.png", wins=1,
+                           losses=2, ties=0, points_for=200.0, points_against=220.0, streak_type="LOSS", streak_length=1)
+    bye = SimpleNamespace(home_team=team, away_team=SimpleNamespace(), home_score=0, away_score=0)
+    match = SimpleNamespace(home_team=team, away_team=them, home_score=110.0, away_score=99.5,
+                            home_projected=105.2, away_projected=101.0)
+    future = SimpleNamespace(home_team=them, away_team=team, home_score=0, away_score=0)  # scoreboard(): no projection
+    lg = SimpleNamespace(current_week=3, standings=lambda: [team, them], box_scores=lambda wk: [match, bye],
+                         scoreboard=lambda wk: [future])
     monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.league_state()
+    monkeypatch.setattr(espn_season, "load", lambda: {"reg_season_weeks": 14, "playoff_teams": 6})
+    st = espn_season.league_state(2)
     assert set(st) == LEAGUE
+    assert st["week"] == 2 and st["current_week"] == 3 and st["live"] is False
     assert set(st["standings"][0]) == STANDINGS_ROW
-    assert set(st["scoreboard"][0]) == {"home", "away", "home_score", "away_score"}
-    assert set(st["power"][0]) == {"team", "score"}
+    assert st["standings"][0]["streak"] == "W2" and st["standings"][1]["streak"] == "L1"
+    assert len(st["scoreboard"]) == 1  # the bye slot is dropped
+    assert set(st["scoreboard"][0]) == {"home", "away"}
+    assert set(st["scoreboard"][0]["home"]) == SCORE_SIDE and st["scoreboard"][0]["home"]["me"] is True
+    assert st["scoreboard"][0]["away"]["proj"] == 101.0
+    ahead = espn_season.league_state(5)  # beyond current_week: schedule pairings, projection 0
+    assert ahead["scoreboard"][0]["home"]["abbrev"] == "THEM" and ahead["scoreboard"][0]["home"]["proj"] == 0
 
 
 def test_week_state_top_level_keys(monkeypatch):

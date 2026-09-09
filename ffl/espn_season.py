@@ -415,18 +415,42 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
     return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week)}
 
 
-def league_state() -> dict:
+def _club(t) -> dict:
+    """A fantasy team as the League page shows it: name, ESPN abbreviation, the owner's logo (empty
+    when ESPN has none; the UI falls back to the abbreviation) and the record."""
+    return {"team_id": t.team_id, "team": t.team_name, "abbrev": getattr(t, "team_abbrev", "") or "",
+            "logo": getattr(t, "logo_url", "") or "", "wins": t.wins, "losses": t.losses,
+            "ties": getattr(t, "ties", 0)}
+
+
+def _streak(t) -> str:
+    n = getattr(t, "streak_length", 0) or 0
+    return f"{(getattr(t, 'streak_type', '') or '')[:1]}{n}" if n else ""
+
+
+def league_state(week: int | None = None) -> dict:
     lg = fresh_league()
+    settings = load()
     me = my_team_id(lg)
-    wk = lg.current_week
-    standings = [{"rank": i, "team_id": t.team_id, "team": t.team_name, "wins": t.wins, "losses": t.losses,
-                  "ties": getattr(t, "ties", 0), "points_for": round(t.points_for, 1),
-                  "points_against": round(t.points_against, 1), "me": t.team_id == me}
+    current = lg.current_week
+    week = week or current
+    standings = [{"rank": i, **_club(t), "points_for": round(t.points_for, 1),
+                  "points_against": round(t.points_against, 1), "streak": _streak(t), "me": t.team_id == me}
                  for i, t in enumerate(lg.standings(), 1)]
-    board = [{"home": m.home_team.team_name, "away": m.away_team.team_name,
-              "home_score": round(m.home_score, 1), "away_score": round(m.away_score, 1)} for m in lg.scoreboard(wk)]
-    power = [{"team": t.team_name, "score": float(s)} for s, t in lg.power_rankings(wk)]
-    return {"week": wk, "standings": standings, "scoreboard": board, "power": power}
+    # Box scores rather than the lighter mMatchupScore view: they carry each side's projected
+    # total, which is the number to show before points post. espn_api clamps box_scores to the
+    # current week, so a future week takes its pairings from the schedule view, projection 0.
+    board = []
+    for m in (lg.box_scores(week) if week <= current else lg.scoreboard(week)):
+        if not (hasattr(m.home_team, "team_id") and hasattr(m.away_team, "team_id")):
+            continue  # a bye slot in a playoff round
+        board.append({side: {**_club(t), "score": round(score, 1),
+                             "proj": round(float(getattr(m, f"{side}_projected", 0) or 0), 1),
+                             "me": t.team_id == me}
+                      for side, t, score in (("home", m.home_team, m.home_score), ("away", m.away_team, m.away_score))})
+    return {"week": week, "current_week": current, "weeks": settings["reg_season_weeks"],
+            "playoff_teams": settings["playoff_teams"], "live": S.is_live() and week == current,
+            "standings": standings, "scoreboard": board}
 
 
 def journal_state() -> dict:

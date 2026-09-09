@@ -141,7 +141,7 @@ components:
 
 The UI is one manager's own instrument, read on a phone before kickoff or a laptop midweek, and it is set like a broadcast lineup graphic: a near-black field, one panel per player cut out on his club's colours, the projection in big condensed numerals, and the verdict in a squared lower-third chip. The call reads from across the room; the paragraph is there when he wants it.
 
-The world is established on the Roster page (`web/app/roster`, `web/components/roster-cards.tsx`, `player-media.tsx`, `outlook.tsx`) as of 2026-09-08, and extended the same day to the navigation (`nav.tsx`, `nav-links.tsx`) and the Matchup page (`web/app/page.tsx`, `matchup.tsx`). League, Waivers, Journal and Draft still carry the stock shadcn neutral look (Geist `text-xl` titles, default pills, muted-footer cards, tables). They have not been brought over yet; the Roster page is the reference when they are. This file records the board, not the leftover.
+The world is established on the Roster page (`web/app/roster`, `web/components/roster-cards.tsx`, `player-media.tsx`, `outlook.tsx`) as of 2026-09-08, and extended the same day to the navigation (`nav.tsx`, `nav-links.tsx`) and the Matchup page (`web/app/page.tsx`, `matchup.tsx`), then on 2026-09-09 to the League page (`web/app/league`, `league.tsx`, `club-logo.tsx`, `week-select.tsx`). Waivers, Journal and Draft still carry the stock shadcn neutral look (Geist `text-xl` titles, default pills, muted-footer cards, tables). They have not been brought over yet; the Roster page is the reference when they are. This file records the board, not the leftover.
 
 Everything is a shadcn (base-ui) component. New looks are expressed by extending a shadcn variant (`badge.tsx` adds the verdict colours and a `shape: chip` axis) or by laying a shadcn Card out with grid utilities, never by hand-rolling an element. Tailwind 4, Next 16, lucide icons. Dark follows the system; there is no toggle, and `.light`/`.dark` classes exist only as hooks.
 
@@ -269,7 +269,19 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 - **Phone:** the strip scrolls horizontally with the scrollbar hidden and a 28px fade at its right edge; the current tab is scrolled to centre on arrival. Refresh stays pinned at the right edge at every width.
 - **Colour:** ink only. The active bar is ink, not lime; lime remains START.
 
-### Stock surfaces (League, Waivers, Journal, Draft)
+### Standings (League, shadcn Table inside a board Card)
+- One full-width card, the table flush to its edges. Header cells in the label style; rows divide with ink at 10%; a 2px rule at ink 35% under the last playoff seed marks the cut. Rank in condensed 600 muted; team cell is a 32px `ClubLogo` beside the name in Title-weight condensed at 1.25rem with the abbreviation in caption beneath; W-L in condensed 700 at 1.25rem; PF condensed 600, PA and streak condensed 500 at 70% ink. My row is ink at 5% with a `muted` ME chip after the name. Below `sm` the PA and streak columns hide (the streak joins the caption) so the phone table needs no scroll. No hover tint.
+
+### Matchup card (League scoreboard, shadcn Card)
+- One card per matchup, two to a row from `md`. Header row: state label left (FINAL, the live chip, MATCHUP, or UPCOMING for a week with no projection yet), unit label right (PTS or PROJ). Body: away over home, each a 36px `ClubLogo`, name at 1.25rem condensed 600 with the ME chip, record in caption, and the number right in condensed 700 at 1.5rem (score with `proj` beneath once points post; a muted `—` when there is no projection). Once points post the trailing side steps to 60% ink. The card holding my team carries a ring at ink 30% instead of the default 10%.
+
+### ClubLogo (`club-logo.tsx`)
+- A fantasy team's mark: an abbreviation tile (ink at 10%, condensed 600 at 11px) with the owner's ESPN image fading in over it on load, so a missing, slow or refused upload (ESPN's own uploads answer 401 off-site) never shows a broken glyph. 6px corners at every size.
+
+### Week select (`week-select.tsx`, shadcn Select)
+- The `sm` trigger with the label style (condensed 600, 15px, 0.12em) reading "WEEK n"; items in body Geist with a muted "now" beside the current week; the popup anchored to the trigger's end. Choosing navigates to `?week=n` and the trigger dims to 60% while the page is in flight.
+
+### Stock surfaces (Waivers, Journal, Draft)
 - shadcn Table, Tabs, Card (muted footer), Input, Textarea, Dialog, Skeleton as shipped; pill badges `secondary`/`outline`/`destructive` for injury tone; `text-xl font-semibold` Geist titles. These predate the board and are to be converted to it, not extended.
 
 ## Do's and Don'ts
