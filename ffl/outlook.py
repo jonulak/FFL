@@ -139,13 +139,23 @@ def run_claude(prompt: str) -> str:
     exe = shutil.which("claude")
     if not exe:
         raise RuntimeError("claude CLI not on PATH")
-    # Run from inside a Claude Code session, the CLI answers "Not logged in" — its CLAUDE* variables
-    # mark a nested session. Dropping them is harmless under launchd, where they never exist.
+    # A Claude Code session marks its children with CLAUDE* variables; drop them so the CLI does not
+    # treat this as a nested session. Harmless under launchd, where they never exist.
     env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
-    r = subprocess.run([exe, "-p", "--bare", "--model", MODEL, "--tools", "", "--no-session-persistence",
+    # No --bare: it skips the keychain, and every call then answers "Not logged in". The CLI reads
+    # CLAUDE.md from its working directory, so run it from the outlook dir, not the repo — the sheet
+    # is the whole prompt.
+    OUTLOOK_DIR.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run([exe, "-p", "--model", MODEL, "--tools", "", "--no-session-persistence",
                         "--output-format", "json", "--json-schema", json.dumps(SCHEMA)],
-                       input=prompt, capture_output=True, text=True, timeout=TIMEOUT_S, env=env)
+                       input=prompt, capture_output=True, text=True, timeout=TIMEOUT_S, env=env,
+                       cwd=str(OUTLOOK_DIR))
     if r.returncode != 0:
+        # the CLI exits 1 with its reason in the JSON envelope ("Not logged in …"), not on stderr
+        try:
+            parse_envelope(r.stdout)
+        except ValueError:
+            pass
         raise RuntimeError(f"claude exited {r.returncode}: {r.stderr.strip()[:200]}")
     return parse_envelope(r.stdout)
 

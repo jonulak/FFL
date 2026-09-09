@@ -198,11 +198,35 @@ def test_run_claude_invokes_the_cli_exactly(monkeypatch):
     monkeypatch.setattr(outlook.subprocess, "run", fake_run)
     monkeypatch.setenv("CLAUDECODE", "1")
     assert outlook.run_claude("the sheet") == "ok"
-    assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--bare", "--model", "opus", "--tools", "",
+    assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--model", "opus", "--tools", "",
                              "--no-session-persistence", "--output-format", "json",
                              "--json-schema", json.dumps(outlook.SCHEMA)]
+    assert "--bare" not in calls["args"], "--bare skips the keychain: every call answers Not logged in"
     assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 120
     assert "CLAUDECODE" not in calls["kw"]["env"]
+    assert calls["kw"]["cwd"] == str(outlook.OUTLOOK_DIR), "not the repo: its CLAUDE.md would join the prompt"
+    assert outlook.OUTLOOK_DIR.is_dir()
+
+
+def test_run_claude_surfaces_the_cli_message_on_a_non_zero_exit(monkeypatch):
+    class R:
+        returncode = 1
+        stdout = json.dumps({"is_error": True, "result": "Not logged in · Please run /login"})
+        stderr = ""
+
+    monkeypatch.setattr(outlook.shutil, "which", lambda name: "/Users/x/.local/bin/claude")
+    monkeypatch.setattr(outlook.subprocess, "run", lambda *a, **k: R())
+    with pytest.raises(RuntimeError, match="Not logged in"):
+        outlook.run_claude("x")
+
+    class Bare:
+        returncode = 1
+        stdout = "garbage"
+        stderr = "boom"
+
+    monkeypatch.setattr(outlook.subprocess, "run", lambda *a, **k: Bare())
+    with pytest.raises(RuntimeError, match="exited 1: boom"):
+        outlook.run_claude("x")
 
 
 def test_run_claude_without_the_cli_raises(monkeypatch):
