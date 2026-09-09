@@ -105,8 +105,13 @@ def lineup_diff(current: list[dict], optimal: list[dict]) -> list[dict]:
     return sorted(swaps, key=lambda d: -d["gain"])
 
 
+POS_ORDER = ["QB", "RB", "WR", "TE", "D/ST", "K"]
+
+
 def _card_sort_key(c: dict) -> tuple:
-    return (GROUP_ORDER.index(c["group"]), c.get("kickoff") is None, c.get("kickoff") or "", c["name"])
+    """Section, then position in lineup order, then this week's projection, best first."""
+    pos = POS_ORDER.index(c["pos"]) if c["pos"] in POS_ORDER else len(POS_ORDER)
+    return (GROUP_ORDER.index(c["group"]), pos, -float(c.get("proj") or 0.0), c["name"])
 
 
 def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:

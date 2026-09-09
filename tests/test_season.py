@@ -257,10 +257,8 @@ def test_is_live_window():
     assert not season.is_live(datetime(2026, 9, 16, 12, 0, tzinfo=ny))  # Wednesday
 
 
-def test_roster_cards_groups_calls_and_orders_by_kickoff():
+def test_roster_cards_groups_calls_and_orders_by_position_then_projection():
     rs = roster()
-    rs[3]["kickoff"] = "2026-09-13T16:25:00-04:00"   # RB A, a starter, late game
-    rs[5]["kickoff"] = "2026-09-13T13:00:00-04:00"   # RB C, a starter, early game
     cards = season.roster_cards(rs, TWO_QB, 2)
     by_name = {c["name"]: c for c in cards}
     assert by_name["QB C"]["group"] == "starter" and by_name["QB C"]["call"] == "START"
@@ -269,9 +267,10 @@ def test_roster_cards_groups_calls_and_orders_by_kickoff():
     assert by_name["IR guy"]["reason"] == "IR slot" and by_name["IR guy"]["gap"] is None
     groups = [c["group"] for c in cards]
     assert groups == sorted(groups, key=["starter", "bench", "ir"].index)
-    starters = [c["name"] for c in cards if c["group"] == "starter"]
-    assert starters.index("RB C") < starters.index("RB A"), "earlier kickoff first"
-    assert starters[-1] not in ("RB A", "RB C"), "players without a kickoff sort last"
+    starters = [(c["pos"], c["proj"]) for c in cards if c["group"] == "starter"]
+    order = ["QB", "RB", "WR", "TE", "D/ST", "K"]
+    assert starters == sorted(starters, key=lambda t: (order.index(t[0]), -t[1])), "position order, then projection"
+    assert [c["name"] for c in cards if c["group"] == "starter"][:2] == ["QB C", "QB A"], "22 before 20 at QB"
 
 
 def test_roster_cards_starter_gap_is_against_the_best_bench_alternative():
