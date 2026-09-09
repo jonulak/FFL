@@ -16,17 +16,24 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
     return <ErrorCard {...errorFields(e)} />;
   }
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-semibold">Waivers · week {data.week}</h1>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+        <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
+          Waivers
+          <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
+        </h1>
         <StaleBadge since={data.stale_since} />
       </div>
-      <PosTabs active={pos} base="/waivers" />
-      <p className="text-xs text-muted-foreground">
-        add = projected points gained this season (STRATEGY.md, Waivers). Δ roster = ROS vs my
-        weakest at the position; Δ pool = ROS vs league replacement.
+      {/* The definition is a laptop read; on the phone the first screen belongs to the table. */}
+      <p className="hidden max-w-[72ch] text-xs leading-relaxed text-muted-foreground md:block">
+        add = projected points gained this season by adding him (STRATEGY.md, Waivers), ranked
+        top down. Δ roster = ROS vs my weakest at the position; Δ pool = ROS vs league replacement.
+        START marks a player who would go straight into this week&apos;s lineup, with the gain.
       </p>
-      <WaiverTable rows={data.rows} week={data.week} />
+      <div className="space-y-3">
+        <PosTabs active={pos} base="/waivers" />
+        <WaiverTable rows={data.rows} week={data.week} pos={pos} />
+      </div>
     </div>
   );
 }

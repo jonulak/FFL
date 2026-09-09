@@ -387,9 +387,10 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
     rostered = apply_season(
         [flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas)
     out = {}
+    home = home_by_team(lg, week)  # so the Waivers page can say "at" when a free agent travels
     for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
         box = [flatten_box_player(bp) for bp in lg.free_agents(week=week, size=size, position=pos)]
-        frees = apply_injuries(apply_season(merge_weekly(box, sl), seas), inj, w1)
+        frees = apply_home(apply_injuries(apply_season(merge_weekly(box, sl), seas), inj, w1), home)
         for f in frees:
             f["slot"] = "FA"
         out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, week)

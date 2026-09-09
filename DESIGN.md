@@ -141,7 +141,7 @@ components:
 
 The UI is one manager's own instrument, read on a phone before kickoff or a laptop midweek, and it is set like a broadcast lineup graphic: a near-black field, one panel per player cut out on his club's colours, the projection in big condensed numerals, and the verdict in a squared lower-third chip. The call reads from across the room; the paragraph is there when he wants it.
 
-The world is established on the Roster page (`web/app/roster`, `web/components/roster-cards.tsx`, `player-media.tsx`, `outlook.tsx`) as of 2026-09-08, and extended the same day to the navigation (`nav.tsx`, `nav-links.tsx`) and the Matchup page (`web/app/page.tsx`, `matchup.tsx`), then on 2026-09-09 to the League page (`web/app/league`, `league.tsx`, `club-logo.tsx`, `week-select.tsx`). Waivers, Journal and Draft still carry the stock shadcn neutral look (Geist `text-xl` titles, default pills, muted-footer cards, tables). They have not been brought over yet; the Roster page is the reference when they are. This file records the board, not the leftover.
+The world is established on the Roster page (`web/app/roster`, `web/components/roster-cards.tsx`, `player-media.tsx`, `outlook.tsx`) as of 2026-09-08, and extended the same day to the navigation (`nav.tsx`, `nav-links.tsx`) and the Matchup page (`web/app/page.tsx`, `matchup.tsx`), then on 2026-09-09 to the League page (`web/app/league`, `league.tsx`, `club-logo.tsx`, `week-select.tsx`) and the Waivers page (`web/app/waivers`, `waiver-table.tsx`, `pos-tabs.tsx`). Journal and Draft still carry the stock shadcn neutral look (Geist `text-xl` titles, default pills, muted-footer cards, tables). They have not been brought over yet; the Roster page is the reference when they are. This file records the board, not the leftover.
 
 Everything is a shadcn (base-ui) component. New looks are expressed by extending a shadcn variant (`badge.tsx` adds the verdict colours and a `shape: chip` axis) or by laying a shadcn Card out with grid utilities, never by hand-rolling an element. Tailwind 4, Next 16, lucide icons. Dark follows the system; there is no toggle, and `.light`/`.dark` classes exist only as hooks.
 
@@ -281,7 +281,17 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 ### Week select (`week-select.tsx`, shadcn Select)
 - Sits at the end of the SCOREBOARD heading line, after the hairline, with the live chip beside it; the week applies to the scoreboard only, so the page title is plain "League". The `sm` trigger with the label style (condensed 600, 15px, 0.12em) reading "WEEK n"; items in body Geist with a muted "now" beside the current week; the popup anchored to the trigger's end. Choosing navigates to `?week=n` and the trigger dims to 60% while the page is in flight.
 
-### Stock surfaces (Waivers, Journal, Draft)
+### Position tabs (`pos-tabs.tsx`, shadcn Tabs, line variant)
+- The chyron strip under the Waivers title: six tabs (QB RB WR TE D/ST K) in the label style at 15px, 10px side padding, filling a 40px list with a hairline (`border-foreground/12`) along its foot. Each tab renders as a Next Link (`nativeButton={false}`, `render={<Link/>}`) because the position is server state in `?pos=`; there are no panels. Inactive tabs are ink at 55%, 85% on hover; the current position is full ink with the line variant's 2px ink bar sitting on the hairline, the same treatment as the page tabs in the nav. No background on hover, no pill.
+
+### Free-agent table (Waivers, shadcn Table inside a board Card)
+- One full-width card, the table flush to its edges, one row per free agent in the API's `add` order (never re-sorted). Header cells in the label style, the ADD column marked `aria-sort="descending"`; rows divide with ink at 10%; no hover tint.
+- The row is the Matchup page's lineup row with the waiver numbers beside it: a 36px (40px from `sm`) `TeamPanel` tile with 6px corners; the name in condensed 600 at 1.25rem with the chip stack inline (lime START with the lineup gain, `+0.2`, when he would enter this week's optimal lineup; `warn`/`out` injury chips with the return week; the muted BYE chip); beneath, the caption `POS · TEAM · vs/at · logo · OPP · kickoff`. Idle players (bye, OUT/IR/SUSP) desaturate the tile and step the name to 70% ink.
+- Numerals are condensed and right-aligned: `add` in 700 at 1.5rem, full ink when positive and 70% ink otherwise, so the one claim worth making reads first; `wk` in 600 at 1.125rem with `ESPN only` or an amber spread of 3+ beneath; ROS, Δ roster and Δ pool in 500 at 1.125rem and 70% ink. The name column takes every pixel the numerals leave (`w-full max-w-0`) and truncates.
+- Below `sm` the ROS and delta columns hide and the same three figures join a third caption line under the name, so the phone shows tile, name, ADD and WK without a horizontal scroll and nothing is hidden. The definition caption under the title is a laptop read (`md` and up).
+- Empty pool: one muted sentence, "ESPN lists no free agents at TE right now."
+
+### Stock surfaces (Journal, Draft)
 - shadcn Table, Tabs, Card (muted footer), Input, Textarea, Dialog, Skeleton as shipped; pill badges `secondary`/`outline`/`destructive` for injury tone; `text-xl font-semibold` Geist titles. These predate the board and are to be converted to it, not extended.
 
 ## Do's and Don'ts
