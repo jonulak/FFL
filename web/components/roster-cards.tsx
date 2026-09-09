@@ -17,7 +17,7 @@ function PlayerCard({ c, week }: { c: Card; week: number }) {
         <div>
           <CardTitle className="text-base">{c.name}</CardTitle>
           <div className="text-xs text-muted-foreground">
-            {c.pos} · {c.team} · {c.opponent ? `vs ${c.opponent} · ` : ""}<Kickoff iso={c.kickoff} />
+            {c.pos} · {c.team} · {c.opponent ? `vs ${c.opponent} · ` : ""}<Kickoff iso={c.kickoff} bye={c.bye} />
           </div>
         </div>
         <div className="flex items-center gap-1">
