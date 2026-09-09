@@ -80,6 +80,9 @@ function Reason({ text }: { text: string }) {
 function PlayerCard({ c, week }: { c: Card; week: number }) {
   const t = team(c.team);
   const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR";
+  // An IR or OUT call is the injury status restated; the tag alone carries it, with the return week.
+  const hurt = !HEALTHY.has(c.injury);
+  const showCall = !(hurt && (c.call === "IR" || c.call === "OUT"));
   return (
     <UiCard
       className="grid grid-cols-[5.25rem_minmax(0,1fr)] grid-rows-[auto_auto_1fr] gap-0 rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] sm:grid-cols-[6.25rem_minmax(0,1fr)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]"
@@ -98,9 +101,9 @@ function PlayerCard({ c, week }: { c: Card; week: number }) {
           </p>
         </div>
         <div className="flex max-w-[11.5rem] shrink-0 flex-wrap justify-end gap-1">
-          <Badge variant={CALL[c.call]} shape="chip">{c.call}</Badge>
+          {showCall && <Badge variant={CALL[c.call]} shape="chip">{c.call}</Badge>}
           {c.close_call && <Badge variant="close" shape="chip">close call</Badge>}
-          {!HEALTHY.has(c.injury) && (
+          {hurt && (
             <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" title={c.injury_note ?? undefined}>
               {injuryLabel(c.injury.replace("_", " "), c.return_week, week)}
             </Badge>
