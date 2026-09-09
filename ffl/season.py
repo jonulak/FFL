@@ -108,6 +108,14 @@ def lineup_diff(current: list[dict], optimal: list[dict]) -> list[dict]:
 POS_ORDER = ["QB", "RB", "WR", "TE", "D/ST", "K"]
 
 
+# The flex slots as the card names them: ESPN calls the slot "RB/WR/TE", the manager calls it flex.
+SLOT_LABEL = {"RB/WR/TE": "FLEX", "RB/WR": "FLEX", "WR/TE": "FLEX"}
+
+
+def slot_label(slot: str) -> str:
+    return SLOT_LABEL.get(slot, slot)
+
+
 def _card_sort_key(c: dict) -> tuple:
     """Section, then position in lineup order, then this week's projection, best first."""
     pos = POS_ORDER.index(c["pos"]) if c["pos"] in POS_ORDER else len(POS_ORDER)
@@ -140,10 +148,10 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
             slot = slot_of[p["player_id"]]
             alt = max((b for b in bench if b["pos"] in _slot_accepts(slot)), key=playable_proj, default=None)
             if alt is None:
-                reason = f"starts at {slot}: no bench alternative"
+                reason = f"starts at {slot_label(slot)}: no bench alternative"
             else:
                 gap = round(playable_proj(p) - playable_proj(alt), 1)
-                reason = f"starts at {slot}: {playable_proj(p):.1f} vs {playable_proj(alt):.1f} for {alt['name']}"
+                reason = f"starts at {slot_label(slot)}: {playable_proj(p):.1f} vs {playable_proj(alt):.1f} for {alt['name']}"
         else:
             group, call = "bench", "BENCH"
             takers = [(by_id[e["player_id"]], e["slot"]) for e in optimal
@@ -153,7 +161,7 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
                 reason = f"bench: no slot takes a {p['pos']}"
             else:
                 gap = round(playable_proj(p) - playable_proj(weakest[0]), 1)
-                reason = f"bench: {abs(gap):.1f} behind {weakest[0]['name']} at {weakest[1]}"
+                reason = f"bench: {abs(gap):.1f} behind {weakest[0]['name']} at {slot_label(weakest[1])}"
         close = call in ("START", "BENCH") and (
             (gap is not None and abs(gap) < CLOSE_GAP) or float(p.get("spread") or 0.0) >= CLOSE_SPREAD)
         if call in ("START", "BENCH") and p.get("injury") in INJURY_FACTOR:

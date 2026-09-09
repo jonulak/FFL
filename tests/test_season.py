@@ -290,7 +290,7 @@ def test_roster_cards_bench_gap_is_against_the_weakest_starter_he_could_replace(
     cards = {c["name"]: c for c in season.roster_cards(roster(), TWO_QB, 2)}
     # WR C (9) sits; the weakest starter in a slot that takes a WR is RB D (10) at flex
     assert cards["WR C"]["call"] == "BENCH" and cards["WR C"]["gap"] == -1.0
-    assert cards["WR C"]["reason"] == "bench: 1.0 behind RB D at RB/WR/TE"
+    assert cards["WR C"]["reason"] == "bench: 1.0 behind RB D at FLEX", "the flex slot is named FLEX, not RB/WR/TE"
     assert cards["WR C"]["close_call"] is True
 
 
