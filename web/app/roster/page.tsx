@@ -29,7 +29,9 @@ export default async function Page() {
         {run.error
           ? ` Last run failed: ${run.error}.`
           : run.at
-            ? ` Last run ${run.at}: ${run.generated} written, ${run.skipped} unchanged, ${run.failed} failed.`
+            ? ` Last run ${run.at}: ${run.generated} written, ${run.skipped} unchanged, ${run.failed} failed.` +
+              // a per-card CLI failure does not kill the run, so its reason only shows up here
+              (run.failed > 0 && run.last_failure ? ` First failure: ${run.last_failure}.` : "")
             : ""}
       </p>
       <RosterCards cards={data.cards} week={data.week} />

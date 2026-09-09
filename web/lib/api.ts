@@ -25,7 +25,7 @@ export type Card = Player & {
 };
 export type OutlookRun = {
   at: string | null; generated: number; skipped: number; failed: number; running: boolean;
-  error: string | null;
+  error: string | null; last_failure: string | null;
 };
 export type Roster = { week: number; live: boolean; cards: Card[]; outlook_run: OutlookRun; stale_since: string | null };
 export type OutlookStarted = { started: boolean; pending: number };

@@ -1,5 +1,6 @@
 """Outlook text: the fact hash, the prompt, the per-week file, and the generation loop (no CLI)."""
 import json
+import re
 import threading
 
 import pytest
@@ -23,7 +24,8 @@ def card(**kw):
 def outlook_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(outlook, "OUTLOOK_DIR", tmp_path / "outlook")
     # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
-    monkeypatch.setattr(outlook, "LAST", {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None})
+    monkeypatch.setattr(outlook, "LAST", {"at": None, "generated": 0, "skipped": 0, "failed": 0,
+                                          "error": None, "last_failure": None})
     return tmp_path / "outlook"
 
 
@@ -35,6 +37,7 @@ def test_fact_hash_ignores_a_tenth_of_a_point_but_not_the_news():
     assert outlook.fact_hash(card(injury_note="limited in practice")) != base
     assert outlook.fact_hash(card(call="BENCH")) != base
     assert outlook.fact_hash(card(proj=21.0)) != base, "a whole point changes the text"
+    assert outlook.fact_hash(card(reason="starts at RB: 20.2 vs 15.0 for Other")) != base
 
 
 def test_fact_sheet_carries_the_facts_and_the_voice_rule():
@@ -63,6 +66,8 @@ def test_load_and_save_round_trip_and_tolerate_a_missing_or_corrupt_file(outlook
     assert outlook.load(2) == {1: {"hash": "abc", "text": "t", "generated_at": "2026-09-10T09:00"}}
     (outlook_dir / "week-3.json").write_text("{not json")
     assert outlook.load(3) == {}
+    (outlook_dir / "week-4.json").write_text('{"abc": {"hash": "h", "text": "t"}}')
+    assert outlook.load(4) == {}, "a non-numeric key is a corrupt file, not a 500 on the next GET"
     assert not list(outlook_dir.glob("*.tmp")), "the temp file is renamed away"
 
 
@@ -76,6 +81,12 @@ def test_attach_marks_stale_when_the_facts_moved():
     assert (b["outlook"], b["outlook_stale"]) == ("old", True)
     n, = outlook.attach([c], {})
     assert (n["outlook"], n["outlook_at"], n["outlook_stale"]) == (None, None, False)
+
+
+def test_attach_treats_a_half_written_entry_as_absent():
+    """A truncated or hand-edited file must not 500 the GET that reads it."""
+    h, = outlook.attach([card()], {1: {"hash": "x"}})
+    assert (h["outlook"], h["outlook_at"], h["outlook_stale"]) == (None, None, False)
 
 
 def test_generate_skips_matched_played_and_ir_bye_and_keeps_old_text_on_failure(outlook_dir):
@@ -93,13 +104,19 @@ def test_generate_skips_matched_played_and_ir_bye_and_keeps_old_text_on_failure(
 
     from datetime import datetime
     counts = outlook.generate(cards, 2, run=run, now=datetime(2026, 9, 10, 9, 30))
-    assert counts == {"generated": 1, "skipped": 3, "failed": 1}
+    assert counts == {"generated": 1, "skipped": 3, "failed": 1,
+                      "last_failure": "RuntimeError: claude exited 1"}
+    assert counts["last_failure"].startswith("RuntimeError")
     assert len(seen) == 2 and all("Week 2" in p for p in seen)
     got = outlook.load(2)
     assert got[1]["text"] == "same"
     assert got[4] == {"hash": "old", "text": "kept", "generated_at": "y"}
     assert got[5] == {"hash": outlook.fact_hash(cards[4]), "text": "fresh text", "generated_at": "2026-09-10T09:30"}
     assert 2 not in got and 3 not in got
+    # with no caller-supplied clock the stamp carries the host's offset, or a browser elsewhere
+    # reads the age wrong by whole hours
+    outlook.generate([card(player_id=6, name="Aware")], 2, run=run)
+    assert re.search(r"T\d\d:\d\d[+-]\d\d:\d\d$", outlook.load(2)[6]["generated_at"])
 
 
 def test_pending_lists_only_the_cards_a_run_would_write():

@@ -31,7 +31,7 @@ VOICE = ("Write this player's outlook for the week in two or three sentences, at
          "Third person about the player, written to his manager.")
 LOCK = threading.Lock()
 # the last generation run, shown on the Roster page beside the button
-LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None}
+LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None, "last_failure": None}
 
 
 class Busy(RuntimeError):
@@ -42,7 +42,8 @@ def fact_hash(card: dict) -> str:
     """The facts the outlook text depends on. A tenth of a point of projection is not one of them."""
     facts = [card.get("opponent"), card.get("kickoff"), bool(card.get("bye")), card.get("injury"),
              card.get("injury_note"), card.get("return_week"), round(float(card.get("proj") or 0.0)),
-             float(card.get("spread") or 0.0) >= CLOSE_SPREAD, card.get("call"), bool(card.get("close_call"))]
+             float(card.get("spread") or 0.0) >= CLOSE_SPREAD, card.get("call"),
+             bool(card.get("close_call")), card.get("reason")]
     return hashlib.sha256(json.dumps(facts).encode()).hexdigest()[:16]
 
 
@@ -89,9 +90,9 @@ def load(week: int) -> dict[int, dict]:
     """The week's entries by player id; a missing or corrupt file is an empty week."""
     try:
         raw = json.loads(_path(week).read_text())
-    except (OSError, ValueError):
+        return {int(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
+    except (OSError, ValueError, AttributeError, TypeError):
         return {}
-    return {int(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
 
 
 def save(week: int, entries: dict[int, dict]) -> None:
@@ -106,7 +107,10 @@ def attach(cards: list[dict], entries: dict[int, dict]) -> list[dict]:
     out = []
     for c in cards:
         e = entries.get(c["player_id"])
-        out.append({**c, "outlook": e["text"] if e else None, "outlook_at": e["generated_at"] if e else None,
+        # a half-written entry is no entry: the page needs text and a hash or the card shows nothing
+        if not isinstance(e, dict) or "hash" not in e or "text" not in e:
+            e = None
+        out.append({**c, "outlook": e["text"] if e else None, "outlook_at": e.get("generated_at") if e else None,
                     "outlook_stale": bool(e) and e["hash"] != fact_hash(c)})
     return out
 
@@ -162,15 +166,18 @@ def generate(cards: list[dict], week: int, run=run_claude, now: datetime | None 
     entry and moves on; the file is written once at the end, so a run that dies keeps nothing."""
     entries = load(week)
     todo = pending(cards, entries)
-    counts = {"generated": 0, "skipped": len(cards) - len(todo), "failed": 0}
+    counts: dict = {"generated": 0, "skipped": len(cards) - len(todo), "failed": 0, "last_failure": None}
     for c in todo:
         try:
             text = run(fact_sheet(c, week))
-        except Exception:  # noqa: BLE001 — a missing CLI, a timeout or bad JSON costs one card, not the run
+        except Exception as e:  # noqa: BLE001 — a missing CLI, a timeout or bad JSON costs one card
             counts["failed"] += 1
+            # the run survives, so LAST["error"] stays None; without this the reason is lost entirely
+            if counts["last_failure"] is None:
+                counts["last_failure"] = f"{type(e).__name__}: {e}"[:200]
             continue
-        entries[c["player_id"]] = {"hash": fact_hash(c), "text": text,
-                                   "generated_at": (now or datetime.now()).isoformat(timespec="minutes")}
+        stamp = (now or datetime.now().astimezone()).isoformat(timespec="minutes")
+        entries[c["player_id"]] = {"hash": fact_hash(c), "text": text, "generated_at": stamp}
         counts["generated"] += 1
     save(week, entries)
     return counts

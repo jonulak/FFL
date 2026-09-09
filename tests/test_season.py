@@ -314,3 +314,15 @@ def test_roster_cards_bye_and_out_have_no_gap():
                              "close_call": False, "reason": "bye week"}
     assert cards["WR C"]["call"] == "OUT" and cards["WR C"]["reason"] == "out: OUT"
     assert cards["WR C"]["close_call"] is False
+
+
+def test_roster_cards_spread_is_a_close_call_with_no_alternative_but_never_for_out():
+    """CLOSE_SPREAD stands on its own: an unreliable projection is a close call even where
+    there is no bench alternative to compare against — but a call of OUT is never close."""
+    rs = roster()
+    rs[12]["spread"] = 3.0               # DST: the only D/ST, so gap is None
+    rs[8]["spread"] = 5.0                # WR C
+    rs[8]["injury"] = "OUT"
+    cards = {c["name"]: c for c in season.roster_cards(rs, TWO_QB, 2)}
+    assert cards["DST"]["gap"] is None and cards["DST"]["close_call"] is True
+    assert cards["WR C"]["call"] == "OUT" and cards["WR C"]["close_call"] is False
