@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-08T00:00:00Z",
+  "title": "Design System: FFL",
+  "extensions": {
+    "colorMeta": {
+      "field": { "role": "neutral", "displayName": "Press-Box Field (light)", "canonical": "oklch(0.962 0.004 250)", "tonalRamp": ["oklch(0.15 0.004 250)", "oklch(0.26 0.004 250)", "oklch(0.38 0.004 250)", "oklch(0.5 0.004 250)", "oklch(0.62 0.004 250)", "oklch(0.75 0.004 250)", "oklch(0.87 0.004 250)", "oklch(0.962 0.004 250)"] },
+      "field-dark": { "role": "neutral", "displayName": "Near-Black Field (dark)", "canonical": "oklch(0.135 0.008 260)", "tonalRamp": ["oklch(0.135 0.008 260)", "oklch(0.2 0.01 260)", "oklch(0.3 0.008 260)", "oklch(0.42 0.008 260)", "oklch(0.55 0.008 260)", "oklch(0.7 0.008 260)", "oklch(0.85 0.008 260)", "oklch(0.95 0.008 260)"] },
+      "panel": { "role": "neutral", "displayName": "Panel White", "canonical": "oklch(1 0 0)", "tonalRamp": ["oklch(0.145 0 0)", "oklch(0.269 0 0)", "oklch(0.371 0 0)", "oklch(0.556 0 0)", "oklch(0.708 0 0)", "oklch(0.87 0 0)", "oklch(0.97 0 0)", "oklch(1 0 0)"] },
+      "panel-dark": { "role": "neutral", "displayName": "Panel Charcoal", "canonical": "oklch(0.2 0.01 260)", "tonalRamp": ["oklch(0.135 0.008 260)", "oklch(0.2 0.01 260)", "oklch(0.3 0.01 260)", "oklch(0.42 0.01 260)", "oklch(0.55 0.01 260)", "oklch(0.7 0.01 260)", "oklch(0.85 0.01 260)", "oklch(0.95 0.01 260)"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(0.145 0 0)", "tonalRamp": ["oklch(0.145 0 0)", "oklch(0.205 0 0)", "oklch(0.269 0 0)", "oklch(0.371 0 0)", "oklch(0.439 0 0)", "oklch(0.556 0 0)", "oklch(0.708 0 0)", "oklch(0.985 0 0)"] },
+      "ink-muted": { "role": "neutral", "displayName": "Muted Ink", "canonical": "oklch(0.556 0 0)", "tonalRamp": ["oklch(0.145 0 0)", "oklch(0.269 0 0)", "oklch(0.371 0 0)", "oklch(0.439 0 0)", "oklch(0.556 0 0)", "oklch(0.708 0 0)", "oklch(0.87 0 0)", "oklch(0.97 0 0)"] },
+      "start": { "role": "primary", "displayName": "Board Lime", "canonical": "oklch(0.8 0.2 130)", "tonalRamp": ["oklch(0.2 0.06 130)", "oklch(0.3 0.1 130)", "oklch(0.42 0.14 130)", "oklch(0.55 0.18 130)", "oklch(0.68 0.2 130)", "oklch(0.8 0.2 130)", "oklch(0.86 0.22 130)", "oklch(0.95 0.1 130)"] },
+      "close": { "role": "primary", "displayName": "Close-Call Amber", "canonical": "oklch(0.86 0.15 85)", "tonalRamp": ["oklch(0.25 0.07 70)", "oklch(0.34 0.09 70)", "oklch(0.45 0.12 80)", "oklch(0.58 0.14 85)", "oklch(0.7 0.15 85)", "oklch(0.83 0.16 85)", "oklch(0.86 0.15 85)", "oklch(0.95 0.08 85)"] },
+      "out": { "role": "primary", "displayName": "Out Red", "canonical": "oklch(0.55 0.22 27)", "tonalRamp": ["oklch(0.2 0.1 27)", "oklch(0.3 0.15 27)", "oklch(0.42 0.2 27)", "oklch(0.55 0.22 27)", "oklch(0.62 0.21 25)", "oklch(0.7 0.19 22)", "oklch(0.82 0.12 22)", "oklch(0.95 0.04 22)"] },
+      "team-fallback": { "role": "secondary", "displayName": "Club Fallback Zinc", "canonical": "#3f3f46", "tonalRamp": ["#18181b", "#27272a", "#3f3f46", "#52525b", "#71717a", "#a1a1aa", "#d4d4d8", "#f4f4f5"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Projection Numeral", "purpose": "The projection, or the posted score once the game is on." },
+      "headline": { "displayName": "Page Title", "purpose": "The page name, with the week beside it in muted 600." },
+      "title": { "displayName": "Player Name", "purpose": "Card title; two-line clamp, balanced." },
+      "section": { "displayName": "Group Heading", "purpose": "STARTERS / BENCH / IR with count and a hairline." },
+      "reason": { "displayName": "Reason Line", "purpose": "The one Geist line that explains the call." },
+      "body": { "displayName": "Outlook Prose", "purpose": "Muted paragraph, 68ch max." },
+      "label": { "displayName": "Chip / Unit Label", "purpose": "Chip text, VS/AT, PROJ/PTS." },
+      "caption": { "displayName": "Caption", "purpose": "Kickoff, source split, stamps." },
+      "mono": { "displayName": "Slot Code", "purpose": "Lineup slot codes in stock tables." }
+    },
+    "shadows": [
+      { "name": "card-drop", "value": "0 10px 28px -16px rgb(0 0 0 / 0.55)", "purpose": "The one surface shadow; every player card." },
+      { "name": "headshot-drop", "value": "drop-shadow(0 8px 12px rgb(0 0 0 / 0.5))", "purpose": "Under the cut-out portrait on the club panel." },
+      { "name": "mark-drop", "value": "drop-shadow(0 6px 10px rgb(0 0 0 / 0.45))", "purpose": "Under the full-size club mark when there is no portrait." },
+      { "name": "panel-keyline", "value": "inset -1px 0 0 rgb(255 255 255 / 0.08)", "purpose": "Right edge of the club panel." }
+    ],
+    "motion": [
+      { "name": "ease-out-expo", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "The outlook panel height and chevron rotation, 300ms. The page's only authored motion." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" }
+    ],
+    "container": { "maxWidth": "64rem", "paddingX": "12px" },
+    "clubPanel": { "gradient": "linear-gradient(168deg, primary 0%, color-mix(in oklab, primary 62%, secondary) 100%)", "watermarkOpacity": 0.16, "idle": "saturate(.35) opacity .8", "source": "web/lib/teams.ts" }
+  },
+  "components": [
+    {
+      "name": "Start Chip",
+      "kind": "chip",
+      "refersTo": "chip-start",
+      "description": "The verdict chip: lime lower-third block, squared, condensed caps.",
+      "html": "<span class=\"ds-chip ds-chip-start\">START</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; height: 20px; padding: 2px 6px; border-radius: 6px; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; } .ds-chip-start { background: var(--start, oklch(0.8 0.2 130)); color: var(--start-foreground, oklch(0.22 0.06 130)); }"
+    },
+    {
+      "name": "Close Call Chip",
+      "kind": "chip",
+      "refersTo": "chip-close",
+      "description": "Amber chip for a close call; the warn variant is the same amber at 25% with a ring for QUESTIONABLE.",
+      "html": "<span class=\"ds-chip ds-chip-close\">CLOSE CALL</span> <span class=\"ds-chip ds-chip-warn\">QUESTIONABLE</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; height: 20px; padding: 2px 6px; border-radius: 6px; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; line-height: 1; white-space: nowrap; } .ds-chip-close { background: var(--close, oklch(0.86 0.15 85)); color: var(--close-foreground, oklch(0.34 0.09 70)); } .ds-chip-warn { background: color-mix(in oklab, var(--close, oklch(0.86 0.15 85)) 25%, transparent); color: var(--close-foreground, oklch(0.34 0.09 70)); box-shadow: 0 0 0 1px color-mix(in oklab, var(--close, oklch(0.86 0.15 85)) 60%, transparent); }"
+    },
+    {
+      "name": "Out Chip",
+      "kind": "chip",
+      "refersTo": "chip-out",
+      "description": "Red chip for OUT and IR, and the injury chip with the return week.",
+      "html": "<span class=\"ds-chip ds-chip-out\">OUT</span> <span class=\"ds-chip ds-chip-muted\">BENCH</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; height: 20px; padding: 2px 6px; border-radius: 6px; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; line-height: 1; white-space: nowrap; } .ds-chip-out { background: var(--out, oklch(0.55 0.22 27)); color: #fff; } .ds-chip-muted { background: color-mix(in oklab, var(--foreground, #111) 10%, transparent); color: color-mix(in oklab, var(--foreground, #111) 75%, transparent); }"
+    },
+    {
+      "name": "Player Card",
+      "kind": "card",
+      "refersTo": "player-card",
+      "description": "A broadcast lineup panel: club-colour column left, name / matchup / numeral / reason right, outlook in the footer.",
+      "html": "<article class=\"ds-card\"><div class=\"ds-card-panel\"></div><div class=\"ds-card-body\"><div class=\"ds-card-head\"><div><div class=\"ds-card-name\">Brock Purdy</div><div class=\"ds-card-sub\"><b>QB</b> · 49ers</div></div><span class=\"ds-chip ds-chip-start\">START</span></div><div class=\"ds-card-match\"><span class=\"ds-card-venue\">AT</span> LAR · Thu 8:35 PM</div><div class=\"ds-card-num\"><span class=\"ds-card-big\">16.7</span><span class=\"ds-card-unit\">PROJ</span><span class=\"ds-card-split\">ESPN 15.5 · Sleeper 17.9</span></div><p class=\"ds-card-reason\">starts at QB: 16.7 vs 15.4 for Bryce Young</p><div class=\"ds-card-foot\">Outlook · 41m ago</div></div></article>",
+      "css": ".ds-card { display: grid; grid-template-columns: 6.25rem minmax(0,1fr); width: 100%; max-width: 30rem; overflow: hidden; border-radius: 10px; background: var(--card, #fff); color: var(--card-foreground, #111); box-shadow: 0 10px 28px -16px rgb(0 0 0 / 0.55), 0 0 0 1px color-mix(in oklab, var(--foreground, #111) 10%, transparent); font-family: Geist, sans-serif; font-size: 14px; } .ds-card-panel { background: linear-gradient(168deg, #AA0000 0%, color-mix(in oklab, #AA0000 62%, #B3995D) 100%); box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.08); } .ds-card-body { padding: 12px 16px 14px; } .ds-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; } .ds-card-name { font-family: 'Barlow Condensed', sans-serif; font-size: 1.65rem; font-weight: 600; line-height: 1; letter-spacing: -0.025em; } .ds-card-sub { margin-top: 4px; color: var(--muted-foreground, #666); } .ds-card-sub b { font-weight: 600; color: color-mix(in oklab, var(--foreground, #111) 80%, transparent); } .ds-card-match { margin-top: 8px; color: var(--muted-foreground, #666); } .ds-card-venue { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: color-mix(in oklab, var(--foreground, #111) 80%, transparent); } .ds-card-num { margin-top: 12px; display: flex; align-items: flex-end; gap: 6px; } .ds-card-big { font-family: 'Barlow Condensed', sans-serif; font-size: 2.6rem; font-weight: 700; line-height: 1; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; } .ds-card-unit { font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 600; letter-spacing: 0.12em; color: var(--muted-foreground, #666); padding-bottom: 2px; } .ds-card-split { margin-left: 8px; font-size: 12px; color: var(--muted-foreground, #666); padding-bottom: 4px; font-variant-numeric: tabular-nums; } .ds-card-reason { margin: 8px 0 0; font-size: 15px; font-weight: 500; line-height: 1.375; } .ds-card-foot { margin-top: 12px; padding-top: 8px; border-top: 1px solid color-mix(in oklab, var(--foreground, #111) 10%, transparent); font-size: 12px; color: var(--muted-foreground, #666); } .ds-chip { display: inline-flex; align-items: center; height: 20px; padding: 2px 6px; border-radius: 6px; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; line-height: 1; flex-shrink: 0; } .ds-chip-start { background: var(--start, oklch(0.8 0.2 130)); color: var(--start-foreground, oklch(0.22 0.06 130)); }"
+    },
+    {
+      "name": "Section Heading",
+      "kind": "custom",
+      "refersTo": "section",
+      "description": "Condensed uppercase group title, muted count, hairline to the right.",
+      "html": "<h2 class=\"ds-section\"><span class=\"ds-section-title\">Starters</span><span class=\"ds-section-count\">11</span><span class=\"ds-section-rule\"></span></h2>",
+      "css": ".ds-section { display: flex; align-items: baseline; gap: 12px; margin: 0; } .ds-section-title { font-family: 'Barlow Condensed', sans-serif; font-size: 1.25rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; } .ds-section-count { font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 500; color: var(--muted-foreground, #666); font-variant-numeric: tabular-nums; } .ds-section-rule { flex: 1; height: 1px; align-self: flex-end; margin-bottom: 6px; background: color-mix(in oklab, var(--foreground, #111) 12%, transparent); }"
+    },
+    {
+      "name": "Outlook Toggle",
+      "kind": "custom",
+      "refersTo": "body",
+      "description": "The phone trigger for the outlook paragraph; chevron rotates, panel height animates on ease-out-expo.",
+      "html": "<button class=\"ds-outlook\"><svg class=\"ds-outlook-chev\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg><span>Outlook · 41m ago</span></button>",
+      "css": ".ds-outlook { display: flex; align-items: center; gap: 6px; min-height: 32px; width: 100%; padding: 0; border: 0; background: none; border-radius: 6px; font-family: Geist, sans-serif; font-size: 12px; color: var(--muted-foreground, #666); text-align: left; cursor: pointer; } .ds-outlook-chev { transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-outlook[aria-expanded=true] .ds-outlook-chev, .ds-outlook:hover .ds-outlook-chev { transform: rotate(180deg); } .ds-outlook:focus-visible { outline: 2px solid var(--start, oklch(0.8 0.2 130)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "shadcn outline button, small size, as used for Regenerate outlooks and Refresh.",
+      "html": "<button class=\"ds-btn-outline\">Regenerate outlooks</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--border, oklch(0.922 0 0)); background: var(--background, oklch(0.962 0.004 250)); color: var(--foreground, #111); font-family: Geist, sans-serif; font-size: 0.8rem; font-weight: 500; cursor: pointer; transition: background 150ms, color 150ms; } .ds-btn-outline:hover { background: var(--muted, oklch(0.97 0 0)); } .ds-btn-outline:active { transform: translateY(1px); } .ds-btn-outline:focus-visible { outline: 2px solid var(--start, oklch(0.8 0.2 130)); outline-offset: 2px; } .ds-btn-outline:disabled { opacity: 0.5; pointer-events: none; }"
+    },
+    {
+      "name": "Nav Link",
+      "kind": "nav",
+      "refersTo": "body",
+      "description": "Top nav text links; muted background on hover, no active state implemented.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link\" href=\"#\">Week</a><a class=\"ds-nav-link\" href=\"#\">Roster</a><a class=\"ds-nav-link\" href=\"#\">League</a><a class=\"ds-nav-link\" href=\"#\">Waivers</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border, oklch(0.922 0 0)); background: color-mix(in oklab, var(--background, #fff) 95%, transparent); font-family: Geist, sans-serif; font-size: 14px; } .ds-nav-link { padding: 6px 12px; border-radius: 4px; color: inherit; text-decoration: none; white-space: nowrap; } .ds-nav-link:hover { background: var(--muted, oklch(0.97 0 0)); } .ds-nav-link:focus-visible { outline: 2px solid var(--start, oklch(0.8 0.2 130)); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Broadcast Board",
+    "overview": "The UI is one manager's own instrument, read on a phone before kickoff or a laptop midweek, and it is set like a broadcast lineup graphic: a near-black field, one panel per player cut out on his club's colours, the projection in big condensed numerals, and the verdict in a squared lower-third chip. The call reads from across the room; the paragraph is there when he wants it.\n\nThe world is established on the Roster page as of 2026-09-08. Week, League, Waivers, Journal and Draft still carry the stock shadcn neutral look. They have not been brought over yet; the Roster page is the reference when they are.\n\nEverything is a shadcn (base-ui) component. New looks are expressed by extending a shadcn variant or by laying a shadcn Card out with grid utilities, never by hand-rolling an element. Tailwind 4, Next 16, lucide icons. Dark follows the system; there is no toggle.",
+    "keyCharacteristics": [
+      "Near-black field in dark, off-white press-box light in light; both are the same board.",
+      "Team-colour gradient panels from the 32-club table are the only saturated surfaces besides the three verdict colours.",
+      "Barlow Condensed for names, numerals and labels; Geist for reasons and prose; Geist Mono for slot codes in tables.",
+      "Three verdict colours (lime START, amber close/questionable, red OUT/IR); nothing else is coloured.",
+      "One card shadow, one authored motion (the outlook panel opening), no decoration beyond the watermark."
+    ],
+    "rules": [
+      { "name": "The Three Verdicts Rule", "body": "Lime, amber and red mean START, close/questionable and OUT/IR, and nothing else. No other hue is added for state; blue, green or purple accents do not exist here.", "section": "colors" },
+      { "name": "The Club Owns the Colour Rule", "body": "Saturation on the board comes from the team table, never from the design tokens. Text is never set on a club colour.", "section": "colors" },
+      { "name": "The Condensed-for-Facts Rule", "body": "Names, numbers, units and verdict labels are Barlow Condensed; sentences are Geist. A number set in Geist or a sentence set in Barlow is off-system.", "section": "typography" },
+      { "name": "The Unit Beside the Number Rule", "body": "A big numeral always carries its small uppercase unit (PROJ or PTS) on its baseline; the number never stands alone.", "section": "typography" },
+      { "name": "The Decision Above the Fold Rule", "body": "On a phone the card shows name, matchup, projection, chip and reason before anything that does not change the call; prose is behind a tap.", "section": "layout" },
+      { "name": "The One Shadow Rule", "body": "The card drop is the only box shadow on a surface. Chips, buttons, tables and headings are flat.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do express a new look as a shadcn variant (as badge.tsx does with start/close/warn/out/muted and shape: chip) and lay shadcn Cards out with grid utilities; the component library is the only element vocabulary.",
+      "Do set names, numerals, units and chip labels in Barlow Condensed with tabular-nums, and sentences in Geist.",
+      "Do put the club's colour in the panel from web/lib/teams.ts and load marks and portraits from ESPN's CDN with the logo-then-nothing fallback; never a broken-image glyph.",
+      "Do keep the stale badge and the \"facts changed since\" stamp; stale is a state, and every surface says when it was last true.",
+      "Do bring a page onto the board by reusing the Roster page's tokens and chips (a Week row is a smaller card, not a new colour scheme)."
+    ],
+    "donts": [
+      "Don't add a fourth state colour or use lime, amber or red for anything but START, close/questionable and OUT/IR.",
+      "Don't set text on a team-colour panel.",
+      "Don't stack shadows, add hover lifts, or put a shadow on a chip or button; the card drop is the only one.",
+      "Don't use the pill badge for a verdict on a board surface; verdicts are squared chips.",
+      "Don't add a theme toggle or a theme provider; dark follows prefers-color-scheme.",
+      "Don't hand-roll a div-and-span element when a shadcn primitive exists."
+    ]
+  }
+}

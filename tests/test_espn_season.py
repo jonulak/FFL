@@ -25,7 +25,8 @@ def test_flatten_box_player():
                  "bye": False, "injury": "ACTIVE", "proj_espn": 21.4, "proj_sleeper": None, "proj": 21.4,
                  "spread": None, "espn_only": True, "actual": 0.0, "game_played": 0,
                  "season_proj": 320.5, "season_proj_sleeper": None,
-                 "return_week": None, "injury_note": None, "opponent": None, "kickoff": None}
+                 "return_week": None, "injury_note": None, "opponent": None, "kickoff": None,
+                 "home": None}
 
 
 def test_flatten_dst_uses_team_position():
@@ -339,3 +340,40 @@ def test_fetch_injuries_serves_the_last_good_data_then_an_empty_dict(monkeypatch
     assert espn_season.fetch_injuries() == good, "expired and ESPN down: the stale data still serves"
     espn_season._INJ.clear()
     assert espn_season.fetch_injuries() == {}, "with nothing cached there is nothing to serve"
+
+
+PRO_SCHEDULE = {"settings": {"proTeams": [
+    {"id": 0, "proGamesByScoringPeriod": {}},
+    {"id": 25, "proGamesByScoringPeriod": {"1": [{"homeProTeamId": 14, "awayProTeamId": 25}]}},   # SF at LAR
+    {"id": 14, "proGamesByScoringPeriod": {"1": [{"homeProTeamId": 14, "awayProTeamId": 25}]}},
+    {"id": 8, "proGamesByScoringPeriod": {"2": [{"homeProTeamId": 8, "awayProTeamId": 3}]}},      # DET idle in week 1
+]}}
+
+
+def test_parse_home_by_team_reads_the_venue_espn_api_drops():
+    home = espn_season.parse_home_by_team(PRO_SCHEDULE, 1)
+    assert home == {"SF": False, "LAR": True}, "DET has no week-1 game and team 0 is the placeholder"
+
+
+def test_apply_home_leaves_players_without_a_game_unknown():
+    players = [espn_season.flatten_box_player(bp(proTeam="SF", pro_opponent="LAR")),
+               espn_season.flatten_box_player(bp(playerId=2, proTeam="LAR", pro_opponent="SF")),
+               espn_season.flatten_box_player(bp(playerId=3, proTeam="DET", on_bye_week=True, pro_opponent="None")),
+               espn_season.flatten_box_player(bp(playerId=4, proTeam="MIA", pro_opponent="NYJ"))]
+    espn_season.apply_home(players, {"SF": False, "LAR": True})
+    assert [p["home"] for p in players] == [False, True, None, None], "a bye and an unlisted team both stay None"
+
+
+def test_home_by_team_survives_a_failed_schedule_fetch(monkeypatch, capsys):
+    espn_season._HOME.clear()
+
+    def boom():
+        raise requests.ConnectionError("down")
+    lg = SimpleNamespace(espn_request=SimpleNamespace(get_pro_schedule=boom))
+    assert espn_season.home_by_team(lg, 1) == {}
+    assert "venues unknown" in capsys.readouterr().out
+    assert not espn_season._HOME, "a failure is not cached: the next request retries"
+    lg = SimpleNamespace(espn_request=SimpleNamespace(get_pro_schedule=lambda: PRO_SCHEDULE))
+    assert espn_season.home_by_team(lg, 1) == {"SF": False, "LAR": True}
+    lg.espn_request.get_pro_schedule = boom
+    assert espn_season.home_by_team(lg, 1) == {"SF": False, "LAR": True}, "cached for the League's lifetime"

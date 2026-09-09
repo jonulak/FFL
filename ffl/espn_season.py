@@ -72,7 +72,49 @@ def flatten_box_player(bp, season_proj: float | None = None) -> dict:
             "season_proj": float(season_proj if season_proj is not None else getattr(bp, "projected_total_points", 0) or 0),
             "season_proj_sleeper": None, "return_week": None, "injury_note": None,
             "opponent": None if bye or opp in (None, "None") else opp,
-            "kickoff": gd.astimezone().isoformat() if gd is not None and not bye else None}
+            "kickoff": gd.astimezone().isoformat() if gd is not None and not bye else None,
+            # BoxPlayer carries the opponent but not the venue; apply_home fills this from the
+            # pro schedule. None means unknown (no game, or the schedule view failed).
+            "home": None}
+
+
+_HOME: dict[tuple[int, float], dict[str, bool]] = {}  # (week, league build) -> team -> hosts
+
+
+def parse_home_by_team(data: dict, week: int) -> dict[str, bool]:
+    """Which pro teams host their game in `week`, from ESPN's proTeamSchedules_wl view —
+    the same document espn-api reads for the opponent, which it keeps and the venue it drops."""
+    from espn_api.football.constant import PRO_TEAM_MAP
+    out: dict[str, bool] = {}
+    for t in data.get("settings", {}).get("proTeams", []):
+        games = (t.get("proGamesByScoringPeriod") or {}).get(str(week)) or []
+        abbr = PRO_TEAM_MAP.get(t.get("id"))
+        if games and abbr and abbr != "None":
+            out[abbr] = games[0].get("homeProTeamId") == t["id"]
+    return out
+
+
+def home_by_team(lg, week: int) -> dict[str, bool]:
+    """parse_home_by_team over the live view, cached for the life of the League object. A failed
+    fetch returns {} so every card shows the opponent without a venue rather than no page."""
+    key = (week, _LEAGUE_BUILT_AT)
+    if key not in _HOME:
+        req = getattr(lg, "espn_request", None)  # tests stub the league without one
+        try:
+            data = req.get_pro_schedule() if req is not None else {}
+        except Exception as e:  # noqa: BLE001 — venue is decoration, the call is not
+            print(f"pro schedule unavailable, venues unknown: {e}")
+            return {}  # not cached: the next request retries
+        _HOME.clear()
+        _HOME[key] = parse_home_by_team(data, week)
+    return _HOME[key]
+
+
+def apply_home(players: list[dict], home: dict[str, bool]) -> list[dict]:
+    """Set `home` for every player with a game this week; players without one stay None."""
+    for p in players:
+        p["home"] = home.get(p["team"]) if p.get("opponent") else None
+    return players
 
 
 def fetch_sleeper_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
@@ -311,6 +353,7 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
     seas = _season_for(settings, season)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
+    home = home_by_team(lg, week)
     for m in lg.box_scores(week):
         sides = [(m.home_team, m.home_lineup), (m.away_team, m.away_lineup)]
         if not any(getattr(t, "team_id", None) == me for t, _ in sides):
@@ -319,8 +362,8 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
         for t, lineup in sides:
             if not hasattr(t, "team_id"):
                 continue  # a bye or placeholder side: no opponent to build
-            players = apply_injuries(
-                apply_season(merge_weekly([flatten_box_player(bp) for bp in lineup], sl), seas), inj, w1)
+            players = apply_home(apply_injuries(
+                apply_season(merge_weekly([flatten_box_player(bp) for bp in lineup], sl), seas), inj, w1), home)
             built["me" if t.team_id == me else "opp"] = build_side(t, players, settings)
         return {"week": week, "live": S.is_live(), "me": built["me"], "opp": built.get("opp")}
     raise RuntimeError(f"no matchup for team {me} in week {week}")
@@ -366,8 +409,9 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
     boxes = _boxes_by_team(lg, week)
     if me not in boxes:
         raise RuntimeError(f"no box score for team {me} in week {week}")
-    players = apply_injuries(
-        apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1)
+    players = apply_home(apply_injuries(
+        apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1),
+        home_by_team(lg, week))
     return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week)}
 
 

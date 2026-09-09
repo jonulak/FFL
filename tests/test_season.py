@@ -16,7 +16,7 @@ def P(pid, name, pos, proj, slot="BE", injury="ACTIVE", bye=False, team="T", sea
             "espn_only": False, "actual": 0.0, "game_played": 0,
             "season_proj": season_proj if season_proj is not None else proj * 17,
             "season_proj_sleeper": None, "return_week": None, "injury_note": None,
-            "opponent": None, "kickoff": None}
+            "opponent": None, "kickoff": None, "home": None}
 
 
 def roster():

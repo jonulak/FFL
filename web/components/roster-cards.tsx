@@ -1,68 +1,138 @@
 import { Badge } from "@/components/ui/badge";
-import { Card as UiCard, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card as UiCard, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import type { Card } from "@/lib/api";
 import { injuryLabel, injuryTone, pts } from "@/lib/format";
-import { Ago, Kickoff } from "./local-time";
+import { team } from "@/lib/teams";
+import { Kickoff } from "./local-time";
+import { Outlook } from "./outlook";
+import { TeamLogo, TeamPanel } from "./player-media";
 
-const TONE = { ok: "secondary", warn: "outline", bad: "destructive" } as const;
-const CALL_VARIANT = { START: "default", BENCH: "secondary", OUT: "destructive", BYE: "outline", IR: "outline" } as const;
+const CALL = { START: "start", BENCH: "muted", OUT: "out", BYE: "muted", IR: "out" } as const;
+const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
+// ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
+const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 const GROUPS: { key: Card["group"]; title: string }[] = [
   { key: "starter", title: "Starters" }, { key: "bench", title: "Bench" }, { key: "ir", title: "IR" },
 ];
 
-function PlayerCard({ c, week }: { c: Card; week: number }) {
+// "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare.
+function Matchup({ c }: { c: Card }) {
+  if (!c.opponent) {
+    return <span className="text-sm text-muted-foreground"><Kickoff iso={c.kickoff} bye={c.bye} /></span>;
+  }
   return (
-    <UiCard className={c.call === "BYE" || c.call === "OUT" ? "opacity-70" : ""}>
-      <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-x-2 pb-2">
-        <div>
-          <CardTitle className="text-base">{c.name}</CardTitle>
-          <div className="text-xs text-muted-foreground">
-            {c.pos} · {c.team} · {c.opponent ? `vs ${c.opponent} · ` : ""}<Kickoff iso={c.kickoff} bye={c.bye} />
-          </div>
+    <span className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
+      {c.home !== null && <span className="font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-foreground/80">{c.home ? "vs" : "at"}</span>}
+      <TeamLogo abbr={c.opponent} size={20} />
+      <span className="font-medium text-foreground/85">{c.opponent}</span>
+      <span aria-hidden>·</span>
+      <Kickoff iso={c.kickoff} bye={c.bye} />
+    </span>
+  );
+}
+
+// The number that decides the call. Once the game is on, the score he has posted takes the big
+// slot and the projection steps beside it.
+function Numbers({ c }: { c: Card }) {
+  const live = c.game_played > 0 || c.actual > 0;
+  const big = live ? c.actual : c.proj;
+  const zero = !live && c.proj === 0;
+  return (
+    <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+      <div className="flex items-baseline gap-1.5">
+        <span className={`font-display text-[2.6rem] font-bold leading-none tracking-tight ${zero ? "text-muted-foreground" : ""}`}>
+          {pts(big)}
+        </span>
+        <span className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          {live ? "pts" : "proj"}
+        </span>
+      </div>
+      <div className="pb-1 text-xs tabular-nums text-muted-foreground">
+        {live && <span className="mr-2">proj {pts(c.proj)}</span>}
+        {c.espn_only
+          ? <span>ESPN only</span>
+          : <span>ESPN {pts(c.proj_espn)} <span aria-hidden>·</span> Sleeper {pts(c.proj_sleeper)}</span>}
+        {c.spread != null && c.spread >= 3 && (
+          <span className="ml-2 font-medium text-close-foreground dark:text-close">±{pts(c.spread)}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// The rule that fired, on one line at laptop widths. season.roster_cards appends
+// " — his status is your call" for QUESTIONABLE/DOUBTFUL; that note gets its own small line so
+// the call and the gap never wrap. On the phone the column is too narrow to keep the alternative
+// on one line, so it wraps there rather than hide who he is being compared to.
+function Reason({ text }: { text: string }) {
+  const [main, note] = text.split(" — ", 2);
+  return (
+    <div className="mt-2">
+      <p className="text-[15px] font-medium leading-snug md:truncate" title={main}>{main}</p>
+      {note && <p className="mt-0.5 text-xs text-muted-foreground">{note}</p>}
+    </div>
+  );
+}
+
+// shadcn Card, laid out as a broadcast lineup panel: the team-colour media column spans every
+// row on the left, header / content / footer stack on the right.
+function PlayerCard({ c, week }: { c: Card; week: number }) {
+  const t = team(c.team);
+  const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR";
+  return (
+    <UiCard
+      className="grid grid-cols-[5.25rem_minmax(0,1fr)] grid-rows-[auto_auto_1fr] gap-0 rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] sm:grid-cols-[6.25rem_minmax(0,1fr)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]"
+      aria-label={`${c.name}, ${c.call}`}
+    >
+      <div className="row-span-3 h-full"><TeamPanel abbr={c.team} playerId={c.player_id} name={c.name} muted={idle} /></div>
+      <CardHeader className="flex flex-row items-start justify-between gap-2 pt-2.5 sm:pt-3">
+        <div className="min-w-0">
+          <CardTitle className={`line-clamp-2 text-balance font-display text-[1.65rem] font-semibold leading-none tracking-tight ${idle ? "text-foreground/70" : ""}`}>
+            {c.name}
+          </CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground/80">{c.pos}</span>
+            <span aria-hidden> · </span>
+            {t.name || c.team}
+          </p>
         </div>
-        <div className="flex items-center gap-1">
-          {c.close_call && <Badge variant="outline">close call</Badge>}
-          <Badge variant={CALL_VARIANT[c.call]}>{c.call}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <div className="flex flex-wrap items-center gap-2 tabular-nums">
-          <span>proj {pts(c.proj)}</span>
-          {c.spread != null && c.spread >= 3 && <span className="text-xs text-muted-foreground">±{pts(c.spread)}</span>}
-          {c.injury !== "ACTIVE" && (
-            <Badge variant={TONE[injuryTone(c.injury)]} title={c.injury_note ?? undefined}>
-              {injuryLabel(c.injury, c.return_week, week)}
+        <div className="flex max-w-[11.5rem] shrink-0 flex-wrap justify-end gap-1">
+          <Badge variant={CALL[c.call]} shape="chip">{c.call}</Badge>
+          {c.close_call && <Badge variant="close" shape="chip">close call</Badge>}
+          {!HEALTHY.has(c.injury) && (
+            <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" title={c.injury_note ?? undefined}>
+              {injuryLabel(c.injury.replace("_", " "), c.return_week, week)}
             </Badge>
           )}
-          {(c.game_played > 0 || c.actual > 0) && <span>· actual {pts(c.actual)}</span>}
         </div>
-        <p className="font-medium">{c.reason}</p>
-        {c.outlook ? (
-          <div>
-            <p className="text-muted-foreground">{c.outlook}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              outlook · {c.outlook_at ? <Ago iso={c.outlook_at} /> : "—"}
-              {c.outlook_stale ? " · facts changed since" : ""}
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">no outlook yet</p>
-        )}
+      </CardHeader>
+      <CardContent className="pt-2">
+        <Matchup c={c} />
+        <div className="mt-3"><Numbers c={c} /></div>
+        <Reason text={c.reason} />
       </CardContent>
+      <CardFooter className="flex flex-col items-stretch rounded-none border-t border-foreground/10 bg-transparent pt-2 pb-3 sm:pb-3.5">
+        <Outlook text={c.outlook} at={c.outlook_at} stale={c.outlook_stale} />
+      </CardFooter>
     </UiCard>
   );
 }
 
 export function RosterCards({ cards, week }: { cards: Card[]; week: number }) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {GROUPS.map(({ key, title }) => {
         const rows = cards.filter((c) => c.group === key);
         if (rows.length === 0) return null;
         return (
-          <section key={key} className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
+          <section key={key} className="space-y-3" aria-labelledby={`group-${key}`}>
+            <h2 id={`group-${key}`} className="flex items-baseline gap-3">
+              <span className="font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</span>
+              <span className="font-display text-sm font-medium tabular-nums text-muted-foreground">{rows.length}</span>
+              <Separator className="mb-1.5 flex-1 self-end bg-foreground/12" />
+            </h2>
+            <div className="grid gap-3 md:grid-cols-2">
               {rows.map((c) => <PlayerCard key={c.player_id} c={c} week={week} />)}
             </div>
           </section>

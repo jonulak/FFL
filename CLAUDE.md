@@ -80,6 +80,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production
   runs from the main checkout under launchd (`launchd/`), on :3300, exposed tailnet-only via
   `tailscale serve` at https://macbook-pro.tailnet.ts.net:3300. Ports 3000/8000 are other projects'.
+- Every player dict carries `home` (True hosts, False travels, None unknown): espn-api drops the venue,
+  so `espn_season.home_by_team` re-reads ESPN's `proTeamSchedules_wl` view, cached per League build,
+  and a failed read leaves every venue None rather than failing the page. Headshots and logos are
+  ESPN's public CDN (`web/lib/teams.ts`); D/ST and any missing portrait fall back to the club mark.
 - **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (STRATEGY.md "Lineup"), pure;
   `ffl/outlook.py` writes the paragraph under each card by running `claude -p` (Opus, tools off) from a
   fact sheet, one player per call, cached in `data/outlook/week-<n>.json` under a hash of the facts.

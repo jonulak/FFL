@@ -16,7 +16,7 @@ export type Player = {
   injury: string; proj_espn: number; proj_sleeper: number | null; proj: number; spread: number | null;
   espn_only: boolean; actual: number; game_played: number; season_proj: number;
   season_proj_sleeper: number | null; return_week: number | null; injury_note: string | null;
-  opponent: string | null; kickoff: string | null;
+  opponent: string | null; kickoff: string | null; home: boolean | null;
 };
 export type Card = Player & {
   group: "starter" | "bench" | "ir"; call: "START" | "BENCH" | "OUT" | "BYE" | "IR";

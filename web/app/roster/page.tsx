@@ -16,15 +16,21 @@ export default async function Page() {
   }
   const run = data.outlook_run;
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-semibold">Roster · week {data.week}</h1>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+        <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
+          Roster
+          <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
+        </h1>
         <StaleBadge since={data.stale_since} />
         <div className="ml-auto"><OutlookButton running={run.running} /></div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Call = optimal lineup by projection (STRATEGY.md, Lineup); close call under 2 points or a
-        source spread of 3+. Outlooks are written by Claude from the card&apos;s facts only.
+      {/* The definition is a laptop read; on the phone the first screen belongs to the cards. */}
+      <p className="max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
+        <span className="hidden md:inline">
+          Call = optimal lineup by projection (STRATEGY.md, Lineup); close call under 2 points or a
+          source spread of 3+. Outlooks are written by Claude from the card&apos;s facts only.
+        </span>
         {/* A run that died leaves the old counts standing, so report the failure instead of them. */}
         {run.error
           ? ` Last run failed: ${run.error}.`
