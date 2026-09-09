@@ -5,8 +5,9 @@
 Loopback only; Next.js on :3300 proxies /api/* here. Stale payloads are kept past the TTL and
 served, flagged, when a source is down — never a blank page on Sunday.
 
-Only two endpoints write anything: POST /decisions appends to journal/DECISIONS.md, and
-POST /refresh runs the journal sync. Every GET is read-only.
+Only three endpoints write anything: POST /decisions appends to journal/DECISIONS.md, POST /refresh
+runs the journal sync, and POST /outlook/refresh starts a background run that writes
+data/outlook/week-<n>.json. Every GET is read-only.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from typing import Callable, Literal
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, field_validator
 
-from . import espn_season, season
+from . import espn_season, outlook, season
 from .config import JOURNAL
 from .journal import sync_results, sync_transactions
 from .settings import load
@@ -123,6 +124,29 @@ def journal_():
 @app.get("/draft")
 def draft_():
     return {**espn_season.draft_recap(), "stale_since": None}
+
+
+@app.get("/roster")
+def roster_():
+    data = _serve("roster", lambda: espn_season.roster_state(None))
+    # attach on every request, not inside the cached build: a finished generation run must show
+    # on the next load, not after the TTL
+    return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"])),
+            "outlook_run": {**outlook.LAST, "running": outlook.running()}}
+
+
+@app.post("/outlook/refresh", status_code=202)
+def outlook_refresh():
+    try:
+        state = espn_season.roster_state(None)
+    except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
+        raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
+    todo = outlook.pending(state["cards"], outlook.load(state["week"]))
+    try:
+        outlook.start(state["cards"], state["week"], run=outlook.run_claude)
+    except outlook.Busy as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"started": True, "pending": len(todo)}
 
 
 class Decision(BaseModel):

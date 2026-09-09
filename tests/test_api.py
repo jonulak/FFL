@@ -22,6 +22,16 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(api.espn_season, "league_state", lambda: {"week": 3, "standings": [], "scoreboard": [], "power": []})
     monkeypatch.setattr(api.espn_season, "journal_state", lambda: {"decisions_md": "# x", "transactions": []})
     monkeypatch.setattr(api.espn_season, "draft_recap", lambda: {"picks": [], "recap_md": ""})
+    monkeypatch.setattr(api.espn_season, "roster_state",
+                        lambda week=None: {"week": 3, "live": False, "cards": [
+                            {"player_id": 1, "name": "A", "pos": "RB", "team": "DET", "bye": False, "injury": "ACTIVE",
+                             "proj": 12.0, "spread": 1.0, "game_played": 0, "opponent": "GB", "kickoff": None,
+                             "return_week": None, "injury_note": None, "call": "START", "close_call": False,
+                             "reason": "starts at RB: no bench alternative", "group": "starter", "gap": None}]})
+    monkeypatch.setattr(api.outlook, "OUTLOOK_DIR", tmp_path / "outlook")
+    # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
+    monkeypatch.setattr(api.outlook, "LAST",
+                        {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None})
     monkeypatch.setattr(api, "sync_all", lambda: {"transactions": 0})
     dec = tmp_path / "DECISIONS.md"
     dec.write_text("# Decisions log\n")
@@ -155,3 +165,39 @@ def test_refresh_expires_the_injury_cache_but_keeps_the_last_good_data(client, m
     assert inj._INJ and inj._INJ[0] == 0.0, "expired, not cleared"
     assert inj.fetch_injuries() == good, "ESPN down after a Refresh: the stale data still serves"
     assert calls, "the expiry did force a refetch attempt"
+
+
+def test_roster_attaches_the_cached_outlook_on_every_get(client):
+    r = client.get("/roster")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["cards"][0]["outlook"] is None and body["cards"][0]["outlook_stale"] is False
+    assert body["outlook_run"] == {"at": None, "generated": 0, "skipped": 0, "failed": 0,
+                                   "error": None, "running": False}
+    api.outlook.save(3, {1: {"hash": api.outlook.fact_hash(body["cards"][0]), "text": "He starts.",
+                             "generated_at": "t"}})
+    assert client.get("/roster").json()["cards"][0]["outlook"] == "He starts.", "no TTL wait for new text"
+
+
+def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeypatch):
+    import threading
+    gate = threading.Event()
+    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), "text")[1])
+    r = client.post("/outlook/refresh")
+    assert r.status_code == 202 and r.json() == {"started": True, "pending": 1}
+    assert client.post("/outlook/refresh").status_code == 409
+    assert client.get("/roster").json()["outlook_run"]["running"] is True
+    gate.set()
+    for _ in range(50):
+        if not api.outlook.running():
+            break
+        time.sleep(0.05)
+    assert client.get("/roster").json()["cards"][0]["outlook"] == "text"
+    assert client.get("/roster").json()["outlook_run"]["generated"] == 1
+
+
+def test_outlook_refresh_reports_a_source_failure_as_502(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "roster_state",
+                        lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+    r = client.post("/outlook/refresh")
+    assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
