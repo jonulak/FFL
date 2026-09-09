@@ -15,7 +15,8 @@ export function WeekSelect({ week, current, weeks, base }: { week: number; curre
       value={String(week)}
       onValueChange={(v) => {
         if (v == null || Number(v) === week) return;
-        start(() => router.push(Number(v) === current ? base : `${base}?week=${v}`));
+        // scroll: false — the picker sits above the scoreboard, and the eye should stay there
+        start(() => router.push(Number(v) === current ? base : `${base}?week=${v}`, { scroll: false }));
       }}
     >
       <SelectTrigger size="sm" aria-label="Week" className={`font-display text-[15px] font-semibold uppercase tracking-[0.12em] ${pending ? "opacity-60" : ""}`}>
