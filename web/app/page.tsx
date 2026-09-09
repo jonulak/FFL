@@ -1,5 +1,5 @@
 import { ErrorCard } from "@/components/error-card";
-import { WeekLive } from "@/components/week-live";
+import { MatchupLive } from "@/components/matchup-live";
 import { apiGet, type Week } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 
@@ -12,5 +12,5 @@ export default async function Page() {
   } catch (e) {
     return <ErrorCard {...errorFields(e)} />;
   }
-  return <WeekLive initial={data} />;
+  return <MatchupLive initial={data} />;
 }

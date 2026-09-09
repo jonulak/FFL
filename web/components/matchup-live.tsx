@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { clientGet } from "@/app/api-client";
 import type { Week } from "@/lib/api";
-import { WeekView } from "./week-view";
+import { MatchupView } from "./matchup";
 
 const POLL_MS = 60_000;
 
-export function WeekLive({ initial }: { initial: Week }) {
+export function MatchupLive({ initial }: { initial: Week }) {
   const [data, setData] = useState(initial);
   // A server re-render (router.refresh(), navigation) hands us a fresh `initial`;
   // adjust state during render rather than in an effect, per the React docs.
@@ -27,5 +27,5 @@ export function WeekLive({ initial }: { initial: Week }) {
     return () => clearInterval(id);
   }, [live, week]);
 
-  return <WeekView data={data} />;
+  return <MatchupView data={data} />;
 }

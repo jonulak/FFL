@@ -46,7 +46,7 @@ it is the one manager's own instrument.
 - **Data flow:** FastAPI (`ffl/api.py`, 127.0.0.1:8300) serves pure computations from `ffl/season.py`; Next 16 server components fetch it through a `/api/*` rewrite. ESPN is read via authenticated cookies; injuries from ESPN's public feed with a 30-min cache and last-good fallback, so data can be stale and the UI already carries a stale badge.
 - **Outlooks:** the paragraph under each Roster card is written by `claude -p` from a fact sheet, cached per week under a hash of the facts, regenerated hourly by launchd. GETs never generate. Outlook text never changes the call.
 - **Record:** `journal/DECISIONS.md` (every roster decision, reasoning, alternatives), `journal/transactions.csv`, `journal/results/` (weekly.csv, standings.md), `journal/draft/picks.csv`. The UI can append decisions (decision form) and trigger a sync (Refresh).
-- **Pages:** Week (default), Roster, League, Waivers, Journal, Draft.
+- **Pages:** Matchup (default, the head-to-head), Roster, League, Waivers, Journal, Draft.
 
 ## Capabilities and Constraints
 
@@ -55,7 +55,7 @@ it is the one manager's own instrument.
 - **Terminology in use:** start / bench / close call; `add`, ROS (rest of season), VORP, ADP, spread (source disagreement), replacement level; QB/RB/WR/TE/FLEX/D/ST/K; IR stash; bye.
 - **Hard constraints:** the UI reports the tree's call and the reason; new judgment is not encoded as weights. Injury news overrides the tree by hand, so surfacing status and the healthy alternative matters more than a verdict.
 - **Stack:** Next 16 + React 19, Tailwind 4, shadcn (base-ui), lucide icons, react-markdown; Geist / Geist Mono; dark mode follows the system (no toggle yet, `.dark` hook kept). pnpm. Vitest for the web, pytest via `uv run` for Python.
-- **Undecided:** whether the ESPN matchup/opponent context belongs on the Week page (currently a "matchup rank is not a term" stance for the *call*; its place as *context* is open). Whether the Draft page stays after the season.
+- **Undecided:** whether the ESPN matchup/opponent context belongs on the Matchup page (currently a "matchup rank is not a term" stance for the *call*; its place as *context* is open). Whether the Draft page stays after the season.
 
 ## Brand Commitments
 

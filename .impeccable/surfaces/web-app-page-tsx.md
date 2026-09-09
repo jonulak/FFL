@@ -1,0 +1,28 @@
+---
+version: 1
+slug: "web-app-page-tsx"
+primary_target: "web/app/page.tsx"
+related_targets: ["web/components/matchup.tsx"]
+---
+
+# Matchup page
+
+Scope: `/` (web/app/page.tsx, web/components/matchup.tsx, matchup-live.tsx). Mode: Operate. Renamed from "Week" on 2026-09-08.
+
+Audience and job: the one manager, on a phone through game day and at a laptop midweek, asking "where does this week stand" for the head-to-head: both totals, both lineups, who is questionable, and what the lineup by projection would add. Action: set the lineup in ESPN (the call itself lives on the Roster page). Proof: projection per player and per side, posted points once games are on, the optimal-lineup gain. Data can be stale; the stale badge stays. The page polls every minute while the week is live.
+
+Chosen direction: the broadcast board, inherited from the Roster page. Memorable moment: the scorebug, both teams and their totals set like the corner score of a broadcast, over two lineup panels whose rows carry the team-colour tile.
+
+## Direction contract
+
+THESIS: A head-to-head read like a broadcast scorebug over two lineup boards. Refuses the shadcn table-in-a-card with a "proj · actual" caption.
+
+OWN-WORLD: Same board as Roster: field, panel, condensed numerals, Geist for prose, verdict chips for injury only (no START/BENCH here; that is the Roster page's job). Team-colour tiles at row scale reuse `TeamPanel`.
+
+STORY: He sees the two totals and which side leads, scans his lineup for questionable tags and the projection per slot, checks the by-projection footer for a swap, and glances at the opponent's board for who they are leaning on.
+
+FIRST VIEWPORT: Title "Matchup" + week + live chip + stale badge. Scorebug: my team left, opponent right, big total with PROJ/PTS unit, "by projection" note when the optimal lineup differs. Then MY LINEUP as a card of rows (slot code, tile, name + injury chip, pos · team · vs/at logo opponent · kickoff, projection right), bench and IR under small labels, the by-projection swaps as the footer. The opponent's card beside it from `md`, below it on the phone.
+
+FORM: Extension of the Roster page's world; user-specified ("extend the design elements of the roster page"), no seed.
+
+FINISH: reviewed in two screenshot rounds (phone/laptop, light/dark), console clean, documented in DESIGN.md.

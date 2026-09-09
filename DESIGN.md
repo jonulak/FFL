@@ -141,7 +141,7 @@ components:
 
 The UI is one manager's own instrument, read on a phone before kickoff or a laptop midweek, and it is set like a broadcast lineup graphic: a near-black field, one panel per player cut out on his club's colours, the projection in big condensed numerals, and the verdict in a squared lower-third chip. The call reads from across the room; the paragraph is there when he wants it.
 
-The world is established on the Roster page (`web/app/roster`, `web/components/roster-cards.tsx`, `player-media.tsx`, `outlook.tsx`) as of 2026-09-08. Week, League, Waivers, Journal and Draft still carry the stock shadcn neutral look (Geist `text-xl` titles, default pills, muted-footer cards, tables). They have not been brought over yet; the Roster page is the reference when they are. This file records the board, not the leftover.
+The world is established on the Roster page (`web/app/roster`, `web/components/roster-cards.tsx`, `player-media.tsx`, `outlook.tsx`) as of 2026-09-08, and extended the same day to the navigation (`nav.tsx`, `nav-links.tsx`) and the Matchup page (`web/app/page.tsx`, `matchup.tsx`). League, Waivers, Journal and Draft still carry the stock shadcn neutral look (Geist `text-xl` titles, default pills, muted-footer cards, tables). They have not been brought over yet; the Roster page is the reference when they are. This file records the board, not the leftover.
 
 Everything is a shadcn (base-ui) component. New looks are expressed by extending a shadcn variant (`badge.tsx` adds the verdict colours and a `shape: chip` axis) or by laying a shadcn Card out with grid utilities, never by hand-rolling an element. Tailwind 4, Next 16, lucide icons. Dark follows the system; there is no toggle, and `.light`/`.dark` classes exist only as hooks.
 
@@ -202,7 +202,7 @@ A neutral shadcn field with three verdict colours and the NFL club palette doing
 
 ## Layout
 
-One centred column, max 64rem (`max-w-5xl`), 12px side padding, 16px top. A sticky top nav (background at 95% with backdrop blur, bottom hairline) holds the six page links and the Refresh button.
+One centred column, max 64rem (`max-w-5xl`), 12px side padding, 16px top. A sticky 48px top rule (field at 92% over a blur, bottom hairline in ink at 12%) holds the FFL wordmark, the six page tabs and the Refresh button.
 
 Roster page: title row (title, stale badge, action button pushed right, `gap-x-3`), a 12px caption, then groups spaced 28px apart. Each group is a section heading and a card grid: one column on the phone, two from `md` (768px), 12px gutters.
 
@@ -247,16 +247,29 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 ### Section Heading
 - Condensed uppercase title, muted count, hairline (`bg-foreground/12`) filling the rest of the line, baseline-aligned.
 
+### Scorebug (Matchup, shadcn Card)
+- Three-column grid (side, `VS`, side) on three subgrid rows (team name / total / note) so both sides align row for row when a name wraps. Team name in Title (1.25rem on the phone, 1.65rem from `sm`); the total in Display (2.6rem, 3.25rem from `sm`) with its PROJ or PTS unit; a caption under it for the projection once points post and "by projection 156.6 (+0.5)" when the optimal lineup differs. The opponent side is right-aligned. Same card drop as the player card.
+
+### Lineup Row (Matchup, `<li>` inside a shadcn Card)
+- Grid of slot code (Geist Mono 12px muted, FLEX for ESPN's RB/WR/TE), a 2.75rem (3rem from `sm`) `TeamPanel` tile with 6px corners, the name block, and the number. Name in condensed 600 at 1.25rem with the injury chip (`warn`/`out`) and a muted BYE chip inline; beneath, a wrapping caption: `POS · TEAM · vs/at · logo · OPP · kickoff`. The number is condensed 700 at 1.5rem: the projection, or the posted score with `proj` under it once his game is on; a spread of 3+ in amber beneath the projection. Rows divide with ink at 10%; bench and IR sit under a 13px label with a hairline. Idle players desaturate the tile and step the name to 70% ink.
+- The card header is the section heading style ("MY LINEUP" or the opponent's team name) with the PROJ/PTS unit label at the right; the footer (transparent, top hairline) lists the by-projection swaps: slot in mono, out → in, gain right-aligned.
+
+### Live chip
+- `muted` chip with a 6px ink dot: "LIVE" while the week is in play. Not a verdict colour.
+
 ### Buttons (shadcn, unchanged)
 - **Shape:** 10px; `sm` 28px tall, 10px side padding, 0.8rem text.
 - **Outline** (`Regenerate outlooks`, `Refresh`): field background, hairline border, muted on hover; in dark, input at 30% fill.
 - **Primary:** ink on inverse ink. **Ghost / Destructive / Link:** shadcn defaults.
 - **Focus:** the global `focus-visible` outline is 2px `start` at 2px offset.
 
-### Navigation
-- Text links at 14px, 12px/6px padding, 4px radius, muted background on hover, horizontally scrollable on the phone. No active-state styling is implemented.
+### Navigation (`nav.tsx`, `nav-links.tsx`)
+- **Wordmark:** "FFL" in Barlow 700 at 1.6rem, tracking tight, linking to the Matchup page; a 1px ink hairline (12%) stands between it and the tabs.
+- **Tabs:** the label style at 15px (condensed 600, uppercase, 0.12em), 10px side padding, filling the 48px bar so the tap target is the full height. Inactive tabs are ink at 55%, 85% on hover; the current page (`aria-current="page"`, from `usePathname`) is full ink with a 2px ink bar flush to the bottom rule. No background on hover, no pill.
+- **Phone:** the strip scrolls horizontally with the scrollbar hidden and a 28px fade at its right edge; the current tab is scrolled to centre on arrival. Refresh stays pinned at the right edge at every width.
+- **Colour:** ink only. The active bar is ink, not lime; lime remains START.
 
-### Stock surfaces (Week, League, Waivers, Journal, Draft)
+### Stock surfaces (League, Waivers, Journal, Draft)
 - shadcn Table, Tabs, Card (muted footer), Input, Textarea, Dialog, Skeleton as shipped; pill badges `secondary`/`outline`/`destructive` for injury tone; `text-xl font-semibold` Geist titles. These predate the board and are to be converted to it, not extended.
 
 ## Do's and Don'ts
@@ -266,7 +279,7 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 - **Do** set names, numerals, units and chip labels in Barlow Condensed with `tabular-nums`, and sentences in Geist.
 - **Do** put the club's colour in the panel from `web/lib/teams.ts` and load marks and portraits from ESPN's CDN with the logo-then-nothing fallback; never a broken-image glyph.
 - **Do** keep the stale badge and the "facts changed since" stamp; stale is a state, and every surface says when it was last true.
-- **Do** bring a page onto the board by reusing the Roster page's tokens and chips (a Week row is a smaller card, not a new colour scheme).
+- **Do** bring a page onto the board by reusing the Roster page's tokens and chips (a Matchup row is a smaller card, not a new colour scheme).
 
 ### Don't:
 - **Don't** add a fourth state colour or use lime, amber or red for anything but START, close/questionable and OUT/IR.

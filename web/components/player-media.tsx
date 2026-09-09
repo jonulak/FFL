@@ -35,7 +35,8 @@ export function TeamLogo({ abbr, className, size = 20 }: { abbr: string; classNa
 // The team-colour panel a player is cut out on: club gradient, a watermark of the mark, and the
 // portrait standing at the foot. D/ST cards (negative ids) and any missing portrait show the
 // mark full size instead, so a card never shows an empty panel.
-export function TeamPanel({ abbr, playerId, name, muted }: { abbr: string; playerId: number; name: string; muted: boolean }) {
+// `tile`: the row-scale square on the Matchup page; the portrait is scaled down so the head stays in frame.
+export function TeamPanel({ abbr, playerId, name, muted, tile = false }: { abbr: string; playerId: number; name: string; muted: boolean; tile?: boolean }) {
   const t = team(abbr);
   const src = headshotUrl(playerId);
   const [portrait, setPortrait] = useState(src !== null);
@@ -64,7 +65,7 @@ export function TeamPanel({ abbr, playerId, name, muted }: { abbr: string; playe
           alt={name}
           loading="lazy"
           decoding="async"
-          className="absolute bottom-0 left-1/2 w-[210%] max-w-none sm:w-[172%] -translate-x-1/2 drop-shadow-[0_8px_12px_rgb(0_0_0_/_0.5)]"
+          className={`absolute bottom-0 left-1/2 max-w-none -translate-x-1/2 drop-shadow-[0_8px_12px_rgb(0_0_0_/_0.5)] ${tile ? "w-[128%]" : "w-[210%] sm:w-[172%]"}`}
           onError={() => setPortrait(false)}
         />
       )}
