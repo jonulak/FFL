@@ -126,6 +126,15 @@ def test_stale_payload_served_when_source_fails(client, monkeypatch):
     assert r.status_code == 200 and r.json()["stale_since"] is not None
 
 
+def test_logo_serves_bytes_and_404s_when_missing(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "team_logo", lambda tid: (b"\x89PNG", "image/png"))
+    r = client.get("/logo/7")
+    assert r.status_code == 200 and r.content == b"\x89PNG" and r.headers["content-type"] == "image/png"
+    monkeypatch.setattr(api.espn_season, "team_logo", lambda tid: (_ for _ in ()).throw(LookupError("no logo")))
+    r = client.get("/logo/8")
+    assert r.status_code == 404
+
+
 def test_502_when_nothing_cached(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "league_state", lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
     r = client.get("/league")

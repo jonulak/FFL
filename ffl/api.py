@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
 
 from . import espn_season, outlook, season
@@ -114,6 +115,20 @@ def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
 @app.get("/league")
 def league_(week: int | None = None):
     return _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week))
+
+
+LOGO_TTL = 24 * 3600.0
+
+
+@app.get("/logo/{team_id}")
+def logo(team_id: int):
+    """A fantasy team's logo, fetched with the league cookies (ESPN refuses an owner's upload
+    without them) and held for a day. A missing or failed logo is a 404; the UI shows its tile."""
+    try:
+        body, ctype = cache.get_or_build(f"logo:{team_id}", lambda: espn_season.team_logo(team_id), ttl=LOGO_TTL)[0]
+    except Exception as e:  # noqa: BLE001 — any failure means "no logo", never a traceback
+        raise HTTPException(status_code=404, detail={"source": "espn", "error": str(e)})
+    return Response(content=body, media_type=ctype, headers={"cache-control": f"private, max-age={int(LOGO_TTL)}"})
 
 
 @app.get("/journal")

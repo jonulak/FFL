@@ -14,7 +14,7 @@ import requests
 
 from . import season as S
 from .adp import norm_name
-from .config import JOURNAL, MY_TEAM_ID, SEASON, SWID, league
+from .config import JOURNAL, MY_TEAM_ID, SEASON, SWID, cookies, league
 from .players import fetch_pool
 from .settings import key_scoring, load
 from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
@@ -421,6 +421,20 @@ def _club(t) -> dict:
     return {"team_id": t.team_id, "team": t.team_name, "abbrev": getattr(t, "team_abbrev", "") or "",
             "logo": getattr(t, "logo_url", "") or "", "wins": t.wins, "losses": t.losses,
             "ties": getattr(t, "ties", 0)}
+
+
+def team_logo(team_id: int) -> tuple[bytes, str]:
+    """The bytes and content type of a fantasy team's logo. ESPN serves an owner's own upload
+    (mystique-api.fantasy.espn.com) only with the league cookies, so the browser cannot load it
+    directly; the API fetches it on the UI's behalf. Raises on an unknown team or a bad fetch."""
+    lg = fresh_league()
+    t = next((t for t in lg.teams if t.team_id == team_id), None)
+    url = getattr(t, "logo_url", "") if t else ""
+    if not url:
+        raise LookupError(f"no logo for team {team_id}")
+    r = requests.get(url, cookies=cookies(), timeout=20)
+    r.raise_for_status()
+    return r.content, r.headers.get("content-type", "image/png").split(";")[0]
 
 
 def _streak(t) -> str:
