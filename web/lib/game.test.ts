@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Player } from "./api";
-import { gamePhase, toPlay } from "./game";
+import { gamePhase, sideTotals, toPlay } from "./game";
 
 const T0 = Date.parse("2026-09-13T17:00:00Z"); // Sunday 1 PM ET
 const p = (over: Partial<Player>): Player => ({
@@ -41,5 +41,23 @@ describe("toPlay", () => {
       p({ player_id: 5, injury: "OUT" }),
     ];
     expect(toPlay(lineup, idle, T0)).toBe(2);
+  });
+});
+
+describe("sideTotals", () => {
+  const idle = (x: Player) => x.bye || x.injury === "OUT";
+  it("splits posted points from the projection still to come", () => {
+    const lineup = [
+      p({ player_id: 1, proj: 10.2 }),                                   // pending
+      p({ player_id: 2, proj: 15.1, game_played: 100, actual: 0.5 }),   // final
+      p({ player_id: 3, proj: 8, actual: 3.3 }),                         // live, counts what has posted
+      p({ player_id: 4, proj: 9, bye: true, kickoff: null }),            // idle, adds nothing
+      p({ player_id: 5, proj: 7, injury: "OUT" }),
+    ];
+    expect(sideTotals(lineup, idle, T0 - 60_000)).toEqual({ scored: 3.8, toCome: 10.2, estimate: 14 });
+  });
+  it("is all projection before kickoff and all points once final", () => {
+    expect(sideTotals([p({ proj: 10 })], idle, T0 - 1)).toEqual({ scored: 0, toCome: 10, estimate: 10 });
+    expect(sideTotals([p({ proj: 10, game_played: 100, actual: 12 })], idle, T0)).toEqual({ scored: 12, toCome: 0, estimate: 12 });
   });
 });

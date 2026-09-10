@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
 import { injuryLabel, injuryTone, pts, signed } from "@/lib/format";
-import { gamePhase, toPlay } from "@/lib/game";
+import { gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { Kickoff } from "./local-time";
 import { TeamLogo, TeamPanel } from "./player-media";
 import { StaleBadge } from "./stale-badge";
@@ -156,6 +156,26 @@ function Group({ title, rows, week, slot, now }: { title: string | null; rows: P
   );
 }
 
+// The total line under the starters, ruled off like a ledger: what has posted, what the starters
+// still to play project to, and the two added up as the estimated final. The estimate is the
+// figure that matters, so it alone is full ink.
+function Totals({ side, now }: { side: Side; now: number }) {
+  const t = sideTotals(side.lineup, isIdle, now);
+  const cell = (label: string, n: number, lead = false) => (
+    <div className="text-right">
+      <p className="font-display text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+      <p className={`mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums ${lead ? "" : "text-foreground/70"}`}>{pts(n)}</p>
+    </div>
+  );
+  return (
+    <div className="flex items-end justify-end gap-x-5 border-t-2 border-foreground/35 pt-2.5 pb-1 sm:gap-x-7" aria-label="Totals">
+      {cell("Scored", t.scored)}
+      {cell("To play", t.toCome)}
+      {cell("Est. final", t.estimate, true)}
+    </div>
+  );
+}
+
 // One team's lineup as a board panel: starters with their slot codes, then bench and IR stepped
 // back under small labels. The header's right-hand label is the side's state (PROJ, "4 TO PLAY",
 // FINAL), since once games start the rows carry their own units. The footer is the lineup by
@@ -171,6 +191,7 @@ function SideCard({ side, week, mine, now }: { side: Side; week: number; mine: b
       </CardHeader>
       <CardContent className="-mt-1 pb-1">
         <Group title={null} rows={side.lineup} week={week} slot now={now} />
+        <Totals side={side} now={now} />
         <Group title="Bench" rows={side.bench} week={week} slot={false} now={now} />
         <Group title="IR" rows={side.ir} week={week} slot={false} now={now} />
       </CardContent>

@@ -16,3 +16,16 @@ export function gamePhase(p: Pick<Player, "game_played" | "actual" | "kickoff" |
 export function toPlay(lineup: Player[], idle: (p: Player) => boolean, now: number): number {
   return lineup.filter((p) => !idle(p) && gamePhase(p, now) !== "final").length;
 }
+
+// The side's total in three parts: points already posted (final and in-progress games), the
+// projection still to come from starters who have not kicked off, and their sum as the estimate.
+// A player mid-game counts only what he has posted, so while games are on the estimate is a floor.
+export function sideTotals(lineup: Player[], idle: (p: Player) => boolean, now: number) {
+  let scored = 0, toCome = 0;
+  for (const p of lineup) {
+    if (gamePhase(p, now) !== "pending") scored += p.actual;
+    else if (!idle(p)) toCome += p.proj;
+  }
+  const r = (n: number) => Math.round(n * 10) / 10;
+  return { scored: r(scored), toCome: r(toCome), estimate: r(scored + toCome) };
+}
