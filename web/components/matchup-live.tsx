@@ -17,15 +17,19 @@ export function MatchupLive({ initial }: { initial: Week }) {
     setData(initial);
   }
 
+  // The clock the game phases are read against: fixed at first render (react-hooks/purity), then
+  // advanced with each poll so a row turns live at kickoff without a reload.
+  const [now, setNow] = useState(() => Date.now());
+
   const { live, week } = data;
   useEffect(() => {
     if (!live) return;
     const id = setInterval(
-      () => clientGet<Week>(`/week/${week}`).then(setData).catch(() => {}),
+      () => clientGet<Week>(`/week/${week}`).then((d) => { setData(d); setNow(Date.now()); }).catch(() => {}),
       POLL_MS,
     );
     return () => clearInterval(id);
   }, [live, week]);
 
-  return <MatchupView data={data} />;
+  return <MatchupView data={data} now={now} />;
 }

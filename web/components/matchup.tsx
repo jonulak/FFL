@@ -3,6 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
 import { injuryLabel, injuryTone, pts, signed } from "@/lib/format";
+import { gamePhase, toPlay } from "@/lib/game";
 import { Kickoff } from "./local-time";
 import { TeamLogo, TeamPanel } from "./player-media";
 import { StaleBadge } from "./stale-badge";
@@ -13,16 +14,27 @@ const SLOT_LABEL: Record<string, string> = { "RB/WR/TE": "FLEX", "RB/WR": "FLEX"
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
 const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 
-// A side has posted points once any of its players has, or once the week is flagged live.
-function posted(side: Side, live: boolean) {
-  return live || side.actual_total > 0;
+// Idle for the week: on bye, or OUT/IR/SUSP. His game cannot add points.
+const isIdle = (p: Player) => p.bye || injuryTone(p.injury) === "bad";
+
+// Where a side stands: nothing started yet, some starters still to play, or every game final.
+// A side has started once any starter's game is on or any points have posted.
+function sideState(side: Side, now: number) {
+  const started = side.actual_total > 0 || side.lineup.some((p) => gamePhase(p, now) !== "pending");
+  const left = toPlay(side.lineup, isIdle, now);
+  return { started, left, label: !started ? "proj" : left > 0 ? `${left} to play` : "final" };
+}
+
+// The small uppercase unit on a numeral's baseline: PROJ for a forecast, PTS for a posted score.
+function Unit({ fact, className = "" }: { fact: boolean; className?: string }) {
+  return <span className={`font-display font-semibold uppercase tracking-[0.12em] text-muted-foreground ${className}`}>{fact ? "pts" : "proj"}</span>;
 }
 
 // The scorebug: both teams and their totals, the way a broadcast holds the score in the corner.
-// Before kickoff the projection is the number; once points post, the score takes the big slot
-// and the projection steps beneath it.
-function Total({ side, live, align }: { side: Side; live: boolean; align: "start" | "end" }) {
-  const on = posted(side, live);
+// Before kickoff the projection is the number; once a game is on, the score takes the big slot
+// and the projection steps beneath it with how many starters are still to play.
+function Total({ side, now, align }: { side: Side; now: number; align: "start" | "end" }) {
+  const { started: on, left } = sideState(side, now);
   const big = on ? side.actual_total : side.proj_total;
   const gain = side.optimal_total - side.proj_total;
   const end = align === "end";
@@ -35,24 +47,24 @@ function Total({ side, live, align }: { side: Side; live: boolean; align: "start
       </p>
       <div className={`mt-2 flex items-baseline gap-1.5 ${end ? "justify-end" : ""}`}>
         <span className="font-display text-[2.6rem] font-bold leading-none tracking-tight sm:text-[3.25rem]">{pts(big)}</span>
-        <span className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">{on ? "pts" : "proj"}</span>
+        <Unit fact={on} className="text-sm" />
       </div>
       <p className="mt-1.5 min-h-4 text-xs tabular-nums text-muted-foreground">
-        {on && <span className="mr-2">proj {pts(side.proj_total)}</span>}
+        {on && <span className="mr-2">proj {pts(side.proj_total)} <span aria-hidden>·</span> {left > 0 ? `${left} to play` : "final"}</span>}
         {gain > 0.05 && <span>by projection {pts(side.optimal_total)} <span className="text-foreground/80">({signed(gain)})</span></span>}
       </p>
     </div>
   );
 }
 
-function Scorebug({ data }: { data: Week }) {
+function Scorebug({ data, now }: { data: Week; now: number }) {
   return (
     <Card className="rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]">
       <CardContent className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] grid-rows-[auto_auto_auto] gap-x-3 py-4 sm:gap-x-6 sm:py-5">
-        <Total side={data.me} live={data.live} align="start" />
+        <Total side={data.me} now={now} align="start" />
         <span aria-hidden className="row-span-3 self-center font-display text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-base">vs</span>
         {data.opp
-          ? <Total side={data.opp} live={data.live} align="end" />
+          ? <Total side={data.opp} now={now} align="end" />
           : <p className="row-span-3 self-center text-right text-sm text-muted-foreground">No opponent this week</p>}
       </CardContent>
     </Card>
@@ -75,12 +87,14 @@ function Matchup({ p }: { p: Player }) {
 }
 
 // One player, one row: the roster card cut down to a line. The team-colour tile keeps the
-// board's memorable element at row scale; the number on the right is the projection, or the
-// posted score with the projection under it once his game is on.
-function Row({ p, week, slot }: { p: Player; week: number; slot: boolean }) {
+// board's memorable element at row scale. The number on the right carries its own unit, because
+// on a Sunday afternoon the rows are a mix: PROJ is the forecast for a game still to come, PTS is
+// the posted score, with the projection it replaced beneath it and a live mark while the game is on.
+function Row({ p, week, slot, now }: { p: Player; week: number; slot: boolean; now: number }) {
   const hurt = !HEALTHY.has(p.injury);
-  const idle = p.bye || injuryTone(p.injury) === "bad";
-  const on = p.game_played > 0 || p.actual > 0;
+  const idle = isIdle(p);
+  const phase = gamePhase(p, now);
+  const on = phase !== "pending";
   return (
     <li className="grid grid-cols-[2rem_2.75rem_minmax(0,1fr)_auto] items-center gap-x-2.5 py-2 sm:grid-cols-[2.25rem_3rem_minmax(0,1fr)_auto] sm:gap-x-3">
       <span className="font-mono text-xs text-muted-foreground">{slot ? (SLOT_LABEL[p.slot] ?? p.slot) : ""}</span>
@@ -106,12 +120,16 @@ function Row({ p, week, slot }: { p: Player; week: number; slot: boolean }) {
         </p>
       </div>
       <div className="text-right tabular-nums">
-        <p className={`font-display text-[1.5rem] font-bold leading-none tracking-tight ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
-          {pts(on ? p.actual : p.proj)}
+        <p className="flex items-baseline justify-end gap-1">
+          <span className={`font-display text-[1.5rem] font-bold leading-none tracking-tight ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
+            {pts(on ? p.actual : p.proj)}
+          </span>
+          <Unit fact={on} className="text-[11px]" />
         </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        <p className="mt-0.5 flex items-center justify-end gap-x-1 text-xs text-muted-foreground">
+          {phase === "live" && <><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" /><span>live</span><span aria-hidden>·</span></>}
           {on
-            ? <>proj {pts(p.proj)}</>
+            ? <span>proj {pts(p.proj)}</span>
             : p.spread != null && p.spread >= 3
               ? <span className="font-medium text-close-foreground dark:text-close">±{pts(p.spread)}</span>
               : null}
@@ -121,7 +139,7 @@ function Row({ p, week, slot }: { p: Player; week: number; slot: boolean }) {
   );
 }
 
-function Group({ title, rows, week, slot }: { title: string | null; rows: Player[]; week: number; slot: boolean }) {
+function Group({ title, rows, week, slot, now }: { title: string | null; rows: Player[]; week: number; slot: boolean; now: number }) {
   if (rows.length === 0) return null;
   return (
     <div>
@@ -132,27 +150,29 @@ function Group({ title, rows, week, slot }: { title: string | null; rows: Player
         </div>
       )}
       <ul className="divide-y divide-foreground/10">
-        {rows.map((p) => <Row key={p.player_id} p={p} week={week} slot={slot} />)}
+        {rows.map((p) => <Row key={p.player_id} p={p} week={week} slot={slot} now={now} />)}
       </ul>
     </div>
   );
 }
 
 // One team's lineup as a board panel: starters with their slot codes, then bench and IR stepped
-// back under small labels. The footer is the lineup by projection when it differs from the one
-// set, slot by slot; it is the same optimal lineup the Roster page's calls come from.
-function SideCard({ side, live, week, mine }: { side: Side; live: boolean; week: number; mine: boolean }) {
-  const on = posted(side, live);
+// back under small labels. The header's right-hand label is the side's state (PROJ, "4 TO PLAY",
+// FINAL), since once games start the rows carry their own units. The footer is the lineup by
+// projection when it differs from the one set, slot by slot; it is the same optimal lineup the
+// Roster page's calls come from.
+function SideCard({ side, week, mine, now }: { side: Side; week: number; mine: boolean; now: number }) {
+  const { label } = sideState(side, now);
   return (
     <Card className="rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]" aria-label={side.team}>
       <CardHeader className="flex flex-row items-baseline justify-between gap-3 pt-3 sm:pt-3.5">
         <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">{mine ? "My lineup" : side.team}</h2>
-        <span className="shrink-0 font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{on ? "pts" : "proj"}</span>
+        <span className="shrink-0 font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-muted-foreground tabular-nums">{label}</span>
       </CardHeader>
       <CardContent className="-mt-1 pb-1">
-        <Group title={null} rows={side.lineup} week={week} slot />
-        <Group title="Bench" rows={side.bench} week={week} slot={false} />
-        <Group title="IR" rows={side.ir} week={week} slot={false} />
+        <Group title={null} rows={side.lineup} week={week} slot now={now} />
+        <Group title="Bench" rows={side.bench} week={week} slot={false} now={now} />
+        <Group title="IR" rows={side.ir} week={week} slot={false} now={now} />
       </CardContent>
       {side.optimal_swaps.length > 0 && (
         <CardFooter className="flex flex-col items-stretch gap-1 rounded-none border-t border-foreground/10 bg-transparent pt-2.5 pb-3">
@@ -174,7 +194,8 @@ function SideCard({ side, live, week, mine }: { side: Side; live: boolean; week:
   );
 }
 
-export function MatchupView({ data }: { data: Week }) {
+// `now` is the clock the game phases are read against; the live wrapper advances it on each poll.
+export function MatchupView({ data, now }: { data: Week; now: number }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
@@ -185,10 +206,10 @@ export function MatchupView({ data }: { data: Week }) {
         {data.live && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
         <StaleBadge since={data.stale_since} />
       </div>
-      <Scorebug data={data} />
+      <Scorebug data={data} now={now} />
       <div className="grid gap-3 md:grid-cols-2 md:items-start md:gap-4">
-        <SideCard side={data.me} live={data.live} week={data.week} mine />
-        {data.opp && <SideCard side={data.opp} live={data.live} week={data.week} mine={false} />}
+        <SideCard side={data.me} week={data.week} mine now={now} />
+        {data.opp && <SideCard side={data.opp} week={data.week} mine={false} now={now} />}
       </div>
     </div>
   );
