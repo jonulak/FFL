@@ -162,14 +162,15 @@ function Group({ title, rows, week, slot, now }: { title: string | null; rows: P
 // figure that matters, so it alone is full ink.
 function Totals({ side, now }: { side: Side; now: number }) {
   const t = sideTotals(side.lineup, isIdle, now);
+  // Cells are spaced by their own left margin rather than a flex gap, so no browser can pack them.
   const cell = (label: string, n: number, lead = false) => (
-    <div className="text-right">
+    <div className="ml-5 text-right whitespace-nowrap first:ml-0 sm:ml-7">
       <p className="font-display text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
       <p className={`mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums ${lead ? "" : "text-foreground/70"}`}>{pts(n)}</p>
     </div>
   );
   return (
-    <div className="flex items-end justify-end gap-x-5 border-t-2 border-foreground/35 pt-2.5 pb-1 sm:gap-x-7" aria-label="Totals">
+    <div className="flex items-end justify-end border-t-2 border-foreground/35 pt-2.5 pb-1" aria-label="Totals">
       {cell("Scored", t.scored)}
       {cell("To play", t.toCome)}
       {cell("Est. final", t.estimate, true)}
