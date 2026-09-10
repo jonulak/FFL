@@ -49,9 +49,10 @@ function Total({ side, now, align }: { side: Side; now: number; align: "start" |
         <span className="font-display text-[2.6rem] font-bold leading-none tracking-tight sm:text-[3.25rem]">{pts(big)}</span>
         <Unit fact={on} className="text-sm" />
       </div>
+      {/* Two facts, each on its own line, so they never read as one sentence. */}
       <p className="mt-1.5 min-h-4 text-xs tabular-nums text-muted-foreground">
-        {on && <span className="mr-2">proj {pts(side.proj_total)} <span aria-hidden>·</span> {left > 0 ? `${left} to play` : "final"}</span>}
-        {gain > 0.05 && <span>by projection {pts(side.optimal_total)} <span className="text-foreground/80">({signed(gain)})</span></span>}
+        {on && <span className="block whitespace-nowrap">proj {pts(side.proj_total)} <span aria-hidden>·</span> {left > 0 ? `${left} to play` : "final"}</span>}
+        {gain > 0.05 && <span className="block whitespace-nowrap">by projection {pts(side.optimal_total)} <span className="text-foreground/80">({signed(gain)})</span></span>}
       </p>
     </div>
   );
@@ -120,7 +121,7 @@ function Row({ p, week, slot, now }: { p: Player; week: number; slot: boolean; n
         </p>
       </div>
       <div className="text-right tabular-nums">
-        <p className="flex items-baseline justify-end gap-1">
+        <p className="flex items-baseline justify-end gap-1.5">
           <span className={`font-display text-[1.5rem] font-bold leading-none tracking-tight ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
             {pts(on ? p.actual : p.proj)}
           </span>
