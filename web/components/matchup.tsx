@@ -72,17 +72,17 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
   );
 }
 
-// "at LAR" when he travels, "vs SF" at home; a bye or an unscheduled player says so instead.
+// "at LAR" when he travels, "vs SF" at home; nothing when he has no opponent this week (the
+// kickoff line beneath says BYE or "not scheduled" instead).
 function Matchup({ p }: { p: Player }) {
-  if (!p.opponent) return <Kickoff iso={p.kickoff} bye={p.bye} />;
+  if (!p.opponent) return null;
   // `contents`: the pieces wrap as items of the row's own flex line, not as one unbreakable block
   return (
     <span className="contents">
+      <span aria-hidden>·</span>
       {p.home !== null && <span className="font-display text-[12px] font-semibold uppercase tracking-[0.12em] text-foreground/80">{p.home ? "vs" : "at"}</span>}
       <TeamLogo abbr={p.opponent} size={16} />
       <span className="font-medium text-foreground/85">{p.opponent}</span>
-      <span aria-hidden>·</span>
-      <Kickoff iso={p.kickoff} bye={p.bye} />
     </span>
   );
 }
@@ -116,9 +116,10 @@ function Row({ p, week, slot, now }: { p: Player; week: number; slot: boolean; n
           <span className="font-semibold text-foreground/80">{p.pos}</span>
           <span aria-hidden>·</span>
           <span>{p.team}</span>
-          <span aria-hidden>·</span>
           <Matchup p={p} />
         </p>
+        {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. */}
+        <p className="mt-0.5 text-xs tabular-nums text-muted-foreground"><Kickoff iso={p.kickoff} bye={p.bye} /></p>
       </div>
       <div className="text-right tabular-nums">
         <p className="flex items-baseline justify-end gap-1.5">
