@@ -18,12 +18,16 @@ export function toPlay(lineup: Player[], idle: (p: Player) => boolean, now: numb
 }
 
 // The side's total in three parts: points already posted (final and in-progress games), the
-// projection still to come from starters who have not kicked off, and their sum as the estimate.
-// A player mid-game counts only what he has posted, so while games are on the estimate is a floor.
+// projection still to come, and their sum as the estimate. A player mid-game is carried at his
+// projection until his posted score passes it: what he has posted is scored, the rest of his
+// projection is still to come. ESPN gives no game-progress figure to scale by, so this is the
+// honest middle between counting him at zero remaining and at his full projection.
 export function sideTotals(lineup: Player[], idle: (p: Player) => boolean, now: number) {
   let scored = 0, toCome = 0;
   for (const p of lineup) {
-    if (gamePhase(p, now) !== "pending") scored += p.actual;
+    const phase = gamePhase(p, now);
+    if (phase === "final") scored += p.actual;
+    else if (phase === "live") { scored += p.actual; toCome += Math.max(0, p.proj - p.actual); }
     else if (!idle(p)) toCome += p.proj;
   }
   const r = (n: number) => Math.round(n * 10) / 10;

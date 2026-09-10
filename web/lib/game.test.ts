@@ -50,11 +50,14 @@ describe("sideTotals", () => {
     const lineup = [
       p({ player_id: 1, proj: 10.2 }),                                   // pending
       p({ player_id: 2, proj: 15.1, game_played: 100, actual: 0.5 }),   // final
-      p({ player_id: 3, proj: 8, actual: 3.3 }),                         // live, counts what has posted
+      p({ player_id: 3, proj: 8, actual: 3.3 }),                         // live: 3.3 posted, 4.7 still to come
       p({ player_id: 4, proj: 9, bye: true, kickoff: null }),            // idle, adds nothing
       p({ player_id: 5, proj: 7, injury: "OUT" }),
     ];
-    expect(sideTotals(lineup, idle, T0 - 60_000)).toEqual({ scored: 3.8, toCome: 10.2, estimate: 14 });
+    expect(sideTotals(lineup, idle, T0 - 60_000)).toEqual({ scored: 3.8, toCome: 14.9, estimate: 18.7 });
+  });
+  it("a player mid-game who has passed his projection adds nothing more to come", () => {
+    expect(sideTotals([p({ proj: 8, actual: 11.5 })], idle, T0 - 60_000)).toEqual({ scored: 11.5, toCome: 0, estimate: 11.5 });
   });
   it("is all projection before kickoff and all points once final", () => {
     expect(sideTotals([p({ proj: 10 })], idle, T0 - 1)).toEqual({ scored: 0, toCome: 10, estimate: 10 });

@@ -157,9 +157,10 @@ function Group({ title, rows, week, slot, now }: { title: string | null; rows: P
   );
 }
 
-// The total line under the starters, ruled off like a ledger: what has posted, what the starters
-// still to play project to, and the two added up as the estimated final. The estimate is the
-// figure that matters, so it alone is full ink.
+// The total line under the starters, ruled off like a ledger: what has posted, what is still to
+// come by projection (a player mid-game counts the rest of his projection, see sideTotals), and
+// the two added up as the estimated final. The estimate is the figure that matters, so it alone
+// is full ink.
 function Totals({ side, now }: { side: Side; now: number }) {
   const t = sideTotals(side.lineup, isIdle, now);
   // Cells are spaced by their own left margin rather than a flex gap, so no browser can pack them.
