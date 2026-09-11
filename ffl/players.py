@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 from espn_api.football.constant import POSITION_MAP, PRO_TEAM_MAP
@@ -12,16 +13,22 @@ POSITIONS = ["QB", "RB", "WR", "TE", "D/ST", "K"]
 SLOT_IDS = {"QB": 0, "RB": 2, "WR": 4, "TE": 6, "D/ST": 16, "K": 17}
 
 
+def _fetch_position(pos: str, limit_per_pos: int) -> dict:
+    filters = {"players": {
+        "filterSlotIds": {"value": [SLOT_IDS[pos]]},
+        "limit": limit_per_pos,
+        "sortDraftRanks": {"sortPriority": 1, "sortAsc": True, "value": "PPR"},
+        "filterStatsForTopScoringPeriodIds": {"value": 2, "additionalValue": [f"00{SEASON}", f"10{SEASON}"]},
+    }}
+    return raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filters)}, scoringPeriodId=0)
+
+
 def fetch_pool(limit_per_pos: int = 250) -> list[dict]:
     rows = []
-    for pos in POSITIONS:
-        filters = {"players": {
-            "filterSlotIds": {"value": [SLOT_IDS[pos]]},
-            "limit": limit_per_pos,
-            "sortDraftRanks": {"sortPriority": 1, "sortAsc": True, "value": "PPR"},
-            "filterStatsForTopScoringPeriodIds": {"value": 2, "additionalValue": [f"00{SEASON}", f"10{SEASON}"]},
-        }}
-        data = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filters)}, scoringPeriodId=0)
+    # six independent ESPN calls, in flight together; rows keep POSITIONS order
+    with ThreadPoolExecutor(len(POSITIONS)) as pool:
+        fetched = list(pool.map(lambda pos: _fetch_position(pos, limit_per_pos), POSITIONS))
+    for pos, data in zip(POSITIONS, fetched):
         for entry in data.get("players", []):
             p = entry["player"]
             proj = actual = 0.0

@@ -64,9 +64,9 @@ def test_refresh_busts_cache(client):
 def test_refresh_keeps_the_stale_fallback(client, monkeypatch):
     """expire_all, not clear: refreshing while ESPN is down must not blank the page."""
     client.get("/week/3")
-    client.post("/refresh")
     monkeypatch.setattr(api.espn_season, "week_state",
                         lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+    client.post("/refresh")
     r = client.get("/week/3")
     assert r.status_code == 200 and r.json()["stale_since"] is not None
 
@@ -122,8 +122,67 @@ def test_stale_payload_served_when_source_fails(client, monkeypatch):
     client.get("/week/3")
     monkeypatch.setattr(api.espn_season, "week_state", lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
     api.cache.expire_all()
+    client.get("/week/3")  # answered from the old payload; the rebuild behind it fails
+    api.cache.join()
     r = client.get("/week/3")
     assert r.status_code == 200 and r.json()["stale_since"] is not None
+
+
+def test_expired_entry_is_served_at_once_and_rebuilt_behind(client, monkeypatch):
+    """An expired payload is answered immediately; the rebuild runs behind the request."""
+    import threading
+    gate = threading.Event()
+    seen = {"n": 0}
+
+    def slow_week(week=None):
+        seen["n"] += 1
+        if seen["n"] > 1:
+            gate.wait(5)
+        return {"week": 3, "live": False, "me": {"team": f"me{seen['n']}"}, "opp": None}
+
+    monkeypatch.setattr(api.espn_season, "week_state", slow_week)
+    assert client.get("/week/3").json()["me"]["team"] == "me1"
+    api.cache.expire_all()
+    t0 = time.time()
+    r = client.get("/week/3").json()
+    assert time.time() - t0 < 1, "the request did not wait on the rebuild"
+    assert r["me"]["team"] == "me1" and r["stale_since"] is None, "expired is not 'source down'"
+    assert client.get("/week/3").json()["me"]["team"] == "me1"
+    assert seen["n"] == 2, "one rebuild in flight per key, however many requests arrive"
+    gate.set()
+    api.cache.join()
+    assert client.get("/week/3").json()["me"]["team"] == "me2"
+
+
+def test_failed_background_rebuild_keeps_the_old_payload_and_flags_it(client, monkeypatch):
+    client.get("/week/3")
+    monkeypatch.setattr(api.espn_season, "week_state", lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+    api.cache.expire_all()
+    assert client.get("/week/3").json()["stale_since"] is None, "not known to be down yet"
+    api.cache.join()
+    r = client.get("/week/3")
+    assert r.status_code == 200 and r.json()["me"]["team"] == "me" and r.json()["stale_since"] is not None
+    monkeypatch.setattr(api.espn_season, "week_state",
+                        lambda week=None: {"week": 3, "live": False, "me": {"team": "back"}, "opp": None})
+    client.get("/week/3")  # still flagged and expired: this get starts the retry
+    api.cache.join()
+    assert client.get("/week/3").json()["stale_since"] is None, "a good build clears the flag"
+
+
+def test_refresh_rebuilds_the_hot_keys_inline(client):
+    """The Refresh button is the one place the user asks to wait for fresh data."""
+    client.get("/week/3")
+    client.post("/refresh")
+    assert client.calls["week"] == 2, "rebuilt during the refresh, not lazily on the next get"
+    client.get("/week/3")
+    assert client.calls["week"] == 2
+
+
+def test_startup_warms_the_page_caches(client):
+    with TestClient(api.app):
+        api.cache.join()
+    assert client.calls["week"] == 1
+    assert all(api.cache.has(k) for k in ("week:current", "roster", "league:current", "waivers"))
 
 
 def test_logo_serves_bytes_and_404s_when_missing(client, monkeypatch):

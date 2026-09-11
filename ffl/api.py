@@ -11,6 +11,7 @@ data/outlook/week-<n>.json. Every GET is read-only.
 """
 from __future__ import annotations
 
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -29,33 +30,101 @@ TTL = 120.0
 DECISIONS = JOURNAL / "DECISIONS.md"
 
 
+class Entry:
+    def __init__(self, expires: float, built_at: float, payload: object, fn: Callable[[], object], ttl: float):
+        self.expires, self.built_at, self.payload, self.fn, self.ttl = expires, built_at, payload, fn, ttl
+        self.failed = False  # the latest build attempt raised: the payload is older than it should be
+
+
 class Cache:
-    """TTL cache that keeps expired entries so a dead source can still be answered."""
+    """TTL cache that serves stale while it revalidates, and keeps expired entries so a dead
+    source can still be answered.
+
+    A cold ESPN build is one to four seconds, so a request never waits on one when there is any
+    payload to hand back: an expired entry is served at once and rebuilt on a thread behind it,
+    one thread per key however many requests arrive. Only the very first build of a key (and the
+    Refresh button, which is the user asking to wait) is inline. `stale_since` is set only when
+    the latest attempt failed — an entry that is merely past its TTL is not "source down".
+    """
 
     def __init__(self, ttl: float):
         self.ttl = ttl
-        self._d: dict[str, tuple[float, float, object]] = {}  # key -> (expires, built_at, payload)
+        self._d: dict[str, Entry] = {}
+        self._lock = threading.Lock()
+        self._threads: dict[str, threading.Thread] = {}
 
     def get_or_build(self, key: str, fn: Callable[[], object], ttl: float | None = None):
         now = time.time()
-        hit = self._d.get(key)
-        if hit and hit[0] > now:
-            return hit[2], None
+        with self._lock:
+            hit = self._d.get(key)
+        if hit and hit.expires > now:
+            return hit.payload, self._stale(hit)
+        if hit:
+            self._revalidate(key)
+            return hit.payload, self._stale(hit)
         try:
             payload = fn()
-        except Exception as e:  # noqa: BLE001 — any source failure falls back to stale
-            if hit:
-                return hit[2], datetime.fromtimestamp(hit[1]).strftime("%H:%M")
+        except Exception as e:  # noqa: BLE001 — a first build with nothing to fall back on
             src = "sleeper" if "sleeper" in repr(e).lower() else "espn"
             raise HTTPException(status_code=502, detail={"source": src, "error": str(e)})
-        self._d[key] = (now + (ttl or self.ttl), now, payload)
+        with self._lock:
+            self._d[key] = Entry(now + (ttl or self.ttl), now, payload, fn, ttl or self.ttl)
         return payload, None
 
+    @staticmethod
+    def _stale(hit: Entry) -> str | None:
+        return datetime.fromtimestamp(hit.built_at).strftime("%H:%M") if hit.failed else None
+
+    def _revalidate(self, key: str) -> None:
+        with self._lock:
+            t = self._threads.get(key)
+            if t is not None and t.is_alive():
+                return
+            t = threading.Thread(target=self._rebuild, args=(key,), daemon=True, name=f"cache-{key}")
+            self._threads[key] = t
+        t.start()
+
+    def _rebuild(self, key: str) -> None:
+        """Build `key` again in place. A failure keeps the old payload and flags it."""
+        with self._lock:
+            hit = self._d.get(key)
+        if hit is None:
+            return
+        try:
+            payload = hit.fn()
+        except Exception as e:  # noqa: BLE001 — any source failure keeps the stale payload
+            print(f"cache rebuild of {key} failed: {e}")
+            hit.failed = True
+            return
+        now = time.time()
+        with self._lock:
+            self._d[key] = Entry(now + hit.ttl, now, payload, hit.fn, hit.ttl)
+
+    def rebuild_expired(self) -> None:
+        """Every expired key rebuilt inline, in this thread. Failures are flagged, not raised."""
+        with self._lock:
+            keys = [k for k, e in self._d.items() if e.expires <= time.time()]
+        for k in keys:
+            self._rebuild(k)
+
+    def join(self, timeout: float = 10.0) -> None:
+        """Wait for every rebuild in flight (tests, and the startup warm-up)."""
+        with self._lock:
+            threads = list(self._threads.values())
+        for t in threads:
+            t.join(timeout)
+
+    def has(self, key: str) -> bool:
+        return key in self._d
+
     def expire_all(self):
-        self._d = {k: (0.0, b, p) for k, (_, b, p) in self._d.items()}
+        with self._lock:
+            for e in self._d.values():
+                e.expires = 0.0
 
     def clear(self):
-        self._d.clear()
+        with self._lock:
+            self._d.clear()
 
 
 cache = Cache(TTL)
@@ -68,7 +137,24 @@ async def lifespan(app: FastAPI):
     # decision, so refuse to start instead. Read the module global so tests can repoint it.
     if not DECISIONS.exists():
         raise RuntimeError(f"journal decisions log missing: {DECISIONS} (the API never creates it)")
+    # Warm the page caches so the first browser hit after a (re)start is not the cold build.
+    # Registered with the cache's thread table so join() covers it; a failure is logged and the
+    # request path builds inline as it always did.
+    t = threading.Thread(target=warm, daemon=True, name="cache-warm")
+    cache._threads["warm"] = t
+    t.start()
     yield
+
+
+def warm() -> None:
+    for key, fn in (("week:current", lambda: espn_season.week_state(None)),
+                    ("roster", lambda: espn_season.roster_state(None)),
+                    ("league:current", lambda: espn_season.league_state(None)),
+                    ("waivers", lambda: espn_season.free_agent_pool(None))):
+        try:
+            cache.get_or_build(key, fn)
+        except HTTPException as e:
+            print(f"warm-up of {key} failed: {e.detail}")
 
 
 app = FastAPI(title="FFL season API", lifespan=lifespan)
@@ -204,6 +290,7 @@ def refresh():
     # the Sleeper-week, season-projection and injury caches live in espn_season; Refresh busts those too
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
+    espn_season._BOXES.clear()
     if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
         espn_season._INJ[0] = 0.0
     try:
@@ -212,4 +299,7 @@ def refresh():
         raise
     except Exception as e:  # noqa: BLE001 — an ESPN failure is a 502, not a bare traceback
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
+    # The button is the one place the user asks to wait: rebuild here so the page it re-renders
+    # is fresh, rather than the old payload with a rebuild running behind it.
+    cache.rebuild_expired()
     return {"synced": synced, "at": datetime.now().strftime("%H:%M")}

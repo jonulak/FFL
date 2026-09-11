@@ -377,3 +377,50 @@ def test_home_by_team_survives_a_failed_schedule_fetch(monkeypatch, capsys):
     assert espn_season.home_by_team(lg, 1) == {"SF": False, "LAR": True}
     lg.espn_request.get_pro_schedule = boom
     assert espn_season.home_by_team(lg, 1) == {"SF": False, "LAR": True}, "cached for the League's lifetime"
+
+
+def _stub_league(matchup, calls):
+    def box_scores(week):
+        calls["box"] += 1
+        return [matchup]
+
+    def free_agents(week, size, position):
+        calls["fa"].append(position)
+        return [as_box({**season_roster()[0], "player_id": 1000 + len(calls["fa"]), "slot": "FA"})]
+    return SimpleNamespace(box_scores=box_scores, free_agents=free_agents, current_week=1)
+
+
+def _matchup():
+    return SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
+                           home_lineup=[as_box(p) for p in season_roster()],
+                           away_team=SimpleNamespace(team_id=2, team_name="Them"),
+                           away_lineup=[as_box(season_roster()[0])])
+
+
+def test_builders_share_one_box_scores_fetch(monkeypatch):
+    """Every page rebuilds within the same minute or two; the 0.7 s box_scores call is made once."""
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    espn_season.week_state(week=1, sleeper={}, season={}, injuries={})
+    espn_season.roster_state(week=1, sleeper={}, season={}, injuries={})
+    espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={})
+    assert calls["box"] == 1
+    other = _stub_league(_matchup(), calls)
+    monkeypatch.setattr(espn_season, "league", lambda: other)
+    espn_season.roster_state(week=1, sleeper={}, season={}, injuries={})
+    assert calls["box"] == 2, "a rebuilt League is a new source: its box scores are fetched again"
+
+
+def test_free_agent_pool_fetches_every_position_in_position_order(monkeypatch):
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    out = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={})
+    assert list(out["positions"]) == ["QB", "RB", "WR", "TE", "D/ST", "K"]
+    assert sorted(calls["fa"]) == sorted(["QB", "RB", "WR", "TE", "D/ST", "K"]), "each fetched exactly once"
+    assert all(row["slot"] == "FA" for rows in out["positions"].values() for row in rows)

@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import requests
@@ -334,10 +335,30 @@ def _week1_start(settings: dict) -> date | None:
     return date.fromisoformat(d) if d else None
 
 
+BOXES_TTL_S = 60
+_BOXES: dict[int, tuple[float, object, list]] = {}  # week -> (expires_at, the League fetched from, box scores)
+
+
+def box_scores(lg, week: int) -> list:
+    """lg.box_scores(week), shared by every builder for BOXES_TTL_S.
+
+    The four page builders each need the week's box scores, and the API cache rebuilds them
+    within the same minute or two; this is one 0.7 s ESPN call instead of four. Keyed on the
+    League object itself, not its build time: tests stub a fresh League per case, and a rebuilt
+    League (fresh_league after an hour, or POST /refresh) is a new source, fetched again.
+    """
+    hit = _BOXES.get(week)
+    if hit and hit[0] > time.time() and hit[1] is lg:
+        return hit[2]
+    boxes = lg.box_scores(week)
+    _BOXES[week] = (time.time() + BOXES_TTL_S, lg, boxes)
+    return boxes
+
+
 def _boxes_by_team(lg, week: int) -> dict[int, list]:
     """Every team's roster for the week, from a single box_scores call."""
     out: dict[int, list] = {}
-    for m in lg.box_scores(week):
+    for m in box_scores(lg, week):
         for t, lineup in ((m.home_team, m.home_lineup), (m.away_team, m.away_lineup)):
             if hasattr(t, "team_id"):
                 out[t.team_id] = lineup
@@ -354,7 +375,7 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
     seas = _season_for(settings, season)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     home = home_by_team(lg, week)
-    for m in lg.box_scores(week):
+    for m in box_scores(lg, week):
         sides = [(m.home_team, m.home_lineup), (m.away_team, m.away_lineup)]
         if not any(getattr(t, "team_id", None) == me for t, _ in sides):
             continue
@@ -388,8 +409,12 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
         [flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas)
     out = {}
     home = home_by_team(lg, week)  # so the Waivers page can say "at" when a free agent travels
-    for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
-        box = [flatten_box_player(bp) for bp in lg.free_agents(week=week, size=size, position=pos)]
+    positions = ["QB", "RB", "WR", "TE", "D/ST", "K"]
+    # six independent ESPN calls of ~0.6 s each: in flight together, not one after another
+    with ThreadPoolExecutor(len(positions)) as pool:
+        fetched = list(pool.map(lambda pos: lg.free_agents(week=week, size=size, position=pos), positions))
+    for pos, agents in zip(positions, fetched):
+        box = [flatten_box_player(bp) for bp in agents]
         frees = apply_home(apply_injuries(apply_season(merge_weekly(box, sl), seas), inj, w1), home)
         for f in frees:
             f["slot"] = "FA"
@@ -456,7 +481,7 @@ def league_state(week: int | None = None) -> dict:
     # total, which is the number to show before points post. espn_api clamps box_scores to the
     # current week, so a future week takes its pairings from the schedule view, projection 0.
     board = []
-    for m in (lg.box_scores(week) if week <= current else lg.scoreboard(week)):
+    for m in (box_scores(lg, week) if week <= current else lg.scoreboard(week)):
         if not (hasattr(m.home_team, "team_id") and hasattr(m.away_team, "team_id")):
             continue  # a bye slot in a playoff round
         board.append({side: {**_club(t), "score": round(score, 1),
