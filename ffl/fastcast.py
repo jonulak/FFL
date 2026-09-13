@@ -143,12 +143,26 @@ def game_states(doc: dict) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for e in doc.get("events", []):
         full = e.get("fullStatus") or {}
+        teams = [c for c in e.get("competitors", []) if c.get("abbreviation")]
         state = {"status": (full.get("type") or {}).get("state") or e.get("status"),
-                 "quarter": full.get("period"), "clock": full.get("displayClock")}
-        for c in e.get("competitors", []):
-            if c.get("abbreviation"):
-                out[c["abbreviation"]] = state
+                 "quarter": full.get("period"), "clock": full.get("displayClock"),
+                 "score": {c["abbreviation"]: _score(c.get("score")) for c in teams if _score(c.get("score")) is not None}}
+        for c in teams:
+            out[c["abbreviation"]] = state
     return out
+
+
+def _score(raw) -> int | None:
+    """A competitor's score: a number once the game is on, "" (or absent) before kickoff."""
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def player_stats(doc: dict) -> dict[int, dict]:
+    """Every player's raw stat row (stat id -> value), by ESPN player id."""
+    return {int(pid): dict(row.get("stats", {})) for pid, row in doc.get("statistics", {}).items()}
 
 
 def games_in_progress(doc: dict) -> bool:
@@ -180,8 +194,9 @@ class Client:
     does not apply cleanly included (the reconnect brings a fresh checkpoint).
     """
 
-    def __init__(self, on_doc: Callable[[dict], None], topic: str = TOPIC):
-        self.on_doc, self.topic = on_doc, topic
+    def __init__(self, on_doc: Callable[[dict], None], topic: str = TOPIC,
+                 on_error: Callable[[str], None] | None = None):
+        self.on_doc, self.topic, self.on_error = on_doc, topic, on_error
         self.doc: dict = {}
         self.mid: int | None = None
         self.connected_at: float | None = None
@@ -240,6 +255,8 @@ class Client:
                 delay = 2.0
             except Exception as e:  # noqa: BLE001 — any socket/HTTP failure: back off and reconnect
                 self.last_error = f"{type(e).__name__}: {e}"
+                if self.on_error:
+                    self.on_error(self.last_error)
                 stop.wait(delay)
                 delay = min(delay * 2, 60.0)
             finally:

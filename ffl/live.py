@@ -36,21 +36,26 @@ class State:
     def __init__(self):
         self.version = 0
         self.points: dict[int, float] = {}
-        self.games: dict[str, dict] = {}  # team -> {status, quarter, clock} (fastcast.game_states)
+        self.games: dict[str, dict] = {}  # team -> {status, quarter, clock, score} (fastcast.game_states)
+        self.stats: dict[int, dict] = {}  # player -> raw stat row (fastcast.player_stats)
         self.at: float | None = None  # when the points last changed
         self.connected = False
         self.error: str | None = None
         self.cond = threading.Condition()
 
-    def update(self, points: dict[int, float], games: dict[str, dict] | None = None) -> bool:
-        """Store the latest points and game states; tick `version` (and wake the stream) only
-        when a point moved or a game changed status or quarter. The clock alone never wakes the
-        page: every GET reads the stored clock, and the 60 s poll keeps it fresh enough."""
+    def update(self, points: dict[int, float], games: dict[str, dict] | None = None,
+               stats: dict[int, dict] | None = None) -> bool:
+        """Store the latest points, game states and stat rows; tick `version` (and wake the
+        stream) only when a point moved or a game changed status or quarter. The clock alone
+        never wakes the page: every GET reads the stored clock, and the 60 s poll keeps it
+        fresh enough. A stat that moves without moving points (an incompletion) rides along."""
         games = games if games is not None else self.games
         with self.cond:
             same_points = points == self.points
             same_games = _sans_clock(games) == _sans_clock(self.games)
             self.games = games
+            if stats is not None:
+                self.stats = stats
             if same_points and same_games and self.version:
                 return False
             self.points, self.version = points, self.version + 1
@@ -85,9 +90,67 @@ def enabled() -> bool:
 
 # ---- overlay ----------------------------------------------------------------------------------
 
-def overlay_players(players: list[dict], points: dict[int, float], games: dict[str, dict] | None = None) -> list[dict]:
-    """Live `actual` for players the feed has scored; `game` (status, quarter, clock) for players
-    whose pro team has kicked off, so the page can show the clock where the kickoff time was."""
+def _n(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() else f"{v:g}"
+
+
+def _parts(stats: dict, spec: list[tuple[str, str]]) -> list[str]:
+    """'{value} {label}' for each (stat id, label) whose value is non-zero, in order."""
+    return [f"{_n(stats[sid])} {label}" for sid, label in spec if float(stats.get(sid) or 0) != 0]
+
+
+PASSING = [("3", "yds"), ("4", "TD"), ("20", "INT"), ("19", "2PT")]
+RUSHING = [("24", "yds"), ("25", "TD"), ("26", "2PT")]
+RECEIVING = [("42", "yds"), ("43", "TD"), ("44", "2PT")]
+DEFENCE = [("99", "sk"), ("95", "INT"), ("96", "FR"), ("98", "SFTY")]
+DEFENCE_TD = ("101", "102", "103", "104", "93")  # return and blocked-kick touchdowns
+
+
+def stat_line(pos: str, stats: dict) -> str | None:
+    """A box-score line from the raw stat row, by position — the stats the league scores,
+    the way a broadcast ticker abbreviates them. None when nothing that scores has happened.
+    Stat ids are ESPN's: 0/1 attempts/completions, 3/4/20 passing, 23/24/25 rushing,
+    53/42/43 receiving, 72 fumbles lost, 83/84 FG made/att, 86/87 XP made/att, 85 FG missed,
+    99/95/96/98 sacks/INT/FR/safeties, 120 points allowed, 127 yards allowed."""
+    groups: list[list[str]] = []
+    if pos == "K":
+        fga, xpa = stats.get("84") or 0, stats.get("87") or 0
+        g = [f"FG {_n(stats.get('83') or 0)}/{_n(fga)}"] if fga else []
+        g += [f"XP {_n(stats.get('86') or 0)}/{_n(xpa)}"] if xpa else []
+        groups.append(g)
+    elif pos == "D/ST":
+        g = _parts(stats, DEFENCE)
+        tds = sum(float(stats.get(s) or 0) for s in DEFENCE_TD)
+        if tds:
+            g.append(f"{_n(tds)} TD")
+        if stats.get("120") is not None:
+            g.append(f"{_n(stats['120'])} PA")
+        if stats.get("127") is not None:
+            g.append(f"{_n(stats['127'])} YA")
+        groups.append(g)
+    else:
+        if stats.get("0"):
+            groups.append([f"{_n(stats.get('1') or 0)}/{_n(stats['0'])}"] + _parts(stats, PASSING))
+        rush = _parts(stats, RUSHING)
+        if stats.get("23") and (rush or pos == "RB"):
+            rush = [f"{_n(stats['23'])} car"] + rush
+        rec = _parts(stats, RECEIVING)
+        if stats.get("53") or rec:
+            rec = [f"{_n(stats.get('53') or 0)} rec"] + rec
+        # rushing leads for a running back, receiving for everyone else
+        groups += [rush, rec] if pos == "RB" else [rec, rush]
+        if stats.get("72"):  # a lost fumble rides on the last group rather than standing alone
+            groups = [g for g in groups if g] or [[]]
+            groups[-1].append(f"{_n(stats['72'])} FUM")
+    text = " · ".join(", ".join(g) for g in groups if g)
+    return text or None
+
+
+def overlay_players(players: list[dict], points: dict[int, float], games: dict[str, dict] | None = None,
+                    stats: dict[int, dict] | None = None) -> list[dict]:
+    """Live `actual` for players the feed has scored; `game` (status, quarter, clock, score) for
+    players whose pro team has kicked off, so the page can show the clock where the kickoff
+    time was; `stat_line` for players with a stat that scores."""
     out = []
     for p in players:
         if p.get("player_id") in points:
@@ -95,24 +158,30 @@ def overlay_players(players: list[dict], points: dict[int, float], games: dict[s
         game = (games or {}).get(p.get("team"))
         if game and game.get("status") in ("in", "post"):
             p = {**p, "game": game}
+        row = (stats or {}).get(p.get("player_id"))
+        line = stat_line(p.get("pos", ""), row) if row else None
+        if line:
+            p = {**p, "stat_line": line}
         out.append(p)
     return out
 
 
-def overlay_week(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None) -> dict:
+def overlay_week(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None,
+                 stats: dict[int, dict] | None = None) -> dict:
     out = dict(payload)
     for key in ("me", "opp"):
         side = payload.get(key)
         if not side:
             continue
-        side = {**side, **{g: overlay_players(side.get(g, []), points, games) for g in ("lineup", "bench", "ir")}}
+        side = {**side, **{g: overlay_players(side.get(g, []), points, games, stats) for g in ("lineup", "bench", "ir")}}
         side["actual_total"] = round(sum(p["actual"] for p in side["lineup"]), 1)
         out[key] = side
     return out
 
 
-def overlay_roster(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None) -> dict:
-    return {**payload, "cards": overlay_players(payload.get("cards", []), points, games)}
+def overlay_roster(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None,
+                   stats: dict[int, dict] | None = None) -> dict:
+    return {**payload, "cards": overlay_players(payload.get("cards", []), points, games, stats)}
 
 
 def overlay_league(payload: dict, points: dict[int, float]) -> dict:
@@ -162,7 +231,9 @@ class Runner(threading.Thread):
         self.stop = threading.Event()
         self.pause = threading.Event()  # set by _on_doc to drop the socket until the next kickoff
         self.idle_until: float | None = None
-        self.client = fc.Client(self._on_doc)
+        # errors surface on /live/status as they happen: a callback that raises on every doc
+        # would otherwise read as "connected" while the client reconnects in a loop
+        self.client = fc.Client(self._on_doc, on_error=lambda e: setattr(self.state, "error", e))
         self.week_fn = week_fn
         self.roster: dict[int, dict] = {}
         self.week: int | None = None
@@ -188,7 +259,7 @@ class Runner(threading.Thread):
         self._refresh_roster()
         before, first = dict(self.state.points), self.state.version == 0
         after = fc.score_all(doc, self.table)
-        self.state.update(after, fc.game_states(doc))
+        self.state.update(after, fc.game_states(doc), fc.player_stats(doc))
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if self.store is not None and not first:

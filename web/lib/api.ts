@@ -18,8 +18,12 @@ export type Player = {
   season_proj_sleeper: number | null; return_week: number | null; injury_note: string | null;
   opponent: string | null; kickoff: string | null; home: boolean | null;
   game?: GameState; // present once his pro team has kicked off (live overlay, ffl/live.py)
+  stat_line?: string; // his box-score line, once a stat that scores has happened (live.stat_line)
 };
-export type GameState = { status: "in" | "post"; quarter: number | null; clock: string | null };
+export type GameState = {
+  status: "in" | "post"; quarter: number | null; clock: string | null;
+  score: Record<string, number>; // team abbreviation -> points, both sides
+};
 export type Card = Player & {
   group: "starter" | "bench" | "ir"; call: "START" | "BENCH" | "OUT" | "BYE" | "IR";
   gap: number | null; close_call: boolean; reason: string;

@@ -120,7 +120,8 @@ function Row({ p, week, slot, now }: { p: Player; week: number; slot: boolean; n
           <Matchup p={p} />
         </p>
         {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. */}
-        <p className="mt-0.5 text-xs tabular-nums text-muted-foreground"><Kickoff iso={p.kickoff} bye={p.bye} game={p.game} /></p>
+        <p className="mt-0.5 text-xs tabular-nums text-muted-foreground"><Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} /></p>
+        {p.stat_line && <p className="mt-0.5 text-xs tabular-nums text-foreground/80">{p.stat_line}</p>}
       </div>
       <div className="text-right tabular-nums">
         <p className="flex items-baseline justify-end gap-1.5">

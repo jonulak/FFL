@@ -45,18 +45,43 @@ def test_game_states_by_team_from_the_checkpoint():
     """Each competitor's abbreviation maps to its game's state, period and display clock."""
     doc = {"events": [
         {"id": "a", "status": "in", "fullStatus": {"displayClock": "9:09", "period": 2, "type": {"state": "in"}},
-         "competitors": [{"abbreviation": "JAX"}, {"abbreviation": "CLE"}]},
+         "competitors": [{"abbreviation": "JAX", "homeAway": "home", "score": 14.0},
+                         {"abbreviation": "CLE", "homeAway": "away", "score": 3.0}]},
         {"id": "b", "status": "post", "fullStatus": {"displayClock": "0:00", "period": 4, "type": {"state": "post"}},
-         "competitors": [{"abbreviation": "SEA"}, {"abbreviation": "NE"}]},
+         "competitors": [{"abbreviation": "SEA", "homeAway": "home", "score": 20}, {"abbreviation": "NE", "homeAway": "away", "score": 27}]},
         {"id": "c", "status": "pre", "fullStatus": {"displayClock": "0:00", "period": 0, "type": {"state": "pre"}},
-         "competitors": [{"abbreviation": "KC"}, {"abbreviation": "DEN"}]},
+         "competitors": [{"abbreviation": "KC", "score": ""}, {"abbreviation": "DEN", "score": ""}]},  # pre: blank
         {"id": "d", "status": "in", "competitors": [{"abbreviation": "X"}]},  # no fullStatus: status alone
     ]}
     g = fc.game_states(doc)
-    assert g["JAX"] == g["CLE"] == {"status": "in", "quarter": 2, "clock": "9:09"}
-    assert g["SEA"] == {"status": "post", "quarter": 4, "clock": "0:00"}
-    assert g["KC"]["status"] == "pre"
-    assert g["X"] == {"status": "in", "quarter": None, "clock": None}
+    assert g["JAX"] == g["CLE"] == {"status": "in", "quarter": 2, "clock": "9:09", "score": {"JAX": 14, "CLE": 3}}
+    assert g["SEA"] == {"status": "post", "quarter": 4, "clock": "0:00", "score": {"SEA": 20, "NE": 27}}
+    assert g["KC"]["status"] == "pre" and g["KC"]["score"] == {}
+    assert g["X"] == {"status": "in", "quarter": None, "clock": None, "score": {}}
+
+
+def test_client_reports_each_failure_as_it_happens():
+    """A callback that raises makes run() reconnect; the error must reach on_error at once,
+    not only once the loop ends — a crash-reconnect loop otherwise looks like 'connected'."""
+    import threading
+    seen = []
+    c = fc.Client(lambda d: None, on_error=seen.append)
+    stop = threading.Event()
+    calls = {"n": 0}
+
+    def boom(stop_):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            stop.set()
+        raise RuntimeError("bad doc")
+    c.run_once = boom
+    c.run(stop)
+    assert seen == ["RuntimeError: bad doc", "RuntimeError: bad doc"] and c.last_error == "RuntimeError: bad doc"
+
+
+def test_player_stats_are_the_raw_rows_by_player_id():
+    doc = {"statistics": {"7": {"gameId": "a", "stats": {"3": 138.0, "4": 2.0}}, "-16004": {"stats": {"99": 2.0}}}}
+    assert fc.player_stats(doc) == {7: {"3": 138.0, "4": 2.0}, -16004: {"99": 2.0}}
 
 
 def test_decode_uncompressed_payload_may_already_be_the_op_list():

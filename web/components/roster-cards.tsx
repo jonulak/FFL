@@ -19,7 +19,7 @@ const GROUPS: { key: Card["group"]; title: string }[] = [
 // "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare.
 function Matchup({ c }: { c: Card }) {
   if (!c.opponent) {
-    return <span className="text-sm text-muted-foreground"><Kickoff iso={c.kickoff} bye={c.bye} game={c.game} /></span>;
+    return <span className="text-sm text-muted-foreground"><Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} /></span>;
   }
   return (
     <span className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
@@ -27,7 +27,7 @@ function Matchup({ c }: { c: Card }) {
       <TeamLogo abbr={c.opponent} size={20} />
       <span className="font-medium text-foreground/85">{c.opponent}</span>
       <span aria-hidden>·</span>
-      <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} />
+      <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} />
     </span>
   );
 }
@@ -112,6 +112,7 @@ function PlayerCard({ c, week }: { c: Card; week: number }) {
       </CardHeader>
       <CardContent className="pt-2">
         <Matchup c={c} />
+        {c.stat_line && <p className="mt-1 text-[13px] tabular-nums text-foreground/80">{c.stat_line}</p>}
         <div className="mt-3"><Numbers c={c} /></div>
         <Reason text={c.reason} />
       </CardContent>

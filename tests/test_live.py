@@ -85,7 +85,25 @@ def test_state_first_update_always_ticks_even_when_empty():
     assert st.update({}) and st.version == 1
 
 
-IN_Q2 = {"status": "in", "quarter": 2, "clock": "9:09"}
+IN_Q2 = {"status": "in", "quarter": 2, "clock": "9:09", "score": {"JAX": 14, "CLE": 3}}
+
+
+def test_stat_line_is_the_scoring_stats_by_position():
+    qb = {"0": 15.0, "1": 11.0, "3": 138.0, "4": 2.0, "20": 1.0, "23": 1.0, "24": 2.0}
+    assert live.stat_line("QB", qb) == "11/15, 138 yds, 2 TD, 1 INT · 1 car, 2 yds"
+    assert live.stat_line("QB", {"0": 15.0, "1": 11.0, "3": 138.0}) == "11/15, 138 yds"
+    wr = {"53": 4.0, "58": 6.0, "42": 61.0, "43": 1.0, "72": 1.0}
+    assert live.stat_line("WR", wr) == "4 rec, 61 yds, 1 TD, 1 FUM"
+    rb = {"23": 12.0, "24": 57.0, "25": 1.0, "53": 2.0, "42": 13.0}
+    assert live.stat_line("RB", rb) == "12 car, 57 yds, 1 TD · 2 rec, 13 yds"
+    assert live.stat_line("RB", {"23": 12.0, "24": 57.0, "26": 1.0}) == "12 car, 57 yds, 1 2PT"
+    k = {"83": 1.0, "84": 1.0, "86": 2.0, "87": 2.0, "77": 1.0}
+    assert live.stat_line("K", k) == "FG 1/1, XP 2/2"
+    assert live.stat_line("K", {"83": 1.0, "84": 2.0, "85": 1.0}) == "FG 1/2"
+    dst = {"99": 2.0, "95": 1.0, "96": 0.0, "104": 1.0, "120": 14.0, "127": 250.0}
+    assert live.stat_line("D/ST", dst) == "2 sk, 1 INT, 1 TD, 14 PA, 250 YA"
+    assert live.stat_line("QB", {"210": 1.0}) is None, "nothing that scores: no line"
+    assert live.stat_line("WR", {}) is None
 
 
 def test_state_keeps_game_states_but_a_clock_tick_alone_does_not_bump_the_version():
@@ -109,3 +127,13 @@ def test_overlay_attaches_the_game_state_once_a_team_has_kicked_off():
     week = {"week": 1, "me": {"lineup": [{**player(1), "team": "JAX"}], "bench": [], "ir": []}, "opp": None}
     assert live.overlay_week(week, {}, games)["me"]["lineup"][0]["game"] == IN_Q2
     assert "game" not in live.overlay_roster({"cards": cards}, {})["cards"][0], "no games: untouched"
+
+
+def test_overlay_attaches_a_stat_line_for_players_with_scoring_stats():
+    cards = [{**player(1), "team": "JAX", "pos": "QB"}, {**player(2), "team": "JAX", "pos": "K"}]
+    stats = {1: {"0": 15.0, "1": 11.0, "3": 138.0}, 2: {"210": 1.0}}
+    out = live.overlay_roster({"cards": cards}, {}, {}, stats)["cards"]
+    assert out[0]["stat_line"] == "11/15, 138 yds"
+    assert "stat_line" not in out[1], "a row with nothing that scores: no line"
+    week = {"week": 1, "me": {"lineup": [{**player(1), "team": "JAX", "pos": "QB"}], "bench": [], "ir": []}, "opp": None}
+    assert live.overlay_week(week, {}, {}, stats)["me"]["lineup"][0]["stat_line"] == "11/15, 138 yds"

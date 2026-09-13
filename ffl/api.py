@@ -216,6 +216,15 @@ def _live_games(week: int | None) -> dict[str, dict]:
     return live.STATE.games
 
 
+def _live_stats(week: int | None) -> dict[int, dict]:
+    """Raw stat rows for the overlay's stat lines, gated like the points."""
+    if not live.STATE.stats:
+        return {}
+    if week is not None and week != _current_week():
+        return {}
+    return live.STATE.stats
+
+
 FEED_ROWS = 5
 
 
@@ -229,7 +238,7 @@ def _plays(limit: int | None = None) -> list[dict]:
 def week_current():
     data = _serve("week:current", lambda: espn_season.week_state(None))
     # the feed rides on the page's own payload so one live tick refreshes both
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"])), "plays": _plays(FEED_ROWS)}
+    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"])), "plays": _plays(FEED_ROWS)}
 
 
 @app.get("/plays")
@@ -245,7 +254,7 @@ def week(n: int):
     data = _serve(f"week:{n}", lambda: espn_season.week_state(n))
     runner = getattr(app.state, "runner", None)
     plays = _plays(FEED_ROWS) if runner and runner.week == n else []
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"])), "plays": plays}
+    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"])), "plays": plays}
 
 
 @app.get("/live")
@@ -312,7 +321,7 @@ def draft_():
 
 @app.get("/roster")
 def roster_():
-    data = live.overlay_roster(_serve("roster", lambda: espn_season.roster_state(None)), _live_points(None), _live_games(None))
+    data = live.overlay_roster(_serve("roster", lambda: espn_season.roster_state(None)), _live_points(None), _live_games(None), _live_stats(None))
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
     return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"])),

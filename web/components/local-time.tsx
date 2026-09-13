@@ -12,12 +12,29 @@ export function gameClock(g: GameState): string {
   return g.clock ? `${period} ${g.clock}` : period;
 }
 
+// The score with the player's own team first: "JAX 14, CLE 3".
+export function gameScore(g: GameState, team: string): string | null {
+  const teams = Object.keys(g.score ?? {});
+  if (teams.length < 2) return null;
+  const ordered = [team, ...teams.filter((t) => t !== team)].filter((t) => t in g.score);
+  return ordered.map((t) => `${t} ${g.score[t]}`).join(", ");
+}
+
 // The API serves ISO timestamps in the Mac's zone; the phone renders them in its own. The server
 // render and the client render can differ, so hydration warnings are suppressed on purpose.
 // A null kickoff means two different things: the player is on bye, or ESPN has no schedule entry
 // for him at all. `ffl/outlook.py::_kickoff_text` draws that line, so the card header must too.
-export function Kickoff({ iso, bye, game }: { iso: string | null; bye: boolean; game?: GameState }) {
-  if (game) return <span>{gameClock(game)}</span>;
+// With `game` (and `team`) the line becomes the clock and the score instead.
+export function Kickoff({ iso, bye, game, team }: { iso: string | null; bye: boolean; game?: GameState; team?: string }) {
+  if (game) {
+    const score = team ? gameScore(game, team) : null;
+    return (
+      <span>
+        <span className={game.status === "in" ? "font-medium text-foreground/85" : undefined}>{gameClock(game)}</span>
+        {score && <><span aria-hidden> · </span>{score}</>}
+      </span>
+    );
+  }
   if (!iso) return <span>{bye ? "BYE" : "not scheduled"}</span>;
   const d = new Date(iso);
   return (
