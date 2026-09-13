@@ -53,3 +53,53 @@ def test_store_add_nothing_writes_nothing(tmp_path):
 
 def test_week_path_is_under_data_live():
     assert plays.week_path(3).name == "plays-week-3.jsonl" and plays.week_path(3).parent.name == "live"
+
+
+# The stats patch for a play arrives a frame or three after the play text, by which time the
+# game's lastPlay is often the *next* play (a timeout after a field goal, say). The doc names
+# the players of every play in the current drive and every scoring play, so an event is
+# matched to the newest remembered play that names the player, not to whatever is last.
+FG = {"playId": "4018729221280", "text": " C.Little 47 yard field goal is GOOD.", "period": 2, "clock": 560.0,
+      "scoringPlay": True, "players": [{"playerId": "40", "type": "kicker"}, {"playerId": "40", "type": "scorer"}]}
+TIMEOUT = {"playId": "4018729221287", "text": "Official Timeout at 09:09.", "period": 2, "clock": 549.0, "players": []}
+KICKOFF = {"playId": "4018729221297", "text": " C.Little kicks 60 yards.", "period": 2, "clock": 549.0,
+           "players": [{"playerId": "40", "type": "kicker"}, {"playerId": "41", "type": "returner"}]}
+ROSTER = {40: {"name": "Cam Little", "pos": "K", "team": "JAX", "side": "me", "team_id": 7}}
+
+
+def _doc(last, drive_plays, scoring=()):
+    return {"statistics": {"40": {"gameId": "g", "stats": {}}},
+            "events": [{"id": "g", "period": 2, "clock": "9:09", "lastPlay": last,
+                        "drive": {"plays": list(drive_plays)}, "scoringPlays": list(scoring)}]}
+
+
+def test_event_matches_the_newest_play_naming_the_player_not_the_last_play():
+    cache = plays.PlayCache()
+    cache.remember(_doc(FG, [FG]))                      # the field goal is the last play, ends the drive
+    cache.remember(_doc(TIMEOUT, [], [FG]))             # new drive: the FG survives only in scoringPlays
+    rows = plays.events_from({40: 2.0}, {40: 6.0}, _doc(TIMEOUT, [], [FG]), ROSTER, AT, 1, cache)
+    assert rows[0]["text"] == "C.Little 47 yard field goal is GOOD." and rows[0]["play_id"] == FG["playId"]
+    assert rows[0]["quarter"] == 2 and rows[0]["clock"] == "9:20" and rows[0]["match"] == "player"
+
+
+def test_event_falls_back_to_the_last_play_when_no_play_names_the_player():
+    cache = plays.PlayCache()
+    doc = _doc(TIMEOUT, [TIMEOUT])
+    cache.remember(doc)
+    rows = plays.events_from({40: 2.0}, {40: 3.0}, doc, ROSTER, AT, 1, cache)
+    assert rows[0]["text"] == "Official Timeout at 09:09." and rows[0]["match"] == "last"
+
+
+def test_cache_orders_by_play_id_across_drive_and_scoring_lists():
+    cache = plays.PlayCache()
+    cache.remember(_doc(KICKOFF, [KICKOFF], [FG]))
+    assert cache.play_for("g", 40)["playId"] == KICKOFF["playId"]
+    assert cache.play_for("g", 41)["playId"] == KICKOFF["playId"]
+    assert cache.play_for("g", 99) is None and cache.play_for("nope", 40) is None
+
+
+def test_cache_forgets_old_plays_per_game():
+    cache = plays.PlayCache(keep=2)
+    cache.remember(_doc(FG, [FG, TIMEOUT, KICKOFF]))
+    assert cache.play_for("g", 40)["playId"] == KICKOFF["playId"]
+    assert len(cache.plays["g"]) == 2 and FG["playId"] not in cache.plays["g"]

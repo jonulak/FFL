@@ -40,6 +40,7 @@ export type Play = {
   at: string; week: number; player_id: number; name: string; pos: string; team: string;
   side: "me" | "opp"; team_id: number; delta: number; total: number; text: string | null;
   play_id: string | null; quarter: number | null; clock: string | null; game_id: string | null;
+  match?: "player" | "last"; // "player": a play naming him; "last": the game's last play, possibly the next one
 };
 export type Plays = { week: number | null; live: boolean; plays: Play[]; stale_since: null };
 export type Week = { week: number; live: boolean; me: Side; opp: Side | null; plays: Play[]; stale_since: string | null };

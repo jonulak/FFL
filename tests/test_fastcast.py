@@ -41,6 +41,14 @@ def test_decode_uncompressed_payload_is_tolerated():
     assert f["patch"] == [{"op": "add", "path": "/x", "value": 1}]
 
 
+def test_decode_uncompressed_payload_may_already_be_the_op_list():
+    """Seen live 2026-09-13 (mid 2145730): ~c 0 with `pl` inlined as the JSON list, not a string."""
+    ops = [{"op": "replace", "path": "/statistics/4426388/stats/59", "value": 1}]
+    inner = {"ts": 1789322635135, "~c": 0, "pl": ops}
+    f = fc.decode(json.dumps({"op": "P", "pl": json.dumps(inner), "mid": 2145730, "tc": "t"}))
+    assert f["patch"] == ops
+
+
 def test_heartbeat_and_handshake_frames_decode_without_a_patch():
     assert fc.decode('{"op":"B"}') == {"op": "B"}
     h = fc.decode('{"op":"H","mid":3,"pl":"https://x/checkpoint","tc":"t"}')

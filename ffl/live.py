@@ -144,6 +144,7 @@ class Runner(threading.Thread):
         self.week: int | None = None
         self.roster_at = 0.0
         self.store: P.Store | None = None
+        self.plays = P.PlayCache()
 
     def _refresh_roster(self) -> None:
         if self.week_fn is None or time.time() - self.roster_at < ROSTER_REFRESH:
@@ -164,9 +165,10 @@ class Runner(threading.Thread):
         before, first = dict(self.state.points), self.state.version == 0
         after = fc.score_all(doc, self.table)
         self.state.update(after)
+        self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if self.store is not None and not first:
-            self.store.add(P.events_from(before, after, doc, self.roster, datetime.now(), self.week))
+            self.store.add(P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays))
         idle = idle_for(doc)
         if idle is not None:
             self.idle_until = time.time() + idle

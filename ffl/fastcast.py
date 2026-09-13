@@ -52,7 +52,8 @@ def decode(text: str) -> dict:
         raw = inner["pl"]
         if inner.get("~c"):
             raw = zlib.decompress(base64.b64decode(raw)).decode()
-        f["patch"] = json.loads(raw)
+        # an uncompressed payload is sometimes a JSON string, sometimes the op list inlined
+        f["patch"] = json.loads(raw) if isinstance(raw, str) else raw
         f["ts"] = inner.get("ts")
     return f
 
