@@ -17,7 +17,9 @@ export type Player = {
   espn_only: boolean; actual: number; game_played: number; season_proj: number;
   season_proj_sleeper: number | null; return_week: number | null; injury_note: string | null;
   opponent: string | null; kickoff: string | null; home: boolean | null;
+  game?: GameState; // present once his pro team has kicked off (live overlay, ffl/live.py)
 };
+export type GameState = { status: "in" | "post"; quarter: number | null; clock: string | null };
 export type Card = Player & {
   group: "starter" | "bench" | "ir"; call: "START" | "BENCH" | "OUT" | "BYE" | "IR";
   gap: number | null; close_call: boolean; reason: string;

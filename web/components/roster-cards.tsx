@@ -19,7 +19,7 @@ const GROUPS: { key: Card["group"]; title: string }[] = [
 // "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare.
 function Matchup({ c }: { c: Card }) {
   if (!c.opponent) {
-    return <span className="text-sm text-muted-foreground"><Kickoff iso={c.kickoff} bye={c.bye} /></span>;
+    return <span className="text-sm text-muted-foreground"><Kickoff iso={c.kickoff} bye={c.bye} game={c.game} /></span>;
   }
   return (
     <span className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
@@ -27,7 +27,7 @@ function Matchup({ c }: { c: Card }) {
       <TeamLogo abbr={c.opponent} size={20} />
       <span className="font-medium text-foreground/85">{c.opponent}</span>
       <span aria-hidden>·</span>
-      <Kickoff iso={c.kickoff} bye={c.bye} />
+      <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} />
     </span>
   );
 }

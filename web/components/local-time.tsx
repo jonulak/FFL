@@ -1,12 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import type { GameState } from "@/lib/api";
+
+// Once the game is on, the clock and quarter stand where the kickoff time was; "Final" after.
+export function gameClock(g: GameState): string {
+  if (g.status === "post") return "Final";
+  const q = g.quarter ?? 0;
+  if (q === 2 && g.clock === "0:00") return "Half";
+  const period = q > 4 ? (q === 5 ? "OT" : `${q - 4}OT`) : `Q${q}`;
+  return g.clock ? `${period} ${g.clock}` : period;
+}
 
 // The API serves ISO timestamps in the Mac's zone; the phone renders them in its own. The server
 // render and the client render can differ, so hydration warnings are suppressed on purpose.
 // A null kickoff means two different things: the player is on bye, or ESPN has no schedule entry
 // for him at all. `ffl/outlook.py::_kickoff_text` draws that line, so the card header must too.
-export function Kickoff({ iso, bye }: { iso: string | null; bye: boolean }) {
+export function Kickoff({ iso, bye, game }: { iso: string | null; bye: boolean; game?: GameState }) {
+  if (game) return <span>{gameClock(game)}</span>;
   if (!iso) return <span>{bye ? "BYE" : "not scheduled"}</span>;
   const d = new Date(iso);
   return (

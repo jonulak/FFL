@@ -83,3 +83,29 @@ def test_state_version_ticks_only_on_change_and_wakes_waiters():
 def test_state_first_update_always_ticks_even_when_empty():
     st = live.State()
     assert st.update({}) and st.version == 1
+
+
+IN_Q2 = {"status": "in", "quarter": 2, "clock": "9:09"}
+
+
+def test_state_keeps_game_states_but_a_clock_tick_alone_does_not_bump_the_version():
+    """Every GET reads the latest clock; the stream only wakes the page for something new."""
+    st = live.State()
+    assert st.update({1: 2.0}, {"JAX": IN_Q2}) and st.version == 1
+    assert not st.update({1: 2.0}, {"JAX": {**IN_Q2, "clock": "9:02"}}) and st.version == 1
+    assert st.games["JAX"]["clock"] == "9:02", "the clock is still stored"
+    assert st.update({1: 2.0}, {"JAX": {**IN_Q2, "quarter": 3}}) and st.version == 2
+    assert st.update({1: 2.0}, {"JAX": {"status": "post", "quarter": 4, "clock": "0:00"}}) and st.version == 3
+
+
+def test_overlay_attaches_the_game_state_once_a_team_has_kicked_off():
+    cards = [{**player(1), "team": "JAX"}, {**player(2), "team": "KC"}, {**player(3), "team": "SEA"}]
+    games = {"JAX": IN_Q2, "KC": {"status": "pre", "quarter": 0, "clock": "0:00"},
+             "SEA": {"status": "post", "quarter": 4, "clock": "0:00"}}
+    out = live.overlay_roster({"cards": cards}, {}, games)["cards"]
+    assert out[0]["game"] == IN_Q2
+    assert "game" not in out[1], "before kickoff the kickoff time stands"
+    assert out[2]["game"]["status"] == "post"
+    week = {"week": 1, "me": {"lineup": [{**player(1), "team": "JAX"}], "bench": [], "ir": []}, "opp": None}
+    assert live.overlay_week(week, {}, games)["me"]["lineup"][0]["game"] == IN_Q2
+    assert "game" not in live.overlay_roster({"cards": cards}, {})["cards"][0], "no games: untouched"

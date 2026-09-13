@@ -89,7 +89,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   public FastCast feed (topic `scoreboard-ffl-fantasycast`, no cookies): a CDN checkpoint of every player's raw
   stats plus JSON-Patch pushes every few seconds. `live.Runner` rescores the document with the league's stat
   table (`settings["scoring"]`, which reproduces ESPN's box score exactly) and lays the points over the cached
-  Week/League/Roster payloads at serve time (`live.overlay_*`, pure). `GET /live` is a server-sent event stream
+  Week/League/Roster payloads at serve time (`live.overlay_*`, pure). The same overlay adds `game`
+  (status, quarter, clock, from `fastcast.game_states`, keyed by pro team) to every player whose game has
+  kicked off; the `Kickoff` component shows it in place of the start time, "Final" after. A clock tick alone
+  never bumps the live version (the 60 s poll carries it); a quarter or status change does. `GET /live` is a server-sent event stream
   of a version number; `web/components/use-live.ts` refetches the page's GET on each tick, with a 60 s poll as
   the fallback. The socket is held only while a game is in progress or a kickoff is close (`live.idle_for`),
   inside `season.is_live`. The stream's `cache-control: no-transform` is load-bearing: without it Next's

@@ -134,6 +134,23 @@ def score_all(doc: dict, table: dict[int, float]) -> dict[int, float]:
 
 # ---- game state -------------------------------------------------------------------------------
 
+def game_states(doc: dict) -> dict[str, dict]:
+    """team abbreviation -> {status: pre|in|post, quarter, clock} for every game in the checkpoint.
+
+    Keyed by team because the page's players carry a pro team, not a game id; a player without
+    a stat line yet (a kicker before his first kick) still finds his game this way.
+    """
+    out: dict[str, dict] = {}
+    for e in doc.get("events", []):
+        full = e.get("fullStatus") or {}
+        state = {"status": (full.get("type") or {}).get("state") or e.get("status"),
+                 "quarter": full.get("period"), "clock": full.get("displayClock")}
+        for c in e.get("competitors", []):
+            if c.get("abbreviation"):
+                out[c["abbreviation"]] = state
+    return out
+
+
 def games_in_progress(doc: dict) -> bool:
     return any(e.get("status") == "in" for e in doc.get("events", []))
 

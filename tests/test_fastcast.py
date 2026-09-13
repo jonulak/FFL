@@ -41,6 +41,24 @@ def test_decode_uncompressed_payload_is_tolerated():
     assert f["patch"] == [{"op": "add", "path": "/x", "value": 1}]
 
 
+def test_game_states_by_team_from_the_checkpoint():
+    """Each competitor's abbreviation maps to its game's state, period and display clock."""
+    doc = {"events": [
+        {"id": "a", "status": "in", "fullStatus": {"displayClock": "9:09", "period": 2, "type": {"state": "in"}},
+         "competitors": [{"abbreviation": "JAX"}, {"abbreviation": "CLE"}]},
+        {"id": "b", "status": "post", "fullStatus": {"displayClock": "0:00", "period": 4, "type": {"state": "post"}},
+         "competitors": [{"abbreviation": "SEA"}, {"abbreviation": "NE"}]},
+        {"id": "c", "status": "pre", "fullStatus": {"displayClock": "0:00", "period": 0, "type": {"state": "pre"}},
+         "competitors": [{"abbreviation": "KC"}, {"abbreviation": "DEN"}]},
+        {"id": "d", "status": "in", "competitors": [{"abbreviation": "X"}]},  # no fullStatus: status alone
+    ]}
+    g = fc.game_states(doc)
+    assert g["JAX"] == g["CLE"] == {"status": "in", "quarter": 2, "clock": "9:09"}
+    assert g["SEA"] == {"status": "post", "quarter": 4, "clock": "0:00"}
+    assert g["KC"]["status"] == "pre"
+    assert g["X"] == {"status": "in", "quarter": None, "clock": None}
+
+
 def test_decode_uncompressed_payload_may_already_be_the_op_list():
     """Seen live 2026-09-13 (mid 2145730): ~c 0 with `pl` inlined as the JSON list, not a string."""
     ops = [{"op": "replace", "path": "/statistics/4426388/stats/59", "value": 1}]

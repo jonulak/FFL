@@ -36,16 +36,26 @@ class State:
     def __init__(self):
         self.version = 0
         self.points: dict[int, float] = {}
+        self.games: dict[str, dict] = {}  # team -> {status, quarter, clock} (fastcast.game_states)
         self.at: float | None = None  # when the points last changed
         self.connected = False
         self.error: str | None = None
         self.cond = threading.Condition()
 
-    def update(self, points: dict[int, float]) -> bool:
+    def update(self, points: dict[int, float], games: dict[str, dict] | None = None) -> bool:
+        """Store the latest points and game states; tick `version` (and wake the stream) only
+        when a point moved or a game changed status or quarter. The clock alone never wakes the
+        page: every GET reads the stored clock, and the 60 s poll keeps it fresh enough."""
+        games = games if games is not None else self.games
         with self.cond:
-            if points == self.points and self.version:
+            same_points = points == self.points
+            same_games = _sans_clock(games) == _sans_clock(self.games)
+            self.games = games
+            if same_points and same_games and self.version:
                 return False
-            self.points, self.version, self.at = points, self.version + 1, time.time()
+            self.points, self.version = points, self.version + 1
+            if not same_points:
+                self.at = time.time()
             self.cond.notify_all()
             return True
 
@@ -61,6 +71,10 @@ class State:
                     "error": self.error, "players": len(self.points)}
 
 
+def _sans_clock(games: dict[str, dict]) -> dict[str, tuple]:
+    return {t: (g.get("status"), g.get("quarter")) for t, g in games.items()}
+
+
 STATE = State()
 
 
@@ -71,24 +85,34 @@ def enabled() -> bool:
 
 # ---- overlay ----------------------------------------------------------------------------------
 
-def overlay_players(players: list[dict], points: dict[int, float]) -> list[dict]:
-    return [{**p, "actual": points[p["player_id"]]} if p.get("player_id") in points else p for p in players]
+def overlay_players(players: list[dict], points: dict[int, float], games: dict[str, dict] | None = None) -> list[dict]:
+    """Live `actual` for players the feed has scored; `game` (status, quarter, clock) for players
+    whose pro team has kicked off, so the page can show the clock where the kickoff time was."""
+    out = []
+    for p in players:
+        if p.get("player_id") in points:
+            p = {**p, "actual": points[p["player_id"]]}
+        game = (games or {}).get(p.get("team"))
+        if game and game.get("status") in ("in", "post"):
+            p = {**p, "game": game}
+        out.append(p)
+    return out
 
 
-def overlay_week(payload: dict, points: dict[int, float]) -> dict:
+def overlay_week(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None) -> dict:
     out = dict(payload)
     for key in ("me", "opp"):
         side = payload.get(key)
         if not side:
             continue
-        side = {**side, **{g: overlay_players(side.get(g, []), points) for g in ("lineup", "bench", "ir")}}
+        side = {**side, **{g: overlay_players(side.get(g, []), points, games) for g in ("lineup", "bench", "ir")}}
         side["actual_total"] = round(sum(p["actual"] for p in side["lineup"]), 1)
         out[key] = side
     return out
 
 
-def overlay_roster(payload: dict, points: dict[int, float]) -> dict:
-    return {**payload, "cards": overlay_players(payload.get("cards", []), points)}
+def overlay_roster(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None) -> dict:
+    return {**payload, "cards": overlay_players(payload.get("cards", []), points, games)}
 
 
 def overlay_league(payload: dict, points: dict[int, float]) -> dict:
@@ -164,7 +188,7 @@ class Runner(threading.Thread):
         self._refresh_roster()
         before, first = dict(self.state.points), self.state.version == 0
         after = fc.score_all(doc, self.table)
-        self.state.update(after)
+        self.state.update(after, fc.game_states(doc))
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if self.store is not None and not first:
