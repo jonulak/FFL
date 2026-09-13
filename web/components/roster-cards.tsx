@@ -7,6 +7,7 @@ import { team } from "@/lib/teams";
 import { Kickoff } from "./local-time";
 import { Outlook } from "./outlook";
 import { TeamLogo, TeamPanel } from "./player-media";
+import { StatLine } from "./stat-line";
 
 const CALL = { START: "start", BENCH: "muted", OUT: "out", BYE: "muted", IR: "out" } as const;
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
@@ -112,7 +113,7 @@ function PlayerCard({ c, week }: { c: Card; week: number }) {
       </CardHeader>
       <CardContent className="pt-2">
         <Matchup c={c} />
-        {c.stat_line && <p className="mt-1 text-[13px] tabular-nums text-foreground/80">{c.stat_line}</p>}
+        {c.stat_line && <StatLine text={c.stat_line} className="mt-1" />}
         <div className="mt-3"><Numbers c={c} /></div>
         <Reason text={c.reason} />
       </CardContent>

@@ -8,6 +8,7 @@ import { Kickoff } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
 import { TeamLogo, TeamPanel } from "./player-media";
 import { StaleBadge } from "./stale-badge";
+import { StatLine } from "./stat-line";
 
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN names the flex slot by what it takes; the board calls it FLEX (season.py SLOT_LABEL).
@@ -121,7 +122,8 @@ function Row({ p, week, slot, now }: { p: Player; week: number; slot: boolean; n
         </p>
         {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. */}
         <p className="mt-0.5 text-xs tabular-nums text-muted-foreground"><Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} /></p>
-        {p.stat_line && <p className="mt-0.5 text-xs tabular-nums text-foreground/80">{p.stat_line}</p>}
+        {/* The row's one fact once he has played: the box-score line, in the play feed's register. */}
+        {p.stat_line && <StatLine text={p.stat_line} className="mt-1" />}
       </div>
       <div className="text-right tabular-nums">
         <p className="flex items-baseline justify-end gap-1.5">
