@@ -35,7 +35,14 @@ export type Side = {
   team_id: number; team: string; lineup: Player[]; bench: Player[]; ir: Player[];
   optimal: LineupEntry[]; optimal_swaps: Swap[]; proj_total: number; optimal_total: number; actual_total: number;
 };
-export type Week = { week: number; live: boolean; me: Side; opp: Side | null; stale_since: string | null };
+// One row of the play feed (ffl/plays.py): a starter's points moved by `delta` to `total`.
+export type Play = {
+  at: string; week: number; player_id: number; name: string; pos: string; team: string;
+  side: "me" | "opp"; team_id: number; delta: number; total: number; text: string | null;
+  play_id: string | null; quarter: number | null; clock: string | null; game_id: string | null;
+};
+export type Plays = { week: number | null; live: boolean; plays: Play[]; stale_since: null };
+export type Week = { week: number; live: boolean; me: Side; opp: Side | null; plays: Play[]; stale_since: string | null };
 export type WaiverRow = Player & {
   ros_proj: number; week_proj: number; delta_roster: number; delta_pool: number;
   would_start: boolean; week_delta: number; add: number;

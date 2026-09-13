@@ -145,9 +145,11 @@ async def lifespan(app: FastAPI):
     t.start()
     # One FastCast subscription per process; overlays live points on the cached payloads and
     # wakes /live. FFL_LIVE=0 keeps it off (tests, a second dev API).
-    runner = live.Runner() if live.enabled() else None
+    runner = live.Runner(week_fn=lambda: cache.get_or_build("week:current", lambda: espn_season.week_state(None))[0]) \
+        if live.enabled() else None
     if runner:
         runner.start()
+    app.state.runner = runner
     yield
     if runner:
         runner.stop.set()
@@ -205,16 +207,36 @@ def _live_points(week: int | None) -> dict[int, float]:
     return live.STATE.points
 
 
+FEED_ROWS = 5
+
+
+def _plays(limit: int | None = None) -> list[dict]:
+    runner = getattr(app.state, "runner", None)
+    store = runner.store if runner else None
+    return store.latest(limit) if store else []
+
+
 @app.get("/week")
 def week_current():
     data = _serve("week:current", lambda: espn_season.week_state(None))
-    return live.overlay_week(data, _live_points(data["week"]))
+    # the feed rides on the page's own payload so one live tick refreshes both
+    return {**live.overlay_week(data, _live_points(data["week"])), "plays": _plays(FEED_ROWS)}
+
+
+@app.get("/plays")
+def plays_():
+    """Every play-feed row of the current week, newest first (the /plays page)."""
+    runner = getattr(app.state, "runner", None)
+    return {"week": runner.week if runner else None, "live": season.is_live(), "plays": _plays(),
+            "stale_since": None}
 
 
 @app.get("/week/{n}")
 def week(n: int):
     data = _serve(f"week:{n}", lambda: espn_season.week_state(n))
-    return live.overlay_week(data, _live_points(data["week"]))
+    runner = getattr(app.state, "runner", None)
+    plays = _plays(FEED_ROWS) if runner and runner.week == n else []
+    return {**live.overlay_week(data, _live_points(data["week"])), "plays": plays}
 
 
 @app.get("/live")

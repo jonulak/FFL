@@ -5,6 +5,7 @@ import type { Player, Side, Week } from "@/lib/api";
 import { injuryLabel, injuryTone, pts, signed } from "@/lib/format";
 import { gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { Kickoff } from "./local-time";
+import { PlayFeedStrip } from "./play-feed";
 import { TeamLogo, TeamPanel } from "./player-media";
 import { StaleBadge } from "./stale-badge";
 
@@ -232,6 +233,8 @@ export function MatchupView({ data, now }: { data: Week; now: number }) {
         <StaleBadge since={data.stale_since} />
       </div>
       <Scorebug data={data} now={now} />
+      {/* The feed only earns its place once something has happened; before kickoff it stays out of the way. */}
+      {data.plays.length > 0 && <PlayFeedStrip plays={data.plays} />}
       <div className="grid gap-3 md:grid-cols-2 md:items-start md:gap-4">
         <SideCard side={data.me} week={data.week} mine now={now} />
         {data.opp && <SideCard side={data.opp} week={data.week} mine={false} now={now} />}

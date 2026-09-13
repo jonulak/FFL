@@ -94,6 +94,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   the fallback. The socket is held only while a game is in progress or a kickoff is close (`live.idle_for`),
   inside `season.is_live`. The stream's `cache-control: no-transform` is load-bearing: without it Next's
   compression gzips the stream and the browser never sees a byte. Run a second dev API with `FFL_LIVE=0`.
+  The play feed (`ffl/plays.py`) is derived from the same rescoring: every points change of a starter in
+  my matchup becomes a row (delta, total, the game's last play text, clock) appended to
+  `data/live/plays-week-<n>.jsonl` and reloaded at boot. `/week` carries the latest five, `/plays` the week.
 - **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (STRATEGY.md "Lineup"), pure;
   `ffl/outlook.py` writes the paragraph under each card by running `claude -p` (Opus, tools off) from a
   fact sheet, one player per call, cached in `data/outlook/week-<n>.json` under a hash of the facts.

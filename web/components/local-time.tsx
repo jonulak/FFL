@@ -16,6 +16,11 @@ export function Kickoff({ iso, bye }: { iso: string | null; bye: boolean }) {
   );
 }
 
+// A time of day in the viewer's zone (the play feed's stamp).
+export function Clock({ iso }: { iso: string }) {
+  return <span suppressHydrationWarning>{new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>;
+}
+
 export function Ago({ iso }: { iso: string }) {
   // The clock is impure, so read it once in a state initialiser rather than in the render body
   // (react-hooks/purity): the age is fixed for the life of the render, which is what a
