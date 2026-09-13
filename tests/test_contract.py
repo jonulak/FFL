@@ -27,7 +27,7 @@ WAIVER_EXTRA = {"ros_proj", "week_proj", "delta_roster", "delta_pool", "would_st
 # web/lib/api.ts: type League["standings"][number]
 STANDINGS_ROW = {"rank", "team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "points_for", "points_against",
                  "streak", "me"}
-SCORE_SIDE = {"team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me"}
+SCORE_SIDE = {"team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me", "starter_ids"}
 # web/lib/api.ts: type Week / type League top level (stale_since is added by the API's cache)
 WEEK = {"week", "live", "me", "opp"}
 LEAGUE = {"week", "current_week", "weeks", "playoff_teams", "live", "standings", "scoreboard"}

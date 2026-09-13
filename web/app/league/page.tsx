@@ -1,5 +1,5 @@
 import { ErrorCard } from "@/components/error-card";
-import { LeagueView } from "@/components/league";
+import { LeagueLive } from "@/components/league-live";
 import { apiGet, type League } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 
@@ -19,5 +19,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ w
   } catch (e) {
     return <ErrorCard {...errorFields(e)} />;
   }
-  return <LeagueView data={d} />;
+  return <LeagueLive initial={d} path={week ? `/league?week=${week}` : "/league"} />;
 }

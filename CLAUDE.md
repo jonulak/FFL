@@ -28,6 +28,7 @@ uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanit
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
 curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (launchd does this hourly)
+curl 127.0.0.1:8300/live/status        # the live-scoring feed: connected?, version, players scored (FFL_LIVE=0 keeps a dev API off it)
 cd web && pnpm dev                     # season UI on :3301 against the API above
 scripts/deploy.sh                      # rebuild + restart the launchd agents (post-merge hook runs it)
 scripts/install.sh                     # one-time: launchd agents, hooks path, tailscale serve :3300
@@ -84,6 +85,15 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   so `espn_season.home_by_team` re-reads ESPN's `proTeamSchedules_wl` view, cached per League build,
   and a failed read leaves every venue None rather than failing the page. Headshots and logos are
   ESPN's public CDN (`web/lib/teams.ts`); D/ST and any missing portrait fall back to the club mark.
+- **Live scoring** (`ffl/fastcast.py`, `ffl/live.py`): during games the API holds one subscription to ESPN's
+  public FastCast feed (topic `scoreboard-ffl-fantasycast`, no cookies): a CDN checkpoint of every player's raw
+  stats plus JSON-Patch pushes every few seconds. `live.Runner` rescores the document with the league's stat
+  table (`settings["scoring"]`, which reproduces ESPN's box score exactly) and lays the points over the cached
+  Week/League/Roster payloads at serve time (`live.overlay_*`, pure). `GET /live` is a server-sent event stream
+  of a version number; `web/components/use-live.ts` refetches the page's GET on each tick, with a 60 s poll as
+  the fallback. The socket is held only while a game is in progress or a kickoff is close (`live.idle_for`),
+  inside `season.is_live`. The stream's `cache-control: no-transform` is load-bearing: without it Next's
+  compression gzips the stream and the browser never sees a byte. Run a second dev API with `FFL_LIVE=0`.
 - **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (STRATEGY.md "Lineup"), pure;
   `ffl/outlook.py` writes the paragraph under each card by running `claude -p` (Opus, tools off) from a
   fact sheet, one player per call, cached in `data/outlook/week-<n>.json` under a hash of the facts.

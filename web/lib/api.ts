@@ -44,7 +44,8 @@ export type Waivers = { week: number; pos: string; rows: WaiverRow[]; stale_sinc
 // A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
 export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
 export type Standing = Club & { rank: number; points_for: number; points_against: number; streak: string; me: boolean };
-export type ScoreSide = Club & { score: number; proj: number; me: boolean };
+// starter_ids is what the API re-sums a side from while the live feed runs; empty for a future week.
+export type ScoreSide = Club & { score: number; proj: number; me: boolean; starter_ids: number[] };
 export type League = {
   week: number; current_week: number; weeks: number; playoff_teams: number; live: boolean;
   standings: Standing[];

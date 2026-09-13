@@ -18,10 +18,10 @@ from datetime import datetime
 from typing import Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, field_validator
 
-from . import espn_season, outlook, season
+from . import espn_season, live, outlook, season
 from .config import JOURNAL
 from .journal import sync_results, sync_transactions
 from .settings import load
@@ -143,7 +143,14 @@ async def lifespan(app: FastAPI):
     t = threading.Thread(target=warm, daemon=True, name="cache-warm")
     cache._threads["warm"] = t
     t.start()
+    # One FastCast subscription per process; overlays live points on the cached payloads and
+    # wakes /live. FFL_LIVE=0 keeps it off (tests, a second dev API).
+    runner = live.Runner() if live.enabled() else None
+    if runner:
+        runner.start()
     yield
+    if runner:
+        runner.stop.set()
 
 
 def warm() -> None:
@@ -181,14 +188,58 @@ def health():
     return {"ok": True}
 
 
+def _current_week() -> int | None:
+    """The NFL week the live feed covers; None when ESPN is unreachable (no overlay then)."""
+    try:
+        return espn_season.fresh_league().current_week
+    except Exception:  # noqa: BLE001 — the cached payload is still served, just without live points
+        return None
+
+
+def _live_points(week: int | None) -> dict[int, float]:
+    """The live overlay for `week`: only the current week, only while the feed has scored something."""
+    if not live.STATE.points:
+        return {}
+    if week is not None and week != _current_week():
+        return {}
+    return live.STATE.points
+
+
 @app.get("/week")
 def week_current():
-    return _serve("week:current", lambda: espn_season.week_state(None))
+    data = _serve("week:current", lambda: espn_season.week_state(None))
+    return live.overlay_week(data, _live_points(data["week"]))
 
 
 @app.get("/week/{n}")
 def week(n: int):
-    return _serve(f"week:{n}", lambda: espn_season.week_state(n))
+    data = _serve(f"week:{n}", lambda: espn_season.week_state(n))
+    return live.overlay_week(data, _live_points(data["week"]))
+
+
+@app.get("/live")
+def live_stream():
+    """Server-sent events: one `data: <version>` line whenever live points change, and a comment
+    every 15 s so the proxy keeps the connection open. The page refetches its GET on a tick."""
+    def gen():
+        seen = live.STATE.version
+        yield f"retry: 3000\ndata: {seen}\n\n"
+        while True:
+            v = live.STATE.wait_for_change(seen, timeout=15.0)
+            if v != seen:
+                seen = v
+                yield f"data: {v}\n\n"
+            else:
+                yield ": keepalive\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             # no-transform: Next's compression would otherwise gzip the stream and hold it in a
+                             # buffer the browser never sees a byte of
+                             headers={"cache-control": "no-cache, no-transform", "x-accel-buffering": "no"})
+
+
+@app.get("/live/status")
+def live_status():
+    return live.STATE.snapshot()
 
 
 @app.get("/waivers")
@@ -200,7 +251,8 @@ def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
 
 @app.get("/league")
 def league_(week: int | None = None):
-    return _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week))
+    data = _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week))
+    return live.overlay_league(data, _live_points(data["week"]))
 
 
 LOGO_TTL = 24 * 3600.0
@@ -229,7 +281,7 @@ def draft_():
 
 @app.get("/roster")
 def roster_():
-    data = _serve("roster", lambda: espn_season.roster_state(None))
+    data = live.overlay_roster(_serve("roster", lambda: espn_season.roster_state(None)), _live_points(None))
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
     return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"])),

@@ -1,6 +1,6 @@
 import { ErrorCard } from "@/components/error-card";
 import { OutlookButton } from "@/components/outlook-button";
-import { RosterCards } from "@/components/roster-cards";
+import { RosterLive } from "@/components/roster-live";
 import { StaleBadge } from "@/components/stale-badge";
 import { apiGet, type Roster } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
@@ -40,7 +40,7 @@ export default async function Page() {
               (run.failed > 0 && run.last_failure ? ` First failure: ${run.last_failure}.` : "")
             : ""}
       </p>
-      <RosterCards cards={data.cards} week={data.week} />
+      <RosterLive initial={data} />
     </div>
   );
 }
