@@ -9,7 +9,7 @@ import { TeamLogo, TeamPanel } from "./player-media";
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
 const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
-const LABEL = "font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 // The secondary numerals (ROS and the two deltas): condensed, stepped back, the way the League
 // table sets points against. Below `sm` these columns fold into the caption under the name.
 const SIDE = "hidden text-right font-display text-lg font-medium tabular-nums tracking-tight text-foreground/70 sm:table-cell sm:px-3";
@@ -39,7 +39,7 @@ function Matchup({ r }: { r: WaiverRow }) {
   if (!r.opponent) return <Kickoff iso={r.kickoff} bye={r.bye} />;
   return (
     <span className="contents">
-      {r.home !== null && <span className="font-display text-[12px] font-semibold uppercase tracking-[0.12em] text-foreground/80">{r.home ? "vs" : "at"}</span>}
+      {r.home !== null && <span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80">{r.home ? "vs" : "at"}</span>}
       <TeamLogo abbr={r.opponent} size={16} />
       <span className="font-medium text-foreground/85">{r.opponent}</span>
       <span aria-hidden>·</span>
@@ -70,7 +70,7 @@ function Row({ r, week }: { r: WaiverRow; week: number }) {
           {r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta)}</Badge>}
           {hurt && (
             <Badge variant={TAG[injuryTone(r.injury)]} shape="chip" title={r.injury_note ?? undefined}>
-              {injuryLabel(r.injury.replace("_", " "), r.return_week, week)}
+              {injuryLabel(r.injury.replaceAll("_", " "), r.return_week, week)}
             </Badge>
           )}
           {r.bye && <Badge variant="muted" shape="chip">bye</Badge>}

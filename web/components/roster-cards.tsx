@@ -24,7 +24,7 @@ function Matchup({ c }: { c: Card }) {
   }
   return (
     <span className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
-      {c.home !== null && <span className="font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-foreground/80">{c.home ? "vs" : "at"}</span>}
+      {c.home !== null && <span className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/80">{c.home ? "vs" : "at"}</span>}
       <TeamLogo abbr={c.opponent} size={20} />
       <span className="font-medium text-foreground/85">{c.opponent}</span>
       <span aria-hidden>·</span>
@@ -70,7 +70,7 @@ function Reason({ text }: { text: string }) {
   const [main, note] = text.split(" — ", 2);
   return (
     <div className="mt-2">
-      <p className="text-[15px] font-medium leading-snug md:truncate" title={main}>{main}</p>
+      <p className="text-[0.9375rem] font-medium leading-snug md:truncate" title={main}>{main}</p>
       {note && <p className="mt-0.5 text-xs text-muted-foreground">{note}</p>}
     </div>
   );
@@ -106,7 +106,7 @@ function PlayerCard({ c, week }: { c: Card; week: number }) {
           {c.close_call && <Badge variant="close" shape="chip">close call</Badge>}
           {hurt && (
             <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" title={c.injury_note ?? undefined}>
-              {injuryLabel(c.injury.replace("_", " "), c.return_week, week)}
+              {injuryLabel(c.injury.replaceAll("_", " "), c.return_week, week)}
             </Badge>
           )}
         </div>

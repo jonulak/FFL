@@ -18,7 +18,7 @@ export function PosTabs({ active, base }: { active: string; base: string }) {
             value={p}
             nativeButton={false}
             render={<Link href={`${base}?pos=${encodeURIComponent(p)}`} />}
-            className="h-full flex-none rounded-none px-2.5 font-display text-[15px] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground after:inset-x-2.5 after:bottom-0 dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
+            className="h-full flex-none rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground after:inset-x-2.5 after:bottom-0 dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
           >
             {p}
           </TabsTrigger>

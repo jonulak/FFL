@@ -10,7 +10,7 @@ import { StaleBadge } from "./stale-badge";
 import { WeekSelect } from "./week-select";
 
 const BOARD_CARD = "rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]";
-const LABEL = "font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
 function record(t: Club) {
   return `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ""}`;

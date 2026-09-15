@@ -20,7 +20,7 @@ const SLOT_LABEL: Record<string, string> = { "RB/WR/TE": "FLEX", "RB/WR": "FLEX"
 const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 
 const BOARD_CARD = "rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]";
-const LABEL = "font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
 // The board's grid, shared by every line so the slot column runs in one spine from the header to
 // the footer: my half, the slot, the opponent's half.
@@ -60,7 +60,7 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
       <div className={`flex items-center gap-2.5 self-end sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={40} className="sm:hidden" />
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={48} className="hidden sm:flex" />
-        <p className="line-clamp-2 min-w-0 text-balance font-display text-[1.25rem] font-semibold leading-none tracking-tight sm:text-[1.65rem]">
+        <p className="line-clamp-2 min-w-0 text-balance font-display text-[1.375rem] font-semibold leading-none tracking-tight sm:text-[1.65rem]">
           {side.team}
         </p>
       </div>
@@ -100,7 +100,7 @@ function Matchup({ p }: { p: Player }) {
   return (
     <span className="inline-flex items-center gap-x-1 whitespace-nowrap">
       <span aria-hidden>·</span>
-      {p.home !== null && <span className="font-display text-[12px] font-semibold uppercase tracking-[0.12em] text-foreground/80">{p.home ? "vs" : "at"}</span>}
+      {p.home !== null && <span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80">{p.home ? "vs" : "at"}</span>}
       <TeamLogo abbr={p.opponent} size={16} />
       <span className="font-medium text-foreground/85">{p.opponent}</span>
     </span>
@@ -120,7 +120,7 @@ function Num({ p, now, end, inline = false, className = "" }: { p: Player; now: 
       <span className={`font-display font-bold leading-none tracking-tight ${inline ? "text-[1.25rem]" : "text-[1.5rem]"} ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
         {pts(on ? p.actual : p.proj)}
       </span>
-      <Unit fact={on} className="text-[11px]" />
+      <Unit fact={on} className="text-xs" />
     </span>
   );
   const note = (
@@ -156,6 +156,8 @@ function Num({ p, now, end, inline = false, className = "" }: { p: Player; now: 
 function Half({ p, week, now, end }: { p: Player; week: number; now: number; end: End }) {
   const opp = end === "opp";
   const hurt = !HEALTHY.has(p.injury);
+  const status = p.injury.replaceAll("_", " ");
+  const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
   return (
     <Item size="sm" className={`min-w-0 flex-nowrap gap-2 rounded-none border-0 p-0 sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
@@ -167,21 +169,25 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
           <span className="truncate">{p.name}</span>
           {hurt && (
             <Badge variant={TAG[injuryTone(p.injury)]} shape="chip" title={p.injury_note ?? undefined}>
-              {injuryLabel(p.injury.replace("_", " "), p.return_week, week)}
+              {/* the phone's half column is narrower than "DOUBTFUL · WK 2": the status alone there,
+                  IR for injury reserve, and the return week moves to the kickoff line beneath */}
+              <span className="sm:hidden">{status === "INJURY RESERVE" ? "IR" : status}</span>
+              <span className="hidden sm:inline">{injuryLabel(status, p.return_week, week)}</span>
             </Badge>
           )}
           {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
         </ItemTitle>
         <Num p={p} now={now} end={end} inline className="mt-1 sm:hidden" />
-        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1 text-xs leading-normal ${opp ? "justify-end text-right" : ""}`}>
+        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1 text-xs leading-4 ${opp ? "justify-end text-right" : ""}`}>
           <span className="font-semibold text-foreground/80">{p.pos}</span>
           <span aria-hidden>·</span>
           <span>{p.team}</span>
           <Matchup p={p} />
         </ItemDescription>
         {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. */}
-        <ItemDescription className={`mt-0.5 line-clamp-none text-xs leading-normal tabular-nums ${opp ? "text-right" : ""}`}>
+        <ItemDescription className={`mt-0.5 line-clamp-none text-xs leading-4 tabular-nums ${opp ? "text-right" : ""}`}>
           <Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} />
+          {hurt && back != null && <span className="sm:hidden"> <span className="whitespace-nowrap"><span aria-hidden>· </span>back wk {back}</span></span>}
         </ItemDescription>
         {/* The row's one fact once he has played: the box-score line, in the play feed's register. */}
         {p.stat_line && <StatLine text={p.stat_line} className="mt-1" wrap />}
@@ -251,7 +257,7 @@ function SideTotals({ side, now, end }: { side: Side; now: number; end: End }) {
   const opp = end === "opp";
   const cell = (label: string, n: number, lead = false) => (
     <div className={`whitespace-nowrap ${opp ? "mr-5 text-left last:mr-0 sm:mr-7" : "ml-5 text-right first:ml-0 sm:ml-7"}`}>
-      <p className="font-display text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+      <p className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
       <p className={`mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums ${lead ? "" : "text-foreground/70"}`}>{pts(n)}</p>
     </div>
   );
@@ -265,7 +271,7 @@ function SideTotals({ side, now, end }: { side: Side; now: number; end: End }) {
         )}
       </div>
       <div className="sm:hidden">
-        <p className="font-display text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Est. final</p>
+        <p className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Est. final</p>
         <p className="mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums">{pts(t.estimate)}</p>
         <p className="mt-1 text-xs tabular-nums text-muted-foreground">
           scored {pts(t.scored)} <span aria-hidden>·</span> to play {pts(t.toCome)}
@@ -282,7 +288,7 @@ function Swaps({ side, end }: { side: Side; end: End }) {
   if (side.optimal_swaps.length === 0) return <span />;
   return (
     <div className={`flex flex-col gap-1 ${opp ? "text-right" : ""}`}>
-      <p className="text-[15px] font-medium leading-snug">
+      <p className="text-[0.9375rem] font-medium leading-snug">
         By projection {signed(side.optimal_total - side.proj_total)}
       </p>
       <ul className="space-y-0.5 text-xs text-muted-foreground">
@@ -290,9 +296,9 @@ function Swaps({ side, end }: { side: Side; end: End }) {
           // mirrored: the gain leads and the slot closes the line at the card's right edge
           <li key={i} className={`flex flex-wrap items-baseline gap-x-2 ${opp ? "justify-end" : ""}`}>
             {opp && <span className="tabular-nums text-foreground/85">{signed(s.gain)}</span>}
-            {!opp && <span className="font-mono">{s.slot}</span>}
+            {!opp && <span className="font-mono">{SLOT_LABEL[s.slot] ?? s.slot}</span>}
             <span>{s.out} <span aria-hidden>→</span> <span className="text-foreground/85">{s.in}</span></span>
-            {opp && <span className="font-mono">{s.slot}</span>}
+            {opp && <span className="font-mono">{SLOT_LABEL[s.slot] ?? s.slot}</span>}
             {!opp && <span className="ml-auto tabular-nums text-foreground/85">{signed(s.gain)}</span>}
           </li>
         ))}

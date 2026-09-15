@@ -29,7 +29,7 @@ const badgeVariants = cva(
       // `chip`: a broadcast lower-third block — squared, condensed caps, letterspaced.
       shape: {
         pill: "",
-        chip: "rounded-sm px-1.5 font-display text-[13px] font-semibold uppercase tracking-[0.12em]",
+        chip: "rounded-sm px-1.5 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em]",
       },
     },
     defaultVariants: {

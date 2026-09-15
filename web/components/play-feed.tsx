@@ -27,7 +27,7 @@ export function PlayFeed({ plays, empty = "No plays yet.", compact = false }: { 
   );
 }
 
-const UNIT = "font-display text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+const UNIT = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
 // A row is mirrored, not merely aligned, for the opponent: the Item is reversed so tile and
 // numeral swap ends and the two sides read as two teams facing each other across the same ledger.
@@ -47,8 +47,8 @@ function PlayRow({ p }: { p: Play }) {
               <span className="font-semibold text-foreground/80">{p.pos}</span> <span aria-hidden>·</span> {p.team}
             </span>
           </ItemTitle>
-          {p.text && <ItemDescription className={`mt-1 line-clamp-none text-[13px] leading-snug text-foreground/85 ${mine ? "" : "text-right"}`}>{p.text}</ItemDescription>}
-          <ItemDescription className={`mt-0.5 line-clamp-none text-xs leading-normal tabular-nums ${mine ? "" : "text-right"}`}>
+          {p.text && <ItemDescription className={`mt-1 line-clamp-none text-[0.8125rem] leading-snug text-foreground/85 ${mine ? "" : "text-right"}`}>{p.text}</ItemDescription>}
+          <ItemDescription className={`mt-0.5 line-clamp-none text-xs leading-4 tabular-nums ${mine ? "" : "text-right"}`}>
             <Clock iso={p.at} />
             {p.quarter != null && p.clock && <> <span aria-hidden>·</span> Q{p.quarter} {p.clock}</>}
           </ItemDescription>
@@ -78,9 +78,9 @@ function CompactRow({ p }: { p: Play }) {
           <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
         </ItemMedia>
         <ItemContent className={`min-w-0 gap-0 ${mine ? "" : "items-end text-right"}`}>
-          <ItemTitle className={`line-clamp-none block w-full max-w-full truncate leading-tight ${mine ? "" : "text-right"}`} title={p.text ?? undefined}>
-            <span className="font-display text-[1.0625rem] font-semibold tracking-tight">{p.name}</span>
-            {p.text && <span className="ml-2 text-[13px] font-normal text-foreground/85">{p.text}</span>}
+          <ItemTitle className={`line-clamp-none block w-full max-w-full truncate leading-none ${mine ? "" : "text-right"}`} title={p.text ?? undefined}>
+            <span className="font-display text-[1.125rem] font-semibold leading-none tracking-tight">{p.name}</span>
+            {p.text && <span className="ml-2 text-[0.8125rem] font-normal text-foreground/85">{p.text}</span>}
           </ItemTitle>
         </ItemContent>
         <ItemActions className={`gap-2.5 whitespace-nowrap tabular-nums ${mine ? "" : "flex-row-reverse"}`}>
@@ -107,7 +107,7 @@ export function PlayFeedCard({ plays, title, count, link, empty, compact }: {
         {count != null && <span className="font-display text-xl font-medium text-muted-foreground tabular-nums">{count}</span>}
         <Separator className="mb-1 flex-1 self-end bg-foreground/12" />
         {link && (
-          <Link href={link.href} className="shrink-0 font-display text-[13px] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground">
+          <Link href={link.href} className="shrink-0 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground dark:text-foreground/65 dark:hover:text-foreground">
             {link.label} <span aria-hidden>→</span>
           </Link>
         )}

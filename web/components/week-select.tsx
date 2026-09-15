@@ -19,7 +19,7 @@ export function WeekSelect({ week, current, weeks, base }: { week: number; curre
         start(() => router.push(Number(v) === current ? base : `${base}?week=${v}`, { scroll: false }));
       }}
     >
-      <SelectTrigger size="sm" aria-label="Week" className={`font-display text-[15px] font-semibold uppercase tracking-[0.12em] ${pending ? "opacity-60" : ""}`}>
+      <SelectTrigger size="sm" aria-label="Week" className={`font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] ${pending ? "opacity-60" : ""}`}>
         <SelectValue>{`Week ${week}`}</SelectValue>
       </SelectTrigger>
       <SelectContent align="end" alignItemWithTrigger={false}>

@@ -11,7 +11,7 @@ export function ClubLogo({ src, abbrev, size = 32, className = "" }: { src: stri
   return (
     <Avatar aria-hidden className={`rounded-md after:hidden ${className}`} style={{ width: size, height: size }}>
       {src && <AvatarImage src={src} alt="" width={size} height={size} loading="lazy" decoding="async" className="rounded-md" />}
-      <AvatarFallback className="rounded-md bg-foreground/10 font-display text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/75">
+      <AvatarFallback className="rounded-md bg-foreground/10 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-foreground/75">
         {abbrev.slice(0, 4)}
       </AvatarFallback>
     </Avatar>
