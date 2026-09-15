@@ -31,7 +31,8 @@ export function Kickoff({ iso, bye, game, team }: { iso: string | null; bye: boo
     return (
       <span>
         <span className={game.status === "in" ? "font-medium text-foreground/85" : undefined}>{gameClock(game)}</span>
-        {score && <><span aria-hidden> · </span>{score}</>}
+        {/* dot and score are one unit: a narrow column breaks before them, and the wrapped line leads with the dot */}
+        {score && <> <span className="whitespace-nowrap"><span aria-hidden>· </span>{score}</span></>}
       </span>
     );
   }

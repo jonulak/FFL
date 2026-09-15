@@ -40,8 +40,9 @@ export type Roster = { week: number; live: boolean; cards: Card[]; outlook_run: 
 export type OutlookStarted = { started: boolean; pending: number };
 export type LineupEntry = { slot: string; player_id: number | null; name: string; proj: number };
 export type Swap = { slot: string; out: string; in: string; gain: number };
+// `abbrev` and `logo` as on a Club, so the scorebug can carry the mark (logo "" when ESPN has none).
 export type Side = {
-  team_id: number; team: string; lineup: Player[]; bench: Player[]; ir: Player[];
+  team_id: number; team: string; abbrev: string; logo: string; lineup: Player[]; bench: Player[]; ir: Player[];
   optimal: LineupEntry[]; optimal_swaps: Swap[]; proj_total: number; optimal_total: number; actual_total: number;
 };
 // One row of the play feed (ffl/plays.py): a starter's points moved by `delta` to `total`.

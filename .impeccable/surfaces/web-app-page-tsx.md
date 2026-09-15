@@ -11,17 +11,17 @@ Scope: `/` (web/app/page.tsx, web/components/matchup.tsx, matchup-live.tsx). Mod
 
 Audience and job: the one manager, on a phone through game day and at a laptop midweek, asking "where does this week stand" for the head-to-head: both totals, both lineups, who is questionable, and what the lineup by projection would add. Action: set the lineup in ESPN (the call itself lives on the Roster page). Proof: projection per player and per side, posted points once games are on, the optimal-lineup gain. Data can be stale; the stale badge stays. The page polls every minute while the week is live.
 
-Chosen direction: the broadcast board, inherited from the Roster page. Memorable moment: the scorebug, both teams and their totals set like the corner score of a broadcast, over two lineup panels whose rows carry the team-colour tile.
+Chosen direction: the broadcast board, inherited from the Roster page. Memorable moment: the scorebug, both club marks and their totals set like the corner score of a broadcast, over one lineup board where the two sides face each other slot for slot across a spine of slot codes. (Revised 2026-09-14 from two side-by-side cards: "both rosters viewed side by side" meant slot-aligned, at every width including the phone.)
 
 ## Direction contract
 
-THESIS: A head-to-head read like a broadcast scorebug over two lineup boards. Refuses the shadcn table-in-a-card with a "proj · actual" caption.
+THESIS: A head-to-head read like a broadcast scorebug over one slot-aligned lineup board. Refuses the shadcn table-in-a-card with a "proj · actual" caption, and refuses two independent lists that only sit next to each other.
 
-OWN-WORLD: Same board as Roster: field, panel, condensed numerals, Geist for prose, verdict chips for injury only (no START/BENCH here; that is the Roster page's job). Team-colour tiles at row scale reuse `TeamPanel`.
+OWN-WORLD: Same board as Roster: field, panel, condensed numerals, Geist for prose, verdict chips for injury only (no START/BENCH here; that is the Roster page's job). Team-colour tiles at row scale reuse `TeamPanel`; each half of a row is a shadcn `Item`, the club marks are the shadcn `Avatar`-based `ClubLogo`.
 
-STORY: He sees the two totals and which side leads, scans his lineup for questionable tags and the projection per slot, checks the by-projection footer for a swap, and glances at the opponent's board for who they are leaning on.
+STORY: He sees the two marks, the two totals and which side leads, reads the board slot by slot (his QB against theirs, his FLEX against theirs), scans for questionable tags, checks the by-projection footer for a swap, and glances at the latest plays for what just moved.
 
-FIRST VIEWPORT: Title "Matchup" + week + live chip + stale badge. Scorebug: my team left, opponent right, big total with PROJ/PTS unit, "by projection" note when the optimal lineup differs. Then MY LINEUP as a card of rows (slot code, tile, name + injury chip, pos · team · vs/at logo opponent · kickoff, projection right), bench and IR under small labels, the by-projection swaps as the footer. The opponent's card beside it from `md`, below it on the phone.
+FIRST VIEWPORT: Title "Matchup" + week + live chip + stale badge. Scorebug: my mark and team left, opponent's right, big total with PROJ/PTS unit, "by projection" note when the optimal lineup differs. Latest plays as one-line rows once the week has a play. Then the board: MY LINEUP · state at the left, state · opponent at the right; each line is my half (tile, name + injury chip, pos · team · vs/at logo opponent, kickoff, number), the slot code, and the opponent's half mirrored; totals ruled off per side, bench and IR under labels at each edge, the by-projection swaps per side as the footer. The same grid at every width; on the phone the number moves inside the name block and the totals reduce to EST. FINAL with the parts as a caption.
 
 FORM: Extension of the Roster page's world; user-specified ("extend the design elements of the roster page"), no seed.
 

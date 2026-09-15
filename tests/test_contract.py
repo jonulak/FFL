@@ -21,7 +21,7 @@ LINEUP_ENTRY = {"slot", "player_id", "name", "proj"}
 # web/lib/api.ts: type Swap
 SWAP = {"slot", "out", "in", "gain"}
 # web/lib/api.ts: type Side
-SIDE = {"team_id", "team", "lineup", "bench", "ir", "optimal", "optimal_swaps", "proj_total",
+SIDE = {"team_id", "team", "abbrev", "logo", "lineup", "bench", "ir", "optimal", "optimal_swaps", "proj_total",
         "optimal_total", "actual_total"}
 # web/lib/api.ts: type WaiverRow = Player & {...}
 WAIVER_EXTRA = {"ros_proj", "week_proj", "delta_roster", "delta_pool", "would_start", "week_delta", "add"}

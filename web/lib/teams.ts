@@ -57,3 +57,9 @@ export function logoUrl(abbr: string, variant: "light" | "dark" = "light"): stri
 export function headshotUrl(playerId: number): string | null {
   return playerId > 0 ? `${CDN}/headshots/nfl/players/full/${playerId}.png` : null;
 }
+
+// A fantasy club's mark. ESPN serves an owner's own upload only with the league cookies, so those
+// go through the API (/logo/{team_id}, via the /api rewrite); ESPN's stock marks load directly.
+export function clubLogoSrc(c: { logo: string; team_id: number }): string {
+  return c.logo.includes("mystique-api.fantasy.espn.com") ? `/api/logo/${c.team_id}` : c.logo;
+}

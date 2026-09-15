@@ -188,7 +188,9 @@ def build_side(team, players: list[dict], settings: dict) -> dict:
     bench = [p for p in players if p["slot"] == "BE"]
     ir = [p for p in players if p["slot"] == "IR"]
     cur, opt = S.current_lineup(players), S.optimal_lineup(players, settings)
-    return {"team_id": team.team_id, "team": team.team_name, "lineup": lineup, "bench": bench, "ir": ir,
+    # abbrev and logo as the League page carries them, so the scorebug can show the club's mark
+    return {"team_id": team.team_id, "team": team.team_name, "abbrev": getattr(team, "team_abbrev", "") or "",
+            "logo": getattr(team, "logo_url", "") or "", "lineup": lineup, "bench": bench, "ir": ir,
             "optimal": opt, "optimal_swaps": S.lineup_diff(cur, opt),
             "proj_total": S.lineup_total(cur), "optimal_total": S.lineup_total(opt),
             "actual_total": round(sum(p["actual"] for p in lineup), 1)}

@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Club, League, ScoreSide } from "@/lib/api";
 import { pts } from "@/lib/format";
+import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { StaleBadge } from "./stale-badge";
 import { WeekSelect } from "./week-select";
@@ -13,12 +14,6 @@ const LABEL = "font-display text-[13px] font-semibold uppercase tracking-[0.12em
 
 function record(t: Club) {
   return `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ""}`;
-}
-
-// ESPN serves an owner's own upload only with the league cookies, so those go through the API
-// (/logo/{team_id}, via the /api rewrite); ESPN's stock marks are public and load directly.
-function logoSrc(c: Club) {
-  return c.logo.includes("mystique-api.fantasy.espn.com") ? `/api/logo/${c.team_id}` : c.logo;
 }
 
 // The section heading the Roster page uses: condensed caps, a muted count, a hairline running
@@ -60,7 +55,7 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
                 <TableCell className="pl-3 text-right font-display text-lg font-semibold tabular-nums text-muted-foreground sm:pl-4">{t.rank}</TableCell>
                 <TableCell className="py-2 whitespace-normal">
                   <div className="flex items-center gap-2.5 sm:gap-3">
-                    <ClubLogo src={logoSrc(t)} abbrev={t.abbrev} size={32} />
+                    <ClubLogo src={clubLogoSrc(t)} abbrev={t.abbrev} size={32} />
                     <div className="min-w-0">
                       <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
                         <span className="truncate">{t.team}</span>
@@ -91,7 +86,7 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
 function ScoreRow({ side, on, trailing }: { side: ScoreSide; on: boolean; trailing: boolean }) {
   return (
     <li className={`flex items-center gap-2.5 py-2 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
-      <ClubLogo src={logoSrc(side)} abbrev={side.abbrev} size={36} className={trailing ? "opacity-70" : ""} />
+      <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={36} className={trailing ? "opacity-70" : ""} />
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
           <span className="truncate">{side.team}</span>
