@@ -24,10 +24,9 @@ const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0
 
 // The board's grid, shared by every line so the slot column runs in one spine from the header to
 // the footer: my half, the slot, the opponent's half.
-// On the phone the same lines stack in one column (slot code, my half, the opponent's half).
-const HALF_GRID = "grid grid-cols-1 gap-y-2 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] sm:gap-x-3 sm:gap-y-0";
+const HALF_GRID = "grid grid-cols-[minmax(0,1fr)_1.5rem_minmax(0,1fr)] gap-x-1.5 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] sm:gap-x-3";
 // A week with no opponent (a bye or an unpaired playoff week): my half and the spine, no empty right half.
-const SOLO_GRID = "grid grid-cols-1 gap-y-2 sm:grid-cols-[minmax(0,1fr)_2.5rem] sm:gap-x-3 sm:gap-y-0";
+const SOLO_GRID = "grid grid-cols-[minmax(0,1fr)_1.5rem] gap-x-1.5 sm:grid-cols-[minmax(0,1fr)_2.5rem] sm:gap-x-3";
 
 type End = "me" | "opp";
 
@@ -116,15 +115,13 @@ function Matchup({ p }: { p: Player }) {
 // forecast for a game still to come, PTS the posted score with the projection it replaced
 // beneath it and a live mark while the game is on. `inline` is the phone form, one line inside
 // the name block: `24.7 PTS · proj 20.7`.
-function Num({ p, now, end, className = "" }: { p: Player; now: number; end: End; className?: string }) {
+function Num({ p, now, end, inline = false, className = "" }: { p: Player; now: number; end: End; inline?: boolean; className?: string }) {
   const phase = gamePhase(p, now);
   const on = phase !== "pending";
   const opp = end === "opp";
-  // the opponent's number faces the spine from `sm`; on the phone every number is at the right edge
-  const side = opp ? "justify-end sm:justify-start" : "justify-end";
   const numeral = (
     <span className="flex items-baseline gap-1.5">
-      <span className={`font-display text-[1.5rem] font-bold leading-none tracking-tight ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
+      <span className={`font-display font-bold leading-none tracking-tight ${inline ? "text-[1.25rem]" : "text-[1.5rem]"} ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
         {pts(on ? p.actual : p.proj)}
       </span>
       <Unit fact={on} className="text-xs" />
@@ -140,10 +137,18 @@ function Num({ p, now, end, className = "" }: { p: Player; now: number; end: End
           : null}
     </span>
   );
+  if (inline) {
+    return (
+      <p className={`flex flex-wrap items-baseline gap-x-2 tabular-nums ${opp ? "justify-end" : ""} ${className}`}>
+        {numeral}
+        {note}
+      </p>
+    );
+  }
   return (
-    <div className={`tabular-nums ${className}`}>
-      <div className={`flex ${side}`}>{numeral}</div>
-      <div className={`mt-0.5 flex ${side}`}>{note}</div>
+    <div className={`tabular-nums ${opp ? "text-left" : "text-right"} ${className}`}>
+      <div className={`flex ${opp ? "justify-start" : "justify-end"}`}>{numeral}</div>
+      <div className={`mt-0.5 flex ${opp ? "justify-start" : "justify-end"}`}>{note}</div>
     </div>
   );
 }
@@ -156,40 +161,42 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
   const opp = end === "opp";
   const hurt = !HEALTHY.has(p.injury);
   const status = p.injury.replaceAll("_", " ");
+  const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
-  // On the phone the two halves stack, each a full-width line reading left to right with the
-  // number at the right edge; the opponent's line is told apart by its tile standing at the
-  // right edge instead of the left. From `sm` the halves sit either side of the spine and the
-  // opponent's is reversed, so the two sides face each other.
   return (
-    <Item size="sm" className={`min-w-0 flex-nowrap gap-2.5 rounded-none border-0 p-0 sm:gap-3 ${opp ? "sm:flex-row-reverse" : ""}`}>
-      <ItemMedia className={`size-9 overflow-hidden rounded-md sm:size-12 *:w-full ${opp ? "order-last sm:order-none" : ""}`}>
+    <Item size="sm" className={`min-w-0 flex-nowrap gap-1.5 rounded-none border-0 p-0 sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
+      <ItemMedia className="size-7 overflow-hidden rounded-md sm:size-12 *:w-full">
         <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={idle} tile />
       </ItemMedia>
-      <ItemContent className={`min-w-0 gap-0 ${opp ? "sm:items-end sm:text-right" : ""}`}>
-        <ItemTitle className={`line-clamp-none flex! max-w-full flex-wrap gap-x-2 gap-y-0.5 font-display text-[1.125rem] font-semibold leading-none tracking-tight sm:text-[1.25rem] ${opp ? "sm:flex-row-reverse" : ""} ${idle ? "text-foreground/70" : ""}`}>
+      <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
+        <ItemTitle className={`line-clamp-none flex! max-w-full flex-wrap gap-x-2 gap-y-0.5 font-display text-[1.125rem] font-semibold leading-none tracking-tight sm:text-[1.25rem] ${opp ? "flex-row-reverse" : ""} ${idle ? "text-foreground/70" : ""}`}>
           <span className="truncate">{p.name}</span>
           {hurt && (
             <Badge variant={TAG[injuryTone(p.injury)]} shape="chip" title={p.injury_note ?? undefined}>
-              {injuryLabel(status, p.return_week, week)}
+              {/* the phone's half column is narrower than "DOUBTFUL · WK 2": the status alone there,
+                  IR for injury reserve, and the return week moves to the kickoff line beneath */}
+              <span className="sm:hidden">{status === "INJURY RESERVE" ? "IR" : status}</span>
+              <span className="hidden sm:inline">{injuryLabel(status, p.return_week, week)}</span>
             </Badge>
           )}
           {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
         </ItemTitle>
-        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1 text-xs leading-4 ${opp ? "sm:justify-end sm:text-right" : ""}`}>
+        <Num p={p} now={now} end={end} inline className="mt-1 sm:hidden" />
+        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1 text-xs leading-4 ${opp ? "justify-end text-right" : ""}`}>
           <span className="font-semibold text-foreground/80">{p.pos}</span>
           <span aria-hidden>·</span>
           <span>{p.team}</span>
           <Matchup p={p} />
         </ItemDescription>
         {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. */}
-        <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums ${opp ? "sm:text-right" : ""}`}>
+        <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums ${opp ? "text-right" : ""}`}>
           <Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} />
+          {hurt && back != null && <span className="sm:hidden"> <span className="whitespace-nowrap"><span aria-hidden>· </span>back wk {back}</span></span>}
         </ItemDescription>
         {/* The row's one fact once he has played: the box-score line, in the play feed's register. */}
         {p.stat_line && <StatLine text={p.stat_line} className="mt-2" wrap />}
       </ItemContent>
-      <ItemActions className="self-start">
+      <ItemActions className="hidden self-start sm:flex">
         <Num p={p} now={now} end={end} />
       </ItemActions>
     </Item>
@@ -201,11 +208,10 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
 // keeps its cell so the grid stays in step.
 function Pair({ a, b, slot, week, now, grid }: { a?: Player; b?: Player; slot: string | null; week: number; now: number; grid: string }) {
   return (
-    <div role="listitem" className={`${grid} items-start py-2.5 sm:py-2`}>
-      {a ? <Half p={a} week={week} now={now} end="me" /> : <span className="hidden sm:block" />}
-      {/* the phone stacks the pair under the slot code; from `sm` the code is the spine between them */}
-      <span className={`order-first font-mono text-xs text-muted-foreground sm:order-none sm:self-center sm:text-center ${slot ? "" : "hidden sm:block"}`}>{slot}</span>
-      {grid === HALF_GRID && (b ? <Half p={b} week={week} now={now} end="opp" /> : <span className="hidden sm:block" />)}
+    <div role="listitem" className={`${grid} items-start py-2`}>
+      {a ? <Half p={a} week={week} now={now} end="me" /> : <span />}
+      <span className="self-center text-center font-mono text-xs text-muted-foreground">{slot}</span>
+      {grid === HALF_GRID && (b ? <Half p={b} week={week} now={now} end="opp" /> : <span />)}
     </div>
   );
 }
@@ -229,15 +235,14 @@ function Group({ title, a, b, week, slot, now, grid }: { title: string | null; a
             <span className={LABEL}>{title}</span>
             <Separator className="mb-1 flex-1 self-end bg-foreground/10" />
           </div>
-          {/* the opponent's label only from `sm`; the phone's single column carries one label */}
           {grid === HALF_GRID && (
-            <div className="hidden sm:contents">
+            <>
               <span />
               <div className="flex items-baseline gap-3">
                 <Separator className="mb-1 flex-1 self-end bg-foreground/10" />
                 <span className={LABEL}>{title}</span>
               </div>
-            </div>
+            </>
           )}
         </div>
       )}
@@ -255,25 +260,30 @@ function Group({ title, a, b, week, slot, now, grid }: { title: string | null; a
 // sideTotals), and the two added up as the estimated final. The estimate is the figure that
 // matters, so it alone is full ink and, on the phone, the only numeral: the parts step down to
 // a caption beneath it. The opponent's line is mirrored so the estimates meet at the spine.
-function SideTotals({ side, now, end, mine }: { side: Side; now: number; end: End; mine: boolean }) {
+function SideTotals({ side, now, end }: { side: Side; now: number; end: End }) {
   const t = sideTotals(side.lineup, isIdle, now);
   const opp = end === "opp";
   const cell = (label: string, n: number, lead = false) => (
-    <div className={`whitespace-nowrap ${opp ? "text-right sm:text-left" : "text-right"}`}>
+    <div className={`whitespace-nowrap ${opp ? "mr-5 text-left last:mr-0 sm:mr-7" : "ml-5 text-right first:ml-0 sm:ml-7"}`}>
       <p className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
       <p className={`mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums ${lead ? "" : "text-foreground/70"}`}>{pts(n)}</p>
     </div>
   );
-  // On the phone both lines read the same way, SCORED · TO PLAY · EST. FINAL at the right edge with
-  // the side named at the left; from `sm` the opponent's row reverses (row-reverse with justify-end
-  // packs it to the left) so the two estimates meet at the spine.
   return (
-    <div className="border-t-2 border-foreground/35 pt-3 pb-1" aria-label={`${side.team} totals`}>
-      <div className={`flex items-end justify-end gap-x-5 sm:gap-x-7 ${opp ? "sm:flex-row-reverse" : ""}`}>
-        <span className={`${LABEL} mr-auto self-end pb-0.5 sm:hidden`}>{mine ? "Me" : side.abbrev || side.team}</span>
-        {cell("Scored", t.scored)}
-        {cell("To play", t.toCome)}
-        {cell("Est. final", t.estimate, true)}
+    <div className={`border-t-2 border-foreground/35 pt-3 pb-1 ${opp ? "text-left" : "text-right"}`} aria-label={`${side.team} totals`}>
+      <div className={`hidden items-end sm:flex ${opp ? "justify-start" : "justify-end"}`}>
+        {opp ? (
+          <>{cell("Est. final", t.estimate, true)}{cell("To play", t.toCome)}{cell("Scored", t.scored)}</>
+        ) : (
+          <>{cell("Scored", t.scored)}{cell("To play", t.toCome)}{cell("Est. final", t.estimate, true)}</>
+        )}
+      </div>
+      <div className="sm:hidden">
+        <p className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Est. final</p>
+        <p className="mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums">{pts(t.estimate)}</p>
+        <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+          scored {pts(t.scored)} <span aria-hidden>·</span> to play {pts(t.toCome)}
+        </p>
       </div>
     </div>
   );
@@ -285,14 +295,14 @@ function Swaps({ side, end }: { side: Side; end: End }) {
   const opp = end === "opp";
   if (side.optimal_swaps.length === 0) return <span />;
   return (
-    <div className={`flex flex-col gap-1 ${opp ? "sm:text-right" : ""}`}>
+    <div className={`flex flex-col gap-1 ${opp ? "text-right" : ""}`}>
       <p className="text-[0.9375rem] font-medium leading-snug">
         By projection {signed(side.optimal_total - side.proj_total)}
       </p>
       <ul className="space-y-0.5 text-xs text-muted-foreground">
         {side.optimal_swaps.map((s, i) => (
           // mirrored: the gain leads and the slot closes the line at the card's right edge
-          <li key={i} className={`flex flex-wrap items-baseline gap-x-2 ${opp ? "sm:justify-end" : ""}`}>
+          <li key={i} className={`flex flex-wrap items-baseline gap-x-2 ${opp ? "justify-end" : ""}`}>
             {opp && <span className="tabular-nums text-foreground/85">{signed(s.gain)}</span>}
             {!opp && <span className="font-mono">{SLOT_LABEL[s.slot] ?? s.slot}</span>}
             <span>{s.out} <span aria-hidden>→</span> <span className="text-foreground/85">{s.in}</span></span>
@@ -323,7 +333,7 @@ function Board({ data, now }: { data: Week; now: number }) {
           <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">My lineup</h2>
           <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{mine.label}</span>
         </div>
-        <span className="hidden sm:block" />
+        <span />
         {opp && theirs && (
           <div className="flex min-w-0 items-baseline justify-end gap-x-2.5">
             <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{theirs.label}</span>
@@ -338,9 +348,9 @@ function Board({ data, now }: { data: Week; now: number }) {
       <CardContent className="-mt-1 pb-1">
         <Group title={null} a={me.lineup} b={opp?.lineup ?? []} week={week} slot now={now} grid={grid} />
         <div className={`${grid} items-start`}>
-          <SideTotals side={me} now={now} end="me" mine />
-          <span className="hidden sm:block" />
-          {opp && <SideTotals side={opp} now={now} end="opp" mine={false} />}
+          <SideTotals side={me} now={now} end="me" />
+          <span />
+          {opp && <SideTotals side={opp} now={now} end="opp" />}
         </div>
         <Group title="Bench" a={me.bench} b={opp?.bench ?? []} week={week} slot={false} now={now} grid={grid} />
         <Group title="IR" a={me.ir} b={opp?.ir ?? []} week={week} slot={false} now={now} grid={grid} />
@@ -348,7 +358,7 @@ function Board({ data, now }: { data: Week; now: number }) {
       {swaps && (
         <CardFooter className={`${grid} items-start rounded-none border-t border-foreground/10 bg-transparent pt-3 pb-3`}>
           <Swaps side={me} end="me" />
-          <span className="hidden sm:block" />
+          <span />
           {opp && <Swaps side={opp} end="opp" />}
         </CardFooter>
       )}
