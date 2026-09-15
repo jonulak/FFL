@@ -20,17 +20,35 @@ export function gameScore(g: GameState, team: string): string | null {
   return ordered.map((t) => `${t} ${g.score[t]}`).join(", ");
 }
 
+// The score as a broadcast app sets it, his own club first: "27-7".
+export function gameScoreShort(g: GameState, team: string): string | null {
+  const teams = Object.keys(g.score ?? {});
+  if (teams.length < 2 || !(team in g.score)) return null;
+  const other = teams.find((t) => t !== team);
+  return other ? `${g.score[team]}-${g.score[other]}` : null;
+}
+
 // The API serves ISO timestamps in the Mac's zone; the phone renders them in its own. The server
 // render and the client render can differ, so hydration warnings are suppressed on purpose.
 // A null kickoff means two different things: the player is on bye, or ESPN has no schedule entry
 // for him at all. `ffl/outlook.py::_kickoff_text` draws that line, so the card header must too.
 // With `game` (and `team`) the line becomes the clock and the score instead.
-export function Kickoff({ iso, bye, game, team }: { iso: string | null; bye: boolean; game?: GameState; team?: string }) {
+// `compact` is the phone's form, the way a broadcast app sets it after the opponent: the score as
+// `27-7` with his own club first, then `Final`; or the clock and the score while the game is on.
+export function Kickoff({ iso, bye, game, team, compact = false }: { iso: string | null; bye: boolean; game?: GameState; team?: string; compact?: boolean }) {
   if (game) {
-    const score = team ? gameScore(game, team) : null;
+    const score = team ? (compact ? gameScoreShort(game, team) : gameScore(game, team)) : null;
+    const clock = <span className={game.status === "in" ? "font-medium text-foreground/85" : undefined}>{gameClock(game)}</span>;
+    if (compact) {
+      return (
+        <span className="whitespace-nowrap">
+          {game.status === "post" ? <>{score && <>{score} </>}{clock}</> : <>{clock}{score && <> <span aria-hidden>· </span>{score}</>}</>}
+        </span>
+      );
+    }
     return (
       <span>
-        <span className={game.status === "in" ? "font-medium text-foreground/85" : undefined}>{gameClock(game)}</span>
+        {clock}
         {/* dot and score are one unit: a narrow column breaks before them, and the wrapped line leads with the dot */}
         {score && <> <span className="whitespace-nowrap"><span aria-hidden>· </span>{score}</span></>}
       </span>

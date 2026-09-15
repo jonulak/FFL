@@ -8,10 +8,10 @@
 // For the Matchup board's half-width columns, where a D/ST group ("2 sk, 1 INT, 1 FR, 23 PA,
 // 251 YA") is wider than the column and would otherwise run across the spine into the other
 // side's row; a number never parts from its unit either way.
-export function StatLine({ text, className = "", wrap = false }: { text: string; className?: string; wrap?: boolean }) {
+export function StatLine({ text, className = "", wrap = false, title }: { text: string; className?: string; wrap?: boolean; title?: string }) {
   const groups = text.split(" · ");
   return (
-    <p className={`text-[0.8125rem] leading-snug tabular-nums text-foreground/85 ${className}`}>
+    <p className={`text-[0.8125rem] leading-snug tabular-nums text-foreground/85 ${className}`} title={title}>
       {groups.map((g, i) => (
         <span key={i}>
           {i > 0 && " "}

@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
-import { injuryLabel, injuryTone, pts, signed } from "@/lib/format";
+import { injuryLabel, injuryTone, pts, shortName, signed } from "@/lib/format";
 import { gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
@@ -103,9 +103,10 @@ function Matchup({ p }: { p: Player }) {
   // breaks to `QB · PHI` / `· vs WSH`: the dot leads the wrapped line and the code is never orphaned.
   return (
     <span className="inline-flex items-center gap-x-1 whitespace-nowrap">
-      <span aria-hidden>·</span>
-      {p.home !== null && <span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80">{p.home ? "vs" : "at"}</span>}
-      <TeamLogo abbr={p.opponent} size={16} />
+      {/* the phone line opens with the matchup, so its dot is a laptop mark */}
+      <span aria-hidden className="hidden sm:inline">·</span>
+      {p.home !== null &&<span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80">{p.home ? "vs" : "at"}</span>}
+      <TeamLogo abbr={p.opponent} size={16} className="max-sm:hidden" />
       <span className="font-medium text-foreground/85">{p.opponent}</span>
     </span>
   );
@@ -113,23 +114,25 @@ function Matchup({ p }: { p: Player }) {
 
 // The number with its own unit, because on a Sunday afternoon the rows are a mix: PROJ is the
 // forecast for a game still to come, PTS the posted score with the projection it replaced
-// beneath it and a live mark while the game is on. `inline` is the phone form, one line inside
-// the name block: `24.7 PTS · proj 20.7`.
-function Num({ p, now, end, inline = false, className = "" }: { p: Player; now: number; end: End; inline?: boolean; className?: string }) {
+// beneath it and a live mark while the game is on. The numeral is 1.25rem on the phone, 1.5rem
+// from `sm`; the opponent's faces the spine.
+function Num({ p, now, end, className = "" }: { p: Player; now: number; end: End; className?: string }) {
   const phase = gamePhase(p, now);
   const on = phase !== "pending";
   const opp = end === "opp";
   const numeral = (
     <span className="flex items-baseline gap-1.5">
-      <span className={`font-display font-bold leading-none tracking-tight ${inline ? "text-[1.25rem]" : "text-[1.5rem]"} ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
+      <span className={`font-display text-[1.25rem] font-bold leading-none tracking-tight sm:text-[1.5rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
         {pts(on ? p.actual : p.proj)}
       </span>
-      <Unit fact={on} className="text-xs" />
+      {/* the phone's column is too narrow for a unit beside the numeral: it steps beneath (below) */}
+      <Unit fact={on} className="hidden text-xs sm:inline" />
     </span>
   );
   const note = (
     <span className="flex items-center gap-x-1 text-xs text-muted-foreground">
       {phase === "live" && <><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" /><span>live</span><span aria-hidden>·</span></>}
+      {!on && <Unit fact={false} className="text-xs sm:hidden" />}
       {on
         ? <span>proj {pts(p.proj)}</span>
         : p.spread != null && p.spread >= 3
@@ -137,14 +140,6 @@ function Num({ p, now, end, inline = false, className = "" }: { p: Player; now: 
           : null}
     </span>
   );
-  if (inline) {
-    return (
-      <p className={`flex flex-wrap items-baseline gap-x-2 tabular-nums ${opp ? "justify-end" : ""} ${className}`}>
-        {numeral}
-        {note}
-      </p>
-    );
-  }
   return (
     <div className={`tabular-nums ${opp ? "text-left" : "text-right"} ${className}`}>
       <div className={`flex ${opp ? "justify-start" : "justify-end"}`}>{numeral}</div>
@@ -163,44 +158,61 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
   const status = p.injury.replaceAll("_", " ");
   const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
+  // The phone half is set like a broadcast app's matchup row: no photo column, the club tile
+  // inline after the name at 24px (at the outer end, the way the name reads out toward the
+  // edge), the matchup and the score on one caption line, the box-score line beneath on one
+  // truncated line, and the number in its own column beside the spine with the projection under
+  // it. Position and club leave the phone line: the slot code and the tile already say them.
   return (
-    <Item size="sm" className={`min-w-0 flex-nowrap gap-1.5 rounded-none border-0 p-0 sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
-      <ItemMedia className="size-7 overflow-hidden rounded-md sm:size-12 *:w-full">
+    <Item size="sm" className={`min-w-0 flex-nowrap gap-2 rounded-none border-0 p-0 sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
+      <ItemMedia className="hidden size-12 overflow-hidden rounded-md sm:flex *:w-full">
         <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={idle} tile />
       </ItemMedia>
       <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
-        <ItemTitle className={`line-clamp-none flex! max-w-full flex-wrap gap-x-2 gap-y-0.5 font-display text-[1.125rem] font-semibold leading-none tracking-tight sm:text-[1.25rem] ${opp ? "flex-row-reverse" : ""} ${idle ? "text-foreground/70" : ""}`}>
-          <span className="truncate">{p.name}</span>
+        <ItemTitle className={`line-clamp-none flex! max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 font-display text-[1.125rem] font-semibold leading-none tracking-tight sm:gap-x-2 sm:text-[1.25rem] ${opp ? "flex-row-reverse" : ""} ${idle ? "text-foreground/70" : ""}`}>
+          {/* name and tile are one unit so the tile never wraps under the name; reversed for the
+              opponent so the tile lands at the outer edge, after the name as read */}
+          <span className={`flex min-w-0 items-center gap-1.5 ${opp ? "flex-row-reverse" : ""}`}>
+            <span className="truncate"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
+            <span aria-hidden className="size-6 shrink-0 overflow-hidden rounded-sm sm:hidden *:w-full">
+              <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={idle} tile />
+            </span>
+          </span>
           {hurt && (
             <Badge variant={TAG[injuryTone(p.injury)]} shape="chip" title={p.injury_note ?? undefined}>
               {/* the phone's half column is narrower than "DOUBTFUL · WK 2": the status alone there,
-                  IR for injury reserve, and the return week moves to the kickoff line beneath */}
+                  IR for injury reserve, and the return week moves to the caption line beneath */}
               <span className="sm:hidden">{status === "INJURY RESERVE" ? "IR" : status}</span>
               <span className="hidden sm:inline">{injuryLabel(status, p.return_week, week)}</span>
             </Badge>
           )}
           {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
         </ItemTitle>
-        <Num p={p} now={now} end={end} inline className="mt-1 sm:hidden" />
-        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1 text-xs leading-4 ${opp ? "justify-end text-right" : ""}`}>
-          <span className="font-semibold text-foreground/80">{p.pos}</span>
-          <span aria-hidden>·</span>
-          <span>{p.team}</span>
+        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1 text-xs leading-4 tabular-nums ${opp ? "justify-end text-right" : ""}`}>
+          <span className="hidden font-semibold text-foreground/80 sm:inline">{p.pos}</span>
+          <span aria-hidden className="hidden sm:inline">·</span>
+          <span className="hidden sm:inline">{p.team}</span>
           <Matchup p={p} />
+          {/* the phone folds the kickoff, clock or score into this line, ESPN-style: `at LAR · 27-7 Final` */}
+          <span className="contents sm:hidden">
+            {/* each piece carries its own leading dot inside one unbreakable unit, so a wrapped line
+                opens with the dot rather than leaving one dangling at the end of the line above */}
+            <span className="whitespace-nowrap">{p.opponent && <span aria-hidden>· </span>}<Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} compact /></span>
+            {hurt && back != null && <span className="whitespace-nowrap"><span aria-hidden>· </span>back wk {back}</span>}
+          </span>
         </ItemDescription>
-        {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. The
-            phone's half column shows it only while it can still change something: the time before
-            kickoff, the clock and score during the game; a final score steps out (the row's PTS
-            already says the game is over). An injured player's return week is its own phone line. */}
-        <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums ${opp ? "text-right" : ""} ${p.game?.status === "post" ? "hidden sm:block" : ""}`}>
+        {/* From `sm` the kickoff has its own line, so it never wraps away from the matchup mid-phrase. */}
+        {/* `max-sm:hidden`, not `hidden sm:block`: shadcn's line-clamp reset sets display:block and would win over `hidden` */}
+        <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums max-sm:hidden ${opp ? "text-right" : ""}`}>
           <Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} />
         </ItemDescription>
-        {hurt && back != null && <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums sm:hidden ${opp ? "text-right" : ""}`}>back wk {back}</ItemDescription>}
         {/* The row's one fact once he has played: the box-score line, in the play feed's register.
-            A laptop read; the phone's half column holds name, number and matchup only. */}
-        {p.stat_line && <StatLine text={p.stat_line} className="mt-2 hidden sm:block" wrap />}
+            The phone shows the lead group only (passing for a QB, rushing for a RB, receiving for a
+            WR), one line, the full line as its title; from `sm` the whole line wraps at its groups. */}
+        {p.stat_line && <StatLine text={p.stat_line.split(" · ")[0]} className="mt-1 max-w-full truncate sm:hidden" title={p.stat_line} />}
+        {p.stat_line && <StatLine text={p.stat_line} className="mt-2 max-sm:hidden" wrap />}
       </ItemContent>
-      <ItemActions className="hidden self-start sm:flex">
+      <ItemActions className="self-start">
         <Num p={p} now={now} end={end} />
       </ItemActions>
     </Item>
