@@ -85,9 +85,13 @@ function CompactRow({ p }: { p: Play }) {
         </ItemContent>
         <ItemActions className={`gap-2.5 whitespace-nowrap tabular-nums ${mine ? "" : "flex-row-reverse"}`}>
           {p.quarter != null && p.clock && <span className="text-xs text-muted-foreground">Q{p.quarter} {p.clock}</span>}
-          <span className="flex items-baseline gap-1.5">
-            <span className={`font-display text-[1.25rem] font-bold leading-none tracking-tight ${loss ? "text-foreground/70" : ""}`}>{signed(p.delta)}</span>
-            <span className={UNIT}>pts</span>
+          {/* the delta with the running total beneath it, the way a posted score carries the projection it replaced */}
+          <span className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+            <span className="flex items-baseline gap-1.5">
+              <span className={`font-display text-[1.25rem] font-bold leading-none tracking-tight ${loss ? "text-foreground/70" : ""}`}>{signed(p.delta)}</span>
+              <span className={UNIT}>pts</span>
+            </span>
+            <span className="mt-0.5 text-xs leading-4 text-muted-foreground">now {pts(p.total)}</span>
           </span>
         </ItemActions>
       </Item>
