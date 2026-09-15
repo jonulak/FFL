@@ -19,7 +19,7 @@ export function PlayFeed({ plays, empty = "No plays yet.", compact = false }: { 
     return <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>;
   }
   return (
-    <ItemGroup className={`gap-0 divide-y divide-foreground/10 ${compact ? "[&>:nth-child(n+3)]:hidden sm:[&>:nth-child(n+3)]:flex" : ""}`}>
+    <ItemGroup className="gap-0 divide-y divide-foreground/10">
       {plays.map((p) => compact
         ? <CompactRow key={`${p.at}-${p.player_id}-${p.total}`} p={p} />
         : <PlayRow key={`${p.at}-${p.player_id}-${p.total}`} p={p} />)}
@@ -65,26 +65,26 @@ function PlayRow({ p }: { p: Play }) {
   );
 }
 
-// The strip's row: one line. The tile is a small square of club colour, the name leads and the
-// play text runs on after it, truncating; the quarter and clock (from `sm`) and the delta close
-// the line at the spine. The full row, with the stamp and the running total, is on /plays.
+// The strip's row: one line. The tile is a small square of club colour, the name leads, and the
+// quarter and clock and the delta close the line at the spine. The play text itself belongs to
+// the /plays page, with the stamp and the running total; the strip says who moved, when and by
+// how much, and the full text is the row's title.
 function CompactRow({ p }: { p: Play }) {
   const mine = p.side === "me";
   const loss = p.delta < 0;
   return (
     <div role="listitem" className={`flex py-1.5 ${mine ? "justify-start" : "justify-end"}`}>
-      <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`}>
+      <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`} title={p.text ?? undefined}>
         <ItemMedia className="size-7 overflow-hidden rounded-sm *:w-full">
           <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
         </ItemMedia>
         <ItemContent className={`min-w-0 gap-0 ${mine ? "" : "items-end text-right"}`}>
-          <ItemTitle className={`line-clamp-none block w-full max-w-full truncate leading-none ${mine ? "" : "text-right"}`} title={p.text ?? undefined}>
-            <span className="font-display text-[1.125rem] font-semibold leading-none tracking-tight">{p.name}</span>
-            {p.text && <span className="ml-2 text-[0.8125rem] font-normal text-foreground/85">{p.text}</span>}
+          <ItemTitle className={`line-clamp-none block w-full max-w-full truncate font-display text-[1.125rem] font-semibold leading-none tracking-tight ${mine ? "" : "text-right"}`}>
+            {p.name}
           </ItemTitle>
         </ItemContent>
         <ItemActions className={`gap-2.5 whitespace-nowrap tabular-nums ${mine ? "" : "flex-row-reverse"}`}>
-          {p.quarter != null && p.clock && <span className="hidden text-xs text-muted-foreground sm:inline">Q{p.quarter} {p.clock}</span>}
+          {p.quarter != null && p.clock && <span className="text-xs text-muted-foreground">Q{p.quarter} {p.clock}</span>}
           <span className="flex items-baseline gap-1.5">
             <span className={`font-display text-[1.25rem] font-bold leading-none tracking-tight ${loss ? "text-foreground/70" : ""}`}>{signed(p.delta)}</span>
             <span className={UNIT}>pts</span>

@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
 import { injuryLabel, injuryTone, pts, shortName, signed } from "@/lib/format";
@@ -164,7 +164,7 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
   // truncated line, and the number in its own column beside the spine with the projection under
   // it. Position and club leave the phone line: the slot code and the tile already say them.
   return (
-    <Item size="sm" className={`min-w-0 flex-nowrap gap-2 rounded-none border-0 p-0 sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
+    <Item size="sm" className={`min-w-0 flex-wrap gap-x-2 gap-y-1 rounded-none border-0 p-0 sm:flex-nowrap sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
       <ItemMedia className="hidden size-12 overflow-hidden rounded-md sm:flex *:w-full">
         <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={idle} tile />
       </ItemMedia>
@@ -209,12 +209,18 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
         {/* The row's one fact once he has played: the box-score line, in the play feed's register.
             The phone shows the lead group only (passing for a QB, rushing for a RB, receiving for a
             WR), one line, the full line as its title; from `sm` the whole line wraps at its groups. */}
-        {p.stat_line && <StatLine text={p.stat_line.split(" · ")[0]} className="mt-1 max-w-full truncate sm:hidden" title={p.stat_line} />}
         {p.stat_line && <StatLine text={p.stat_line} className="mt-2 max-sm:hidden" wrap />}
       </ItemContent>
       <ItemActions className="self-start">
         <Num p={p} now={now} end={end} />
       </ItemActions>
+      {/* On the phone the lead stat group is the row's footer, so it has the whole half to itself
+          (the space under the number column included) and wraps at its commas rather than clipping. */}
+      {p.stat_line && (
+        <ItemFooter className={`gap-0 sm:hidden ${opp ? "justify-end" : "justify-start"}`}>
+          <StatLine text={p.stat_line.split(" · ")[0]} className={`min-w-0 ${opp ? "text-right" : ""}`} title={p.stat_line} wrap />
+        </ItemFooter>
+      )}
     </Item>
   );
 }
