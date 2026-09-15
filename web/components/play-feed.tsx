@@ -19,7 +19,7 @@ export function PlayFeed({ plays, empty = "No plays yet.", compact = false }: { 
     return <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>;
   }
   return (
-    <ItemGroup className="gap-0 divide-y divide-foreground/10">
+    <ItemGroup className={`gap-0 divide-y divide-foreground/10 ${compact ? "[&>:nth-child(n+3)]:hidden sm:[&>:nth-child(n+3)]:flex" : ""}`}>
       {plays.map((p) => compact
         ? <CompactRow key={`${p.at}-${p.player_id}-${p.total}`} p={p} />
         : <PlayRow key={`${p.at}-${p.player_id}-${p.total}`} p={p} />)}
@@ -73,7 +73,7 @@ function CompactRow({ p }: { p: Play }) {
   const loss = p.delta < 0;
   return (
     <div role="listitem" className={`flex py-1.5 ${mine ? "justify-start" : "justify-end"}`}>
-      <Item size="xs" className={`w-full max-w-[94%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`}>
+      <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`}>
         <ItemMedia className="size-7 overflow-hidden rounded-sm *:w-full">
           <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
         </ItemMedia>
@@ -107,7 +107,7 @@ export function PlayFeedCard({ plays, title, count, link, empty, compact }: {
         {count != null && <span className="font-display text-xl font-medium text-muted-foreground tabular-nums">{count}</span>}
         <Separator className="mb-1 flex-1 self-end bg-foreground/12" />
         {link && (
-          <Link href={link.href} className="shrink-0 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground dark:text-foreground/65 dark:hover:text-foreground">
+          <Link href={link.href} className="-my-2 shrink-0 py-2 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground dark:text-foreground/65 dark:hover:text-foreground">
             {link.label} <span aria-hidden>→</span>
           </Link>
         )}

@@ -24,7 +24,9 @@ const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0
 
 // The board's grid, shared by every line so the slot column runs in one spine from the header to
 // the footer: my half, the slot, the opponent's half.
-const HALF_GRID = "grid grid-cols-[minmax(0,1fr)_2rem_minmax(0,1fr)] gap-x-2 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] sm:gap-x-3";
+const HALF_GRID = "grid grid-cols-[minmax(0,1fr)_1.5rem_minmax(0,1fr)] gap-x-1.5 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] sm:gap-x-3";
+// A week with no opponent (a bye or an unpaired playoff week): my half and the spine, no empty right half.
+const SOLO_GRID = "grid grid-cols-[minmax(0,1fr)_1.5rem] gap-x-1.5 sm:grid-cols-[minmax(0,1fr)_2.5rem] sm:gap-x-3";
 
 type End = "me" | "opp";
 
@@ -64,12 +66,14 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
           {side.team}
         </p>
       </div>
-      <div className={`mt-2 flex items-baseline gap-1.5 ${opp ? "justify-end" : ""}`}>
+      {/* From `sm` the totals meet at VS, so the one comparison the bug exists for is one glance,
+          not a jump across the card; the marks and names stay at the outer edges. */}
+      <div className={`mt-2 flex items-baseline gap-1.5 ${opp ? "justify-end sm:justify-start" : "sm:justify-end"}`}>
         <span className="font-display text-[2.6rem] font-bold leading-none tracking-tight sm:text-[3.25rem]">{pts(big)}</span>
         <Unit fact={on} className="text-sm" />
       </div>
       {/* Two facts, each on its own line, so they never read as one sentence. */}
-      <p className="mt-1.5 min-h-4 text-xs tabular-nums text-muted-foreground">
+      <p className={`mt-2 min-h-4 text-xs tabular-nums text-muted-foreground ${opp ? "sm:text-left" : "sm:text-right"}`}>
         {on && <span className="block whitespace-nowrap">proj {pts(side.proj_total)} <span aria-hidden>·</span> {left > 0 ? `${left} to play` : "final"}</span>}
         {gain > 0.05 && <span className="block whitespace-nowrap">by projection {pts(side.optimal_total)} <span className="text-foreground/80">({signed(gain)})</span></span>}
       </p>
@@ -160,8 +164,8 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
   const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
   return (
-    <Item size="sm" className={`min-w-0 flex-nowrap gap-2 rounded-none border-0 p-0 sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
-      <ItemMedia className="size-9 overflow-hidden rounded-md sm:size-12 *:w-full">
+    <Item size="sm" className={`min-w-0 flex-nowrap gap-1.5 rounded-none border-0 p-0 sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
+      <ItemMedia className="size-7 overflow-hidden rounded-md sm:size-12 *:w-full">
         <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={idle} tile />
       </ItemMedia>
       <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
@@ -185,14 +189,14 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
           <Matchup p={p} />
         </ItemDescription>
         {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. */}
-        <ItemDescription className={`mt-0.5 line-clamp-none text-xs leading-4 tabular-nums ${opp ? "text-right" : ""}`}>
+        <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums ${opp ? "text-right" : ""}`}>
           <Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} />
           {hurt && back != null && <span className="sm:hidden"> <span className="whitespace-nowrap"><span aria-hidden>· </span>back wk {back}</span></span>}
         </ItemDescription>
         {/* The row's one fact once he has played: the box-score line, in the play feed's register. */}
-        {p.stat_line && <StatLine text={p.stat_line} className="mt-1" wrap />}
+        {p.stat_line && <StatLine text={p.stat_line} className="mt-2" wrap />}
       </ItemContent>
-      <ItemActions className="hidden self-center sm:flex">
+      <ItemActions className="hidden self-start sm:flex">
         <Num p={p} now={now} end={end} />
       </ItemActions>
     </Item>
@@ -202,12 +206,12 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
 // One line of the board: my player, the slot he fills, the opponent's player in the same slot.
 // The slot code is the spine; bench and IR lines leave it blank. An empty half (a shorter bench)
 // keeps its cell so the grid stays in step.
-function Pair({ a, b, slot, week, now }: { a?: Player; b?: Player; slot: string | null; week: number; now: number }) {
+function Pair({ a, b, slot, week, now, grid }: { a?: Player; b?: Player; slot: string | null; week: number; now: number; grid: string }) {
   return (
-    <div role="listitem" className={`${HALF_GRID} items-start py-2`}>
+    <div role="listitem" className={`${grid} items-start py-2`}>
       {a ? <Half p={a} week={week} now={now} end="me" /> : <span />}
       <span className="self-center text-center font-mono text-xs text-muted-foreground">{slot}</span>
-      {b ? <Half p={b} week={week} now={now} end="opp" /> : <span />}
+      {grid === HALF_GRID && (b ? <Half p={b} week={week} now={now} end="opp" /> : <span />)}
     </div>
   );
 }
@@ -219,28 +223,32 @@ function zip(a: Player[], b: Player[]): [Player | undefined, Player | undefined]
   return Array.from({ length: n }, (_, i) => [a[i], b[i]]);
 }
 
-function Group({ title, a, b, week, slot, now }: { title: string | null; a: Player[]; b: Player[]; week: number; slot: boolean; now: number }) {
+function Group({ title, a, b, week, slot, now, grid }: { title: string | null; a: Player[]; b: Player[]; week: number; slot: boolean; now: number; grid: string }) {
   const rows = zip(a, b);
   if (rows.length === 0) return null;
   const label = (p?: Player) => (slot && p ? (SLOT_LABEL[p.slot] ?? p.slot) : null);
   return (
     <div>
       {title && (
-        <div className={`${HALF_GRID} mt-2 items-baseline pt-2`}>
+        <div className={`${grid} mt-2 items-baseline pt-2`}>
           <div className="flex items-baseline gap-3">
             <span className={LABEL}>{title}</span>
             <Separator className="mb-1 flex-1 self-end bg-foreground/10" />
           </div>
-          <span />
-          <div className="flex items-baseline gap-3">
-            <Separator className="mb-1 flex-1 self-end bg-foreground/10" />
-            <span className={LABEL}>{title}</span>
-          </div>
+          {grid === HALF_GRID && (
+            <>
+              <span />
+              <div className="flex items-baseline gap-3">
+                <Separator className="mb-1 flex-1 self-end bg-foreground/10" />
+                <span className={LABEL}>{title}</span>
+              </div>
+            </>
+          )}
         </div>
       )}
       <ItemGroup className="gap-0 divide-y divide-foreground/10">
         {rows.map(([x, y], i) => (
-          <Pair key={x?.player_id ?? y?.player_id ?? i} a={x} b={y} slot={label(x) ?? label(y)} week={week} now={now} />
+          <Pair key={x?.player_id ?? y?.player_id ?? i} a={x} b={y} slot={label(x) ?? label(y)} week={week} now={now} grid={grid} />
         ))}
       </ItemGroup>
     </div>
@@ -262,7 +270,7 @@ function SideTotals({ side, now, end }: { side: Side; now: number; end: End }) {
     </div>
   );
   return (
-    <div className={`border-t-2 border-foreground/35 pt-2.5 pb-1 ${opp ? "text-left" : "text-right"}`} aria-label={`${side.team} totals`}>
+    <div className={`border-t-2 border-foreground/35 pt-3 pb-1 ${opp ? "text-left" : "text-right"}`} aria-label={`${side.team} totals`}>
       <div className={`hidden items-end sm:flex ${opp ? "justify-start" : "justify-end"}`}>
         {opp ? (
           <>{cell("Est. final", t.estimate, true)}{cell("To play", t.toCome)}{cell("Scored", t.scored)}</>
@@ -317,9 +325,10 @@ function Board({ data, now }: { data: Week; now: number }) {
   const mine = sideState(me, now);
   const theirs = opp ? sideState(opp, now) : null;
   const swaps = me.optimal_swaps.length > 0 || (opp?.optimal_swaps.length ?? 0) > 0;
+  const grid = opp ? HALF_GRID : SOLO_GRID;
   return (
     <Card className={BOARD_CARD} aria-label="Lineups">
-      <CardHeader className={`${HALF_GRID} items-baseline pt-3 sm:pt-3.5`}>
+      <CardHeader className={`${grid} items-baseline pt-3 sm:pt-3.5`}>
         <div className="flex min-w-0 items-baseline gap-x-2.5">
           <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">My lineup</h2>
           <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{mine.label}</span>
@@ -337,20 +346,20 @@ function Board({ data, now }: { data: Week; now: number }) {
         )}
       </CardHeader>
       <CardContent className="-mt-1 pb-1">
-        <Group title={null} a={me.lineup} b={opp?.lineup ?? []} week={week} slot now={now} />
-        <div className={`${HALF_GRID} items-start`}>
+        <Group title={null} a={me.lineup} b={opp?.lineup ?? []} week={week} slot now={now} grid={grid} />
+        <div className={`${grid} items-start`}>
           <SideTotals side={me} now={now} end="me" />
           <span />
-          {opp ? <SideTotals side={opp} now={now} end="opp" /> : <span />}
+          {opp && <SideTotals side={opp} now={now} end="opp" />}
         </div>
-        <Group title="Bench" a={me.bench} b={opp?.bench ?? []} week={week} slot={false} now={now} />
-        <Group title="IR" a={me.ir} b={opp?.ir ?? []} week={week} slot={false} now={now} />
+        <Group title="Bench" a={me.bench} b={opp?.bench ?? []} week={week} slot={false} now={now} grid={grid} />
+        <Group title="IR" a={me.ir} b={opp?.ir ?? []} week={week} slot={false} now={now} grid={grid} />
       </CardContent>
       {swaps && (
-        <CardFooter className={`${HALF_GRID} items-start rounded-none border-t border-foreground/10 bg-transparent pt-2.5 pb-3`}>
+        <CardFooter className={`${grid} items-start rounded-none border-t border-foreground/10 bg-transparent pt-3 pb-3`}>
           <Swaps side={me} end="me" />
           <span />
-          {opp ? <Swaps side={opp} end="opp" /> : <span />}
+          {opp && <Swaps side={opp} end="opp" />}
         </CardFooter>
       )}
     </Card>
