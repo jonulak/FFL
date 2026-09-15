@@ -188,13 +188,17 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
           <span>{p.team}</span>
           <Matchup p={p} />
         </ItemDescription>
-        {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. */}
-        <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums ${opp ? "text-right" : ""}`}>
+        {/* The kickoff on its own line, so it never wraps away from the matchup mid-phrase. The
+            phone's half column shows it only while it can still change something: the time before
+            kickoff, the clock and score during the game; a final score steps out (the row's PTS
+            already says the game is over). An injured player's return week is its own phone line. */}
+        <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums ${opp ? "text-right" : ""} ${p.game?.status === "post" ? "hidden sm:block" : ""}`}>
           <Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} />
-          {hurt && back != null && <span className="sm:hidden"> <span className="whitespace-nowrap"><span aria-hidden>· </span>back wk {back}</span></span>}
         </ItemDescription>
-        {/* The row's one fact once he has played: the box-score line, in the play feed's register. */}
-        {p.stat_line && <StatLine text={p.stat_line} className="mt-2" wrap />}
+        {hurt && back != null && <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums sm:hidden ${opp ? "text-right" : ""}`}>back wk {back}</ItemDescription>}
+        {/* The row's one fact once he has played: the box-score line, in the play feed's register.
+            A laptop read; the phone's half column holds name, number and matchup only. */}
+        {p.stat_line && <StatLine text={p.stat_line} className="mt-2 hidden sm:block" wrap />}
       </ItemContent>
       <ItemActions className="hidden self-start sm:flex">
         <Num p={p} now={now} end={end} />
