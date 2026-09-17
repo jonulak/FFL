@@ -25,6 +25,7 @@ def test_flatten_box_player():
                  "bye": False, "injury": "ACTIVE", "proj_espn": 21.4, "proj_sleeper": None, "proj": 21.4,
                  "spread": None, "espn_only": True, "actual": 0.0, "game_played": 0,
                  "season_proj": 320.5, "season_proj_sleeper": None,
+                 "ros_proj": None, "ros_sleeper": None, "ros_cbs": None, "ros_spread": None,
                  "return_week": None, "injury_note": None, "opponent": None, "kickoff": None,
                  "home": None}
 
@@ -119,8 +120,8 @@ SEASON_SLEEPER = [{"key": "jalen hurts", "pos": "QB", "team": "PHI", "proj_sleep
 
 def test_merge_season_averages_sources_and_matches_dst_on_team():
     out = espn_season.merge_season(SEASON_ESPN, SEASON_SLEEPER)
-    assert out[1] == {"season_proj": 370.0, "season_proj_sleeper": 360.0}
-    assert out[2] == {"season_proj": 100.0, "season_proj_sleeper": None}, "a Sleeper miss keeps ESPN alone"
+    assert (out[1]["season_proj"], out[1]["season_proj_sleeper"]) == (370.0, 360.0)
+    assert (out[2]["season_proj"], out[2]["season_proj_sleeper"]) == (100.0, None), "a Sleeper miss keeps ESPN alone"
     assert out[3]["season_proj"] == 85.0, "ESPN WSH D/ST matches Sleeper WAS on team"
     assert out[4]["season_proj"] == 150.0, "an ESPN 0 is a placeholder, not a projection"
 
@@ -130,11 +131,38 @@ def test_merge_season_takes_a_dataframe_too():
     assert out[1]["season_proj"] == 370.0 and out[3]["season_proj"] == 85.0
 
 
+def test_merge_season_builds_ros_from_the_two_sources():
+    ros_sl = {("jalen hurts", "QB"): 300.0, ("WAS", "D/ST"): 70.0}
+    ros_cbs = {("jalen hurts", "QB"): 280.0, ("zero guy", "TE"): 90.0}
+    out = espn_season.merge_season(SEASON_ESPN, SEASON_SLEEPER, ros_sl, ros_cbs)
+    assert out[1]["ros_sleeper"] == 300.0 and out[1]["ros_cbs"] == 280.0
+    assert out[1]["ros_proj"] == 290.0 and out[1]["ros_spread"] == 20.0
+    assert out[3]["ros_proj"] == 70.0 and out[3]["ros_spread"] is None, "Sleeper alone, on team"
+    assert out[4]["ros_proj"] == 90.0 and out[4]["ros_sleeper"] is None, "CBS alone"
+    assert out[2]["ros_proj"] is None and out[2]["ros_spread"] is None, "neither: season.ros_proj falls back"
+    assert out[1]["season_proj"] == 370.0, "the season average is untouched"
+
+
+def test_merge_season_without_ros_sources_leaves_ros_empty():
+    out = espn_season.merge_season(SEASON_ESPN, SEASON_SLEEPER)
+    assert out[1]["ros_proj"] is None and out[1]["ros_sleeper"] is None and out[1]["ros_cbs"] is None
+
+
+def test_sleeper_ros_sums_the_weeks_a_player_has_a_row_for():
+    weeks = [{("a", "RB"): 10.0, ("b", "WR"): 5.0}, {("a", "RB"): 12.0}, {("a", "RB"): 8.0, ("b", "WR"): 6.5}]
+    assert espn_season.sleeper_ros(weeks) == {("a", "RB"): 30.0, ("b", "WR"): 11.5}, "a bye week is simply absent"
+    assert espn_season.sleeper_ros([]) == {}
+
+
 def test_apply_season_overrides_only_the_ids_it_knows():
     players = [espn_season.flatten_box_player(bp(playerId=1)),
                espn_season.flatten_box_player(bp(playerId=99))]
-    out = espn_season.apply_season(players, {1: {"season_proj": 370.0, "season_proj_sleeper": 360.0}})
+    out = espn_season.apply_season(players, {1: {"season_proj": 370.0, "season_proj_sleeper": 360.0,
+                                                 "ros_proj": 290.0, "ros_sleeper": 300.0, "ros_cbs": 280.0,
+                                                 "ros_spread": 20.0}})
     assert out[0]["season_proj"] == 370.0 and out[0]["season_proj_sleeper"] == 360.0
+    assert out[0]["ros_proj"] == 290.0 and out[0]["ros_spread"] == 20.0
+    assert out[1]["ros_proj"] is None, "an unknown id carries no ROS: the season formula prices him"
     assert out[1]["season_proj"] == 320.5, "an unknown id keeps the flattened fallback"
     assert players[0]["season_proj"] == 320.5, "pure: the input list is untouched"
 
@@ -348,6 +376,50 @@ PRO_SCHEDULE = {"settings": {"proTeams": [
     {"id": 14, "proGamesByScoringPeriod": {"1": [{"homeProTeamId": 14, "awayProTeamId": 25}]}},
     {"id": 8, "proGamesByScoringPeriod": {"2": [{"homeProTeamId": 8, "awayProTeamId": 3}]}},      # DET idle in week 1
 ]}}
+
+
+def test_season_lookup_sums_the_remaining_sleeper_weeks_and_drops_them_on_a_failed_week(monkeypatch):
+    espn_season._SEASON_CACHE.clear()
+    espn_season._SL.clear()
+    fetched = []
+
+    def fake_week(week, ks):
+        fetched.append(week)
+        if week == 17:
+            raise requests.ConnectionError("sleeper down")
+        return {("jalen hurts", "QB"): 10.0}
+
+    monkeypatch.setattr(espn_season, "fetch_sleeper_week", fake_week)
+    monkeypatch.setattr(espn_season, "fetch_pool", lambda: SEASON_ESPN)
+    monkeypatch.setattr(espn_season, "fetch_sleeper_season", lambda: SEASON_SLEEPER)
+    monkeypatch.setattr(espn_season.cbs, "fetch_ros", lambda ks: {("jalen hurts", "QB"): 150.0})
+    settings = {**TWO_QB, "scoring": []}
+    out = espn_season.season_lookup(settings, week=16)
+    assert sorted(fetched) == [16, 17, 18]
+    assert out[1]["ros_sleeper"] is None and out[1]["ros_cbs"] == 150.0 and out[1]["ros_proj"] == 150.0, \
+        "one missing week would undercount every player: Sleeper's ROS is dropped, CBS carries it"
+    espn_season._SEASON_CACHE.clear()
+    espn_season._SL.clear()
+    fetched.clear()
+    out = espn_season.season_lookup(settings, week=18)
+    assert fetched == [18] and out[1]["ros_sleeper"] == 10.0 and out[1]["ros_proj"] == 80.0
+    assert espn_season.season_lookup(settings, week=18) is out, "cached per week"
+    assert espn_season.season_lookup(settings, week=17) is not out, "another week is another sum"
+
+
+def test_free_agent_pool_reports_whether_ros_came_from_the_sources(monkeypatch):
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    out = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={})
+    assert out["ros_source"] == "season"
+    out = espn_season.free_agent_pool(week=1, sleeper={}, season={1001: {"season_proj": 1.0, "season_proj_sleeper": None,
+                                                                          "ros_proj": 5.0, "ros_sleeper": 5.0,
+                                                                          "ros_cbs": None, "ros_spread": None}},
+                                      injuries={})
+    assert out["ros_source"] == "sources"
 
 
 def test_parse_home_by_team_reads_the_venue_espn_api_drops():

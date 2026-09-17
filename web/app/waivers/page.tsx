@@ -27,9 +27,16 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
       {/* The definition is a laptop read; on the phone the first screen belongs to the table. */}
       <p className="hidden max-w-[72ch] text-xs leading-relaxed text-muted-foreground md:block">
         add = projected points gained this season by adding him (STRATEGY.md, Waivers), ranked
-        top down. Δ roster = ROS vs my weakest at the position; Δ pool = ROS vs league replacement.
-        START marks a player who would go straight into this week&apos;s lineup, with the gain.
+        top down. ROS = Sleeper&apos;s remaining weeks and CBS&apos;s rest-of-season projection, averaged;
+        ± is the gap between them. Δ roster = ROS vs my weakest at the position; Δ pool = ROS vs league
+        replacement. START marks a player who would go straight into this week&apos;s lineup, with the gain.
       </p>
+      {data.ros_source === "season" && (
+        <p className="max-w-[72ch] text-xs leading-relaxed text-close-foreground dark:text-close">
+          ROS from season totals: neither Sleeper&apos;s remaining weeks nor CBS&apos;s rest-of-season page
+          answered, so every ROS here is a draft-day season projection scaled by the weeks left.
+        </p>
+      )}
       <div className="space-y-3">
         <PosTabs active={pos} base="/waivers" />
         <WaiverTable rows={data.rows} week={data.week} pos={pos} />

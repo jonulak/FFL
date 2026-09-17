@@ -174,8 +174,17 @@ def ros_fraction(week: int) -> float:
     return min(max((NFL_WEEKS - week) / SEASON_WEEKS, 0.0), 1.0)
 
 
-def ros_proj(season_proj: float, week: int) -> float:
-    return round(float(season_proj or 0.0) * ros_fraction(week), 1)
+def ros_from_sources(p: dict) -> bool:
+    """True when espn_season's lookup found him in Sleeper's weekly rows or CBS's rest-of-season page."""
+    return p.get("ros_proj") is not None
+
+
+def ros_proj(p: dict, week: int) -> float:
+    """His rest-of-season points (STRATEGY.md, "Waivers"): the sources' number when either has him,
+    else the season projection scaled by the weeks left."""
+    if ros_from_sources(p):
+        return float(p["ros_proj"])
+    return round(float(p.get("season_proj") or 0.0) * ros_fraction(week), 1)
 
 
 def week_of(d: date, week1_start: date) -> int:
@@ -200,29 +209,30 @@ def injury_terms(injury: str, week: int, games_out: int | None = None) -> tuple[
 
 
 def add_score(ros_delta: float, week_delta: float, injury: str, week: int,
-              games_out: int | None = None) -> float:
+              games_out: int | None = None, injury_priced: bool = False) -> float:
     """STRATEGY.md, "Waivers": add = (ros_delta + week_delta if he would start) × injury factor;
-    OUT/IR count only the games after return and get no week term."""
+    OUT/IR get no week term and, unless the ROS sources already left out the games he misses
+    (`injury_priced`), count only the games after return."""
     factor, avail = injury_terms(injury, week, games_out)
     if injury in GAMES_OUT:
-        return round(ros_delta * avail, 1)
+        return round(ros_delta * (1.0 if injury_priced else avail), 1)
     return round((ros_delta + week_delta) * factor, 1)
 
 
 def weakest_rostered(my_roster: list[dict], pos: str, week: int) -> float:
-    mine = [ros_proj(p["season_proj"], week) for p in my_roster if p["pos"] == pos and p.get("slot") != "IR"]
+    mine = [ros_proj(p, week) for p in my_roster if p["pos"] == pos and p.get("slot") != "IR"]
     return min(mine) if mine else 0.0
 
 
 def pool_replacement(pool: list[dict], settings: dict, pos: str, week: int) -> float:
-    """The last player at `pos` who still gets rostered league-wide, by season projection — the
-    same demand count board.build uses (starters + bench depth), on the rostered+free pool."""
+    """The last player at `pos` who still gets rostered league-wide, by rest-of-season projection —
+    the same demand count board.build uses (starters + bench depth), on the rostered+free pool."""
     demand = int(round(starter_counts(settings)[pos] + bench_depth(settings)[pos]))
-    ranked = sorted((float(p.get("season_proj") or 0.0) for p in pool if p["pos"] == pos), reverse=True)
+    ranked = sorted((ros_proj(p, week) for p in pool if p["pos"] == pos), reverse=True)
     if not ranked:
         return 0.0
     idx = min(max(demand - 1, 0), len(ranked) - 1)
-    return ros_proj(ranked[idx], week)
+    return ranked[idx]
 
 
 def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dict],
@@ -234,7 +244,7 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
     rows = []
     for fa in free_agents:
         pos = fa["pos"]
-        ros = ros_proj(fa.get("season_proj"), week)
+        ros = ros_proj(fa, week)
         d_roster = round(ros - weakest_rostered(my_roster, pos, week), 1)
         d_pool = round(ros - pool_replacement(pool, settings, pos, week), 1)
         with_him = optimal_lineup(my_roster + [{**fa, "slot": "BE"}], settings)
@@ -245,7 +255,7 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
                      "delta_pool": d_pool, "would_start": would_start,
                      "week_delta": week_delta if would_start else 0.0,
                      "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"), week,
-                                      games_out(fa.get("return_week"), week))})
+                                      games_out(fa.get("return_week"), week), ros_from_sources(fa))})
     return sorted(rows, key=lambda r: -r["add"])
 
 

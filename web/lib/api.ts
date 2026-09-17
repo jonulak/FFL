@@ -16,6 +16,9 @@ export type Player = {
   injury: string; proj_espn: number; proj_sleeper: number | null; proj: number; spread: number | null;
   espn_only: boolean; actual: number; game_played: number; season_proj: number;
   season_proj_sleeper: number | null; return_week: number | null; injury_note: string | null;
+  // rest of season: the mean of Sleeper's remaining weeks and CBS's ROS page, null when neither
+  // has him (the API then scales season_proj); ros_spread is the gap when both do
+  ros_proj: number | null; ros_sleeper: number | null; ros_cbs: number | null; ros_spread: number | null;
   opponent: string | null; kickoff: string | null; home: boolean | null;
   game?: GameState; // present once his pro team has kicked off (live overlay, ffl/live.py)
   stat_line?: string; // his box-score line, once a stat that scores has happened (live.stat_line)
@@ -54,7 +57,8 @@ export type WaiverRow = Player & {
   ros_proj: number; week_proj: number; delta_roster: number; delta_pool: number;
   would_start: boolean; week_delta: number; add: number;
 };
-export type Waivers = { week: number; pos: string; rows: WaiverRow[]; stale_since: string | null };
+// ros_source "season": no source had anyone, every ROS is a scaled draft-day season total
+export type Waivers = { week: number; pos: string; rows: WaiverRow[]; ros_source: "sources" | "season"; stale_since: string | null };
 // A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
 export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
 export type Standing = Club & { rank: number; points_for: number; points_against: number; streak: string; me: boolean };

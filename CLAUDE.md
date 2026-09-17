@@ -70,6 +70,14 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   Judge it with `ffl.replay` on real logs, not by tuning it until a simulation looks right.
 - Projections: `proj` is the mean of ESPN (`proj_espn`, league-scored by ESPN) and Sleeper (`proj_sleeper`, raw stats rescored
   in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
+- Rest-of-season projections (the Waivers `add` column) are `ffl/espn_season.py::season_lookup(settings, week)`:
+  Sleeper's weekly projections for weeks w..18 summed (`sleeper_ros`, through the per-week `_sleeper_for` cache;
+  any failed week drops Sleeper's ROS for that build rather than undercount) averaged with CBS's public
+  rest-of-season pages (`ffl/cbs.py`, QB/RB/WR/TE only, rescored, 30-min cache, last-good on failure). Every
+  player dict carries `ros_proj`/`ros_sleeper`/`ros_cbs`/`ros_spread`; `season.ros_proj(p, week)` falls back to
+  season total × weeks left when neither source has him, and only then does `add_score` haircut an OUT/IR
+  player for games missed (both sources already leave those games out). `free_agent_pool` reports
+  `ros_source` so the page can say when the whole pool fell back. Sleeper is Rotowire's single model.
 - Injury return dates come from ESPN's public NFL injuries feed (`ffl/espn_season.py::fetch_injuries`, no auth,
   30-min cache, last-good on failure). `ffl.settings` writes `week1_start`, which `season.week_of` needs to turn a
   return date into a week — re-run `uv run python -m ffl.settings` on the main checkout after deploying this, or the

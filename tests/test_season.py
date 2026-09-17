@@ -15,7 +15,8 @@ def P(pid, name, pos, proj, slot="BE", injury="ACTIVE", bye=False, team="T", sea
             "injury": injury, "proj_espn": proj, "proj_sleeper": proj, "proj": proj, "spread": 0.0,
             "espn_only": False, "actual": 0.0, "game_played": 0,
             "season_proj": season_proj if season_proj is not None else proj * 17,
-            "season_proj_sleeper": None, "return_week": None, "injury_note": None,
+            "season_proj_sleeper": None, "ros_proj": None, "ros_sleeper": None, "ros_cbs": None,
+            "ros_spread": None, "return_week": None, "injury_note": None,
             "opponent": None, "kickoff": None, "home": None}
 
 
@@ -88,7 +89,14 @@ def test_ros_fraction_is_one_in_week_one_and_zero_after_the_season():
     assert season.ros_fraction(1) == 1.0
     assert season.ros_fraction(18) == 0.0
     assert season.ros_fraction(10) == pytest.approx(8 / 17)
-    assert season.ros_proj(170.0, 10) == pytest.approx(80.0)
+    assert season.ros_proj({"season_proj": 170.0, "ros_proj": None}, 10) == pytest.approx(80.0)
+
+
+def test_ros_proj_prefers_the_sources_number_over_the_season_formula():
+    assert season.ros_proj({"season_proj": 170.0, "ros_proj": 123.4}, 10) == 123.4
+    assert season.ros_proj({"season_proj": 170.0}, 10) == pytest.approx(80.0), "a dict without the key falls back"
+    assert season.ros_from_sources({"ros_proj": 123.4}) is True
+    assert season.ros_from_sources({"ros_proj": None}) is False and season.ros_from_sources({}) is False
 
 
 def test_injury_factors():
@@ -135,6 +143,16 @@ def test_injury_terms_prefers_a_known_return_over_the_constant():
     assert avail == pytest.approx(13 / 17), "falls back to the IR constant"
     _, avail = season.injury_terms("INJURY_RESERVE", 1, games_out=0)
     assert avail == 1.0, "back this week: every remaining game counts"
+
+
+def test_add_score_skips_the_availability_scaling_when_the_sources_priced_the_injury():
+    # Sleeper publishes no row for the weeks he misses and CBS counts only the games left, so a
+    # ROS from them is already net of the absence; scaling it again would count the injury twice.
+    scaled = season.add_score(100.0, 5.0, "INJURY_RESERVE", 3, games_out=4)
+    assert scaled == pytest.approx(round(100.0 * 11 / 15, 1))
+    assert season.add_score(100.0, 5.0, "INJURY_RESERVE", 3, games_out=4, injury_priced=True) == 100.0
+    assert season.add_score(100.0, 5.0, "QUESTIONABLE", 3, injury_priced=True) == pytest.approx(round(105.0 * 0.85, 1)), \
+        "the probability factors are about this week, not about games left"
 
 
 def test_add_score_takes_games_out_but_only_for_the_out_statuses():
@@ -204,6 +222,31 @@ def test_add_uses_the_pool_arm_when_my_roster_is_thin():
     # He is the better flex than RB D (10), so week_delta = 12 - 10 = 2; add = 50 + 2.
     assert r["week_delta"] == pytest.approx(2.0)
     assert r["add"] == pytest.approx(52.0)
+
+
+def test_waiver_deltas_use_each_players_own_ros_and_rank_the_pool_by_it():
+    mine = roster()
+    for p in mine:
+        p["ros_proj"] = p["season_proj"] / 2  # the sources say everyone on my roster is half what draft day did
+    hot = {**fa(100, "FA RB hot", "RB", 17, 200), "ros_proj": 150.0}
+    nosrc = fa(101, "FA RB deep", "RB", 5, 60)  # no source has him: season formula, week 1 -> 60
+    filler = [{**fa(200 + i, f"fill RB{i}", "RB", 3, 40 - i), "ros_proj": 20.0} for i in range(40)]
+    rows = season.waiver_deltas([hot, nosrc], mine, mine + [hot, nosrc] + filler, TWO_QB, week=1)
+    by = {r["name"]: r for r in rows}
+    assert by["FA RB hot"]["ros_proj"] == 150.0
+    assert season.weakest_rostered(mine, "RB", 1) == pytest.approx(85.0), "RB D at 170/2"
+    assert by["FA RB hot"]["delta_roster"] == pytest.approx(150 - 85)
+    assert season.pool_replacement(mine + [hot, nosrc] + filler, TWO_QB, "RB", 1) == pytest.approx(20.0), \
+        "ranked by ROS, not by season total"
+    assert by["FA RB deep"]["ros_proj"] == pytest.approx(60.0)
+
+
+def test_waiver_deltas_do_not_scale_a_sourced_ros_for_an_ir_player():
+    mine = roster()
+    ir = {**fa(100, "IR priced", "RB", 0, 200, injury="INJURY_RESERVE"), "return_week": 4, "ros_proj": 120.0}
+    filler = [fa(200 + i, f"fill RB{i}", "RB", 3, 40 - i) for i in range(40)]
+    r = season.waiver_deltas([ir], mine, mine + [ir] + filler, TWO_QB, week=3)[0]
+    assert r["add"] == pytest.approx(min(r["delta_roster"], r["delta_pool"])), "no availability haircut, no week term"
 
 
 def test_waiver_deltas_price_an_ir_player_off_his_return_week():

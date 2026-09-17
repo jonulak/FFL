@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, field_validator
 
-from . import espn_season, live, outlook, season
+from . import cbs, espn_season, live, outlook, season
 from .config import JOURNAL
 from .journal import sync_results, sync_transactions
 from .settings import load
@@ -286,7 +286,7 @@ def live_status():
 def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
     return {"week": data["week"], "pos": pos, "rows": data["positions"].get(pos, []),
-            "stale_since": data["stale_since"]}
+            "ros_source": data.get("ros_source", "season"), "stale_since": data["stale_since"]}
 
 
 @app.get("/league")
@@ -385,6 +385,8 @@ def refresh():
     espn_season._BOXES.clear()
     if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
         espn_season._INJ[0] = 0.0
+    if cbs._CACHE:  # same shape, same reason
+        cbs._CACHE[0] = 0.0
     try:
         synced = sync_all()
     except HTTPException:

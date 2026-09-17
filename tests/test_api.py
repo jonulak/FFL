@@ -208,7 +208,8 @@ def test_decisions_validation_and_append(client):
 
 
 def test_waivers_requires_known_pos(client):
-    assert client.get("/waivers?pos=RB").status_code == 200
+    r = client.get("/waivers?pos=RB")
+    assert r.status_code == 200 and r.json()["ros_source"] == "season", "the stub carries no ROS sources"
     assert client.get("/waivers?pos=XX").status_code == 422
 
 

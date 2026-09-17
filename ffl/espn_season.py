@@ -13,6 +13,7 @@ from datetime import date
 
 import requests
 
+from . import cbs
 from . import season as S
 from .adp import norm_name
 from .config import JOURNAL, MY_TEAM_ID, SEASON, SWID, cookies, league
@@ -32,7 +33,7 @@ CACHE_S = 1800
 # which rebuilds it once an hour; POST /refresh forces it immediately.
 LEAGUE_TTL_S = 3600
 _LEAGUE_BUILT_AT = 0.0
-_SEASON_CACHE: list = []  # [fetched_at, lookup]
+_SEASON_CACHE: list = []  # [fetched_at, week, lookup]
 _SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
 _INJ: list = []  # [expires_at, data]
 
@@ -71,7 +72,8 @@ def flatten_box_player(bp, season_proj: float | None = None) -> dict:
             "spread": None, "espn_only": True, "actual": float(getattr(bp, "points", 0) or 0),
             "game_played": int(getattr(bp, "game_played", 0) or 0),
             "season_proj": float(season_proj if season_proj is not None else getattr(bp, "projected_total_points", 0) or 0),
-            "season_proj_sleeper": None, "return_week": None, "injury_note": None,
+            "season_proj_sleeper": None, "ros_proj": None, "ros_sleeper": None, "ros_cbs": None,
+            "ros_spread": None, "return_week": None, "injury_note": None,
             "opponent": None if bye or opp in (None, "None") else opp,
             "kickoff": gd.astimezone().isoformat() if gd is not None and not bye else None,
             # BoxPlayer carries the opponent but not the venue; apply_home fills this from the
@@ -192,23 +194,46 @@ def build_side(team, players: list[dict], settings: dict) -> dict:
             "actual_total": round(sum(p["actual"] for p in lineup), 1)}
 
 
-def merge_season(espn_rows: list[dict], sleeper) -> dict[int, dict]:
-    """Season projections by ESPN player id, averaged across sources like board.merge_sleeper.
+def sleeper_ros(weeks: list[dict[tuple[str, str], float]]) -> dict[tuple[str, str], float]:
+    """Sleeper's weekly projections summed per player over the given weeks. A bye, or a week an
+    injured player is out, is simply a week with no row for him."""
+    out: dict[tuple[str, str], float] = {}
+    for wk in weeks:
+        for key, pts in wk.items():
+            out[key] = round(out.get(key, 0.0) + float(pts), 1)
+    return out
 
-    Non-D/ST match on (normalised name, position); D/ST on team, with ESPN's abbreviation
-    normalised through TEAM_FIX. An ESPN 0 is a placeholder row, not a projection.
+
+def merge_season(espn_rows: list[dict], sleeper, ros_sleeper: dict | None = None,
+                 ros_cbs: dict | None = None) -> dict[int, dict]:
+    """Season and rest-of-season projections by ESPN player id.
+
+    Season: ESPN and Sleeper averaged like board.merge_sleeper. ROS (STRATEGY.md, "Waivers"): the
+    mean of Sleeper's remaining weeks and CBS's rest-of-season page, whichever has him, None when
+    neither does (season.ros_proj then scales the season number). Non-D/ST match on (normalised
+    name, position); D/ST on team, with ESPN's abbreviation normalised through TEAM_FIX. An ESPN 0
+    is a placeholder row, not a projection.
     """
     rows = sleeper.to_dict("records") if hasattr(sleeper, "to_dict") else list(sleeper)
     by_name = {(r["key"], r["pos"]): r["proj_sleeper"] for r in rows if r["pos"] != "D/ST"}
     by_team = {r["team"]: r["proj_sleeper"] for r in rows if r["pos"] == "D/ST"}
+    ros_sleeper, ros_cbs = ros_sleeper or {}, ros_cbs or {}
     out: dict[int, dict] = {}
     for row in espn_rows:
         team = TEAM_FIX.get(row["team"], row["team"])
-        sl = by_team.get(team) if row["pos"] == "D/ST" else by_name.get((norm_name(row["name"]), row["pos"]))
+        key = (team, "D/ST") if row["pos"] == "D/ST" else (norm_name(row["name"]), row["pos"])
+        sl = by_team.get(team) if row["pos"] == "D/ST" else by_name.get(key)
         espn = row["proj"] if (row.get("proj") or 0) > 0 else None
         have = [float(x) for x in (espn, sl) if x is not None]
-        out[row["player_id"]] = {"season_proj": round(sum(have) / len(have), 1) if have else 0.0,
-                                 "season_proj_sleeper": float(sl) if sl is not None else None}
+        r_sl, r_cbs = ros_sleeper.get(key), ros_cbs.get(key)
+        ros = [float(x) for x in (r_sl, r_cbs) if x is not None]
+        out[row["player_id"]] = {
+            "season_proj": round(sum(have) / len(have), 1) if have else 0.0,
+            "season_proj_sleeper": float(sl) if sl is not None else None,
+            "ros_proj": round(sum(ros) / len(ros), 1) if ros else None,
+            "ros_sleeper": float(r_sl) if r_sl is not None else None,
+            "ros_cbs": float(r_cbs) if r_cbs is not None else None,
+            "ros_spread": round(abs(ros[0] - ros[1]), 1) if len(ros) == 2 else None}
     return out
 
 
@@ -223,19 +248,35 @@ def apply_season(players: list[dict], lookup: dict[int, dict]) -> list[dict]:
         q = dict(p)
         got = lookup.get(p["player_id"])
         if got:
-            q["season_proj"] = got["season_proj"]
-            q["season_proj_sleeper"] = got["season_proj_sleeper"]
+            for k in ("season_proj", "season_proj_sleeper", "ros_proj", "ros_sleeper", "ros_cbs", "ros_spread"):
+                q[k] = got.get(k)
         out.append(q)
     return out
 
 
-def season_lookup(settings: dict) -> dict[int, dict]:
-    """The whole player pool's season projections, cached for CACHE_S (one ESPN + one Sleeper call)."""
+def _remaining_sleeper_weeks(week: int, settings: dict) -> list[dict] | None:
+    """Sleeper's projections for weeks week..18, fetched together; None when any week failed,
+    because a sum missing a week would undercount every player rather than a few."""
+    weeks = list(range(week, S.NFL_WEEKS + 1))
+    try:
+        with ThreadPoolExecutor(max(len(weeks), 1)) as pool:
+            return list(pool.map(lambda w: _sleeper_for(w, settings), weeks))
+    except requests.RequestException as e:
+        print(f"sleeper weekly projections unavailable, ROS rests on CBS: {e}")
+        return None
+
+
+def season_lookup(settings: dict, week: int) -> dict[int, dict]:
+    """The whole player pool's season and rest-of-season projections, cached for CACHE_S per week
+    (one ESPN call, Sleeper's season and every remaining week, CBS's six pages)."""
     now = time.time()
-    if _SEASON_CACHE and now - _SEASON_CACHE[0] < CACHE_S:
-        return _SEASON_CACHE[1]
-    lookup = merge_season(fetch_pool(), fetch_sleeper_season())
-    _SEASON_CACHE[:] = [now, lookup]
+    if _SEASON_CACHE and now - _SEASON_CACHE[0] < CACHE_S and _SEASON_CACHE[1] == week:
+        return _SEASON_CACHE[2]
+    weeks = _remaining_sleeper_weeks(week, settings)
+    lookup = merge_season(fetch_pool(), fetch_sleeper_season(),
+                          sleeper_ros(weeks) if weeks is not None else None,
+                          cbs.fetch_ros(key_scoring(settings["scoring"])))
+    _SEASON_CACHE[:] = [now, week, lookup]
     return lookup
 
 
@@ -321,8 +362,14 @@ def _sleeper_for(week: int, settings: dict) -> dict:
     return data
 
 
-def _season_for(settings: dict, season: dict | None) -> dict:
-    return season if season is not None else season_lookup(settings)
+def _season_for(settings: dict, season: dict | None, week: int) -> dict:
+    return season if season is not None else season_lookup(settings, week)
+
+
+def ros_source(lookup: dict[int, dict]) -> str:
+    """"sources" when the lookup priced anyone off Sleeper's weeks or CBS, else "season": the page
+    says so, because a whole pool on the frozen season totals is the bug this replaced."""
+    return "sources" if any(v.get("ros_proj") is not None for v in lookup.values()) else "season"
 
 
 def _injuries_for(injuries: dict | None) -> dict:
@@ -372,7 +419,7 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
     week = week or lg.current_week
     me = my_team_id(lg)
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
-    seas = _season_for(settings, season)
+    seas = _season_for(settings, season, week)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     home = home_by_team(lg, week)
     for m in box_scores(lg, week):
@@ -397,7 +444,7 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
     week = week or lg.current_week
     me = my_team_id(lg)
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
-    seas = _season_for(settings, season)
+    seas = _season_for(settings, season, week)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     boxes = _boxes_by_team(lg, week)
     if me not in boxes:
@@ -419,7 +466,7 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
         for f in frees:
             f["slot"] = "FA"
         out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, week)
-    return {"week": week, "positions": out}
+    return {"week": week, "positions": out, "ros_source": ros_source(seas)}
 
 
 def roster_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
@@ -430,7 +477,7 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
     week = week or lg.current_week
     me = my_team_id(lg)
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
-    seas = _season_for(settings, season)
+    seas = _season_for(settings, season, week)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     boxes = _boxes_by_team(lg, week)
     if me not in boxes:

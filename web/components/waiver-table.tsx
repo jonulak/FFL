@@ -13,6 +13,25 @@ const LABEL = "font-display text-[13px] font-semibold uppercase tracking-[0.12em
 // The secondary numerals (ROS and the two deltas): condensed, stepped back, the way the League
 // table sets points against. Below `sm` these columns fold into the caption under the name.
 const SIDE = "hidden text-right font-display text-lg font-medium tabular-nums tracking-tight text-foreground/70 sm:table-cell sm:px-3";
+// The two ROS sources disagreeing by this much over the rest of the season is worth a look — the
+// weekly column's 3-point rule (CLOSE_SPREAD), scaled to the weeks left, rounded to a whole number.
+const ROS_CLOSE = 20;
+
+// A WaiverRow's ros_proj is always a number (the API fills the season formula in when no source
+// has him), so "sourced" is read off the two source columns.
+function sourced(r: WaiverRow): boolean {
+  return r.ros_sleeper != null || r.ros_cbs != null;
+}
+
+// Where ROS came from, for the hover: both numbers when both sources have him, the one when one
+// does, and the season formula when neither.
+function rosSources(r: WaiverRow): string {
+  if (!sourced(r)) return "no rest-of-season source has him: season projection scaled by the weeks left";
+  const parts = [];
+  if (r.ros_sleeper != null) parts.push(`Sleeper (Rotowire) weeks left ${pts(r.ros_sleeper)}`);
+  if (r.ros_cbs != null) parts.push(`CBS rest of season ${pts(r.ros_cbs)}`);
+  return parts.join(" · ");
+}
 
 // "at LAR" when he travels, "vs SF" at home; a free agent ESPN has no venue for shows the
 // opponent bare. `contents` lets the pieces wrap as items of the caption's own flex line.
@@ -65,7 +84,7 @@ function Row({ r, week }: { r: WaiverRow; week: number }) {
         </p>
         {/* the phone has no room for the ROS and delta columns; they stay visible here instead */}
         <p className="mt-0.5 flex flex-wrap gap-x-1 text-xs tabular-nums text-muted-foreground sm:hidden">
-          <span className="whitespace-nowrap">ROS {pts(r.ros_proj)}</span>
+          <span className="whitespace-nowrap" title={rosSources(r)}>ROS {pts(r.ros_proj)}{r.ros_spread != null && ` ±${pts(r.ros_spread)}`}</span>
           <span aria-hidden>·</span>
           <span className="whitespace-nowrap">Δ roster {signed(r.delta_roster)}</span>
           <span aria-hidden>·</span>
@@ -83,7 +102,10 @@ function Row({ r, week }: { r: WaiverRow; week: number }) {
             ? <p className="text-xs font-medium tabular-nums text-close-foreground dark:text-close">±{pts(r.spread)}</p>
             : null}
       </TableCell>
-      <TableCell className={SIDE}>{pts(r.ros_proj)}</TableCell>
+      <TableCell className={SIDE} title={rosSources(r)}>{pts(r.ros_proj)}</TableCell>
+      <TableCell className={`${SIDE} ${r.ros_spread != null && r.ros_spread >= ROS_CLOSE ? "text-close-foreground dark:text-close" : "text-muted-foreground"}`}>
+        {r.ros_spread != null ? `±${pts(r.ros_spread)}` : sourced(r) ? "1 src" : "season"}
+      </TableCell>
       <TableCell className={SIDE}>{signed(r.delta_roster)}</TableCell>
       <TableCell className={`${SIDE} pr-3 sm:pr-4`}>{signed(r.delta_pool)}</TableCell>
     </TableRow>
@@ -108,6 +130,7 @@ export function WaiverTable({ rows, week, pos }: { rows: WaiverRow[]; week: numb
               <TableHead className={`${LABEL} h-9 text-right`} aria-sort="descending">add</TableHead>
               <TableHead className={`${LABEL} h-9 pr-3 text-right sm:pr-2`}>wk</TableHead>
               <TableHead className={`${LABEL} hidden h-9 text-right sm:table-cell`}>ROS</TableHead>
+              <TableHead className={`${LABEL} hidden h-9 text-right sm:table-cell`} title="gap between Sleeper's remaining weeks and CBS's rest-of-season projection">±</TableHead>
               <TableHead className={`${LABEL} hidden h-9 text-right sm:table-cell`}>Δ roster</TableHead>
               <TableHead className={`${LABEL} hidden h-9 pr-3 text-right sm:table-cell sm:pr-4`}>Δ pool</TableHead>
             </TableRow>
