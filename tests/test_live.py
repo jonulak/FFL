@@ -137,3 +137,25 @@ def test_overlay_attaches_a_stat_line_for_players_with_scoring_stats():
     assert "stat_line" not in out[1], "a row with nothing that scores: no line"
     week = {"week": 1, "me": {"lineup": [{**player(1), "team": "JAX", "pos": "QB"}], "bench": [], "ir": []}, "opp": None}
     assert live.overlay_week(week, {}, {}, stats)["me"]["lineup"][0]["stat_line"] == "11/15, 138 yds"
+
+
+def test_state_records_the_week_its_points_belong_to():
+    st = live.State()
+    st.update({1: 2.0}, week=1)
+    assert st.week == 1 and st.snapshot()["week"] == 1
+    st.update({1: 2.0}, week=2)
+    assert st.week == 2
+
+
+def test_runner_tags_the_points_with_the_week_of_the_roster_it_scored(monkeypatch, tmp_path):
+    from ffl import plays
+    monkeypatch.setattr(plays, "PLAYS_DIR", tmp_path)
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    current = {"week": 1}
+    r = live.Runner(state=live.State(), settings={"scoring": []},
+                    week_fn=lambda: {"week": current["week"], "me": None, "opp": None})
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.state.week == 1
+    current["week"] = 2
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.state.week == 2

@@ -271,3 +271,22 @@ def test_outlook_refresh_reports_a_source_failure_as_502(client, monkeypatch):
                         lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
     r = client.post("/outlook/refresh")
     assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
+
+
+def test_live_points_from_another_week_never_overlay_the_current_page(client, monkeypatch):
+    """After Monday night the feed still holds last week's totals until the next kickoff; the
+    week payload rolls over first, and last week's points must not land on it."""
+    st = api.live.State()
+    st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=2)
+    monkeypatch.setattr(api.live, "STATE", st)
+    assert api._live_points(3) == {} and api._live_games(3) == {} and api._live_stats(3) == {}
+    st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=3)
+    assert api._live_points(3) == {1: 24.7}
+
+
+def test_week_plays_come_only_from_the_runner_scoring_that_week(client, monkeypatch):
+    store = SimpleNamespace(latest=lambda n=None: [{"delta": 6.0}])
+    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=2, store=store), raising=False)
+    assert client.get("/week").json()["plays"] == []
+    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=3, store=store), raising=False)
+    assert client.get("/week").json()["plays"] == [{"delta": 6.0}]

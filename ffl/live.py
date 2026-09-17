@@ -38,13 +38,17 @@ class State:
         self.points: dict[int, float] = {}
         self.games: dict[str, dict] = {}  # team -> {status, quarter, clock, score} (fastcast.game_states)
         self.stats: dict[int, dict] = {}  # player -> raw stat row (fastcast.player_stats)
+        # the NFL week the points were scored for. The socket drops after Monday night and the
+        # totals stay here until the next kickoff; the week payload rolls over on Tuesday, so
+        # the API must know these belong to last week and leave the new week's zeros alone.
+        self.week: int | None = None
         self.at: float | None = None  # when the points last changed
         self.connected = False
         self.error: str | None = None
         self.cond = threading.Condition()
 
     def update(self, points: dict[int, float], games: dict[str, dict] | None = None,
-               stats: dict[int, dict] | None = None) -> bool:
+               stats: dict[int, dict] | None = None, week: int | None = None) -> bool:
         """Store the latest points, game states and stat rows; tick `version` (and wake the
         stream) only when a point moved or a game changed status or quarter. The clock alone
         never wakes the page: every GET reads the stored clock, and the 60 s poll keeps it
@@ -56,6 +60,8 @@ class State:
             self.games = games
             if stats is not None:
                 self.stats = stats
+            if week is not None:
+                self.week = week
             if same_points and same_games and self.version:
                 return False
             self.points, self.version = points, self.version + 1
@@ -73,7 +79,7 @@ class State:
     def snapshot(self) -> dict:
         with self.cond:
             return {"version": self.version, "at": self.at, "connected": self.connected,
-                    "error": self.error, "players": len(self.points)}
+                    "error": self.error, "players": len(self.points), "week": self.week}
 
 
 def _sans_clock(games: dict[str, dict]) -> dict[str, tuple]:
@@ -259,7 +265,7 @@ class Runner(threading.Thread):
         self._refresh_roster()
         before, first = dict(self.state.points), self.state.version == 0
         after = fc.score_all(doc, self.table)
-        self.state.update(after, fc.game_states(doc), fc.player_stats(doc))
+        self.state.update(after, fc.game_states(doc), fc.player_stats(doc), week=self.week)
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if self.store is not None and not first:

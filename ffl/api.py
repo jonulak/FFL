@@ -190,37 +190,31 @@ def health():
     return {"ok": True}
 
 
-def _current_week() -> int | None:
-    """The NFL week the live feed covers; None when ESPN is unreachable (no overlay then)."""
-    try:
-        return espn_season.fresh_league().current_week
-    except Exception:  # noqa: BLE001 — the cached payload is still served, just without live points
-        return None
+def _live_for(week: int | None) -> bool:
+    """Whether the feed's stored points belong to `week`. The state is tagged with the week the
+    runner scored (live.State.week); after Monday night it keeps last week's totals until the
+    next kickoff, while the week payload has already rolled over, so a plain "is this the
+    current week" check would lay last week's points on this week's zeros."""
+    return week is None or week == live.STATE.week
 
 
 def _live_points(week: int | None) -> dict[int, float]:
-    """The live overlay for `week`: only the current week, only while the feed has scored something."""
-    if not live.STATE.points:
-        return {}
-    if week is not None and week != _current_week():
+    """The live overlay for `week`: only the week the feed scored, only once it has scored something."""
+    if not live.STATE.points or not _live_for(week):
         return {}
     return live.STATE.points
 
 
 def _live_games(week: int | None) -> dict[str, dict]:
-    """Game clocks for the overlay, gated like the points: current week only."""
-    if not live.STATE.games:
-        return {}
-    if week is not None and week != _current_week():
+    """Game clocks for the overlay, gated like the points."""
+    if not live.STATE.games or not _live_for(week):
         return {}
     return live.STATE.games
 
 
 def _live_stats(week: int | None) -> dict[int, dict]:
     """Raw stat rows for the overlay's stat lines, gated like the points."""
-    if not live.STATE.stats:
-        return {}
-    if week is not None and week != _current_week():
+    if not live.STATE.stats or not _live_for(week):
         return {}
     return live.STATE.stats
 
@@ -237,8 +231,11 @@ def _plays(limit: int | None = None) -> list[dict]:
 @app.get("/week")
 def week_current():
     data = _serve("week:current", lambda: espn_season.week_state(None))
-    # the feed rides on the page's own payload so one live tick refreshes both
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"])), "plays": _plays(FEED_ROWS)}
+    # the feed rides on the page's own payload so one live tick refreshes both; the runner's
+    # store is the week it last scored, which after Tuesday's rollover is still last week's
+    runner = getattr(app.state, "runner", None)
+    plays = _plays(FEED_ROWS) if runner and runner.week == data["week"] else []
+    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"])), "plays": plays}
 
 
 @app.get("/plays")
