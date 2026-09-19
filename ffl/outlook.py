@@ -25,6 +25,8 @@ TIMEOUT_S = 120
 SCHEMA = {"type": "object", "properties": {"outlook": {"type": "string"}}, "required": ["outlook"]}
 # nothing to say beyond the reason line for these calls; they cost an Opus call for no text
 SKIP_CALLS = {"IR", "BYE"}
+# rest-of-season projection is hashed to this step: ~a week of a starter's points
+ROS_STEP = 10
 VOICE = ("Write this player's outlook for the week in two or three sentences, at most sixty words. "
          "Plain statements from the facts above only: no hedging phrases, no advice beyond restating "
          "the call, nothing that is not on this sheet. Do not repeat the kickoff or the opponent. "
@@ -38,13 +40,30 @@ class Busy(RuntimeError):
     """A generation run is already in progress."""
 
 
+def _ros_bucket(card: dict) -> int | None:
+    """Rest-of-season projection to the nearest ROS_STEP points: the two sources are revised every
+    week, and a couple of points is not a fact the text should be rewritten for."""
+    ros = card.get("ros_proj")
+    return None if ros is None else int(round(float(ros) / ROS_STEP))
+
+
 def fact_hash(card: dict) -> str:
     """The facts the outlook text depends on. A tenth of a point of projection is not one of them."""
     facts = [card.get("opponent"), card.get("kickoff"), bool(card.get("bye")), card.get("injury"),
              card.get("injury_note"), card.get("return_week"), round(float(card.get("proj") or 0.0)),
              float(card.get("spread") or 0.0) >= CLOSE_SPREAD, card.get("call"),
-             bool(card.get("close_call")), card.get("reason")]
+             bool(card.get("close_call")), card.get("reason"), _ros_bucket(card)]
     return hashlib.sha256(json.dumps(facts).encode()).hexdigest()[:16]
+
+
+def _ros_text(card: dict) -> str:
+    """'309.6 (Sleeper 301.9, CBS 317.4)', the one source when one has him, 'not available' when none."""
+    ros = card.get("ros_proj")
+    if ros is None:
+        return "not available"
+    parts = [f"{label} {card[key]}" for label, key in (("Sleeper", "ros_sleeper"), ("CBS", "ros_cbs"))
+             if card.get(key) is not None]
+    return f"{ros} ({', '.join(parts)})" if parts else f"{ros}"
 
 
 def _kickoff_text(card: dict) -> str:
@@ -71,7 +90,7 @@ def fact_sheet(card: dict, week: int) -> str:
         f"Opponent: {_opponent_text(card)}; kickoff: {_kickoff_text(card)}",
         f"This week's projection: {card.get('proj')} points (ESPN {card.get('proj_espn')}, "
         f"Sleeper {card.get('proj_sleeper')}, spread {card.get('spread')})",
-        f"Season projection: {card.get('season_proj')}",
+        f"Rest-of-season projection: {_ros_text(card)}",
         f"Injury: {card.get('injury')}; note: {card.get('injury_note') or 'none'}; "
         f"return week: {card.get('return_week') or 'n/a'}",
         f"Call: {card['call']}; gap: {card.get('gap')}; close call: {bool(card.get('close_call'))}",

@@ -59,6 +59,31 @@ function Numbers({ c }: { c: Card }) {
           <span className="ml-2 font-medium text-close-foreground dark:text-close">±{pts(c.spread)}</span>
         )}
       </div>
+      <Ros c={c} />
+    </div>
+  );
+}
+
+// The two ROS sources disagreeing by this much over the rest of the season is worth a look — the
+// weekly 3-point rule scaled to the weeks left, as on the Waivers page.
+const ROS_CLOSE = 20;
+
+// Rest of season under the week's numbers: the mean, with the sources on hover and the gap between
+// them when both have him. Both sources are revised in season; the frozen draft-day total is not shown.
+function Ros({ c }: { c: Card }) {
+  if (c.ros_proj == null) return null;
+  const parts = [];
+  if (c.ros_sleeper != null) parts.push(`Sleeper (Rotowire) weeks left ${pts(c.ros_sleeper)}`);
+  if (c.ros_cbs != null) parts.push(`CBS rest of season ${pts(c.ros_cbs)}`);
+  const title = parts.length ? parts.join(" · ") : "no rest-of-season source has him: season projection scaled by the weeks left";
+  return (
+    <div className="basis-full text-xs tabular-nums text-muted-foreground" title={title}>
+      <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em]">ROS</span>{" "}
+      <span className="font-medium text-foreground/70">{pts(c.ros_proj)}</span>
+      {c.ros_spread != null && (
+        <span className={`ml-2 ${c.ros_spread >= ROS_CLOSE ? "font-medium text-close-foreground dark:text-close" : ""}`}>±{pts(c.ros_spread)}</span>
+      )}
+      {!parts.length && <span className="ml-2">season</span>}
     </div>
   );
 }

@@ -233,3 +233,24 @@ def test_run_claude_without_the_cli_raises(monkeypatch):
     monkeypatch.setattr(outlook.shutil, "which", lambda name: None)
     with pytest.raises(RuntimeError, match="claude CLI"):
         outlook.run_claude("x")
+
+
+def test_fact_sheet_carries_rest_of_season_not_the_frozen_season_total():
+    sheet = outlook.fact_sheet(card(ros_proj=309.6, ros_sleeper=301.9, ros_cbs=317.4, ros_spread=15.5), 2)
+    assert "Rest-of-season projection: 309.6" in sheet
+    assert "Sleeper 301.9" in sheet and "CBS 317.4" in sheet
+    assert "320.5" not in sheet, "the draft-day season total is frozen; it is not a fact of the week"
+
+
+def test_fact_sheet_without_a_ros_source_says_so():
+    sheet = outlook.fact_sheet(card(ros_proj=100.9, ros_sleeper=100.9, ros_cbs=None, ros_spread=None), 2)
+    assert "Rest-of-season projection: 100.9 (Sleeper 100.9)" in sheet
+    sheet = outlook.fact_sheet(card(ros_proj=None, ros_sleeper=None, ros_cbs=None, ros_spread=None), 2)
+    assert "Rest-of-season projection: not available" in sheet
+
+
+def test_fact_hash_moves_with_a_rest_of_season_revision_but_not_a_tick():
+    base = outlook.fact_hash(card(ros_proj=309.6))
+    assert outlook.fact_hash(card(ros_proj=311.0)) == base, "a couple of points of ROS is noise"
+    assert outlook.fact_hash(card(ros_proj=290.0)) != base, "a revision that moves the text regenerates it"
+    assert outlook.fact_hash(card(ros_proj=None)) != base
