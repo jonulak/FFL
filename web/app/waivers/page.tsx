@@ -30,10 +30,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
         top down. ROS = Sleeper&apos;s remaining weeks and CBS&apos;s rest-of-season projection, averaged;
         ± is the gap between them. Δ roster = ROS vs my weakest at the position; Δ pool = ROS vs league
         replacement. START marks a player who would go straight into this week&apos;s lineup, with the gain.
-        Form = his last three games played: L3 points a game, beat vs ESPN&apos;s projection for them,
-        opp = touches + targets (↑↓ the latest game against the earlier ones), snap share and targets
-        a snap from Sleeper (a day behind), yards a target, and pace = L3 over the games left minus ROS.
-        Read by hand; none of it is in add.
+        Last 3 games = what he has actually done, read by hand and never in add; each column&apos;s
+        heading says what it is.
       </p>
       {data.ros_source === "season" && (
         <p className="max-w-[72ch] text-xs leading-relaxed text-close-foreground dark:text-close">

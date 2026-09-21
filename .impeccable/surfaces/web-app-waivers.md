@@ -26,3 +26,5 @@ FIRST VIEWPORT: Title "Waivers Week n" + stale badge; the definition caption (la
 FORM: Extension of the board; user-specified ("extend the new design to the waiver page, shadcn components whenever possible"): Tabs (line variant, rendered as Links), Card, Table, Badge.
 
 FINISH: reviewed in two screenshot rounds (phone/laptop, light/dark, RB / D/ST / K), console clean apart from one ESPN CDN 404 the image fallback absorbs, detector clean, documented in DESIGN.md.
+
+2026-09-21, recent form: the seven "last 3 games" columns joined the row as a second stat block beside REST OF SEASON (block headings over hairlines, a left hairline at each block's first column), one numeral per column, only the columns the position has. A single "form" column holding all seven as a vertical strip was shipped first and rejected ("a million stats in one column"). On the phone the projection and form figures are two strips on a second row per player. Three screenshot rounds (WR dark, K light; phone and laptop), rows measured at 79px laptop / 95px phone identity row, detector clean.
