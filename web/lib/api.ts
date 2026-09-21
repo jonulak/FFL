@@ -69,8 +69,14 @@ export type WaiverRow = Player & {
   ros_proj: number; week_proj: number; delta_roster: number; delta_pool: number;
   would_start: boolean; week_delta: number; add: number;
 };
+// One of my players as the Waivers table compares a free agent against him: the same ROS and
+// week figures, by ROS best first (season.roster_rows).
+export type RosterRow = Player & { ros_proj: number; week_proj: number };
 // ros_source "season": no source had anyone, every ROS is a scaled draft-day season total
-export type Waivers = { week: number; pos: string; rows: WaiverRow[]; ros_source: "sources" | "season"; stale_since: string | null };
+export type Waivers = {
+  week: number; pos: string; rows: WaiverRow[]; roster: RosterRow[];
+  ros_source: "sources" | "season"; stale_since: string | null;
+};
 // A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
 export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
 export type Standing = Club & { rank: number; points_for: number; points_against: number; streak: string; me: boolean };

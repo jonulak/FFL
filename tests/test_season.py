@@ -368,3 +368,12 @@ def test_roster_cards_spread_is_a_close_call_with_no_alternative_but_never_for_o
     cards = {c["name"]: c for c in season.roster_cards(rs, TWO_QB, 2)}
     assert cards["DST"]["gap"] is None and cards["DST"]["close_call"] is True
     assert cards["WR C"]["call"] == "OUT" and cards["WR C"]["close_call"] is False
+
+
+def test_roster_rows_resolve_ros_and_the_playable_week_and_sort_by_ros():
+    rows = season.roster_rows([P(1, "A", "RB", 10, "RB", season_proj=170.0),
+                               P(2, "B", "RB", 12, "BE", injury="OUT", season_proj=340.0),
+                               P(3, "C", "RB", 8, "IR", injury="INJURY_RESERVE", season_proj=85.0)], week=1)
+    assert [r["name"] for r in rows] == ["B", "A", "C"]
+    assert rows[0]["week_proj"] == 0.0 and rows[1]["week_proj"] == 10.0, "OUT scores nothing this week"
+    assert rows[1]["ros_proj"] == season.ros_proj(rows[1], 1)

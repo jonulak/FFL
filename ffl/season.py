@@ -312,6 +312,14 @@ def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dic
             "pace_gap": round(l3 * games_left - float(ros), 1)}
 
 
+def roster_rows(my_roster: list[dict], week: int) -> list[dict]:
+    """My players as the Waivers page compares a free agent against them: the same rest-of-season
+    and week figures a waiver row carries (`ros_proj` resolved, `week_proj` playable), ordered by
+    ROS. IR players stay in: a drop is a drop."""
+    rows = [{**p, "ros_proj": ros_proj(p, week), "week_proj": playable_proj(p)} for p in my_roster]
+    return sorted(rows, key=lambda r: -r["ros_proj"])
+
+
 def append_decision(path: Path, title: str, decision: str, reasoning: str, alternatives: str,
                     today: date | None = None) -> str:
     """Append one DECISIONS.md entry in the journal's format. Never creates the file."""

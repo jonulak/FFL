@@ -283,6 +283,7 @@ def live_status():
 def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
     return {"week": data["week"], "pos": pos, "rows": data["positions"].get(pos, []),
+            "roster": data.get("roster", []),  # my players, for the row's comparison dropdown
             "ros_source": data.get("ros_source", "season"), "stale_since": data["stale_since"]}
 
 

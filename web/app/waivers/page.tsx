@@ -41,7 +41,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
       )}
       <div className="space-y-3">
         <PosTabs active={pos} base="/waivers" />
-        <WaiverTable rows={data.rows} week={data.week} pos={pos} />
+        <WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} />
       </div>
     </div>
   );

@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { WaiverRow } from "@/lib/api";
+import type { RosterRow, WaiverRow } from "@/lib/api";
 import { FORM_COLUMNS, formCell, injuryLabel, injuryTone, pts, signed } from "@/lib/format";
 import { sortRows, type Sort } from "@/lib/waiver-sort";
 import { TrendArrow } from "./form-strip";
@@ -35,20 +35,20 @@ const PIN_TOP_1 = "sticky top-0 z-[2] bg-card xl:top-12";
 const PIN_TOP_2 = "sticky top-7 z-[2] bg-card xl:top-[4.75rem]";
 const PIN_CORNER = "z-[3]";
 const PIN_TILE = "sticky left-0 z-[1] bg-card";
-const PIN_NAME = "sticky left-12 z-[1] bg-card sm:left-14 max-xl:border-r max-xl:border-foreground/10";
+const PIN_NAME = "sticky left-[4.75rem] z-[1] bg-card sm:left-[5.5rem] max-xl:border-r max-xl:border-foreground/10";
 // The two ROS sources disagreeing by this much over the rest of the season is worth a look — the
 // weekly column's 3-point rule (CLOSE_SPREAD), scaled to the weeks left, rounded to a whole number.
 const ROS_CLOSE = 20;
 
 // A WaiverRow's ros_proj is always a number (the API fills the season formula in when no source
 // has him), so "sourced" is read off the two source columns.
-function sourced(r: WaiverRow): boolean {
+function sourced(r: WaiverRow | RosterRow): boolean {
   return r.ros_sleeper != null || r.ros_cbs != null;
 }
 
 // Where ROS came from, for the hover: both numbers when both sources have him, the one when one
 // does, and the season formula when neither.
-function rosSources(r: WaiverRow): string {
+function rosSources(r: WaiverRow | RosterRow): string {
   if (!sourced(r)) return "no rest-of-season source has him: season projection scaled by the weeks left";
   const parts = [];
   if (r.ros_sleeper != null) parts.push(`Sleeper (Rotowire) weeks left ${pts(r.ros_sleeper)}`);
@@ -58,7 +58,7 @@ function rosSources(r: WaiverRow): string {
 
 // "at LAR" when he travels, "vs SF" at home; a free agent ESPN has no venue for shows the
 // opponent bare. `contents` lets the pieces wrap as items of the caption's own flex line.
-function Matchup({ r }: { r: WaiverRow }) {
+function Matchup({ r }: { r: WaiverRow | RosterRow }) {
   if (!r.opponent) return <Kickoff iso={r.kickoff} bye={r.bye} />;
   return (
     <span className="contents">
@@ -82,7 +82,7 @@ type FormCol = (typeof FORM_COLUMNS)[number];
 // One of the seven form columns for one player. A column that no game in the window has yet is
 // an empty cell: the grid says it, a dash would only add ink. The opportunity cell carries the
 // trend as a drawn arrow after the number.
-function FormNumeral({ r, col }: { r: WaiverRow; col: FormCol }) {
+function FormNumeral({ r, col }: { r: WaiverRow | RosterRow; col: FormCol }) {
   const cell = r.form ? formCell(r.form, col.key) : null;
   if (!cell) return null;
   return (
@@ -113,48 +113,56 @@ function SortHead({ id, sort, onSort, className = "", title, children }: {
   );
 }
 
-// One free agent, one row: the Matchup page's lineup row with the waiver numbers beside it.
-// `add` is the decision column and the only bold numeral; a non-positive add steps back to 70%
-// ink so the one worth a claim, when there is one, reads first. A player who would go straight
-// into this week's optimal lineup carries the START chip with the lineup gain — the same
-// meaning lime has everywhere else on the board. Two stat blocks follow: the rest of season
-// (ROS and the two deltas) and his last three games; on a phone they scroll sideways under the
-// pinned tile and name rather than fold away.
-function Row({ r, week, cols }: { r: WaiverRow; week: number; cols: FormCol[] }) {
+// A rostered player's ESPN slot as the comparison row names it: BE reads "bench", the flex
+// slot "FLEX", anything else is the slot itself.
+function slotName(slot: string): string {
+  return slot === "BE" ? "bench" : slot === "RB/WR/TE" || slot === "RB/WR" || slot === "WR/TE" ? "FLEX" : slot;
+}
+
+// The positions a free agent is compared against on my roster: a flex-eligible player against
+// every flex-eligible player, since any of them is the one he would replace.
+const FLEX = new Set(["RB", "WR", "TE"]);
+export function comparePositions(pos: string): Set<string> {
+  return FLEX.has(pos) ? FLEX : new Set([pos]);
+}
+
+// The name cell every row shares: name and chip stack, then POS · TEAM · matchup. A rostered
+// player carries a muted chip with his slot in place of START; his tile and name step in
+// 12px so the group reads as the free agent's dropdown.
+function NameCell({ r, week, mine = false, chip }: { r: WaiverRow | RosterRow; week: number; mine?: boolean; chip?: React.ReactNode }) {
   const hurt = !HEALTHY.has(r.injury);
   const idle = r.bye || injuryTone(r.injury) === "bad";
-  const rosSpread = r.ros_spread != null && r.ros_spread >= ROS_CLOSE;
   return (
-    <TableRow className="border-foreground/10 hover:bg-transparent">
-      <TableCell className={`w-0 py-2 pr-0 pl-3 sm:pl-4 ${PIN_TILE}`}>
-        <div className="size-9 overflow-hidden rounded-md sm:size-10">
-          <TeamPanel abbr={r.team} playerId={r.player_id} name={r.name} muted={idle} tile />
-        </div>
-      </TableCell>
-      {/* pinned at 11rem while the table scrolls; from `xl` it takes every pixel the numerals
-          leave (w-full + max-w-0) and truncates */}
-      <TableCell className={`py-2 whitespace-normal max-xl:w-[11rem] max-xl:min-w-[11rem] xl:w-full xl:max-w-0 ${PIN_NAME}`}>
-        <p className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight ${idle ? "text-foreground/70" : ""}`}>
-          <span className="truncate">{r.name}</span>
-          {r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta)}</Badge>}
-          {hurt && (
-            <Badge variant={TAG[injuryTone(r.injury)]} shape="chip" title={r.injury_note ?? undefined}>
-              {injuryLabel(r.injury.replaceAll("_", " "), r.return_week, week)}
-            </Badge>
-          )}
-          {r.bye && <Badge variant="muted" shape="chip">bye</Badge>}
-        </p>
-        <p className="mt-1 flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
-          <span className="font-semibold text-foreground/80">{r.pos}</span>
-          <span aria-hidden>·</span>
-          <span>{r.team}</span>
-          <span aria-hidden>·</span>
-          <Matchup r={r} />
-        </p>
-      </TableCell>
-      <TableCell className={`text-right font-display text-[1.5rem] font-bold tabular-nums tracking-tight ${r.add > 0 ? "" : "text-foreground/70"}`}>
-        {signed(r.add)}
-      </TableCell>
+    <TableCell className={`py-2 whitespace-normal max-sm:w-[9.5rem] max-sm:min-w-[9.5rem] sm:max-xl:w-[11rem] sm:max-xl:min-w-[11rem] xl:w-full xl:max-w-0 ${PIN_NAME} ${mine ? "pl-5" : ""}`}>
+      <p className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight ${idle ? "text-foreground/70" : ""}`}>
+        <span className="truncate">{r.name}</span>
+        {chip}
+        {hurt && (
+          <Badge variant={TAG[injuryTone(r.injury)]} shape="chip" title={r.injury_note ?? undefined}>
+            {injuryLabel(r.injury.replaceAll("_", " "), r.return_week, week)}
+          </Badge>
+        )}
+        {r.bye && <Badge variant="muted" shape="chip">bye</Badge>}
+      </p>
+      <p className="mt-1 flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+        <span className="font-semibold text-foreground/80">{r.pos}</span>
+        <span aria-hidden>·</span>
+        <span>{r.team}</span>
+        <span aria-hidden>·</span>
+        <Matchup r={r} />
+      </p>
+    </TableCell>
+  );
+}
+
+// The numerals every row shares, from `wk` on: this week's projection with its source note,
+// ROS with its spread beneath, then the form columns. The two deltas belong to a free agent
+// alone; a rostered row leaves them empty.
+function NumberCells({ r, cols }: { r: WaiverRow | RosterRow; cols: FormCol[] }) {
+  const rosSpread = r.ros_spread != null && r.ros_spread >= ROS_CLOSE;
+  const fa = "add" in r ? r : null;
+  return (
+    <>
       <TableCell className="pr-2 text-right align-middle">
         <p className={`font-display text-lg font-semibold tabular-nums tracking-tight ${r.week_proj === 0 ? "text-muted-foreground" : ""}`}>{pts(r.week_proj)}</p>
         {r.espn_only
@@ -168,15 +176,81 @@ function Row({ r, week, cols }: { r: WaiverRow; week: number; cols: FormCol[] })
         {pts(r.ros_proj)}
         <Under amber={rosSpread}>{r.ros_spread != null ? `±${pts(r.ros_spread)}` : sourced(r) ? "1 src" : "season"}</Under>
       </TableCell>
-      <TableCell className={SIDE}>{signed(r.delta_roster)}</TableCell>
-      <TableCell className={`${SIDE} pr-2`}>{signed(r.delta_pool)}</TableCell>
+      <TableCell className={SIDE}>{fa && signed(fa.delta_roster)}</TableCell>
+      <TableCell className={`${SIDE} pr-2`}>{fa && signed(fa.delta_pool)}</TableCell>
       {/* his last three games, one column each */}
       {cols.map((col, i) => (
         <TableCell key={col.key} className={`${SIDE} ${i === 0 ? GROUP_START : ""} ${i === cols.length - 1 ? "pr-4" : ""}`}>
           <FormNumeral r={r} col={col} />
         </TableCell>
       ))}
+    </>
+  );
+}
+
+// One of my players under a free agent, for the comparison: the same row, tinted, his slot as
+// a muted chip, and in the decision column the free agent's ROS minus his — the number that
+// says whether the claim is an upgrade on this man, so the drop reads straight down.
+function CompareRow({ fa, mine, week, cols }: { fa: WaiverRow; mine: RosterRow; week: number; cols: FormCol[] }) {
+  const idle = mine.bye || injuryTone(mine.injury) === "bad";
+  const gap = fa.ros_proj - mine.ros_proj;
+  return (
+    <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
+      <TableCell className={`w-0 py-1.5 pr-0 pl-6 sm:pl-7 ${PIN_TILE} bg-[color-mix(in_oklab,var(--card),var(--foreground)_3%)]`}>
+        <div className="size-8 overflow-hidden rounded-md">
+          <TeamPanel abbr={mine.team} playerId={mine.player_id} name={mine.name} muted={idle} tile />
+        </div>
+      </TableCell>
+      <NameCell r={mine} week={week} mine chip={<Badge variant="muted" shape="chip">{slotName(mine.slot)}</Badge>} />
+      <TableCell className={`text-right font-display text-lg font-semibold tabular-nums tracking-tight ${gap > 0 ? "" : "text-foreground/70"}`}
+        title={`${fa.name}'s rest-of-season projection minus ${mine.name}'s`}>
+        {signed(gap)}
+      </TableCell>
+      <NumberCells r={mine} cols={cols} />
     </TableRow>
+  );
+}
+
+// One free agent, one row: the Matchup page's lineup row with the waiver numbers beside it.
+// `add` is the decision column and the only bold numeral; a non-positive add steps back to 70%
+// ink so the one worth a claim, when there is one, reads first. A player who would go straight
+// into this week's optimal lineup carries the START chip with the lineup gain — the same
+// meaning lime has everywhere else on the board. Two stat blocks follow: the rest of season
+// (ROS and the two deltas) and his last three games; on a phone they scroll sideways under the
+// pinned tile and name rather than fold away. The chevron at the row's start opens the
+// comparison: my players at his position (every flex position for a flex player), by ROS.
+function Row({ r, week, cols, roster, open, onToggle }: {
+  r: WaiverRow; week: number; cols: FormCol[]; roster: RosterRow[]; open: boolean; onToggle: () => void;
+}) {
+  const idle = r.bye || injuryTone(r.injury) === "bad";
+  const mine = roster.filter((m) => comparePositions(r.pos).has(m.pos));
+  return (
+    <>
+      <TableRow className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
+        <TableCell className={`w-0 py-2 pr-0 pl-1 sm:pl-2 ${PIN_TILE}`}>
+          <div className="flex items-center gap-0.5">
+            <button type="button" onClick={onToggle} aria-expanded={open} aria-label={open ? `hide my ${[...comparePositions(r.pos)].join("/")}s` : `compare with my ${[...comparePositions(r.pos)].join("/")}s`}
+              className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/55 hover:text-foreground focus-visible:outline-2">
+              <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180" : ""}`} />
+            </button>
+            <div className="size-9 overflow-hidden rounded-md sm:size-10">
+              <TeamPanel abbr={r.team} playerId={r.player_id} name={r.name} muted={idle} tile />
+            </div>
+          </div>
+        </TableCell>
+        <NameCell r={r} week={week} chip={r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta)}</Badge>} />
+        <TableCell className={`text-right font-display text-[1.5rem] font-bold tabular-nums tracking-tight ${r.add > 0 ? "" : "text-foreground/70"}`}>
+          {signed(r.add)}
+        </TableCell>
+        <NumberCells r={r} cols={cols} />
+      </TableRow>
+      {open && mine.map((m) => <CompareRow key={m.player_id} fa={r} mine={m} week={week} cols={cols} />)}
+      {open && mine.length === 0 && (
+        <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
+          <TableCell colSpan={7 + cols.length} className="py-2 pl-6 text-xs text-muted-foreground sm:pl-7">nobody at {r.pos} on my roster</TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 
@@ -188,8 +262,10 @@ function Row({ r, week, cols }: { r: WaiverRow; week: number; cols: FormCol[] })
 // over the form columns), then the column labels; `add` and `wk` stand under no heading, they
 // are the row's own numbers. Both header rows pin to the top and the tile and name to the
 // left while the table scrolls.
-export function WaiverTable({ rows, week, pos }: { rows: WaiverRow[]; week: number; pos: string }) {
+export function WaiverTable({ rows, roster, week, pos }: { rows: WaiverRow[]; roster: RosterRow[]; week: number; pos: string }) {
   const [sort, setSort] = useState<Sort>({ key: "add", dir: "desc" });
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const toggle = (id: number) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   if (rows.length === 0) {
     return <p className="py-6 text-sm text-muted-foreground">ESPN lists no free agents at {pos} right now.</p>;
   }
@@ -227,7 +303,9 @@ export function WaiverTable({ rows, week, pos }: { rows: WaiverRow[]; week: numb
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortRows(rows, sort).map((r) => <Row key={r.player_id} r={r} week={week} cols={cols} />)}
+            {sortRows(rows, sort).map((r) => (
+              <Row key={r.player_id} r={r} week={week} cols={cols} roster={roster} open={open.has(r.player_id)} onToggle={() => toggle(r.player_id)} />
+            ))}
           </TableBody>
         </Table>
       </CardContent>

@@ -610,15 +610,17 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
     boxes = _boxes_by_team(lg, week)
     if me not in boxes:
         raise RuntimeError(f"no box score for team {me} in week {week}")
-    my_players = apply_injuries(
-        apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1)
+    home = home_by_team(lg, week)  # so the Waivers page can say "at" when a free agent travels
+    byes, weeks = bye_by_team(lg), form_weeks(week)
+    snap_weeks = _snaps_for(weeks, snaps)
+    # my players carry the same enrichment as a free agent: the page compares him against them
+    my_players = apply_form(apply_home(apply_injuries(
+        apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1), home),
+        _my_roster_games(lg, me, boxes[me], week), snap_weeks, week, byes)
     # not enriched: `rostered` is only the replacement-level pool and reads season_proj alone
     rostered = apply_season(
         [flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas)
     out = {}
-    home = home_by_team(lg, week)  # so the Waivers page can say "at" when a free agent travels
-    byes, weeks = bye_by_team(lg), form_weeks(week)
-    snap_weeks = _snaps_for(weeks, snaps)
     positions = ["QB", "RB", "WR", "TE", "D/ST", "K"]
     # one ESPN call of ~0.6 s per position and form week (the pool is the same set each week,
     # sorted by ownership; only the stats change): all in flight together, not one after another
@@ -636,7 +638,8 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
         for f in frees:
             f["slot"] = "FA"
         out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, week)
-    return {"week": week, "positions": out, "ros_source": ros_source(seas)}
+    return {"week": week, "positions": out, "roster": S.roster_rows(my_players, week),
+            "ros_source": ros_source(seas)}
 
 
 def _my_roster_games(lg, me: int, lineup: list, week: int) -> dict[int, list[dict]]:

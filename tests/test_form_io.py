@@ -145,3 +145,16 @@ def test_roster_state_reads_earlier_weeks_off_the_team_roster(monkeypatch):
     card = next(c for c in st["cards"] if c["player_id"] == 4)
     assert card["form"]["weeks"] == [1, 2] and card["form"]["beat"] == round(((15 - 14) + (22 - 14.5)) / 2, 1)
     assert card["form"]["opp_trend"] == 25.0 - 21.0
+
+
+def test_free_agent_pool_carries_my_roster_with_the_same_figures(monkeypatch):
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    pool = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    mine = pool["roster"]
+    assert len(mine) == 15 and all("form" in p and "ros_proj" in p and "week_proj" in p for p in mine)
+    assert [p["ros_proj"] for p in mine] == sorted((p["ros_proj"] for p in mine), reverse=True), "by ROS, best first"
+    assert any(p["slot"] == "IR" for p in mine), "IR players stay in: a drop is a drop"
