@@ -259,6 +259,59 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
     return sorted(rows, key=lambda r: -r["add"])
 
 
+# STRATEGY.md, "Recent form": the window is his last FORM_GAMES games played, looked for within the
+# last FORM_WEEKS weeks (which bounds the per-week ESPN calls the pool builder makes).
+FORM_GAMES = 3
+FORM_WEEKS = 5
+SNAP_POSITIONS = {"QB", "RB", "WR", "TE"}
+TARGET_POSITIONS = {"RB", "WR", "TE"}
+
+
+def _mean(xs: list[float]) -> float:
+    return sum(xs) / len(xs)
+
+
+def games_left(week: int, bye_week: int | None) -> int:
+    """Games from `week` to the end of the schedule, his bye taken out when it is still ahead —
+    the same span Sleeper's remaining weeks sum over, so pace and ROS are the same unit."""
+    left = max(NFL_WEEKS - week + 1, 0)
+    if bye_week is not None and week <= bye_week <= NFL_WEEKS:
+        left -= 1
+    return left
+
+
+def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dict | None:
+    """STRATEGY.md, "Recent form", over one player's weekly game rows (espn_season.game_from_stats).
+
+    A game is in the window when it is final and he was active in it (an opportunity, or any stat
+    line for a D/ST); the last FORM_GAMES of those, in week order. Fewer than that carries its
+    count; none at all is None, so the page shows nothing rather than a zero. Snap columns cover
+    only the games Sleeper has snaps for (they land a day after the games) and carry that count.
+    """
+    window = sorted((g for g in games if g["final"] and g["active"]), key=lambda g: g["week"])[-FORM_GAMES:]
+    if not window:
+        return None
+    pts = [float(g["pts"]) for g in window]
+    l3 = _mean(pts)
+    opps = [float(g["opp"]) for g in window if g.get("opp") is not None]
+    opp = _mean(opps) if opps and pos != "D/ST" else None
+    trend = round(opps[-1] - _mean(opps[:-1]), 1) if opp is not None and len(opps) >= 2 else None
+    snapped = [g for g in window if g.get("snaps") is not None and g.get("team_snaps")] if pos in SNAP_POSITIONS else []
+    snaps, team_snaps = sum(float(g["snaps"]) for g in snapped), sum(float(g["team_snaps"]) for g in snapped)
+    tgts = sum(float(g.get("tgt") or 0) for g in window)
+    yds = sum(float(g.get("rec_yd") or 0) for g in window)
+    targets = pos in TARGET_POSITIONS
+    return {"games": len(window), "weeks": [g["week"] for g in window],
+            "l3": round(l3, 1),
+            "beat": round(_mean([float(g["pts"]) - float(g["proj"]) for g in window]), 1),
+            "opp": round(opp, 1) if opp is not None else None, "opp_trend": trend,
+            "snap_pct": round(100 * snaps / team_snaps) if snapped and team_snaps > 0 else None,
+            "snap_games": len(snapped),
+            "tgt_snap": round(sum(float(g.get("tgt") or 0) for g in snapped) / snaps, 2) if targets and snapped and snaps > 0 else None,
+            "ypt": round(yds / tgts, 1) if targets and tgts > 0 else None,
+            "pace_gap": round(l3 * games_left - float(ros), 1)}
+
+
 def append_decision(path: Path, title: str, decision: str, reasoning: str, alternatives: str,
                     today: date | None = None) -> str:
     """Append one DECISIONS.md entry in the journal's format. Never creates the file."""

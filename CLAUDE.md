@@ -78,6 +78,12 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   season total × weeks left when neither source has him, and only then does `add_score` haircut an OUT/IR
   player for games missed (both sources already leave those games out). `free_agent_pool` reports
   `ros_source` so the page can say when the whole pool fell back. Sleeper is Rotowire's single model.
+- Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
+  (`espn_season.game_from_stats` off espn-api's per-week `stats`; my roster's earlier weeks come from
+  `lg.teams[..].roster`, free agents' from one `free_agents(week=w)` call per position and form week) with
+  Sleeper's snaps (`SLEEPER_STATS`, `off_snp`/`tm_off_snp`, a day behind the games) joined per week. Every
+  Roster card and Waiver row carries `form` (None before his first game); it is read, never added to `add`.
+  The bye still ahead comes from the same pro-schedule document as the venue (`bye_by_team`).
 - Injury return dates come from ESPN's public NFL injuries feed (`ffl/espn_season.py::fetch_injuries`, no auth,
   30-min cache, last-good on failure). `ffl.settings` writes `week1_start`, which `season.week_of` needs to turn a
   return date into a week — re-run `uv run python -m ffl.settings` on the main checkout after deploying this, or the

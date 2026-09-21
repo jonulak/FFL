@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { WaiverRow } from "@/lib/api";
 import { injuryLabel, injuryTone, pts, signed } from "@/lib/format";
+import { FormStrip } from "./form-strip";
 import { Kickoff } from "./local-time";
 import { TeamLogo, TeamPanel } from "./player-media";
 
@@ -90,6 +91,8 @@ function Row({ r, week }: { r: WaiverRow; week: number }) {
           <span aria-hidden>·</span>
           <span className="whitespace-nowrap">Δ pool {signed(r.delta_pool)}</span>
         </p>
+        {/* the form strip likewise: its own column from `lg`, the caption's last line below it */}
+        <FormStrip form={r.form} className="mt-0.5 lg:hidden" />
       </TableCell>
       <TableCell className={`text-right font-display text-[1.5rem] font-bold tabular-nums tracking-tight ${r.add > 0 ? "" : "text-foreground/70"}`}>
         {signed(r.add)}
@@ -107,7 +110,11 @@ function Row({ r, week }: { r: WaiverRow; week: number }) {
         {r.ros_spread != null ? `±${pts(r.ros_spread)}` : sourced(r) ? "1 src" : "season"}
       </TableCell>
       <TableCell className={SIDE}>{signed(r.delta_roster)}</TableCell>
-      <TableCell className={`${SIDE} pr-3 sm:pr-4`}>{signed(r.delta_pool)}</TableCell>
+      <TableCell className={`${SIDE} lg:pr-2`}>{signed(r.delta_pool)}</TableCell>
+      {/* the last three games he played, one cell wide enough to wrap: usage is read, not ranked */}
+      <TableCell className="hidden max-w-[22rem] whitespace-normal py-2 pr-3 align-middle lg:table-cell lg:pr-4">
+        {r.form ? <FormStrip form={r.form} /> : <span className="text-xs text-muted-foreground">no game yet</span>}
+      </TableCell>
     </TableRow>
   );
 }
@@ -132,7 +139,8 @@ export function WaiverTable({ rows, week, pos }: { rows: WaiverRow[]; week: numb
               <TableHead className={`${LABEL} hidden h-9 text-right sm:table-cell`}>ROS</TableHead>
               <TableHead className={`${LABEL} hidden h-9 text-right sm:table-cell`} title="gap between Sleeper's remaining weeks and CBS's rest-of-season projection">±</TableHead>
               <TableHead className={`${LABEL} hidden h-9 text-right sm:table-cell`}>Δ roster</TableHead>
-              <TableHead className={`${LABEL} hidden h-9 pr-3 text-right sm:table-cell sm:pr-4`}>Δ pool</TableHead>
+              <TableHead className={`${LABEL} hidden h-9 pr-3 text-right sm:table-cell sm:pr-4 lg:pr-2`}>Δ pool</TableHead>
+              <TableHead className={`${LABEL} hidden h-9 pr-3 lg:table-cell lg:pr-4`} title="his last three games played: points, vs projection, usage, snaps, and that pace against ROS">form</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

@@ -199,7 +199,7 @@ def test_roster_state_builds_cards_for_my_side_only(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={})
+    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
     assert st["week"] == 1 and isinstance(st["live"], bool)
     assert len(st["cards"]) == 15 and {c["group"] for c in st["cards"]} == {"starter", "bench", "ir"}
     assert all("call" in c and "reason" in c for c in st["cards"])
@@ -413,12 +413,12 @@ def test_free_agent_pool_reports_whether_ros_came_from_the_sources(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    out = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={})
+    out = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
     assert out["ros_source"] == "season"
     out = espn_season.free_agent_pool(week=1, sleeper={}, season={1001: {"season_proj": 1.0, "season_proj_sleeper": None,
                                                                           "ros_proj": 5.0, "ros_sleeper": 5.0,
                                                                           "ros_cbs": None, "ros_spread": None}},
-                                      injuries={})
+                                      injuries={}, snaps={})
     assert out["ros_source"] == "sources"
 
 
@@ -477,12 +477,12 @@ def test_builders_share_one_box_scores_fetch(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     espn_season.week_state(week=1, sleeper={}, season={}, injuries={})
-    espn_season.roster_state(week=1, sleeper={}, season={}, injuries={})
-    espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={})
+    espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
     assert calls["box"] == 1
     other = _stub_league(_matchup(), calls)
     monkeypatch.setattr(espn_season, "league", lambda: other)
-    espn_season.roster_state(week=1, sleeper={}, season={}, injuries={})
+    espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
     assert calls["box"] == 2, "a rebuilt League is a new source: its box scores are fetched again"
 
 
@@ -492,7 +492,7 @@ def test_free_agent_pool_fetches_every_position_in_position_order(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    out = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={})
+    out = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
     assert list(out["positions"]) == ["QB", "RB", "WR", "TE", "D/ST", "K"]
     assert sorted(calls["fa"]) == sorted(["QB", "RB", "WR", "TE", "D/ST", "K"]), "each fetched exactly once"
     assert all(row["slot"] == "FA" for rows in out["positions"].values() for row in rows)

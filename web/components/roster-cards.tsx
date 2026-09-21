@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import type { Card } from "@/lib/api";
 import { injuryLabel, injuryTone, pts } from "@/lib/format";
 import { team } from "@/lib/teams";
+import { FormStrip } from "./form-strip";
 import { Kickoff } from "./local-time";
 import { Outlook } from "./outlook";
 import { TeamLogo, TeamPanel } from "./player-media";
@@ -116,6 +117,7 @@ function PlayerCard({ c, week }: { c: Card; week: number }) {
         {c.stat_line && <StatLine text={c.stat_line} className="mt-1" />}
         <div className="mt-3"><Numbers c={c} /></div>
         <Reason text={c.reason} />
+        <FormStrip form={c.form} className="mt-2" />
       </CardContent>
       <CardFooter className="flex flex-col items-stretch rounded-none border-t border-foreground/10 bg-transparent pt-2 pb-3 sm:pb-3.5">
         <Outlook text={c.outlook} at={c.outlook_at} stale={c.outlook_stale} />

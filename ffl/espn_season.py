@@ -22,6 +22,8 @@ from .settings import key_scoring, load
 from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
 
 SLEEPER_WEEK = "https://api.sleeper.app/projections/nfl/{season}/{week}"
+# the same rows as the projections, actual stats: offensive snaps and the team's, per player
+SLEEPER_STATS = "https://api.sleeper.app/stats/nfl/{season}/{week}"
 SLEEPER_POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
 INJURIES = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries"
 # the feed's rows carry no athlete id, only player-card links with it in the path
@@ -35,6 +37,7 @@ LEAGUE_TTL_S = 3600
 _LEAGUE_BUILT_AT = 0.0
 _SEASON_CACHE: list = []  # [fetched_at, week, lookup]
 _SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
+_SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
 _INJ: list = []  # [expires_at, data]
 
 
@@ -97,14 +100,31 @@ def parse_home_by_team(data: dict, week: int) -> dict[str, bool]:
     return out
 
 
+_SCHED: dict[tuple[int, float], dict] = {}  # (League object, build) -> the proTeamSchedules_wl document
+_BYE: dict[float, dict[str, int]] = {}  # league build -> team -> bye week
+
+
+def _schedule_doc(lg) -> dict:
+    """ESPN's proTeamSchedules_wl view, fetched once per League object (venues and bye weeks both
+    read it). A stubbed league without a request object reads as an empty document, uncached."""
+    req = getattr(lg, "espn_request", None)  # tests stub the league without one
+    if req is None:
+        return {}
+    key = (id(lg), _LEAGUE_BUILT_AT)
+    if key not in _SCHED:
+        data = req.get_pro_schedule()
+        _SCHED.clear()
+        _SCHED[key] = data
+    return _SCHED[key]
+
+
 def home_by_team(lg, week: int) -> dict[str, bool]:
     """parse_home_by_team over the live view, cached for the life of the League object. A failed
     fetch returns {} so every card shows the opponent without a venue rather than no page."""
     key = (week, _LEAGUE_BUILT_AT)
     if key not in _HOME:
-        req = getattr(lg, "espn_request", None)  # tests stub the league without one
         try:
-            data = req.get_pro_schedule() if req is not None else {}
+            data = _schedule_doc(lg)
         except Exception as e:  # noqa: BLE001 — venue is decoration, the call is not
             print(f"pro schedule unavailable, venues unknown: {e}")
             return {}  # not cached: the next request retries
@@ -113,11 +133,149 @@ def home_by_team(lg, week: int) -> dict[str, bool]:
     return _HOME[key]
 
 
+def parse_bye_by_team(data: dict) -> dict[str, int]:
+    """Each pro team's bye week from the same document, keyed by the abbreviation espn-api gives a
+    player's proTeam (PRO_TEAM_MAP by id, as parse_home_by_team); the placeholder team has none."""
+    from espn_api.football.constant import PRO_TEAM_MAP
+    out: dict[str, int] = {}
+    for t in data.get("settings", {}).get("proTeams", []):
+        abbr = PRO_TEAM_MAP.get(t.get("id")) or t.get("abbrev")
+        if t.get("id") and abbr and t.get("byeWeek"):
+            out[abbr] = int(t["byeWeek"])
+    return out
+
+
+def bye_by_team(lg) -> dict[str, int]:
+    """parse_bye_by_team over the live view, cached like home_by_team. Without it, season.games_left
+    counts a bye still ahead as a game, so pace_gap runs one game high for that player."""
+    if _LEAGUE_BUILT_AT not in _BYE:
+        try:
+            data = _schedule_doc(lg)
+        except Exception as e:  # noqa: BLE001
+            print(f"pro schedule unavailable, byes unknown: {e}")
+            return {}
+        _BYE.clear()
+        _BYE[_LEAGUE_BUILT_AT] = parse_bye_by_team(data)
+    return _BYE[_LEAGUE_BUILT_AT]
+
+
 def apply_home(players: list[dict], home: dict[str, bool]) -> list[dict]:
     """Set `home` for every player with a game this week; players without one stay None."""
     for p in players:
         p["home"] = home.get(p["team"]) if p.get("opponent") else None
     return players
+
+
+# --- recent form (STRATEGY.md, "Recent form") ---------------------------------------------------
+
+OPPORTUNITY = {"K": ("attemptedFieldGoals", "attemptedExtraPoints"),
+               "QB": ("passingAttempts", "rushingAttempts", "receivingTargets")}
+TOUCHES = ("rushingAttempts", "receivingTargets")
+
+
+def game_from_stats(week: int, st: dict, pos: str, final: bool) -> dict:
+    """One week of an espn-api player's `stats` as the game row season.recent_form reads.
+
+    `breakdown` is the raw stat line (ESPN's names where espn-api knows them); a row before
+    kickoff carries the projection and no breakdown. A defence is active in any week it has a
+    line; everyone else needs an opportunity. Snaps are Sleeper's, joined later by apply_form.
+    """
+    bd = st.get("breakdown") or {}
+    g = lambda k: float(bd.get(k) or 0)  # noqa: E731
+    if pos == "D/ST":
+        opp, active = None, bool(bd)
+    else:
+        opp = sum(g(k) for k in OPPORTUNITY.get(pos, TOUCHES))
+        active = opp > 0
+    return {"week": week, "pts": float(st.get("points") or 0), "proj": float(st.get("projected_points") or 0),
+            "opp": opp, "tgt": g("receivingTargets"), "rec_yd": g("receivingYards"),
+            "snaps": None, "team_snaps": None, "final": final, "active": active}
+
+
+def player_games(obj, weeks: list[int], week: int) -> list[dict]:
+    """The weeks asked for, off an espn-api Player/BoxPlayer's `stats` (a Player from the team
+    roster carries every week; a BoxPlayer or free agent only the week it was fetched for).
+    Earlier weeks are final; this week's game is final when espn-api says it has been played."""
+    stats = getattr(obj, "stats", None) or {}
+    out = []
+    for w in weeks:
+        st = stats.get(w)
+        if st:
+            final = w < week or int(getattr(obj, "game_played", 100) or 0) >= 100
+            out.append(game_from_stats(w, st, obj.position, final))
+    return out
+
+
+def form_weeks(week: int) -> list[int]:
+    """The weeks the window is looked for in: the last FORM_WEEKS, ending this week."""
+    return list(range(max(1, week - S.FORM_WEEKS + 1), week + 1))
+
+
+def parse_sleeper_snaps(rows: list[dict]) -> dict[tuple[str, str], tuple[float, float]]:
+    """(offensive snaps, team offensive snaps) keyed like parse_sleeper_rows. A row without snaps
+    (they land a day or so after the game) is left out, so the game shows no snap share yet."""
+    out: dict[tuple[str, str], tuple[float, float]] = {}
+    for p in rows:
+        pl, st = p.get("player", {}), p.get("stats", {})
+        pos = pl.get("position")
+        if pos not in S.SNAP_POSITIONS or not st.get("off_snp") or not st.get("tm_off_snp"):
+            continue
+        out[(norm_name(f"{pl.get('first_name','')} {pl.get('last_name','')}"), pos)] = (
+            float(st["off_snp"]), float(st["tm_off_snp"]))
+    return out
+
+
+def fetch_sleeper_snaps(week: int) -> dict[tuple[str, str], tuple[float, float]]:
+    r = requests.get(SLEEPER_STATS.format(season=SEASON, week=week),
+                     params=[("season_type", "regular"), ("order_by", "pts_ppr")] + [("position[]", p) for p in sorted(S.SNAP_POSITIONS)],
+                     headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+    r.raise_for_status()
+    return parse_sleeper_snaps(r.json())
+
+
+def _snaps_for(weeks: list[int], snaps: dict | None) -> dict[int, dict]:
+    """Sleeper's snaps for each week, cached for CACHE_S per week; a week that fails is {} for
+    this build (no snap share for that game, the points columns unaffected) and is not cached."""
+    if snaps is not None:
+        return snaps
+    out: dict[int, dict] = {}
+
+    def one(w: int) -> dict:
+        hit = _SNAPS.get(w)
+        if hit and hit[0] > time.time():
+            return hit[1]
+        try:
+            data = fetch_sleeper_snaps(w)
+        except requests.RequestException as e:
+            print(f"sleeper snaps unavailable for week {w}: {e}")
+            return {}
+        _SNAPS[w] = (time.time() + CACHE_S, data)
+        return data
+    with ThreadPoolExecutor(max(len(weeks), 1)) as pool:
+        for w, data in zip(weeks, pool.map(one, weeks)):
+            out[w] = data
+    return out
+
+
+def _form_key(p: dict) -> tuple[str, str]:
+    return (norm_name(p["name"]), p["pos"])
+
+
+def apply_form(players: list[dict], games_by_id: dict[int, list[dict]], snaps_by_week: dict[int, dict],
+               week: int, byes: dict[str, int]) -> list[dict]:
+    """`form` on every player: season.recent_form over his game rows with Sleeper's snaps joined
+    on (name, position) per week, paced against his ROS (season.ros_proj) over the games he has
+    left. None when he has no game in the window."""
+    out = []
+    for p in players:
+        q = dict(p)
+        games = []
+        for g in games_by_id.get(p["player_id"], []):
+            snap = snaps_by_week.get(g["week"], {}).get(_form_key(p)) if p["pos"] in S.SNAP_POSITIONS else None
+            games.append({**g, "snaps": snap[0], "team_snaps": snap[1]} if snap else dict(g))
+        q["form"] = S.recent_form(games, p["pos"], S.ros_proj(p, week), S.games_left(week, byes.get(p["team"])))
+        out.append(q)
+    return out
 
 
 def fetch_sleeper_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
@@ -440,7 +598,8 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
 
 
 def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None,
-                    season: dict | None = None, injuries: dict | None = None) -> dict:
+                    season: dict | None = None, injuries: dict | None = None,
+                    snaps: dict | None = None) -> dict:
     lg = fresh_league()
     settings = load()
     week = week or lg.current_week
@@ -458,22 +617,44 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
         [flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], seas)
     out = {}
     home = home_by_team(lg, week)  # so the Waivers page can say "at" when a free agent travels
+    byes, weeks = bye_by_team(lg), form_weeks(week)
+    snap_weeks = _snaps_for(weeks, snaps)
     positions = ["QB", "RB", "WR", "TE", "D/ST", "K"]
-    # six independent ESPN calls of ~0.6 s each: in flight together, not one after another
-    with ThreadPoolExecutor(len(positions)) as pool:
-        fetched = list(pool.map(lambda pos: lg.free_agents(week=week, size=size, position=pos), positions))
-    for pos, agents in zip(positions, fetched):
-        box = [flatten_box_player(bp) for bp in agents]
-        frees = apply_home(apply_injuries(apply_season(merge_weekly(box, sl), seas), inj, w1), home)
+    # one ESPN call of ~0.6 s per position and form week (the pool is the same set each week,
+    # sorted by ownership; only the stats change): all in flight together, not one after another
+    asks = [(pos, w) for pos in positions for w in weeks]
+    with ThreadPoolExecutor(len(asks)) as pool:
+        fetched = dict(zip(asks, pool.map(lambda a: lg.free_agents(week=a[1], size=size, position=a[0]), asks)))
+    for pos in positions:
+        games: dict[int, list[dict]] = {}
+        for w in weeks:
+            for obj in fetched[(pos, w)]:
+                games.setdefault(obj.playerId, []).extend(player_games(obj, [w], week))
+        box = [flatten_box_player(bp) for bp in fetched[(pos, week)]]
+        frees = apply_form(apply_home(apply_injuries(apply_season(merge_weekly(box, sl), seas), inj, w1), home),
+                           games, snap_weeks, week, byes)
         for f in frees:
             f["slot"] = "FA"
         out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, week)
     return {"week": week, "positions": out, "ros_source": ros_source(seas)}
 
 
+def _my_roster_games(lg, me: int, lineup: list, week: int) -> dict[int, list[dict]]:
+    """Game rows for my roster: this week's off the box score (fresh every minute), the earlier
+    form weeks off the League's team roster, whose Players carry every week's stats."""
+    weeks = form_weeks(week)
+    games = {bp.playerId: player_games(bp, [week], week) for bp in lineup}
+    team = next((t for t in getattr(lg, "teams", []) if getattr(t, "team_id", None) == me), None)
+    for pl in (getattr(team, "roster", None) or []):
+        if pl.playerId in games:
+            games[pl.playerId] = player_games(pl, weeks[:-1], week) + games[pl.playerId]
+    return games
+
+
 def roster_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
-                 injuries: dict | None = None) -> dict:
-    """My roster as cards (season.roster_cards) for the Roster page. Same enrichment as week_state."""
+                 injuries: dict | None = None, snaps: dict | None = None) -> dict:
+    """My roster as cards (season.roster_cards) for the Roster page. Same enrichment as week_state,
+    plus `form` (STRATEGY.md, "Recent form") on every card."""
     lg = fresh_league()
     settings = load()
     week = week or lg.current_week
@@ -484,9 +665,10 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
     boxes = _boxes_by_team(lg, week)
     if me not in boxes:
         raise RuntimeError(f"no box score for team {me} in week {week}")
-    players = apply_home(apply_injuries(
+    players = apply_form(apply_home(apply_injuries(
         apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1),
-        home_by_team(lg, week))
+        home_by_team(lg, week)),
+        _my_roster_games(lg, me, boxes[me], week), _snaps_for(form_weeks(week), snaps), week, bye_by_team(lg))
     return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week)}
 
 

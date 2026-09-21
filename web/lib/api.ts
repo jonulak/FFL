@@ -22,6 +22,17 @@ export type Player = {
   opponent: string | null; kickoff: string | null; home: boolean | null;
   game?: GameState; // present once his pro team has kicked off (live overlay, ffl/live.py)
   stat_line?: string; // his box-score line, once a stat that scores has happened (live.stat_line)
+  form?: Form | null; // his last three games (STRATEGY.md "Recent form"); Roster cards and Waiver rows
+};
+// season.recent_form: the last three games he played, facts beside `add`, never inside it.
+// Null columns are the ones his position has no number for (snaps for a K, targets for a QB),
+// or that no game in the window has yet (snaps land a day after the games: `snap_games` says
+// how many of the `games` carry them).
+export type Form = {
+  games: number; weeks: number[];
+  l3: number; beat: number; opp: number | null; opp_trend: number | null;
+  snap_pct: number | null; snap_games: number; tgt_snap: number | null; ypt: number | null;
+  pace_gap: number;
 };
 export type GameState = {
   status: "in" | "post"; quarter: number | null; clock: string | null;
