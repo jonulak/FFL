@@ -1,6 +1,6 @@
 """Flattening espn-api objects and merging Sleeper's weekly projections (no network)."""
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,8 +26,8 @@ def test_flatten_box_player():
                  "spread": None, "espn_only": True, "actual": 0.0, "game_played": 0,
                  "season_proj": 320.5, "season_proj_sleeper": None,
                  "ros_proj": None, "ros_sleeper": None, "ros_cbs": None, "ros_spread": None,
-                 "return_week": None, "injury_note": None, "opponent": None, "kickoff": None,
-                 "home": None}
+                 "return_week": None, "injury_note": None, "exp": None, "ahead": [], "opponent": None,
+                 "kickoff": None, "home": None}
 
 
 def test_flatten_dst_uses_team_position():
@@ -290,7 +290,8 @@ def test_parse_injuries_survives_a_return_date_that_is_not_a_date():
     row = {"shortComment": "Out indefinitely.", "details": {"returnDate": "TBD", "type": "Knee"},
            "athlete": {"links": [{"href": "https://www.espn.com/nfl/player/_/id/42/x"}]}}
     inj = espn_season.parse_injuries({"injuries": [{"displayName": "T", "injuries": [row]}]})
-    assert inj[42] == {"return_date": None, "note": "Out indefinitely.", "body_part": "Knee"}
+    assert inj[42] == {"return_date": None, "note": "Out indefinitely.", "body_part": "Knee",
+                       "team": None, "pos": None, "status": None, "name": None}
 
 
 def test_parse_injuries_tolerates_null_lists():
@@ -326,6 +327,59 @@ def test_apply_injuries_without_week1_start_keeps_only_the_notes():
     players = [espn_season.flatten_box_player(bp(playerId=CARTER))]
     out = espn_season.apply_injuries(players, espn_season.parse_injuries(INJ_FIXTURE), None)
     assert out[0]["return_week"] is None and out[0]["injury_note"] is not None
+
+
+# --- STRATEGY.md "Usage-adjusted ROS": who is hurt ahead of him, and when the week is over ------
+
+def _inj_row(pid, name, pos, status, ret=None):
+    return {"status": status, "shortComment": f"{name} note.",
+            "details": {"returnDate": ret} if ret else None,
+            "athlete": {"displayName": name, "position": {"abbreviation": pos},
+                        "links": [{"href": f"https://www.espn.com/nfl/player/_/id/{pid}/x"}]}}
+
+
+DEN = {"injuries": [{"id": "7", "displayName": "Denver Broncos", "injuries": [  # the live feed's id is a string
+    _inj_row(101, "RJ Harvey", "RB", "Out", "2026-09-27"),
+    _inj_row(102, "J.K. Dobbins", "RB", "Questionable", "2026-09-27"),
+    _inj_row(103, "Jonah Coleman", "RB", "Active"),
+    _inj_row(104, "Courtland Sutton", "WR", "Out", "2026-10-04")]}]}
+
+
+def test_parse_injuries_carries_team_position_status_and_name():
+    inj = espn_season.parse_injuries(DEN)
+    assert inj[101]["team"] == "DEN" and inj[101]["pos"] == "RB" and inj[101]["status"] == "Out"
+    assert inj[101]["name"] == "RJ Harvey" and inj[103]["status"] == "Active"
+    old = espn_season.parse_injuries(INJ_FIXTURE)[CARTER]
+    assert old["pos"] is None and old["name"], "a row without a position still parses"
+
+
+def test_apply_injuries_lists_the_hurt_teammates_at_his_position_ahead_of_him():
+    players = [espn_season.flatten_box_player(bp(playerId=103, name="Jonah Coleman", proTeam="DEN")),
+               espn_season.flatten_box_player(bp(playerId=101, name="RJ Harvey", proTeam="DEN")),
+               espn_season.flatten_box_player(bp(playerId=99, name="Someone Else", proTeam="KC"))]
+    out = espn_season.apply_injuries(players, espn_season.parse_injuries(DEN), WEEK1)
+    assert out[0]["ahead"] == [{"name": "RJ Harvey", "status": "OUT", "return_week": 3},
+                               {"name": "J.K. Dobbins", "status": "QUESTIONABLE", "return_week": 3}]
+    assert out[1]["ahead"] == [{"name": "J.K. Dobbins", "status": "QUESTIONABLE", "return_week": 3}], "never himself"
+    assert out[2]["ahead"] == [], "a club with nobody on the report"
+    assert "ahead" not in players[0] or players[0]["ahead"] == [], "pure"
+
+
+def test_parse_kickoffs_by_week_reads_every_game_once_as_an_aware_datetime():
+    data = {"settings": {"proTeams": [
+        {"id": 7, "proGamesByScoringPeriod": {"2": [{"id": 1, "date": 1790554800000, "homeProTeamId": 7, "awayProTeamId": 14}]}},
+        {"id": 14, "proGamesByScoringPeriod": {"2": [{"id": 1, "date": 1790554800000, "homeProTeamId": 7, "awayProTeamId": 14}]}},
+        {"id": 0, "proGamesByScoringPeriod": {}}]}}
+    kicks = espn_season.parse_kickoffs_by_week(data)
+    assert list(kicks) == [2] and len(kicks[2]) == 1, "both clubs list the same game; it counts once"
+    assert kicks[2][0].tzinfo is not None and kicks[2][0].timestamp() == 1790554800.0
+
+
+def test_ros_week_for_rolls_off_the_schedule_and_leaves_espns_week_without_one(monkeypatch):
+    lg = SimpleNamespace()  # no espn_request: the schedule document is empty
+    assert espn_season.ros_week_for(lg, 2) == 2
+    monkeypatch.setattr(espn_season, "kickoffs_by_week", lambda lg: {2: [datetime(2020, 1, 1, tzinfo=timezone.utc)]})
+    assert espn_season.ros_week_for(lg, 2) == 3, "every kickoff long past"
 
 
 def test_week_state_attaches_injuries_to_both_sides(monkeypatch):

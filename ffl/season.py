@@ -180,11 +180,49 @@ def ros_from_sources(p: dict) -> bool:
 
 
 def ros_proj(p: dict, week: int) -> float:
-    """His rest-of-season points (STRATEGY.md, "Waivers"): the sources' number when either has him,
-    else the season projection scaled by the weeks left."""
+    """His rest-of-season points by the models (STRATEGY.md, "Waivers"): the sources' number when
+    either has him, else the season projection scaled by the weeks left."""
     if ros_from_sources(p):
         return float(p["ros_proj"])
     return round(float(p.get("season_proj") or 0.0) * ros_fraction(week), 1)
+
+
+# STRATEGY.md, "Usage-adjusted ROS": the prior is worth K starter-share games. A guess about noise,
+# checked by ffl.calibrate against the weekly snapshots — change it there, not by eye.
+K_PRIOR = 4
+
+
+def ros_adj(p: dict, week: int) -> float:
+    """His rest-of-season points as `add` runs on them: the model's per-game rate shrunk toward his
+    recent games by the window's snap-weighted game count (`form["weight"]`), over the games he can
+    still play. The model as it stands when he has no games, no weight, or nothing left to play."""
+    model = ros_proj(p, week)
+    f = p.get("form")
+    if not f or not f.get("weight"):
+        return model
+    left = int(f.get("games_left") or 0)
+    if (p.get("injury") or "") in GAMES_OUT:
+        missed = games_out(p.get("return_week"), week)
+        left -= missed if missed is not None else GAMES_OUT[p["injury"]]
+    if left <= 0:
+        return model
+    w = float(f["weight"])
+    return round(left * (w * float(f["l3"]) + K_PRIOR * model / left) / (w + K_PRIOR), 1)
+
+
+# Every kickoff in the week this long ago means the week's games are all played.
+GAME_HOURS = 4
+
+
+def ros_week(week: int, kickoffs: list[datetime], now: datetime | None = None) -> int:
+    """The week rest-of-season starts from: ESPN's scoring period, or the next one once every
+    kickoff in it is GAME_HOURS old — the period rolls some time Tuesday, and until then the
+    Sleeper sum counts a game already played. An empty schedule leaves ESPN's week alone."""
+    if not kickoffs or week >= NFL_WEEKS:
+        return week
+    t = now or datetime.now(ZoneInfo("America/New_York"))
+    last = max(kickoffs)
+    return week + 1 if (t - last).total_seconds() >= GAME_HOURS * 3600 else week
 
 
 def week_of(d: date, week1_start: date) -> int:
@@ -220,15 +258,15 @@ def add_score(ros_delta: float, week_delta: float, injury: str, week: int,
 
 
 def weakest_rostered(my_roster: list[dict], pos: str, week: int) -> float:
-    mine = [ros_proj(p, week) for p in my_roster if p["pos"] == pos and p.get("slot") != "IR"]
+    mine = [ros_adj(p, week) for p in my_roster if p["pos"] == pos and p.get("slot") != "IR"]
     return min(mine) if mine else 0.0
 
 
 def pool_replacement(pool: list[dict], settings: dict, pos: str, week: int) -> float:
-    """The last player at `pos` who still gets rostered league-wide, by rest-of-season projection —
+    """The last player at `pos` who still gets rostered league-wide, by usage-adjusted ROS —
     the same demand count board.build uses (starters + bench depth), on the rostered+free pool."""
     demand = int(round(starter_counts(settings)[pos] + bench_depth(settings)[pos]))
-    ranked = sorted((ros_proj(p, week) for p in pool if p["pos"] == pos), reverse=True)
+    ranked = sorted((ros_adj(p, week) for p in pool if p["pos"] == pos), reverse=True)
     if not ranked:
         return 0.0
     idx = min(max(demand - 1, 0), len(ranked) - 1)
@@ -236,23 +274,25 @@ def pool_replacement(pool: list[dict], settings: dict, pos: str, week: int) -> f
 
 
 def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dict],
-                  settings: dict, week: int) -> list[dict]:
-    """Per free agent: ROS projection against my weakest at his position and against the pool's
-    replacement level, whether he would start this week and for how much, and `add`."""
+                  settings: dict, week: int, week_over: bool = False) -> list[dict]:
+    """Per free agent: usage-adjusted ROS (`ros_adj`; the model mean stays in `ros_proj`) against
+    my weakest at his position and against the pool's replacement level, whether he would start
+    this week and for how much (nothing, once the week's games are all played), and `add`.
+    `week` is the ROS week (season.ros_week)."""
     current = optimal_lineup(my_roster, settings)
     cur_total = lineup_total(current)
     rows = []
     for fa in free_agents:
         pos = fa["pos"]
-        ros = ros_proj(fa, week)
+        ros = ros_adj(fa, week)
         d_roster = round(ros - weakest_rostered(my_roster, pos, week), 1)
         d_pool = round(ros - pool_replacement(pool, settings, pos, week), 1)
         with_him = optimal_lineup(my_roster + [{**fa, "slot": "BE"}], settings)
-        week_delta = round(lineup_total(with_him) - cur_total, 1)
+        week_delta = 0.0 if week_over else round(lineup_total(with_him) - cur_total, 1)
         would_start = week_delta > 0
         ros_delta = min(d_roster, d_pool)
-        rows.append({**fa, "ros_proj": ros, "week_proj": playable_proj(fa), "delta_roster": d_roster,
-                     "delta_pool": d_pool, "would_start": would_start,
+        rows.append({**fa, "ros_proj": ros_proj(fa, week), "ros_adj": ros, "week_proj": playable_proj(fa),
+                     "delta_roster": d_roster, "delta_pool": d_pool, "would_start": would_start,
                      "week_delta": week_delta if would_start else 0.0,
                      "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"), week,
                                       games_out(fa.get("return_week"), week), ros_from_sources(fa))})
@@ -269,6 +309,37 @@ TARGET_POSITIONS = {"RB", "WR", "TE"}
 
 def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs)
+
+
+def _median(xs: list[float]) -> float:
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+# STRATEGY.md, "Usage-adjusted ROS": the league's lead players at a position, by snaps — one RB,
+# two WR, one TE and one QB per club. Their median snap share is what a game is weighed against.
+LEAD_PLAYERS = {"QB": 32, "RB": 32, "WR": 64, "TE": 32}
+
+
+def snap_reference(snaps: dict[tuple[str, str], tuple[float, float]]) -> dict[str, float]:
+    """The median snap share of the lead players at each position, for one week, over Sleeper's
+    rows ((name, pos) -> (snaps, team snaps), as espn_season.parse_sleeper_snaps keys them). A
+    position nobody has snaps for is absent, and a game that week weighs one."""
+    shares: dict[str, list[float]] = {}
+    for (_, pos), (s, t) in snaps.items():
+        if pos in LEAD_PLAYERS and t > 0:
+            shares.setdefault(pos, []).append(s / t)
+    return {pos: round(_median(sorted(v, reverse=True)[:LEAD_PLAYERS[pos]]), 3) for pos, v in shares.items()}
+
+
+def _game_weight(g: dict) -> float:
+    """What one game in the window is worth to the blend: his snap share against the position's
+    reference that week, capped at one; a full game when either is missing."""
+    ref, snaps, team = g.get("ref"), g.get("snaps"), g.get("team_snaps")
+    if not ref or snaps is None or not team:
+        return 1.0
+    return min(1.0, (float(snaps) / float(team)) / float(ref))
 
 
 def games_left(week: int, bye_week: int | None) -> int:
@@ -309,15 +380,18 @@ def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dic
             "snap_games": len(snapped),
             "tgt_snap": round(sum(float(g.get("tgt") or 0) for g in snapped) / snaps, 2) if targets and snapped and snaps > 0 else None,
             "ypt": round(yds / tgts, 1) if targets and tgts > 0 else None,
-            "pace_gap": round(l3 * games_left - float(ros), 1)}
+            "pace_gap": round(l3 * games_left - float(ros), 1),
+            # what the window is worth to the usage-adjusted ROS, and the span it is paced over
+            "weight": round(sum(_game_weight(g) for g in window), 2), "games_left": games_left}
 
 
 def roster_rows(my_roster: list[dict], week: int) -> list[dict]:
     """My players as the Waivers page compares a free agent against them: the same rest-of-season
     and week figures a waiver row carries (`ros_proj` resolved, `week_proj` playable), ordered by
     ROS. IR players stay in: a drop is a drop."""
-    rows = [{**p, "ros_proj": ros_proj(p, week), "week_proj": playable_proj(p)} for p in my_roster]
-    return sorted(rows, key=lambda r: -r["ros_proj"])
+    rows = [{**p, "ros_proj": ros_proj(p, week), "ros_adj": ros_adj(p, week), "week_proj": playable_proj(p)}
+            for p in my_roster]
+    return sorted(rows, key=lambda r: -r["ros_adj"])
 
 
 def append_decision(path: Path, title: str, decision: str, reasoning: str, alternatives: str,

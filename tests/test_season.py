@@ -16,7 +16,7 @@ def P(pid, name, pos, proj, slot="BE", injury="ACTIVE", bye=False, team="T", sea
             "espn_only": False, "actual": 0.0, "game_played": 0,
             "season_proj": season_proj if season_proj is not None else proj * 17,
             "season_proj_sleeper": None, "ros_proj": None, "ros_sleeper": None, "ros_cbs": None,
-            "ros_spread": None, "return_week": None, "injury_note": None,
+            "ros_spread": None, "return_week": None, "injury_note": None, "exp": None, "ahead": [],
             "opponent": None, "kickoff": None, "home": None}
 
 
@@ -377,3 +377,80 @@ def test_roster_rows_resolve_ros_and_the_playable_week_and_sort_by_ros():
     assert [r["name"] for r in rows] == ["B", "A", "C"]
     assert rows[0]["week_proj"] == 0.0 and rows[1]["week_proj"] == 10.0, "OUT scores nothing this week"
     assert rows[1]["ros_proj"] == season.ros_proj(rows[1], 1)
+
+
+# --- STRATEGY.md "Usage-adjusted ROS" -----------------------------------------------------------
+
+def form(l3, weight, games_left=15):
+    return {"games": 2, "weeks": [1, 2], "l3": l3, "beat": 0.0, "opp": None, "opp_trend": None,
+            "snap_pct": None, "snap_games": 0, "tgt_snap": None, "ypt": None, "pace_gap": 0.0,
+            "weight": weight, "games_left": games_left}
+
+
+def test_ros_adj_is_the_model_when_he_has_no_games():
+    p = {**P(1, "X", "WR", 10), "ros_proj": 150.0, "form": None}
+    assert season.ros_adj(p, week=3) == 150.0
+    q = {**P(1, "X", "WR", 10), "ros_proj": 150.0, "form": form(20.0, 0.0)}
+    assert season.ros_adj(q, week=3) == 150.0, "zero weight: nothing to shrink toward"
+
+
+def test_ros_adj_shrinks_the_model_rate_toward_the_window_by_its_weight():
+    p = {**P(1, "Boston", "WR", 10), "ros_proj": 160.0, "form": form(17.2, 2.0, games_left=15)}
+    pg = 160.0 / 15
+    assert season.K_PRIOR == 4
+    assert season.ros_adj(p, week=3) == round(15 * (2.0 * 17.2 + 4 * pg) / 6.0, 1)
+    one = {**P(2, "Coleman", "RB", 5), "ros_proj": 79.0, "form": form(14.8, 0.65, games_left=15)}
+    assert season.ros_adj(one, week=3) == round(15 * (0.65 * 14.8 + 4 * 79.0 / 15) / 4.65, 1)
+
+
+def test_ros_adj_starts_from_the_season_formula_when_no_source_has_him():
+    p = {**P(1, "X", "RB", 10, season_proj=170.0), "form": form(10.0, 1.0, games_left=15)}
+    model = season.ros_proj(p, week=3)
+    assert season.ros_adj(p, week=3) == round(15 * (10.0 + 4 * model / 15) / 5, 1)
+
+
+def test_ros_adj_blends_only_the_games_an_out_player_can_play():
+    # OUT until week 7 from week 3: four games missed, which the model already leaves out
+    p = {**P(1, "X", "WR", 10, injury="OUT"), "ros_proj": 110.0, "return_week": 7,
+         "form": form(12.0, 2.0, games_left=15)}
+    assert season.ros_adj(p, week=3) == round(11 * (2.0 * 12.0 + 4 * 110.0 / 11) / 6, 1)
+    ir = {**p, "injury": "INJURY_RESERVE", "return_week": None}  # no date: the four-game constant
+    assert season.ros_adj(ir, week=3) == round(11 * (2.0 * 12.0 + 4 * 110.0 / 11) / 6, 1)
+    done = {**p, "return_week": 19}
+    assert season.ros_adj(done, week=3) == 110.0, "nothing left to play: the model as it stands"
+
+
+def test_ros_week_rolls_once_every_kickoff_is_four_hours_old():
+    ny = ZoneInfo("America/New_York")
+    kicks = [datetime(2026, 9, 17, 20, 15, tzinfo=ny), datetime(2026, 9, 20, 13, 0, tzinfo=ny),
+             datetime(2026, 9, 21, 20, 15, tzinfo=ny)]
+    assert season.ros_week(2, kicks, now=datetime(2026, 9, 21, 23, 0, tzinfo=ny)) == 2, "Monday night still on"
+    assert season.ros_week(2, kicks, now=datetime(2026, 9, 22, 0, 30, tzinfo=ny)) == 3, "all played"
+    assert season.ros_week(2, [], now=datetime(2026, 9, 22, 0, 30, tzinfo=ny)) == 2, "no schedule: ESPN's week"
+    assert season.ros_week(18, kicks, now=datetime(2027, 1, 12, tzinfo=ny)) == 18, "never past the last week"
+
+
+def test_waiver_deltas_run_on_the_adjusted_ros_and_drop_the_week_term_once_the_week_is_over():
+    mine = roster()
+    hot = {**fa(100, "FA RB hot", "RB", 17, 200), "form": form(20.0, 2.0, games_left=15)}
+    filler = [fa(200 + i, f"fill RB{i}", "RB", 3, 40 - i) for i in range(40)]
+    rows = season.waiver_deltas([hot], mine, mine + [hot] + filler, TWO_QB, week=3)
+    row = rows[0]
+    adj = season.ros_adj(hot, 3)
+    model = season.ros_proj(hot, 3)  # no source: the season total scaled by the weeks left
+    assert adj > model and row["ros_adj"] == adj and row["ros_proj"] == model, "the model stays visible beside"
+    weakest = min(season.ros_adj(p, 3) for p in mine if p["pos"] == "RB" and p["slot"] != "IR")
+    assert row["delta_roster"] == round(adj - weakest, 1)
+    assert row["would_start"] is True and row["week_delta"] > 0
+    over = season.waiver_deltas([hot], mine, mine + [hot] + filler, TWO_QB, week=3, week_over=True)[0]
+    assert over["would_start"] is False and over["week_delta"] == 0.0
+    assert over["add"] == round(min(over["delta_roster"], over["delta_pool"]), 1)
+
+
+def test_roster_rows_carry_the_adjusted_ros_and_sort_by_it():
+    mine = roster()
+    mine[3] = {**mine[3], "ros_proj": 100.0, "form": form(30.0, 3.0, games_left=15)}  # RB A, hot
+    rows = season.roster_rows(mine, week=3)
+    a = next(r for r in rows if r["name"] == "RB A")
+    assert a["ros_adj"] == season.ros_adj(mine[3], 3) and a["ros_proj"] == 100.0
+    assert [r["ros_adj"] for r in rows] == sorted((r["ros_adj"] for r in rows), reverse=True)

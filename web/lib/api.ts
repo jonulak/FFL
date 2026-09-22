@@ -19,6 +19,10 @@ export type Player = {
   // rest of season: the mean of Sleeper's remaining weeks and CBS's ROS page, null when neither
   // has him (the API then scales season_proj); ros_spread is the gap when both do
   ros_proj: number | null; ros_sleeper: number | null; ros_cbs: number | null; ros_spread: number | null;
+  // STRATEGY.md "Usage-adjusted ROS": the two stories the blend cannot price, shown beside it —
+  // years in the league (0 = rookie; null when Sleeper has no record) and the hurt teammates
+  // at his position on ESPN's injury report
+  exp: number | null; ahead: Ahead[];
   opponent: string | null; kickoff: string | null; home: boolean | null;
   game?: GameState; // present once his pro team has kicked off (live overlay, ffl/live.py)
   stat_line?: string; // his box-score line, once a stat that scores has happened (live.stat_line)
@@ -33,7 +37,12 @@ export type Form = {
   l3: number; beat: number; opp: number | null; opp_trend: number | null;
   snap_pct: number | null; snap_games: number; tgt_snap: number | null; ypt: number | null;
   pace_gap: number;
+  // what the window is worth to the usage-adjusted ROS (snap share against the position's lead
+  // players, a game at most), and the games it is paced over
+  weight: number; games_left: number;
 };
+// A hurt teammate at his position: ESPN's status upper-cased, the return week when the feed has one.
+export type Ahead = { name: string | null; status: string; return_week: number | null };
 export type GameState = {
   status: "in" | "post"; quarter: number | null; clock: string | null;
   score: Record<string, number>; // team abbreviation -> points, both sides
@@ -65,16 +74,19 @@ export type Play = {
 };
 export type Plays = { week: number | null; live: boolean; plays: Play[]; stale_since: null };
 export type Week = { week: number; live: boolean; me: Side; opp: Side | null; plays: Play[]; stale_since: string | null };
+// ros_proj is the model mean (resolved: the season formula when no source has him); ros_adj the
+// usage-adjusted number `add` and the deltas run on (STRATEGY.md "Usage-adjusted ROS").
 export type WaiverRow = Player & {
-  ros_proj: number; week_proj: number; delta_roster: number; delta_pool: number;
+  ros_proj: number; ros_adj: number; week_proj: number; delta_roster: number; delta_pool: number;
   would_start: boolean; week_delta: number; add: number;
 };
 // One of my players as the Waivers table compares a free agent against him: the same ROS and
-// week figures, by ROS best first (season.roster_rows).
-export type RosterRow = Player & { ros_proj: number; week_proj: number };
-// ros_source "season": no source had anyone, every ROS is a scaled draft-day season total
+// week figures, by adjusted ROS best first (season.roster_rows).
+export type RosterRow = Player & { ros_proj: number; ros_adj: number; week_proj: number };
+// ros_source "season": no source had anyone, every ROS is a scaled draft-day season total.
+// ros_week: the week ROS starts from; week_over: this week's games are all played (no week term).
 export type Waivers = {
-  week: number; pos: string; rows: WaiverRow[]; roster: RosterRow[];
+  week: number; ros_week: number; week_over: boolean; pos: string; rows: WaiverRow[]; roster: RosterRow[];
   ros_source: "sources" | "season"; stale_since: string | null;
 };
 // A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).

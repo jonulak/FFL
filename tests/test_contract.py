@@ -15,7 +15,7 @@ from tests.test_season import TWO_QB, P, roster
 PLAYER = {"player_id", "name", "pos", "team", "slot", "bye", "injury", "proj_espn", "proj_sleeper",
           "proj", "spread", "espn_only", "actual", "game_played", "season_proj", "season_proj_sleeper",
           "ros_proj", "ros_sleeper", "ros_cbs", "ros_spread",
-          "return_week", "injury_note", "opponent", "kickoff", "home"}
+          "return_week", "injury_note", "opponent", "kickoff", "home", "exp", "ahead"}
 # web/lib/api.ts: type LineupEntry
 LINEUP_ENTRY = {"slot", "player_id", "name", "proj"}
 # web/lib/api.ts: type Swap
@@ -24,7 +24,7 @@ SWAP = {"slot", "out", "in", "gain"}
 SIDE = {"team_id", "team", "abbrev", "logo", "lineup", "bench", "ir", "optimal", "optimal_swaps", "proj_total",
         "optimal_total", "actual_total"}
 # web/lib/api.ts: type WaiverRow = Player & {...}
-WAIVER_EXTRA = {"ros_proj", "week_proj", "delta_roster", "delta_pool", "would_start", "week_delta", "add"}
+WAIVER_EXTRA = {"ros_proj", "ros_adj", "week_proj", "delta_roster", "delta_pool", "would_start", "week_delta", "add"}
 # web/lib/api.ts: type League["standings"][number]
 STANDINGS_ROW = {"rank", "team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "points_for", "points_against",
                  "streak", "me"}

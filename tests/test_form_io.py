@@ -156,5 +156,79 @@ def test_free_agent_pool_carries_my_roster_with_the_same_figures(monkeypatch):
     pool = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
     mine = pool["roster"]
     assert len(mine) == 15 and all("form" in p and "ros_proj" in p and "week_proj" in p for p in mine)
-    assert [p["ros_proj"] for p in mine] == sorted((p["ros_proj"] for p in mine), reverse=True), "by ROS, best first"
+    assert [p["ros_adj"] for p in mine] == sorted((p["ros_adj"] for p in mine), reverse=True), "by ROS, best first"
     assert any(p["slot"] == "IR" for p in mine), "IR players stay in: a drop is a drop"
+
+
+# --- STRATEGY.md "Usage-adjusted ROS": the I/O side -------------------------------------------
+
+def test_apply_form_weighs_each_game_against_that_weeks_position_reference():
+    games = {1: [espn_season.game_from_stats(1, week_stats(10, 8, rushingAttempts=10), "RB", True),
+                 espn_season.game_from_stats(2, week_stats(12, 8, rushingAttempts=12), "RB", True)]}
+    snaps = {1: {("kenny gainwell", "RB"): (30.0, 60.0)}, 2: {("kenny gainwell", "RB"): (60.0, 60.0)}}
+    refs = {1: {"RB": 0.6}, 2: {"RB": 0.6}}
+    f = espn_season.apply_form(_players(), games, snaps, week=3, byes={}, refs=refs)[0]["form"]
+    assert f["weight"] == round(min(1, 0.5 / 0.6) + 1.0, 2)
+    bare = espn_season.apply_form(_players(), games, snaps, week=3, byes={})[0]["form"]
+    assert bare["weight"] == 2.0, "no references: every game a full one"
+
+
+def test_parse_sleeper_exp_reads_years_in_the_league_keyed_like_the_snaps():
+    rows = [{"player": {"first_name": "Jonah", "last_name": "Coleman", "position": "RB", "years_exp": 0}, "stats": {}},
+            {"player": {"first_name": "Kenny", "last_name": "Gainwell", "position": "RB", "years_exp": 6}, "stats": {}},
+            {"player": {"first_name": "Nobody", "last_name": "Known", "position": "WR"}, "stats": {}}]
+    assert espn_season.parse_sleeper_exp(rows) == {("jonah coleman", "RB"): 0, ("kenny gainwell", "RB"): 6}
+
+
+def test_apply_exp_sets_years_where_sleeper_has_him_and_leaves_none_otherwise():
+    out = espn_season.apply_exp(_players(), {("kenny gainwell", "RB"): 6})
+    assert out[0]["exp"] == 6 and out[1]["exp"] is None
+
+
+def test_roster_games_read_every_clubs_players_off_the_league_rosters():
+    """The replacement line runs on the whole league's adjusted ROS, so every rostered player
+    needs his earlier weeks, not only mine."""
+    hist = SimpleNamespace(playerId=4, position="RB", stats={1: week_stats(15.0, 14.0, rushingAttempts=18)})
+    theirs = SimpleNamespace(playerId=1, position="RB", stats={1: week_stats(20.0, 14.0, rushingAttempts=22)})
+    lg = SimpleNamespace(teams=[SimpleNamespace(team_id=7, roster=[hist]), SimpleNamespace(team_id=2, roster=[theirs])])
+    mine_box, their_box = as_box(season_roster()[3]), as_box(season_roster()[0])
+    mine_box.stats = {2: week_stats(9.0, 14.0, rushingAttempts=10)}
+    their_box.stats = {2: week_stats(7.0, 14.0, rushingAttempts=12)}
+    games = espn_season._roster_games(lg, {7: [mine_box], 2: [their_box]}, week=2)
+    assert [g["week"] for g in games[4]] == [1, 2] and [g["week"] for g in games[1]] == [1, 2]
+    assert games[1][0]["pts"] == 20.0, "the other club's history came off its roster"
+
+
+def test_free_agent_pool_starts_ros_from_the_next_week_once_this_weeks_games_are_played(monkeypatch):
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    lg.current_week = 3
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "ros_week_for", lambda lg, week: 4)
+    asked = []
+    monkeypatch.setattr(espn_season, "_season_for", lambda settings, season, week: asked.append(week) or {})
+    pool = espn_season.free_agent_pool(week=3, sleeper={}, injuries={}, snaps={})
+    assert pool["week"] == 3 and pool["ros_week"] == 4 and pool["week_over"] is True
+    assert asked == [4], "the Sleeper sum starts from the ROS week"
+    rows = [r for rows in pool["positions"].values() for r in rows]
+    assert all(r["week_delta"] == 0.0 and not r["would_start"] for r in rows), "nothing left to gain this week"
+    monkeypatch.setattr(espn_season, "ros_week_for", lambda lg, week: 3)
+    live = espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    assert live["ros_week"] == 3 and live["week_over"] is False
+
+
+def test_free_agent_pool_snapshots_the_blend_once_per_ros_week(monkeypatch, tmp_path):
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    lg.current_week = 3
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season.calibrate, "CAL_DIR", tmp_path)
+    espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    assert (tmp_path / "week-3.json").exists()
+    first = (tmp_path / "week-3.json").read_text()
+    espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    assert (tmp_path / "week-3.json").read_text() == first, "the first build of the week stands"

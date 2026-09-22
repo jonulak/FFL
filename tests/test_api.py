@@ -210,6 +210,7 @@ def test_decisions_validation_and_append(client):
 def test_waivers_requires_known_pos(client):
     r = client.get("/waivers?pos=RB")
     assert r.status_code == 200 and r.json()["ros_source"] == "season", "the stub carries no ROS sources"
+    assert r.json()["ros_week"] == 3 and r.json()["week_over"] is False, "a pool without the fields reads as ESPN's week"
     assert client.get("/waivers?pos=XX").status_code == 422
 
 

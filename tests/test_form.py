@@ -2,10 +2,10 @@
 from ffl import season
 
 
-def G(week, pts, proj, opp=10.0, tgt=0.0, rec_yd=0.0, snaps=None, team_snaps=None, final=True, active=None):
+def G(week, pts, proj, opp=10.0, tgt=0.0, rec_yd=0.0, snaps=None, team_snaps=None, final=True, active=None, ref=None):
     return {"week": week, "pts": pts, "proj": proj, "opp": opp, "tgt": tgt, "rec_yd": rec_yd,
             "snaps": snaps, "team_snaps": team_snaps, "final": final,
-            "active": (opp > 0) if active is None else active}
+            "active": (opp > 0) if active is None else active, "ref": ref}
 
 
 def test_window_is_the_last_three_games_played():
@@ -79,3 +79,35 @@ def test_games_left_takes_his_bye_out_only_when_it_is_still_ahead():
     assert season.games_left(3, 3) == 15, "on his bye week now: that week is not a game"
     assert season.games_left(8, 7) == 11, "bye already taken"
     assert season.games_left(18, 7) == 1 and season.games_left(19, None) == 0
+
+
+# --- STRATEGY.md "Usage-adjusted ROS": each game weighs its snap share against the position ---
+
+def test_snap_reference_is_the_median_share_of_the_lead_players_at_each_position():
+    # (name, pos) -> (snaps, team snaps): five RBs are all "lead" players; the median of five is the third
+    snaps = {(f"rb{i}", "RB"): (float(s), 100.0) for i, s in enumerate([80, 70, 60, 50, 40])}
+    snaps[("wr1", "WR")] = (90.0, 100.0)
+    ref = season.snap_reference(snaps)
+    assert ref["RB"] == 0.6 and ref["WR"] == 0.9 and "TE" not in ref, "no TE played: no reference for TEs"
+
+
+def test_snap_reference_takes_only_the_lead_players_by_share():
+    snaps = {(f"te{i}", "TE"): (float(100 - i), 100.0) for i in range(40)}  # 40 TEs, shares 1.00 down to 0.61
+    ref = season.snap_reference(snaps)
+    assert ref["TE"] == round((0.85 + 0.84) / 2, 3), "the median of the top 32 (1.00 .. 0.69), not of all 40"
+
+
+def test_window_games_weigh_their_snap_share_against_the_reference_capped_at_one():
+    games = [G(1, 10, 8, snaps=40, team_snaps=100, ref=0.6), G(2, 12, 8, snaps=90, team_snaps=100, ref=0.6)]
+    f = season.recent_form(games, "RB", ros=100.0, games_left=15)
+    assert f["weight"] == round(40 / 60 + 1.0, 2), "a workhorse counts for one game, not more"
+    assert f["games_left"] == 15
+
+
+def test_a_game_without_snaps_or_a_reference_weighs_one_and_so_do_kickers_and_defences():
+    f = season.recent_form([G(1, 10, 8), G(2, 12, 8, snaps=30, team_snaps=100)], "WR", ros=100.0, games_left=15)
+    assert f["weight"] == 2.0, "snaps not landed / no reference for the week: a full game"
+    k = season.recent_form([G(1, 9, 8, opp=5)], "K", ros=120.0, games_left=16)
+    assert k["weight"] == 1.0
+    d = season.recent_form([G(1, 8, 7, opp=None, active=True)], "D/ST", ros=110.0, games_left=16)
+    assert d["weight"] == 1.0

@@ -284,6 +284,8 @@ def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
     return {"week": data["week"], "pos": pos, "rows": data["positions"].get(pos, []),
             "roster": data.get("roster", []),  # my players, for the row's comparison dropdown
+            # the week ROS starts from, and whether this week's games are all played (no week term)
+            "ros_week": data.get("ros_week", data["week"]), "week_over": data.get("week_over", False),
             "ros_source": data.get("ros_source", "season"), "stale_since": data["stale_since"]}
 
 

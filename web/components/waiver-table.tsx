@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { RosterRow, WaiverRow } from "@/lib/api";
-import { FORM_COLUMNS, formCell, injuryLabel, injuryTone, pts, signed } from "@/lib/format";
+import { FORM_COLUMNS, aheadLabel, expLabel, formCell, injuryLabel, injuryTone, pts, signed } from "@/lib/format";
 import { sortRows, type Sort } from "@/lib/waiver-sort";
 import { TrendArrow } from "./form-strip";
 import { Kickoff } from "./local-time";
@@ -148,9 +148,23 @@ function NameCell({ r, week, mine = false, chip }: { r: WaiverRow | RosterRow; w
         <span className="font-semibold text-foreground/80">{r.pos}</span>
         <span aria-hidden>·</span>
         <span>{r.team}</span>
+        {/* years in the league: R for a rookie, the one story the blend cannot tell from a hot start */}
+        {expLabel(r.exp) && (
+          <>
+            <span aria-hidden>·</span>
+            <span title={r.exp === 0 ? "rookie" : `${r.exp} years in the league`} className={r.exp === 0 ? "font-semibold text-foreground/80" : ""}>{expLabel(r.exp)}</span>
+          </>
+        )}
         <span aria-hidden>·</span>
         <Matchup r={r} />
       </p>
+      {/* the hurt teammates at his position: a fill-in's window ends when they are back */}
+      {aheadLabel(r.ahead, week) && (
+        <p className="mt-0.5 text-xs text-close-foreground dark:text-close" title="teammates at his position on ESPN's injury report, with the return week the feed lists">
+          <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em]">ahead</span>{" "}
+          {aheadLabel(r.ahead, week)}
+        </p>
+      )}
     </TableCell>
   );
 }
@@ -171,8 +185,12 @@ function NumberCells({ r, cols }: { r: WaiverRow | RosterRow; cols: FormCol[] })
             ? <Under amber>±{pts(r.spread)}</Under>
             : null}
       </TableCell>
-      {/* rest of season: ROS with its source spread beneath, then the two deltas */}
-      <TableCell className={`${SIDE} ${GROUP_START}`} title={rosSources(r)}>
+      {/* rest of season: the adjusted ROS `add` runs on, the models' mean with its source spread
+          beneath, then the two deltas */}
+      <TableCell className={`${SIDE} ${GROUP_START}`} title="the models' rate shrunk toward his last games by their snap-weighted count (wt), over the games he can still play">
+        {pts(r.ros_adj)}
+      </TableCell>
+      <TableCell className={SIDE} title={rosSources(r)}>
         {pts(r.ros_proj)}
         <Under amber={rosSpread}>{r.ros_spread != null ? `±${pts(r.ros_spread)}` : sourced(r) ? "1 src" : "season"}</Under>
       </TableCell>
@@ -193,7 +211,7 @@ function NumberCells({ r, cols }: { r: WaiverRow | RosterRow; cols: FormCol[] })
 // says whether the claim is an upgrade on this man, so the drop reads straight down.
 function CompareRow({ fa, mine, week, cols }: { fa: WaiverRow; mine: RosterRow; week: number; cols: FormCol[] }) {
   const idle = mine.bye || injuryTone(mine.injury) === "bad";
-  const gap = fa.ros_proj - mine.ros_proj;
+  const gap = fa.ros_adj - mine.ros_adj;
   return (
     <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
       <TableCell className={`w-0 py-1.5 pr-0 pl-6 sm:pl-7 ${PIN_TILE} bg-[color-mix(in_oklab,var(--card),var(--foreground)_3%)]`}>
@@ -203,7 +221,7 @@ function CompareRow({ fa, mine, week, cols }: { fa: WaiverRow; mine: RosterRow; 
       </TableCell>
       <NameCell r={mine} week={week} mine chip={<Badge variant="muted" shape="chip">{slotName(mine.slot)}</Badge>} />
       <TableCell className={`text-right font-display text-lg font-semibold tabular-nums tracking-tight ${gap > 0 ? "" : "text-foreground/70"}`}
-        title={`${fa.name}'s rest-of-season projection minus ${mine.name}'s`}>
+        title={`${fa.name}'s adjusted rest-of-season projection minus ${mine.name}'s`}>
         {signed(gap)}
       </TableCell>
       <NumberCells r={mine} cols={cols} />
@@ -247,7 +265,7 @@ function Row({ r, week, cols, roster, open, onToggle }: {
       {open && mine.map((m) => <CompareRow key={m.player_id} fa={r} mine={m} week={week} cols={cols} />)}
       {open && mine.length === 0 && (
         <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
-          <TableCell colSpan={7 + cols.length} className="py-2 pl-6 text-xs text-muted-foreground sm:pl-7">nobody at {r.pos} on my roster</TableCell>
+          <TableCell colSpan={8 + cols.length} className="py-2 pl-6 text-xs text-muted-foreground sm:pl-7">nobody at {r.pos} on my roster</TableCell>
         </TableRow>
       )}
     </>
@@ -288,15 +306,16 @@ export function WaiverTable({ rows, roster, week, pos }: { rows: WaiverRow[]; ro
             <TableRow className="border-0 hover:bg-transparent">
               <TableHead colSpan={2} className={`h-7 rounded-tl-lg border-0 ${PIN_TOP_1} ${PIN_TILE} ${PIN_CORNER}`} />
               <TableHead colSpan={2} className={`h-7 border-0 ${PIN_TOP_1}`} />
-              <TableHead colSpan={3} className={`h-7 ${GROUP} ${PIN_TOP_1}`}>Rest of season</TableHead>
-              <TableHead colSpan={cols.length} className={`h-7 rounded-tr-lg ${GROUP} ${PIN_TOP_1}`} title="his last three games played, within the last five weeks; none of it is in add">Last 3 games</TableHead>
+              <TableHead colSpan={4} className={`h-7 ${GROUP} ${PIN_TOP_1}`}>Rest of season</TableHead>
+              <TableHead colSpan={cols.length} className={`h-7 rounded-tr-lg ${GROUP} ${PIN_TOP_1}`} title="his last three games played, within the last five weeks; only the snap-weighted L3 reaches add, through the adjusted ROS">Last 3 games</TableHead>
             </TableRow>
             <TableRow className="border-foreground/10 hover:bg-transparent">
               <TableHead className={`h-9 pl-3 sm:pl-4 ${PIN_TOP_2} ${PIN_TILE} ${PIN_CORNER}`}><span className="sr-only">Team</span></TableHead>
               {head("name", `${PIN_TOP_2} ${PIN_NAME} ${PIN_CORNER} max-xl:border-r-0`, "Player")}
               {head("add", `text-right ${PIN_TOP_2}`, "add", "projected points gained this season by adding him")}
               {head("wk", `text-right ${PIN_TOP_2}`, "wk", "this week's projection")}
-              {head("ros", `text-right ${GROUP_START} ${PIN_TOP_2}`, "ROS", "Sleeper's remaining weeks and CBS's rest-of-season projection, averaged; the gap between them beneath")}
+              {head("ros", `text-right ${GROUP_START} ${PIN_TOP_2}`, "ROS", "usage-adjusted rest of season: the models' rate shrunk toward his last games by wt (the prior worth 4 games); what add and the deltas run on")}
+              {head("model", `text-right ${PIN_TOP_2}`, "model", "Sleeper's remaining weeks and CBS's rest-of-season projection, averaged; the gap between them beneath")}
               {head("dr", `text-right ${PIN_TOP_2}`, "Δ roster", "ROS against my weakest at the position")}
               {head("dp", `text-right ${PIN_TOP_2}`, "Δ pool", "ROS against the league's replacement level")}
               {cols.map((col, i) => head(col.key, `text-right ${PIN_TOP_2} ${i === 0 ? GROUP_START : ""} ${i === cols.length - 1 ? "pr-2" : ""}`, col.label, col.title))}

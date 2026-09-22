@@ -1,4 +1,4 @@
-import type { Form } from "./api";
+import type { Ahead, Form } from "./api";
 
 export function pts(n: number | null | undefined): string {
   return n == null ? "—" : n.toFixed(1);
@@ -42,7 +42,8 @@ export const FORM_COLUMNS: { key: keyof Form; label: string; title: string }[] =
   { key: "snap_pct", label: "snap", title: "share of the team's offensive snaps (Sleeper; snaps land a day after the game)" },
   { key: "tgt_snap", label: "tgt/snap", title: "targets per offensive snap over the games with snaps: the free stand-in for a route rate" },
   { key: "ypt", label: "ypt", title: "receiving yards per target over the window" },
-  { key: "pace_gap", label: "pace", title: "L3 pace × games left (his bye out) minus his rest-of-season projection: if the last three held" },
+  { key: "pace_gap", label: "pace", title: "L3 pace × games left (his bye out) minus the models' rest-of-season projection: if the last three held" },
+  { key: "weight", label: "wt", title: "what the window is worth to the adjusted ROS: each game's snap share against the position's lead players, a game at most (the prior is worth 4)" },
 ];
 
 // One form column's cell for a player: the number as the column shows it, and a note beneath
@@ -64,8 +65,27 @@ export function formCell(f: Form, key: keyof Form): FormItem | null {
     case "tgt_snap": return f.tgt_snap == null ? null : item(f.tgt_snap.toFixed(2));
     case "ypt": return f.ypt == null ? null : item(f.ypt.toFixed(1));
     case "pace_gap": return item(signed(f.pace_gap));
+    case "weight": return item(f.weight.toFixed(1), { note: f.weight < f.games ? `of ${f.games}` : undefined });
     default: return null;
   }
+}
+
+// Years in the league as the row shows them: R for a rookie, "6y" for a veteran, nothing when
+// Sleeper has no record of him.
+export function expLabel(exp: number | null | undefined): string | null {
+  return exp == null ? null : exp === 0 ? "R" : `${exp}y`;
+}
+
+// The hurt teammates at his position, one line: last name and status (Q for questionable, D for
+// doubtful), the return week while it is still ahead. Null when nobody at his spot is on the report.
+const STATUS_SHORT: Record<string, string> = { QUESTIONABLE: "Q", DOUBTFUL: "D" };
+export function aheadLabel(ahead: Ahead[] | undefined, week: number): string | null {
+  if (!ahead || ahead.length === 0) return null;
+  return ahead.map((a) => {
+    const last = (a.name ?? "?").trim().split(/\s+/).slice(-1)[0];
+    const status = STATUS_SHORT[a.status] ?? a.status.replaceAll("_", " ");
+    return a.return_week != null && a.return_week > week ? `${last} ${status} · wk ${a.return_week}` : `${last} ${status}`;
+  }).join(", ");
 }
 
 // The same columns as one strip of label/value pairs, the columns he has no number for left

@@ -6,7 +6,7 @@ export type Sort = { key: string; dir: Dir };
 
 // What each sortable column of the Waivers table reads off a row; null sorts last either way.
 const SORT_BY: Record<string, (r: WaiverRow) => number | string | null> = {
-  name: (r) => r.name, add: (r) => r.add, wk: (r) => r.week_proj, ros: (r) => r.ros_proj,
+  name: (r) => r.name, add: (r) => r.add, wk: (r) => r.week_proj, ros: (r) => r.ros_adj, model: (r) => r.ros_proj,
   dr: (r) => r.delta_roster, dp: (r) => r.delta_pool,
   ...Object.fromEntries(FORM_COLUMNS.map((c) => [c.key, (r: WaiverRow) => (r.form ? (r.form[c.key as keyof Form] as number | null) : null)])),
 };

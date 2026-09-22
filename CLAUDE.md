@@ -26,6 +26,7 @@ uv run python -m ffl.practice 4        # start a League Specific Practice Draft 
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/
+uv run python -m ffl.calibrate         # in-season: score STRATEGY.md's K (usage-adjusted ROS) against the weekly snapshots in data/calibration/
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
 curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (launchd does this hourly)
 curl 127.0.0.1:8300/live/status        # the live-scoring feed: connected?, version, players scored (FFL_LIVE=0 keeps a dev API off it)
@@ -78,11 +79,23 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   season total × weeks left when neither source has him, and only then does `add_score` haircut an OUT/IR
   player for games missed (both sources already leave those games out). `free_agent_pool` reports
   `ros_source` so the page can say when the whole pool fell back. Sleeper is Rotowire's single model.
+  `w` is the **ROS week** (`espn_season.ros_week_for` → `season.ros_week`): ESPN's scoring period, or the
+  next one once every kickoff in it is four hours old (off the pro-schedule document) — ESPN rolls its week
+  some time Tuesday, and until then the sum would count a game already played. The week term is zero then.
+- The ROS that `add` and the deltas run on is **usage-adjusted** (`season.ros_adj`, STRATEGY.md "Usage-adjusted
+  ROS"): the model's per-game rate shrunk toward his window's `l3` by the window's snap-weighted game count
+  (`form["weight"]`, each game = snap share ÷ that week's `season.snap_reference` median for the position's lead
+  players, capped at one), the prior worth `season.K_PRIOR` (4) games. `ros_proj` stays the model mean beside
+  it. K is checked, not tuned: every pool build snapshots what the blend read (`ffl/calibrate.py`,
+  `data/calibration/week-<w>.json`, once per ROS week) and `ffl.calibrate` scores the Ks against what happened.
 - Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
-  (`espn_season.game_from_stats` off espn-api's per-week `stats`; my roster's earlier weeks come from
-  `lg.teams[..].roster`, free agents' from one `free_agents(week=w)` call per position and form week) with
-  Sleeper's snaps (`SLEEPER_STATS`, `off_snp`/`tm_off_snp`, a day behind the games) joined per week. Every
-  Roster card and Waiver row carries `form` (None before his first game); it is read, never added to `add`.
+  (`espn_season.game_from_stats` off espn-api's per-week `stats`; every rostered player's earlier weeks come from
+  `lg.teams[..].roster` (`_roster_games`, so the replacement line runs on adjusted ROS too), free agents' from
+  one `free_agents(week=w)` call per position and form week) with Sleeper's snaps (`SLEEPER_STATS`,
+  `off_snp`/`tm_off_snp`, a day behind the games) joined per week. Every Roster card and Waiver row carries
+  `form` (None before his first game); the columns are shown raw, and only the snap-weighted `l3` reaches `add`,
+  through `ros_adj`. The same Sleeper rows give `exp` (years in the league) and the injuries feed gives `ahead`
+  (hurt teammates at his position, with return week): the rookie and the fill-in are told apart by hand.
   The bye still ahead comes from the same pro-schedule document as the venue (`bye_by_team`).
 - Injury return dates come from ESPN's public NFL injuries feed (`ffl/espn_season.py::fetch_injuries`, no auth,
   30-min cache, last-good on failure). `ffl.settings` writes `week1_start`, which `season.week_of` needs to turn a
