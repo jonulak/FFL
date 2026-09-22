@@ -5,7 +5,8 @@ data/
 __pycache__/
 *.pyc
 data-mock/
-.claude/
+.claude/*
+!.claude/skills/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
