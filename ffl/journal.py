@@ -5,7 +5,11 @@
 from __future__ import annotations
 
 import csv
+import json
 import sys
+from types import SimpleNamespace
+
+from espn_api.football.activity import Activity
 
 from .config import JOURNAL, MY_TEAM_ID, SWID, league
 from .settings import load
@@ -20,6 +24,29 @@ def _my_team(lg, settings):
     return next(t for t in lg.teams if t.team_id == tid)
 
 
+def _activities(lg, size: int) -> list[Activity]:
+    """League.recent_activity, with dropped players named from the league's player map.
+
+    espn-api resolves any player who is on nobody's roster (every DROPPED row) with
+    `player_info`, two ESPN requests each; two dozen drops is fourteen seconds, past the UI's
+    20 s abort on POST /refresh. The map already holds the whole pool, and the row key only
+    needs `playerId`, so nothing here touches the network beyond the one activity fetch.
+    """
+    msg_types = [178, 180, 179, 239, 181, 244]
+    filters = {"topics": {"filterType": {"value": ["ACTIVITY_TRANSACTIONS"]}, "limit": size,
+                          "limitPerMessageSet": {"value": 25}, "offset": 0,
+                          "sortMessageDate": {"sortPriority": 1, "sortAsc": False},
+                          "sortFor": {"sortPriority": 2, "sortAsc": False},
+                          "filterIncludeMessageTypeIds": {"value": msg_types}}}
+    data = lg.espn_request.league_get(extend="/communication/", params={"view": "kona_league_communication"},
+                                      headers={"x-fantasy-filter": json.dumps(filters)})
+
+    def local_player(playerId):
+        return SimpleNamespace(playerId=playerId, name=lg.player_map.get(playerId, playerId))
+
+    return [Activity(topic, lg.player_map, lg.get_team_data, local_player) for topic in data["topics"]]
+
+
 def sync_transactions(lg):
     existing = set()
     if TX_CSV.exists():
@@ -32,7 +59,7 @@ def sync_transactions(lg):
         w = csv.writer(f)
         if write_header:
             w.writerow(["id", "date", "type", "team", "player", "action", "bid", "reasoning"])
-        for act in lg.recent_activity(size=100):
+        for act in _activities(lg, size=100):
             for team, action, player, bid in act.actions:
                 key = f"{act.date}-{team.team_id}-{action}-{getattr(player, 'playerId', player)}"
                 if key in existing:
