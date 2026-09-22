@@ -550,3 +550,26 @@ def test_free_agent_pool_fetches_every_position_in_position_order(monkeypatch):
     assert list(out["positions"]) == ["QB", "RB", "WR", "TE", "D/ST", "K"]
     assert sorted(calls["fa"]) == sorted(["QB", "RB", "WR", "TE", "D/ST", "K"]), "each fetched exactly once"
     assert all(row["slot"] == "FA" for rows in out["positions"].values() for row in rows)
+
+
+def test_season_lookup_fetches_its_four_sources_together(monkeypatch):
+    """ESPN's pool, Sleeper's season, Sleeper's weeks and CBS's pages are four independent fetches
+    of one to four seconds each; one after another they were most of the Refresh button's wait.
+    Each fake waits on a barrier for the other three: run in sequence, the barrier times out."""
+    import threading
+    espn_season._SEASON_CACHE.clear()
+    gate = threading.Barrier(4, timeout=2)
+
+    def together(value):
+        def fn(*a, **k):
+            gate.wait()
+            return value
+        return fn
+
+    monkeypatch.setattr(espn_season, "fetch_pool", together(SEASON_ESPN))
+    monkeypatch.setattr(espn_season, "fetch_sleeper_season", together(SEASON_SLEEPER))
+    monkeypatch.setattr(espn_season, "_remaining_sleeper_weeks", together([{("jalen hurts", "QB"): 10.0}]))
+    monkeypatch.setattr(espn_season.cbs, "fetch_ros", together({("jalen hurts", "QB"): 150.0}))
+    out = espn_season.season_lookup({**TWO_QB, "scoring": []}, week=18)
+    assert out[1]["ros_sleeper"] == 10.0 and out[1]["ros_cbs"] == 150.0
+    espn_season._SEASON_CACHE.clear()

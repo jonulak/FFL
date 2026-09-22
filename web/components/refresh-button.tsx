@@ -5,6 +5,10 @@ import { useState } from "react";
 import { clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 
+// The one call where the user has asked to wait: the API syncs the journal and rebuilds every
+// payload inline (about 12 s warm, up to 19 s cold), so the 20 s default abort is too close.
+const REFRESH_TIMEOUT_MS = 30_000;
+
 export function RefreshButton() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -14,7 +18,7 @@ export function RefreshButton() {
     setBusy(true);
     setErr(null);
     try {
-      await clientPost("/refresh");
+      await clientPost("/refresh", {}, REFRESH_TIMEOUT_MS);
       router.refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));

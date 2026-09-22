@@ -12,12 +12,12 @@ export async function clientGet<T>(path: string): Promise<T> {
   return (await r.json()) as T;
 }
 
-export async function clientPost<T>(path: string, body: unknown = {}): Promise<T> {
+export async function clientPost<T>(path: string, body: unknown = {}, timeoutMs = API_TIMEOUT_MS): Promise<T> {
   const r = await fetch(`/api${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!r.ok) {
     // The decision form must show *why* the API said no (a 422 names the blank field), so

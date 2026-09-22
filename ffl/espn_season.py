@@ -513,10 +513,17 @@ def season_lookup(settings: dict, week: int) -> dict[int, dict]:
     now = time.time()
     if _SEASON_CACHE and now - _SEASON_CACHE[0] < CACHE_S and _SEASON_CACHE[1] == week:
         return _SEASON_CACHE[2]
-    weeks = _remaining_sleeper_weeks(week, settings)
-    lookup = merge_season(fetch_pool(), fetch_sleeper_season(),
-                          sleeper_ros(weeks) if weeks is not None else None,
-                          cbs.fetch_ros(key_scoring(settings["scoring"])))
+    # four independent sources of one to four seconds each, in flight together: in sequence they
+    # were most of what the Refresh button waited on
+    ks = key_scoring(settings["scoring"])
+    with ThreadPoolExecutor(4) as pool:
+        espn_f = pool.submit(fetch_pool)
+        sleeper_f = pool.submit(fetch_sleeper_season)
+        weeks_f = pool.submit(_remaining_sleeper_weeks, week, settings)
+        cbs_f = pool.submit(cbs.fetch_ros, ks)
+        weeks = weeks_f.result()
+        lookup = merge_season(espn_f.result(), sleeper_f.result(),
+                              sleeper_ros(weeks) if weeks is not None else None, cbs_f.result())
     _SEASON_CACHE[:] = [now, week, lookup]
     return lookup
 
