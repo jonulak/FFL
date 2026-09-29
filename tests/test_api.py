@@ -291,3 +291,17 @@ def test_week_plays_come_only_from_the_runner_scoring_that_week(client, monkeypa
     assert client.get("/week").json()["plays"] == []
     monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=3, store=store), raising=False)
     assert client.get("/week").json()["plays"] == [{"delta": 6.0}]
+
+
+def test_roster_cards_never_carry_last_weeks_live_overlay(client, monkeypatch):
+    """The Roster page is gated on its own week like /week: after the rollover the feed still
+    holds last week's points, final scores and stat lines, and none of them may reach this
+    week's cards."""
+    st = api.live.State()
+    st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=2)
+    monkeypatch.setattr(api.live, "STATE", st)
+    card = client.get("/roster").json()["cards"][0]
+    assert card.get("actual") in (None, 0) and "game" not in card and not card.get("stat_line")
+    st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=3)
+    card = client.get("/roster").json()["cards"][0]
+    assert card["game"]["status"] == "post"

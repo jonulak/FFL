@@ -321,7 +321,9 @@ def draft_():
 
 @app.get("/roster")
 def roster_():
-    data = live.overlay_roster(_serve("roster", lambda: espn_season.roster_state(None)), _live_points(None), _live_games(None), _live_stats(None))
+    data = _serve("roster", lambda: espn_season.roster_state(None))
+    # gated on the payload's week, as /week is: after the rollover the feed still holds last week's
+    data = live.overlay_roster(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]))
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
     return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"])),
