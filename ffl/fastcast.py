@@ -49,6 +49,9 @@ def decode(text: str) -> dict:
     f = json.loads(text)
     if f.get("op") in PATCH_OPS:
         inner = json.loads(f["pl"])
+        if "pl" not in inner:
+            # seen once after Monday night (2026-09-28) with the shape unrecorded: say what it was
+            raise ValueError(f"patch frame without a payload, keys {list(inner)}: {text[:500]}")
         raw = inner["pl"]
         if inner.get("~c"):
             raw = zlib.decompress(base64.b64decode(raw)).decode()
@@ -214,6 +217,7 @@ class Client:
         r = requests.get(self.checkpoint_url(mid), timeout=TIMEOUT)
         r.raise_for_status()
         self.doc, self.mid = r.json(), mid
+        self.last_error = None  # a fresh document: whatever failed before is repaired
         self.on_doc(self.doc)
 
     def _frame(self, text: str) -> None:
@@ -255,6 +259,7 @@ class Client:
                 delay = 2.0
             except Exception as e:  # noqa: BLE001 — any socket/HTTP failure: back off and reconnect
                 self.last_error = f"{type(e).__name__}: {e}"
+                print(f"fastcast: {self.last_error}")  # the API log keeps it; the status forgets on repair
                 if self.on_error:
                     self.on_error(self.last_error)
                 stop.wait(delay)

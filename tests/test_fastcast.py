@@ -79,6 +79,26 @@ def test_client_reports_each_failure_as_it_happens():
     assert seen == ["RuntimeError: bad doc", "RuntimeError: bad doc"] and c.last_error == "RuntimeError: bad doc"
 
 
+def test_a_patch_frame_without_a_payload_names_what_it_carried():
+    """Seen live 2026-09-28 after Monday night: a patch frame whose inner JSON had no `pl`. The
+    reconnect recovers; the error has to say what the frame was, or the next one is a guess too."""
+    frame = json.dumps({"op": "P", "mid": 7, "pl": json.dumps({"ts": 1, "~c": 0, "other": "x"})})
+    with pytest.raises(ValueError) as e:
+        fc.decode(frame)
+    assert "['ts', '~c', 'other']" in str(e.value) and '"mid": 7' in str(e.value)
+
+
+def test_a_fresh_checkpoint_clears_the_last_error(monkeypatch):
+    """/live/status reads last_error once the socket drops: a failure the reconnect already
+    repaired must not read as the feed's state for the rest of the week."""
+    c = fc.Client(lambda d: None)
+    c.last_error = "ValueError: old"
+    monkeypatch.setattr(fc.requests, "get", lambda *a, **k: type("R", (), {
+        "raise_for_status": lambda self: None, "json": lambda self: {"events": []}})())
+    c._load_checkpoint(3)
+    assert c.last_error is None and c.mid == 3
+
+
 def test_player_stats_are_the_raw_rows_by_player_id():
     doc = {"statistics": {"7": {"gameId": "a", "stats": {"3": 138.0, "4": 2.0}}, "-16004": {"stats": {"99": 2.0}}}}
     assert fc.player_stats(doc) == {7: {"3": 138.0, "4": 2.0}, -16004: {"99": 2.0}}
