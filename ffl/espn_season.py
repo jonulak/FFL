@@ -359,12 +359,17 @@ def snap_refs(snaps_by_week: dict[int, dict]) -> dict[int, dict[str, float]]:
     return {w: S.snap_reference(s) for w, s in snaps_by_week.items() if s}
 
 
-def fetch_sleeper_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
+def fetch_sleeper_rows(week: int) -> list[dict]:
+    """Sleeper's raw weekly projection rows (player + stat line); ffl.props reads the stat lines."""
     r = requests.get(SLEEPER_WEEK.format(season=SEASON, week=week),
                      params=[("season_type", "regular"), ("order_by", "pts_ppr")] + [("position[]", p) for p in SLEEPER_POS],
                      headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
     r.raise_for_status()
-    return parse_sleeper_rows(r.json(), ks)
+    return r.json()
+
+
+def fetch_sleeper_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
+    return parse_sleeper_rows(fetch_sleeper_rows(week), ks)
 
 
 def parse_sleeper_rows(rows: list[dict], ks: dict) -> dict[tuple[str, str], float]:
