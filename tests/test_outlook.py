@@ -88,6 +88,18 @@ def test_fact_hash_moves_with_news_and_the_day():
     assert outlook.fact_hash(card(proj=30.0), ctx(), TODAY) == base
 
 
+def test_fact_hash_moves_with_the_prompt(monkeypatch):
+    """A rewritten voice rule has to reach the cards already written under the old one."""
+    base = outlook.fact_hash(card(), ctx(), TODAY)
+    monkeypatch.setattr(outlook, "VOICE", outlook.VOICE + " One more rule.")
+    assert outlook.fact_hash(card(), ctx(), TODAY) != base
+
+
+def test_voice_keeps_injury_for_real_injury_news_only():
+    assert "a healthy player gets no Injury bullet" in outlook.VOICE
+    assert "never a bullet that only says there is no news" in outlook.VOICE
+
+
 def test_normalize_orders_drops_and_requires_take():
     src = [{"site": "Rotowire", "date": "10/1", "url": "https://x.test/1"}]
     raw = {"bullets": [TAKE, {"label": "Usage", "text": "Up.", "sources": src},

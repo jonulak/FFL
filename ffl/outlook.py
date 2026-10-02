@@ -37,11 +37,13 @@ GAMELOG = "https://www.espn.com/nfl/player/gamelog/_/id/{pid}"
 INJURY_REPORT = "https://www.espn.com/nfl/injuries"
 SLEEPER = "https://sleeper.com"
 VOICE = ("Write this player's outlook as bullets labelled Injury, Usage, Depth, Team and Take, in that order. "
-         "Injury: his status, practice reports and return timeline. Usage: the trend across his recent games "
+         "Injury: only when he is on the injury report, missed or was limited in practice this week, or is "
+         "working back from an injury — then his status, practice reports and return timeline; a healthy "
+         "player gets no Injury bullet. Usage: the trend across his recent games "
          "in snaps, targets, receptions and carries. Depth: who is ahead of and behind him, and who is hurt. "
          "Team: teammate or scheme news that changes his week, such as his quarterback out, a coordinator "
          "fired or a receiver traded. Take: your own read of what it all means for him; always include it. "
-         "Leave out any other label with nothing to report. One or two sentences, at most thirty words, per "
+         "Leave out any other label with nothing to report: never a bullet that only says there is no news. One or two sentences, at most thirty words, per "
          "bullet. Check the facts above with web search and add what they miss; say so when sources "
          "disagree. Use nothing older than ten days unless it is the latest word on an injury that is still "
          "active, and give the date of any injury news. Never quote projected or expected fantasy points and "
@@ -79,10 +81,11 @@ def card_hash(card: dict) -> str:
 
 def fact_hash(card: dict, ctx: dict, today: date) -> str:
     """card_hash plus the news (his depth, the teammates' status and news stamps, his own stamp, his
-    Rotowire items) and the day, so every outlook is rewritten at least once a day."""
+    Rotowire items), the day, so every outlook is rewritten at least once a day, and the voice rule, so a
+    changed prompt reaches the cards written under the old one."""
     mates = [[m.get("name"), m.get("status"), m.get("last_news")] for m in ctx.get("teammates") or []]
     return _sha([card_hash(card), ctx.get("depth"), mates, ctx.get("last_news"),
-                 [i.get("id") for i in ctx.get("rotowire") or []], today.isoformat()])
+                 [i.get("id") for i in ctx.get("rotowire") or []], today.isoformat(), VOICE])
 
 
 def _md(published: str | None) -> str:

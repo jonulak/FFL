@@ -13,21 +13,22 @@ import { Ago } from "./local-time";
 // "closed on the phone, open on a laptop" from CSS alone, and deciding it in JS would flash.
 // The open/close is the page's one authored motion: base-ui's panel height under an
 // exponential ease-out, no fade stacked on top.
-// One row per label: the label in a fixed column so the text lines up, the sources trailing the
-// sentence as small dotted links that open in a new tab.
+// One block per label: the label as a small heading over its text, so the sentence gets the card's full
+// width, and the sources trailing it as small dotted links that open in a new tab. Each link keeps its
+// site and date together; the list itself wraps, or a long one runs past the card's clipped edge.
 function Bullets({ bullets }: { bullets: OutlookBullet[] }) {
   return (
-    <dl className="max-w-[68ch] space-y-1 text-sm leading-relaxed text-muted-foreground">
+    <dl className="max-w-[68ch] space-y-2 text-sm leading-relaxed text-muted-foreground">
       {bullets.map((b) => (
-        <div key={b.label} className="flex gap-2">
-          <dt className="w-14 shrink-0 pt-0.5 text-xs font-medium uppercase tracking-wide text-foreground/70">{b.label}</dt>
-          <dd>
+        <div key={b.label} className="min-w-0">
+          <dt className="text-xs font-medium uppercase tracking-wide text-foreground/70">{b.label}</dt>
+          <dd className="break-words">
             {b.text}{" "}
             {b.sources.map((s, i) => (
-              <span key={i} className="whitespace-nowrap text-xs">
+              <span key={i} className="text-xs">
                 {i > 0 ? " · " : ""}
                 <a href={s.url} target="_blank" rel="noreferrer"
-                   className="underline decoration-dotted underline-offset-2 hover:text-foreground">
+                   className="whitespace-nowrap underline decoration-dotted underline-offset-2 hover:text-foreground">
                   {s.site} {s.date}
                 </a>
               </span>
