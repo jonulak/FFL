@@ -573,3 +573,11 @@ def test_season_lookup_fetches_its_four_sources_together(monkeypatch):
     out = espn_season.season_lookup({**TWO_QB, "scoring": []}, week=18)
     assert out[1]["ros_sleeper"] == 10.0 and out[1]["ros_cbs"] == 150.0
     espn_season._SEASON_CACHE.clear()
+
+
+def test_stat_row_maps_espn_names_back_to_the_scored_ids():
+    settings = {"scoring": [{"stat_id": 3, "points": 0.04}, {"stat_id": 53, "points": 1.0}]}
+    row = espn_season.stat_row(bp(breakdown={"passingYards": 250, "receivingReceptions": 4, "214": 2}), settings)
+    assert row == {"3": 250.0, "53": 4.0, "214": 2.0}
+    assert espn_season.stat_row(bp(breakdown={}), settings) is None
+    assert espn_season.stat_row(bp(), settings) is None

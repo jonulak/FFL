@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { GameState } from "@/lib/api";
+import type { GameState, Player } from "@/lib/api";
+import { TeamLogo } from "./player-media";
 
 // Once the game is on, the clock and quarter stand where the kickoff time was; "Final" after.
 export function gameClock(g: GameState): string {
@@ -59,6 +60,47 @@ export function Kickoff({ iso, bye, game, team, compact = false }: { iso: string
   return (
     <span suppressHydrationWarning>
       {d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}
+    </span>
+  );
+}
+
+// The kickoff as the game line sets it: "Sun 1:00 PM", in the viewer's zone.
+export function KickoffTime({ iso }: { iso: string }) {
+  return (
+    <span suppressHydrationWarning>
+      {new Date(iso).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}
+    </span>
+  );
+}
+
+// A player's game on one line, the clubs as their marks: `[DET] @ [GB] Sun 1:00 PM` before
+// kickoff (`vs` when his club hosts, `@` when it travels, a dot when the venue is unknown), and
+// once the game is on each club's score before its mark: `24 [PIT] @ 27 [CLE] Final`, the
+// leading score in full ink. His own club always comes first. The codes are read to a screen
+// reader, and stand in for a mark that fails to load.
+export function GameLine({ p, size = 14, className = "" }: { p: Pick<Player, "team" | "opponent" | "home" | "kickoff" | "bye" | "game">; size?: number; className?: string }) {
+  if (p.bye) return <span className={className}>BYE</span>;
+  if (!p.opponent) return <span className={className}>{p.kickoff ? <KickoffTime iso={p.kickoff} /> : "not scheduled"}</span>;
+  const g = p.game;
+  const own = g?.score?.[p.team];
+  const other = g ? Object.entries(g.score ?? {}).find(([t]) => t !== p.team)?.[1] : undefined;
+  const scored = own != null && other != null;
+  const sep = p.home === true ? "vs" : p.home === false ? "@" : "·";
+  const ink = (mine: number, theirs: number) => (mine > theirs ? "font-semibold text-foreground" : "text-foreground/80");
+  const mark = (abbr: string) => <TeamLogo abbr={abbr} size={size} fallback className="shrink-0 font-medium" />;
+  return (
+    <span className={`inline-flex items-center gap-x-1 whitespace-nowrap tabular-nums ${className}`}>
+      <span className="sr-only">{p.team} {p.home === true ? "vs" : "at"} {p.opponent}</span>
+      {scored && <span className={ink(own, other)}>{own}</span>}
+      {mark(p.team)}
+      <span aria-hidden>{sep}</span>
+      {scored && <span className={ink(other, own)}>{other}</span>}
+      {mark(p.opponent)}
+      <span className="ml-0.5">
+        {g
+          ? <span className={g.status === "in" ? "font-medium text-foreground/85" : undefined}>{gameClock(g)}</span>
+          : p.kickoff ? <KickoffTime iso={p.kickoff} /> : null}
+      </span>
     </span>
   );
 }

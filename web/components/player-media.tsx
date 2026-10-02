@@ -11,9 +11,11 @@ import { headshotUrl, logoUrl, team } from "@/lib/teams";
 
 // A club mark that picks ESPN's dark-ground cut under a dark system theme. The page follows
 // prefers-color-scheme (no toggle), so <picture> can choose without JS.
-export function TeamLogo({ abbr, className, size = 20 }: { abbr: string; className?: string; size?: number }) {
+// `fallback`: when the mark stands in for the club's name (the Matchup game line), a failed
+// load leaves the abbreviation rather than nothing.
+export function TeamLogo({ abbr, className, size = 20, fallback = false }: { abbr: string; className?: string; size?: number; fallback?: boolean }) {
   const [gone, setGone] = useState(false);
-  if (gone) return null;
+  if (gone) return fallback ? <span className={className}>{abbr}</span> : null;
   return (
     <picture className={className}>
       <source srcSet={logoUrl(abbr, "dark")} media="(prefers-color-scheme: dark)" />

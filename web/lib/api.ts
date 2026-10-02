@@ -26,6 +26,7 @@ export type Player = {
   opponent: string | null; kickoff: string | null; home: boolean | null;
   game?: GameState; // present once his pro team has kicked off (live overlay, ffl/live.py)
   stat_line?: string; // his box-score line, once a stat that scores has happened (live.stat_line)
+  box?: BoxItem[]; // the line items behind his points (live.box_score); Matchup payload only
   form?: Form | null; // his last three games (STRATEGY.md "Recent form"); Roster cards and Waiver rows
 };
 // season.recent_form: the last three games he played, facts beside `add`, never inside it.
@@ -41,6 +42,9 @@ export type Form = {
   // players, a game at most), and the games it is paced over
   weight: number; games_left: number;
 };
+// One scoring stat of his game: the count, the league's rate and the points it earned. A band
+// row (points or yards allowed) is a flat award; its count is the total it was read off.
+export type BoxItem = { stat_id: number; label: string; count: number; rate: number; flat: boolean; points: number };
 // A hurt teammate at his position: ESPN's status upper-cased, the return week when the feed has one.
 export type Ahead = { name: string | null; status: string; return_week: number | null };
 export type GameState = {

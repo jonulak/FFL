@@ -1,15 +1,18 @@
+"use client";
+
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
 import { injuryLabel, injuryTone, pts, shortName, signed } from "@/lib/format";
 import { gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
-import { Kickoff } from "./local-time";
+import { BoxScoreDialog } from "./box-score-dialog";
+import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
-import { TeamLogo, TeamPanel } from "./player-media";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 
@@ -24,9 +27,9 @@ const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0
 
 // The board's grid, shared by every line so the slot column runs in one spine from the header to
 // the footer: my half, the slot, the opponent's half.
-const HALF_GRID = "grid grid-cols-[minmax(0,1fr)_1.5rem_minmax(0,1fr)] gap-x-1.5 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] sm:gap-x-3";
+const HALF_GRID = "grid grid-cols-[minmax(0,1fr)_1.75rem_minmax(0,1fr)] gap-x-1 sm:grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] sm:gap-x-3";
 // A week with no opponent (a bye or an unpaired playoff week): my half and the spine, no empty right half.
-const SOLO_GRID = "grid grid-cols-[minmax(0,1fr)_1.5rem] gap-x-1.5 sm:grid-cols-[minmax(0,1fr)_2.5rem] sm:gap-x-3";
+const SOLO_GRID = "grid grid-cols-[minmax(0,1fr)_1.75rem] gap-x-1 sm:grid-cols-[minmax(0,1fr)_2.5rem] sm:gap-x-3";
 
 type End = "me" | "opp";
 
@@ -95,130 +98,115 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
   );
 }
 
-// "at LAR" when he travels, "vs SF" at home; nothing when he has no opponent this week (the
-// kickoff line beneath says BYE or "not scheduled" instead).
-function Matchup({ p }: { p: Player }) {
-  if (!p.opponent) return null;
-  // Dot, `vs`, mark and code wrap together as one unit, so a half-width column on the phone
-  // breaks to `QB · PHI` / `· vs WSH`: the dot leads the wrapped line and the code is never orphaned.
-  return (
-    <span className="inline-flex items-center gap-x-1 whitespace-nowrap">
-      {/* the phone line opens with the matchup, so its dot is a laptop mark */}
-      <span aria-hidden className="hidden sm:inline">·</span>
-      {p.home !== null &&<span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80">{p.home ? "vs" : "at"}</span>}
-      <TeamLogo abbr={p.opponent} size={16} className="max-sm:hidden" />
-      <span className="font-medium text-foreground/85">{p.opponent}</span>
-    </span>
-  );
-}
+// The phone's injury chip: ESPN's own one-letter marks, so the chip sits beside the name in a
+// half column instead of wrapping under it. The full status is the chip's title.
+const STATUS_SHORT: Record<string, string> = { QUESTIONABLE: "Q", DOUBTFUL: "D", OUT: "O", "INJURY RESERVE": "IR", SUSPENSION: "SUSP" };
 
 // The number with its own unit, because on a Sunday afternoon the rows are a mix: PROJ is the
 // forecast for a game still to come, PTS the posted score with the projection it replaced
-// beneath it and a live mark while the game is on. The numeral is 1.25rem on the phone, 1.5rem
-// from `sm`; the opponent's faces the spine.
-function Num({ p, now, end, className = "" }: { p: Player; now: number; end: End; className?: string }) {
-  const phase = gamePhase(p, now);
-  const on = phase !== "pending";
+// beneath it and a live mark while the game is on. The numeral is 1.125rem on the phone,
+// 1.375rem from `sm` with the unit beside it and the note beneath; on the phone the unit and
+// note close the game line instead (NumNote), so that line has the half's whole width.
+function Num({ p, now, end }: { p: Player; now: number; end: End }) {
+  const on = gamePhase(p, now) !== "pending";
   const opp = end === "opp";
-  const numeral = (
-    <span className="flex items-baseline gap-1.5">
-      <span className={`font-display text-[1.25rem] font-bold leading-none tracking-tight sm:text-[1.5rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
-        {pts(on ? p.actual : p.proj)}
-      </span>
-      {/* the phone's column is too narrow for a unit beside the numeral: it steps beneath (below) */}
-      <Unit fact={on} className="hidden text-xs sm:inline" />
-    </span>
-  );
-  const note = (
-    <span className="flex items-center gap-x-1 text-xs text-muted-foreground">
-      {phase === "live" && <><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" /><span>live</span><span aria-hidden>·</span></>}
-      {!on && <Unit fact={false} className="text-xs sm:hidden" />}
-      {on
-        ? <span>proj {pts(p.proj)}</span>
-        : p.spread != null && p.spread >= 3
-          ? <span className="font-medium text-close-foreground dark:text-close">±{pts(p.spread)}</span>
-          : null}
-    </span>
-  );
   return (
-    <div className={`tabular-nums ${opp ? "text-left" : "text-right"} ${className}`}>
-      <div className={`flex ${opp ? "justify-start" : "justify-end"}`}>{numeral}</div>
-      <div className={`mt-0.5 flex ${opp ? "justify-start" : "justify-end"}`}>{note}</div>
+    <div className={`tabular-nums ${opp ? "text-left" : "text-right"}`}>
+      <div className={`flex items-baseline gap-1.5 ${opp ? "justify-start" : "justify-end"}`}>
+        <span className={`font-display text-[1.125rem] font-bold leading-none tracking-tight sm:text-[1.375rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
+          {pts(on ? p.actual : p.proj)}
+        </span>
+        <Unit fact={on} className="hidden text-[0.6875rem] sm:inline" />
+      </div>
+      <div className={`mt-0.5 flex max-sm:hidden ${opp ? "justify-start" : "justify-end"}`}><NumNote p={p} now={now} /></div>
     </div>
   );
 }
 
-// One player's half of a row, a shadcn Item: the club tile as its media at the outer edge, the
-// name block as its content reading in toward the slot column, the number as its actions beside
-// the spine (from `sm`; on the phone the number is a line inside the block). The opponent's half
-// is the same Item reversed, so the two sides face each other across the board.
-function Half({ p, week, now, end }: { p: Player; week: number; now: number; end: End }) {
+// What stands under the number: before kickoff the source spread when it is 3+ (and, on the
+// phone, the PROJ unit); once his game is on, the projection it replaced, after a live dot.
+function NumNote({ p, now }: { p: Player; now: number }) {
+  const phase = gamePhase(p, now);
+  const on = phase !== "pending";
+  return (
+    <span className="flex shrink-0 items-center gap-x-1 whitespace-nowrap text-[0.6875rem] leading-4 tabular-nums text-muted-foreground sm:text-xs">
+      {phase === "live" && <><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" /><span className="max-sm:sr-only">live</span><span aria-hidden className="max-sm:hidden">·</span></>}
+      {!on && <Unit fact={false} className="sm:hidden" />}
+      {on
+        ? <span>proj {pts(p.proj)}</span>
+        : p.spread != null && p.spread >= 3
+          ? <span className="font-medium text-close-foreground max-sm:hidden dark:text-close">±{pts(p.spread)}</span>
+          : null}
+    </span>
+  );
+}
+
+// Opens a player's scoring breakdown; the board passes it down to every half.
+type Pick = (p: Player) => void;
+
+// One player's half of a row, a shadcn Item rendered as a button (a tap opens his scoring
+// breakdown): the name block reading in toward the slot column, the number as its actions
+// beside the spine. No photo: the name, the game line and the number are the row, and the
+// half column is too narrow to spend on a portrait. The opponent's half is the same Item
+// reversed, so the two sides face each other across the board.
+function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: number; end: End; onPick: Pick }) {
   const opp = end === "opp";
   const hurt = !HEALTHY.has(p.injury);
   const status = p.injury.replaceAll("_", " ");
   const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
-  // The phone half is set like a broadcast app's matchup row: no photo column, the club tile
-  // inline after the name at 24px (at the outer end, the way the name reads out toward the
-  // edge), the matchup and the score on one caption line, the box-score line beneath on one
-  // truncated line, and the number in its own column beside the spine with the projection under
-  // it. Position and club leave the phone line: the slot code and the tile already say them.
+  const on = gamePhase(p, now) !== "pending";
+  // The phone half: the short name (`B. Purdy`) with a one-letter status chip, then the game on
+  // one line, `[SF] vs [DEN] Sun 4:25 PM` or `24 [PIT] @ 27 [CLE] Final`, and once he has played
+  // the lead stat group (passing for a QB, rushing for a RB, receiving for a WR) as the footer,
+  // with the whole half to itself. From `sm` the full name, the position before the game line,
+  // the whole stat line.
   return (
-    <Item size="sm" className={`min-w-0 flex-wrap gap-x-2 gap-y-1 rounded-none border-0 p-0 sm:flex-nowrap sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
-      <ItemMedia className="hidden size-12 overflow-hidden rounded-md sm:flex *:w-full">
-        <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={idle} tile />
-      </ItemMedia>
+    <Item
+      size="sm"
+      render={<button type="button" onClick={() => onPick(p)} aria-label={`${p.name}: scoring breakdown`} />}
+      className={`min-w-0 cursor-pointer flex-wrap gap-x-2 gap-y-1 rounded-md border-0 px-1 py-1 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-ring/60 sm:flex-nowrap sm:gap-3 sm:px-1.5 ${opp ? "-mr-1 flex-row-reverse sm:-mr-1.5" : "-ml-1 sm:-ml-1.5"}`}
+    >
       <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
-        <ItemTitle className={`line-clamp-none flex! max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 font-display text-[1.125rem] font-semibold leading-none tracking-tight sm:gap-x-2 sm:text-[1.25rem] ${opp ? "flex-row-reverse" : ""} ${idle ? "text-foreground/70" : ""}`}>
-          {/* name and tile are one unit so the tile never wraps under the name; reversed for the
-              opponent so the tile lands at the outer edge, after the name as read */}
-          <span className={`flex min-w-0 items-center gap-1.5 ${opp ? "flex-row-reverse" : ""}`}>
-            <span className="truncate"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
-            <span aria-hidden className="size-6 shrink-0 overflow-hidden rounded-sm sm:hidden *:w-full">
-              <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={idle} tile />
-            </span>
-          </span>
+        <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 font-display text-[1rem] font-semibold leading-none tracking-tight sm:flex-wrap sm:gap-x-2 sm:gap-y-0.5 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${idle ? "text-foreground/70" : ""}`}>
+          <span className="min-w-0 truncate"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
           {hurt && (
-            <Badge variant={TAG[injuryTone(p.injury)]} shape="chip" title={p.injury_note ?? undefined}>
-              {/* the phone's half column is narrower than "DOUBTFUL · WK 2": the status alone there,
-                  IR for injury reserve, and the return week moves to the caption line beneath */}
-              <span className="sm:hidden">{status === "INJURY RESERVE" ? "IR" : status}</span>
+            <Badge variant={TAG[injuryTone(p.injury)]} shape="chip" title={p.injury_note ?? status}>
+              <span className="sm:hidden">{STATUS_SHORT[status] ?? status}</span>
               <span className="hidden sm:inline">{injuryLabel(status, p.return_week, week)}</span>
             </Badge>
           )}
           {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
         </ItemTitle>
-        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1 text-xs leading-4 tabular-nums ${opp ? "justify-end text-right" : ""}`}>
-          <span className="hidden font-semibold text-foreground/80 sm:inline">{p.pos}</span>
-          <span aria-hidden className="hidden sm:inline">·</span>
-          <span className="hidden sm:inline">{p.team}</span>
-          <Matchup p={p} />
-          {/* the phone folds the kickoff, clock or score into this line, ESPN-style: `at LAR · 27-7 Final` */}
-          <span className="contents sm:hidden">
-            {/* each piece carries its own leading dot inside one unbreakable unit, so a wrapped line
-                opens with the dot rather than leaving one dangling at the end of the line above */}
-            <span className="whitespace-nowrap">{p.opponent && <span aria-hidden>· </span>}<Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} compact /></span>
-            {hurt && back != null && <span className="whitespace-nowrap"><span aria-hidden>· </span>back wk {back}</span>}
-          </span>
+        {/* `max-sm:hidden!`: the `flex!` that beats shadcn's line-clamp reset would beat a plain `max-sm:hidden` too */}
+        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1.5 text-xs leading-4 tabular-nums max-sm:hidden! ${opp ? "justify-end text-right" : ""}`}>
+          <span className="font-semibold text-foreground/80">{p.pos}</span>
+          {/* the bye says itself in the chip; the line keeps only a real game */}
+          {!p.bye && <GameLine p={p} size={14} />}
         </ItemDescription>
-        {/* From `sm` the kickoff has its own line, so it never wraps away from the matchup mid-phrase. */}
-        {/* `max-sm:hidden`, not `hidden sm:block`: shadcn's line-clamp reset sets display:block and would win over `hidden` */}
-        <ItemDescription className={`line-clamp-none text-xs leading-4 tabular-nums max-sm:hidden ${opp ? "text-right" : ""}`}>
-          <Kickoff iso={p.kickoff} bye={p.bye} game={p.game} team={p.team} />
-        </ItemDescription>
-        {/* The row's one fact once he has played: the box-score line, in the play feed's register.
-            The phone shows the lead group only (passing for a QB, rushing for a RB, receiving for a
-            WR), one line, the full line as its title; from `sm` the whole line wraps at its groups. */}
-        {p.stat_line && <StatLine text={p.stat_line} className="mt-2 max-sm:hidden" wrap />}
+        {/* The row's one fact once he has played: the box-score line, in the play feed's register,
+            wrapping at its groups. The phone has the lead group only, as the footer below. */}
+        {p.stat_line && <StatLine text={p.stat_line} className="mt-1.5 text-xs max-sm:hidden" wrap />}
       </ItemContent>
       <ItemActions className="self-start">
         <Num p={p} now={now} end={end} />
       </ItemActions>
-      {/* On the phone the lead stat group is the row's footer, so it has the whole half to itself
-          (the space under the number column included) and wraps at its commas rather than clipping. */}
-      {p.stat_line && (
-        <ItemFooter className={`gap-0 sm:hidden ${opp ? "justify-end" : "justify-start"}`}>
-          <StatLine text={p.stat_line.split(" · ")[0]} className={`min-w-0 ${opp ? "text-right" : ""}`} title={p.stat_line} wrap />
+      {/* The phone's game line spans the half, the PROJ unit at its inner end by the spine; the
+          opponent's is mirrored, his game at the outer edge. Once his game is on the score line
+          needs the width, so the note (`proj 17.8`) closes the stat line beneath instead. */}
+      <ItemFooter className={`-mt-0.5 gap-x-1.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
+        <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 ${opp ? "justify-end" : ""}`}>
+          {!p.bye && <GameLine p={p} size={13} />}
+          {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
+        </span>
+        {!on && <NumNote p={p} now={now} />}
+      </ItemFooter>
+      {on && (
+        <ItemFooter className={`items-start gap-x-2 sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
+          {p.stat_line
+            ? <StatLine text={p.stat_line.split(" · ")[0]} className={`min-w-0 text-[0.6875rem] ${opp ? "text-right" : ""}`} title={p.stat_line} wrap />
+            : <span />}
+          <NumNote p={p} now={now} />
         </ItemFooter>
       )}
     </Item>
@@ -228,12 +216,12 @@ function Half({ p, week, now, end }: { p: Player; week: number; now: number; end
 // One line of the board: my player, the slot he fills, the opponent's player in the same slot.
 // The slot code is the spine; bench and IR lines leave it blank. An empty half (a shorter bench)
 // keeps its cell so the grid stays in step.
-function Pair({ a, b, slot, week, now, grid }: { a?: Player; b?: Player; slot: string | null; week: number; now: number; grid: string }) {
+function Pair({ a, b, slot, week, now, grid, onPick }: { a?: Player; b?: Player; slot: string | null; week: number; now: number; grid: string; onPick: Pick }) {
   return (
-    <div role="listitem" className={`${grid} items-start py-2`}>
-      {a ? <Half p={a} week={week} now={now} end="me" /> : <span />}
-      <span className="self-center text-center font-mono text-xs text-muted-foreground">{slot}</span>
-      {grid === HALF_GRID && (b ? <Half p={b} week={week} now={now} end="opp" /> : <span />)}
+    <div role="listitem" className={`${grid} items-start py-1`}>
+      {a ? <Half p={a} week={week} now={now} end="me" onPick={onPick} /> : <span />}
+      <span className="self-center text-center font-display text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:text-xs">{slot}</span>
+      {grid === HALF_GRID && (b ? <Half p={b} week={week} now={now} end="opp" onPick={onPick} /> : <span />)}
     </div>
   );
 }
@@ -245,7 +233,7 @@ function zip(a: Player[], b: Player[]): [Player | undefined, Player | undefined]
   return Array.from({ length: n }, (_, i) => [a[i], b[i]]);
 }
 
-function Group({ title, a, b, week, slot, now, grid }: { title: string | null; a: Player[]; b: Player[]; week: number; slot: boolean; now: number; grid: string }) {
+function Group({ title, a, b, week, slot, now, grid, onPick }: { title: string | null; a: Player[]; b: Player[]; week: number; slot: boolean; now: number; grid: string; onPick: Pick }) {
   const rows = zip(a, b);
   if (rows.length === 0) return null;
   const label = (p?: Player) => (slot && p ? (SLOT_LABEL[p.slot] ?? p.slot) : null);
@@ -270,7 +258,7 @@ function Group({ title, a, b, week, slot, now, grid }: { title: string | null; a
       )}
       <ItemGroup className="gap-0 divide-y divide-foreground/10">
         {rows.map(([x, y], i) => (
-          <Pair key={x?.player_id ?? y?.player_id ?? i} a={x} b={y} slot={label(x) ?? label(y)} week={week} now={now} grid={grid} />
+          <Pair key={x?.player_id ?? y?.player_id ?? i} a={x} b={y} slot={label(x) ?? label(y)} week={week} now={now} grid={grid} onPick={onPick} />
         ))}
       </ItemGroup>
     </div>
@@ -327,7 +315,11 @@ function Swaps({ side, end }: { side: Side; end: End }) {
           <li key={i} className={`flex flex-wrap items-baseline gap-x-2 ${opp ? "justify-end" : ""}`}>
             {opp && <span className="tabular-nums text-foreground/85">{signed(s.gain)}</span>}
             {!opp && <span className="font-mono">{SLOT_LABEL[s.slot] ?? s.slot}</span>}
-            <span>{s.out} <span aria-hidden>→</span> <span className="text-foreground/85">{s.in}</span></span>
+            {/* initial and surname on the phone, where the half column cannot hold two full names */}
+            <span>
+              <span className="sm:hidden">{shortName(s.out)} <span aria-hidden>→</span> <span className="text-foreground/85">{shortName(s.in)}</span></span>
+              <span className="max-sm:hidden">{s.out} <span aria-hidden>→</span> <span className="text-foreground/85">{s.in}</span></span>
+            </span>
             {opp && <span className="font-mono">{SLOT_LABEL[s.slot] ?? s.slot}</span>}
             {!opp && <span className="ml-auto tabular-nums text-foreground/85">{signed(s.gain)}</span>}
           </li>
@@ -342,7 +334,7 @@ function Swaps({ side, end }: { side: Side; end: End }) {
 // and FLEX beside FLEX at every width. The header names each side with its state (PROJ, "4 TO
 // PLAY", FINAL); the totals ledger rules off the starters; bench and IR step back under small
 // labels; the footer is each side's lineup by projection when it differs from the one set.
-function Board({ data, now }: { data: Week; now: number }) {
+function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick }) {
   const { me, opp, week } = data;
   const mine = sideState(me, now);
   const theirs = opp ? sideState(opp, now) : null;
@@ -368,14 +360,14 @@ function Board({ data, now }: { data: Week; now: number }) {
         )}
       </CardHeader>
       <CardContent className="-mt-1 pb-1">
-        <Group title={null} a={me.lineup} b={opp?.lineup ?? []} week={week} slot now={now} grid={grid} />
+        <Group title={null} a={me.lineup} b={opp?.lineup ?? []} week={week} slot now={now} grid={grid} onPick={onPick} />
         <div className={`${grid} items-start`}>
           <SideTotals side={me} now={now} end="me" />
           <span />
           {opp && <SideTotals side={opp} now={now} end="opp" />}
         </div>
-        <Group title="Bench" a={me.bench} b={opp?.bench ?? []} week={week} slot={false} now={now} grid={grid} />
-        <Group title="IR" a={me.ir} b={opp?.ir ?? []} week={week} slot={false} now={now} grid={grid} />
+        <Group title="Bench" a={me.bench} b={opp?.bench ?? []} week={week} slot={false} now={now} grid={grid} onPick={onPick} />
+        <Group title="IR" a={me.ir} b={opp?.ir ?? []} week={week} slot={false} now={now} grid={grid} onPick={onPick} />
       </CardContent>
       {swaps && (
         <CardFooter className={`${grid} items-start rounded-none border-t border-foreground/10 bg-transparent pt-3 pb-3`}>
@@ -389,7 +381,17 @@ function Board({ data, now }: { data: Week; now: number }) {
 }
 
 // `now` is the clock the game phases are read against; the live wrapper advances it on each poll.
+// The breakdown dialog holds the tapped player's id, not the player, so a live tick refreshes
+// his numbers while it is open.
 export function MatchupView({ data, now }: { data: Week; now: number }) {
+  const [picked, setPicked] = useState<{ id: number; end: End } | null>(null);
+  const [open, setOpen] = useState(false);
+  const roster = (s: Side | null) => (s ? [...s.lineup, ...s.bench, ...s.ir] : []);
+  const player = picked ? roster(picked.end === "me" ? data.me : data.opp).find((p) => p.player_id === picked.id) ?? null : null;
+  const onPick = (p: Player) => {
+    setPicked({ id: p.player_id, end: roster(data.me).some((q) => q.player_id === p.player_id) ? "me" : "opp" });
+    setOpen(true);
+  };
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
@@ -403,7 +405,8 @@ export function MatchupView({ data, now }: { data: Week; now: number }) {
       <Scorebug data={data} now={now} />
       {/* The feed only earns its place once something has happened; before kickoff it stays out of the way. */}
       {data.plays.length > 0 && <PlayFeedStrip plays={data.plays} />}
-      <Board data={data} now={now} />
+      <Board data={data} now={now} onPick={onPick} />
+      <BoxScoreDialog p={player} open={open && player != null} onOpenChange={setOpen} />
     </div>
   );
 }

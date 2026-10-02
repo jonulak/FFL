@@ -65,7 +65,7 @@ function PlayRow({ p }: { p: Play }) {
   );
 }
 
-// The strip's row: one line. The tile is a small square of club colour, the name leads, and the
+// The strip's row: one line, no photo (the Matchup page carries none). The name leads, and the
 // quarter and clock and the delta close the line at the spine. The play text itself belongs to
 // the /plays page, with the stamp and the running total; the strip says who moved, when and by
 // how much, and the full text is the row's title.
@@ -75,11 +75,8 @@ function CompactRow({ p }: { p: Play }) {
   return (
     <div role="listitem" className={`flex py-1.5 ${mine ? "justify-start" : "justify-end"}`}>
       <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`} title={p.text ?? undefined}>
-        <ItemMedia className="size-7 overflow-hidden rounded-sm *:w-full">
-          <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
-        </ItemMedia>
         <ItemContent className={`min-w-0 gap-0 ${mine ? "" : "items-end text-right"}`}>
-          <ItemTitle className={`line-clamp-none block w-full max-w-full truncate font-display text-[1.125rem] font-semibold leading-none tracking-tight ${mine ? "" : "text-right"}`}>
+          <ItemTitle className={`line-clamp-none block w-full max-w-full truncate font-display text-[1rem] font-semibold leading-none tracking-tight sm:text-[1.125rem] ${mine ? "" : "text-right"}`}>
             {p.name}
           </ItemTitle>
         </ItemContent>

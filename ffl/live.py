@@ -155,42 +155,80 @@ def stat_line(pos: str, stats: dict) -> str | None:
     return text or None
 
 
+# The defence's tiered stats (89-92, 123-125 points allowed; 128-136 yards allowed) are flags: 1
+# in the one band the game landed in. The breakdown shows the total they were read off instead.
+BAND_BASIS = {**{s: "120" for s in (89, 90, 91, 92, 123, 124, 125)}, **{s: "127" for s in range(128, 137)}}
+# Kicking ids sit apart (74-88, then 198-201 for the long field goals); the breakdown reads
+# passing, rushing, receiving, kicking, defence, so the long kicks sort beside the short ones.
+_ORDER = {198: 80.1, 199: 80.2, 200: 80.3, 201: 80.4}
+
+
+def _label(raw: str) -> str:
+    """ESPN's scoring label as a line item: "Each reception" -> "Reception"."""
+    s = raw[5:] if raw.startswith("Each ") else raw
+    return s[:1].upper() + s[1:]
+
+
+def box_score(stats: dict, scoring: list[dict]) -> list[dict]:
+    """Every stat in the row the league scores, as a line item: the count, the rate and the
+    points it earned (count x rate). A band row's count is the total it was read off (17 points
+    allowed) and its rate is the flat award. The items sum to what score_all gives the row."""
+    items = []
+    for s in sorted(scoring, key=lambda s: _ORDER.get(int(s["stat_id"]), int(s["stat_id"]))):
+        sid, rate = int(s["stat_id"]), float(s["points"])
+        n = float(stats.get(str(sid)) or 0)
+        if not n or not rate:
+            continue
+        band = BAND_BASIS.get(sid)
+        items.append({"stat_id": sid, "label": _label(s.get("label") or s.get("abbr") or str(sid)),
+                      "count": float(stats.get(band) or 0) if band else n, "rate": rate, "flat": band is not None,
+                      "points": round(n * rate, 2)})
+    return items
+
+
 def overlay_players(players: list[dict], points: dict[int, float], games: dict[str, dict] | None = None,
-                    stats: dict[int, dict] | None = None) -> list[dict]:
+                    stats: dict[int, dict] | None = None, scoring: list[dict] | None = None) -> list[dict]:
     """Live `actual` for players the feed has scored; `game` (status, quarter, clock, score) for
     players whose pro team has kicked off, so the page can show the clock where the kickoff
-    time was; `stat_line` for players with a stat that scores."""
+    time was; `stat_line` for players with a stat that scores, and with `scoring` (the league's
+    stat table, settings["scoring"]) `box`, the line items behind his points. The stat row is
+    the feed's while it has him, else ESPN's own (`stat_row`, the week payload's), which is
+    dropped from the output either way."""
     out = []
     for p in players:
+        espn_row = p.get("stat_row")
+        p = {k: v for k, v in p.items() if k != "stat_row"}
         if p.get("player_id") in points:
-            p = {**p, "actual": points[p["player_id"]]}
+            p["actual"] = points[p["player_id"]]
         game = (games or {}).get(p.get("team"))
         if game and game.get("status") in ("in", "post"):
-            p = {**p, "game": game}
-        row = (stats or {}).get(p.get("player_id"))
+            p["game"] = game
+        row = (stats or {}).get(p.get("player_id")) or espn_row
         line = stat_line(p.get("pos", ""), row) if row else None
         if line:
-            p = {**p, "stat_line": line}
+            p["stat_line"] = line
+        if row and scoring:
+            p["box"] = box_score(row, scoring)
         out.append(p)
     return out
 
 
 def overlay_week(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None,
-                 stats: dict[int, dict] | None = None) -> dict:
+                 stats: dict[int, dict] | None = None, scoring: list[dict] | None = None) -> dict:
     out = dict(payload)
     for key in ("me", "opp"):
         side = payload.get(key)
         if not side:
             continue
-        side = {**side, **{g: overlay_players(side.get(g, []), points, games, stats) for g in ("lineup", "bench", "ir")}}
+        side = {**side, **{g: overlay_players(side.get(g, []), points, games, stats, scoring) for g in ("lineup", "bench", "ir")}}
         side["actual_total"] = round(sum(p["actual"] for p in side["lineup"]), 1)
         out[key] = side
     return out
 
 
 def overlay_roster(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None,
-                   stats: dict[int, dict] | None = None) -> dict:
-    return {**payload, "cards": overlay_players(payload.get("cards", []), points, games, stats)}
+                   stats: dict[int, dict] | None = None, scoring: list[dict] | None = None) -> dict:
+    return {**payload, "cards": overlay_players(payload.get("cards", []), points, games, stats, scoring)}
 
 
 def overlay_league(payload: dict, points: dict[int, float]) -> dict:

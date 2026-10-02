@@ -119,6 +119,46 @@ def test_stat_line_is_the_scoring_stats_by_position():
     assert live.stat_line("WR", {}) is None
 
 
+SCORING = [{"stat_id": 3, "label": "Passing Yards", "points": 0.04}, {"stat_id": 4, "label": "TD Pass", "points": 4.0},
+           {"stat_id": 20, "label": "Interceptions Thrown", "points": -2.0},
+           {"stat_id": 53, "label": "Each reception", "points": 1.0},
+           {"stat_id": 92, "label": "14-17 points allowed", "points": 1.0}, {"stat_id": 99, "label": "Each Sack", "points": 1.0},
+           {"stat_id": 198, "label": "FG Made (50-59 yards)", "points": 5.0}, {"stat_id": 80, "label": "FG Made (0-39 yards)", "points": 3.0},
+           {"stat_id": 85, "label": "Total FG Missed", "points": -1.0}]
+
+
+def test_box_score_is_count_times_rate_and_sums_to_the_points():
+    from ffl import fastcast
+    row = {"0": 30.0, "1": 20.0, "3": 250.0, "4": 2.0, "20": 1.0, "23": 3.0}
+    items = live.box_score(row, SCORING)
+    assert [(i["label"], i["count"], i["points"]) for i in items] == [
+        ("Passing Yards", 250.0, 10.0), ("TD Pass", 2.0, 8.0), ("Interceptions Thrown", 1.0, -2.0)]
+    table = {int(s["stat_id"]): s["points"] for s in SCORING}
+    assert round(sum(i["points"] for i in items), 2) == round(fastcast.player_points(row, table), 2)
+
+
+def test_box_score_band_rows_show_the_total_they_were_read_off():
+    items = live.box_score({"120": 17.0, "92": 1.0, "99": 3.0}, SCORING)
+    assert [(i["label"], i["count"], i["flat"], i["points"]) for i in items] == [
+        ("14-17 points allowed", 17.0, True, 1.0), ("Sack", 3.0, False, 3.0)]
+
+
+def test_box_score_sorts_long_field_goals_with_the_kicks():
+    items = live.box_score({"80": 1.0, "198": 1.0, "85": 1.0}, SCORING)
+    assert [i["stat_id"] for i in items] == [80, 198, 85]
+
+
+def test_overlay_falls_back_to_espns_stat_row_and_drops_it():
+    p = {**player(7), "pos": "WR", "stat_row": {"53": 4.0, "42": 61.0}}
+    out = live.overlay_players([p], {}, scoring=SCORING)[0]
+    assert "stat_row" not in out
+    assert out["stat_line"] == "4 rec, 61 yds"
+    assert out["box"] == [{"stat_id": 53, "label": "Reception", "count": 4.0, "rate": 1.0, "flat": False, "points": 4.0}]
+    fed = live.overlay_players([p], {7: 9.0}, stats={7: {"53": 5.0}}, scoring=SCORING)[0]
+    assert fed["box"][0]["count"] == 5.0, "the feed's row wins while it has him"
+    assert "box" not in live.overlay_players([p], {})[0], "no scoring table, no breakdown"
+
+
 def test_state_keeps_game_states_but_a_clock_tick_alone_does_not_bump_the_version():
     """Every GET reads the latest clock; the stream only wakes the page for something new."""
     st = live.State()

@@ -87,6 +87,31 @@ def flatten_box_player(bp, season_proj: float | None = None) -> dict:
             "home": None}
 
 
+def stat_row(bp, settings: dict) -> dict[str, float] | None:
+    """A BoxPlayer's week as the raw stat row the live feed carries (stat id -> value), for the
+    stat line and the scoring breakdown once the feed is gone (after Monday, or an API restart).
+
+    espn-api renames ESPN's stat ids (`breakdown`, PLAYER_STATS_MAP) and the map is not one to
+    one: a few names stand for two ids that carry the same value (3 and 22, passing yards). The
+    name goes back to the id the league scores; failing that, the lowest. An id the map does not
+    know keeps ESPN's own key ("214") and passes through. None before the game (no breakdown)."""
+    from espn_api.football.constant import PLAYER_STATS_MAP
+    bd = getattr(bp, "breakdown", None) or {}
+    if not bd:
+        return None
+    scored = {int(x["stat_id"]) for x in settings.get("scoring", [])}
+    ids: dict[str, int] = {}
+    for sid, name in sorted(PLAYER_STATS_MAP.items()):
+        if name not in ids or (sid in scored and ids[name] not in scored):
+            ids[name] = sid
+    out = {}
+    for k, v in bd.items():
+        sid = int(k) if str(k).isdigit() else ids.get(k)
+        if sid is not None and v is not None:
+            out[str(sid)] = float(v)
+    return out
+
+
 _HOME: dict[tuple[int, float], dict[str, bool]] = {}  # (week, league build) -> team -> hosts
 
 
@@ -704,7 +729,8 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
             if not hasattr(t, "team_id"):
                 continue  # a bye or placeholder side: no opponent to build
             players = apply_home(apply_injuries(
-                apply_season(merge_weekly([flatten_box_player(bp) for bp in lineup], sl), seas), inj, w1), home)
+                apply_season(merge_weekly([{**flatten_box_player(bp), "stat_row": stat_row(bp, settings)}
+                                           for bp in lineup], sl), seas), inj, w1), home)
             built["me" if t.team_id == me else "opp"] = build_side(t, players, settings)
         return {"week": week, "live": S.is_live(), "me": built["me"], "opp": built.get("opp")}
     raise RuntimeError(f"no matchup for team {me} in week {week}")

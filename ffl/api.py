@@ -219,6 +219,15 @@ def _live_stats(week: int | None) -> dict[int, dict]:
     return live.STATE.stats
 
 
+def _scoring() -> list[dict] | None:
+    """The league's stat table for the overlay's scoring breakdown; None (no breakdown) when the
+    settings file cannot be read, rather than failing the page."""
+    try:
+        return load().get("scoring")
+    except (Exception, SystemExit):  # noqa: BLE001 — load() exits when the file is missing
+        return None
+
+
 FEED_ROWS = 5
 
 
@@ -235,7 +244,7 @@ def week_current():
     # store is the week it last scored, which after Tuesday's rollover is still last week's
     runner = getattr(app.state, "runner", None)
     plays = _plays(FEED_ROWS) if runner and runner.week == data["week"] else []
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"])), "plays": plays}
+    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()), "plays": plays}
 
 
 @app.get("/plays")
@@ -251,7 +260,7 @@ def week(n: int):
     data = _serve(f"week:{n}", lambda: espn_season.week_state(n))
     runner = getattr(app.state, "runner", None)
     plays = _plays(FEED_ROWS) if runner and runner.week == n else []
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"])), "plays": plays}
+    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()), "plays": plays}
 
 
 @app.get("/live")
@@ -323,7 +332,7 @@ def draft_():
 def roster_():
     data = _serve("roster", lambda: espn_season.roster_state(None))
     # gated on the payload's week, as /week is: after the rollover the feed still holds last week's
-    data = live.overlay_roster(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]))
+    data = live.overlay_roster(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring())
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
     return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"])),
