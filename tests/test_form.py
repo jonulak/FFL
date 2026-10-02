@@ -2,10 +2,17 @@
 from ffl import season
 
 
-def G(week, pts, proj, opp=10.0, tgt=0.0, rec_yd=0.0, snaps=None, team_snaps=None, final=True, active=None, ref=None):
-    return {"week": week, "pts": pts, "proj": proj, "opp": opp, "tgt": tgt, "rec_yd": rec_yd,
-            "snaps": snaps, "team_snaps": team_snaps, "final": final,
-            "active": (opp > 0) if active is None else active, "ref": ref}
+def G(week, pts, proj, opp=10.0, tgt=0.0, rec_yd=0.0, snaps=None, team_snaps=None, final=True, active=None, ref=None, car=None, rec=None, pass_att=None):
+    result = {"week": week, "pts": pts, "proj": proj, "opp": opp, "tgt": tgt, "rec_yd": rec_yd,
+              "snaps": snaps, "team_snaps": team_snaps, "final": final,
+              "active": (opp > 0) if active is None else active, "ref": ref}
+    if car is not None:
+        result["car"] = car
+    if rec is not None:
+        result["rec"] = rec
+    if pass_att is not None:
+        result["pass_att"] = pass_att
+    return result
 
 
 def test_window_is_the_last_three_games_played():
@@ -111,3 +118,14 @@ def test_a_game_without_snaps_or_a_reference_weighs_one_and_so_do_kickers_and_de
     assert k["weight"] == 1.0
     d = season.recent_form([G(1, 8, 7, opp=None, active=True)], "D/ST", ros=110.0, games_left=16)
     assert d["weight"] == 1.0
+
+
+def test_rows_carry_each_game_in_week_order_for_the_trend():
+    games = [G(1, 10, 8, tgt=4, snaps=30, team_snaps=60),
+             {**G(2, 12, 9, tgt=6, snaps=45, team_snaps=60), "car": 3, "rec": 5},
+             G(3, 20, 10, tgt=9)]
+    f = season.recent_form(games, "WR", ros=100.0, games_left=13)
+    assert [r["week"] for r in f["rows"]] == [1, 2, 3]
+    assert [r["snap_pct"] for r in f["rows"]] == [50, 75, None]
+    assert f["rows"][1]["car"] == 3 and f["rows"][1]["rec"] == 5 and f["rows"][2]["tgt"] == 9
+    assert f["rows"][0]["car"] is None, "an old row without the key reads as unknown, not zero"

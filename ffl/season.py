@@ -372,6 +372,12 @@ def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dic
     tgts = sum(float(g.get("tgt") or 0) for g in window)
     yds = sum(float(g.get("rec_yd") or 0) for g in window)
     targets = pos in TARGET_POSITIONS
+    # the window game by game, so the outlook can read the trend's shape and not just its mean
+    rows = [{"week": g["week"], "pts": round(float(g["pts"]), 1),
+             "snap_pct": round(100 * float(g["snaps"]) / float(g["team_snaps"]))
+             if g.get("snaps") is not None and g.get("team_snaps") else None,
+             "tgt": g.get("tgt"), "car": g.get("car"), "rec": g.get("rec"), "pass_att": g.get("pass_att")}
+            for g in window]
     return {"games": len(window), "weeks": [g["week"] for g in window],
             "l3": round(l3, 1),
             "beat": round(_mean([float(g["pts"]) - float(g["proj"]) for g in window]), 1),
@@ -382,7 +388,8 @@ def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dic
             "ypt": round(yds / tgts, 1) if targets and tgts > 0 else None,
             "pace_gap": round(l3 * games_left - float(ros), 1),
             # what the window is worth to the usage-adjusted ROS, and the span it is paced over
-            "weight": round(sum(_game_weight(g) for g in window), 2), "games_left": games_left}
+            "weight": round(sum(_game_weight(g) for g in window), 2), "games_left": games_left,
+            "rows": rows}
 
 
 def roster_rows(my_roster: list[dict], week: int) -> list[dict]:

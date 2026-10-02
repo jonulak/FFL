@@ -255,6 +255,7 @@ def game_from_stats(week: int, st: dict, pos: str, final: bool) -> dict:
         active = opp > 0
     return {"week": week, "pts": float(st.get("points") or 0), "proj": float(st.get("projected_points") or 0),
             "opp": opp, "tgt": g("receivingTargets"), "rec_yd": g("receivingYards"),
+            "car": g("rushingAttempts"), "rec": g("receivingReceptions"), "pass_att": g("passingAttempts"),
             "snaps": None, "team_snaps": None, "final": final, "active": active}
 
 

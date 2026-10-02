@@ -11,10 +11,17 @@ def week_stats(points, proj, **breakdown):
     return {"points": points, "projected_points": proj, "breakdown": breakdown}
 
 
+def test_game_row_carries_carries_receptions_and_pass_attempts():
+    g = espn_season.game_from_stats(3, week_stats(12, 10, rushingAttempts=14, receivingReceptions=3,
+                                                  receivingTargets=4, passingAttempts=0), "RB", final=True)
+    assert (g["car"], g["rec"], g["tgt"], g["pass_att"]) == (14, 3, 4, 0)
+
+
 def test_game_from_stats_reads_opportunity_by_position():
     rb = espn_season.game_from_stats(2, week_stats(4.5, 9.58, rushingAttempts=2, receivingTargets=4,
                                                    receivingReceptions=3, receivingYards=5), "RB", final=True)
     assert rb == {"week": 2, "pts": 4.5, "proj": 9.58, "opp": 6.0, "tgt": 4.0, "rec_yd": 5.0,
+                  "car": 2.0, "rec": 3.0, "pass_att": 0.0,
                   "snaps": None, "team_snaps": None, "final": True, "active": True}
     qb = espn_season.game_from_stats(1, week_stats(20, 18, passingAttempts=30, rushingAttempts=4), "QB", final=True)
     assert qb["opp"] == 34.0 and qb["active"]
