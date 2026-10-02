@@ -144,7 +144,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   (one `kona_player_info` call). Four calls at a time, each card saved as it lands, cached in
   `data/outlook/week-<n>.json` under a hash of the facts, the news stamps and the day (so at least daily).
   GETs never generate. `POST /outlook/refresh` starts a locked background run; `launchd/com.jonulak.ffl-outlook`
-  curls it at five past every hour. A free agent's outlook is written only on a click (the Waivers row's
+  curls it at five past every hour. One card is rewritten on a click (the card footer's Rewrite):
+  `POST /outlook/{id}` → `outlook.start_one(kind=ROSTER)`, stored with the fact hash so the hourly run skips
+  him; it and the full run refuse each other (409), since the run rewrites the file it loaded. A free agent's outlook is written only on a click (the Waivers row's
   "outlook" dialog): `POST /waivers/outlook/{id}` runs `outlook.start_one` (same sheet with `free_agent=True`:
   no call, a claim-framed Take; WORKERS in flight at most) into `data/outlook/waivers-week-<n>.json`, apart
   from the Roster file; the dialog polls `GET /waivers/outlook/{id}`. The CLI must be logged in for the launchd user (`claude -p` from a plain

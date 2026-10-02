@@ -312,7 +312,7 @@ def fa(**kw):
 
 @pytest.fixture
 def writing(monkeypatch):
-    s: set[int] = set()
+    s: dict[int, str] = {}
     monkeypatch.setattr(outlook, "_WRITING", s)
     return s
 
@@ -391,3 +391,46 @@ def test_start_one_frees_the_slot_when_the_thread_will_not_start(outlook_dir, wr
     with pytest.raises(RuntimeError):
         outlook.start_one(fa(), 5, run=lambda p: [TAKE])
     assert not writing
+
+
+# --- one Roster card, on a click from its footer ---
+
+def test_start_one_rewrites_a_card_into_the_roster_file_with_its_fact_hash(outlook_dir, writing):
+    gate = threading.Event()
+    sheets = []
+    t = outlook.start_one(card(), 5, run=lambda p: (sheets.append(p), gate.wait(5), [TAKE])[2], kind=outlook.ROSTER)
+    assert outlook.roster_entry(card(), 5)["outlook_running"] is True
+    gate.set()
+    t.join(5)
+    e = outlook.load(5)[1]
+    assert e["bullets"] == [TAKE] and e["hash"] == outlook.fact_hash(card(), ctx(), date.today())
+    assert not outlook.load(5, outlook.WAIVERS), "a card never lands in the free agents' file"
+    assert outlook.FA_TAKE not in sheets[0], "a card's sheet is the call's, not a claim's"
+    r = outlook.roster_entry(card(), 5)
+    assert (r["outlook"], r["outlook_running"], r["outlook_error"]) == ([TAKE], False, None)
+    assert outlook.pending([card()], outlook.load(5), {1: ctx()}, date.today()) == [], "the hourly run skips him"
+
+
+def test_a_card_rewrite_that_fails_keeps_the_bullets_and_shows_the_reason(outlook_dir, writing):
+    outlook.start_one(card(), 5, run=lambda p: [TAKE], kind=outlook.ROSTER).join(5)
+    outlook.start_one(card(), 5, run=lambda p: (_ for _ in ()).throw(RuntimeError("Not logged in")),
+                      kind=outlook.ROSTER).join(5)
+    a, = outlook.attach([card()], outlook.load(5))
+    assert a["outlook"] == [TAKE] and "Not logged in" in a["outlook_error"]
+
+
+def test_a_card_rewrite_and_the_full_run_never_overlap(outlook_dir, writing):
+    gate = threading.Event()
+    t = outlook.start([card(player_id=2)], 5, run=lambda p: (gate.wait(5), [TAKE])[1])
+    with pytest.raises(outlook.Busy, match="full outlook run"):
+        outlook.start_one(card(), 5, run=lambda p: [TAKE], kind=outlook.ROSTER)
+    gate.set()
+    t.join(5)
+    gate.clear()
+    one = outlook.start_one(card(), 5, run=lambda p: (gate.wait(5), [TAKE])[1], kind=outlook.ROSTER)
+    with pytest.raises(outlook.Busy, match="being written"):
+        outlook.start([card(player_id=2)], 5, run=lambda p: [TAKE])
+    assert not outlook.running(), "a refused run gives the lock back"
+    gate.set()
+    one.join(5)
+    assert set(outlook.load(5)) == {1, 2}, "neither write lost the other's card"

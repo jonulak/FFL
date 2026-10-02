@@ -104,7 +104,7 @@ function Reason({ text }: { text: string }) {
 
 // shadcn Card, laid out as a broadcast lineup panel: the team-colour media column spans every
 // row on the left, header / content / footer stack on the right.
-function PlayerCard({ c, week }: { c: Card; week: number }) {
+function PlayerCard({ c, week, runBusy }: { c: Card; week: number; runBusy: boolean }) {
   const t = team(c.team);
   const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR";
   // An IR or OUT call is the injury status restated; the tag alone carries it, with the return week.
@@ -145,13 +145,13 @@ function PlayerCard({ c, week }: { c: Card; week: number }) {
         <FormStrip form={c.form} className="mt-2" />
       </CardContent>
       <CardFooter className="flex flex-col items-stretch rounded-none border-t border-foreground/10 bg-transparent pt-2 pb-3 sm:pb-3.5">
-        <Outlook bullets={c.outlook} at={c.outlook_at} stale={c.outlook_stale} />
+        <Outlook c={c} runBusy={runBusy} />
       </CardFooter>
     </UiCard>
   );
 }
 
-export function RosterCards({ cards, week }: { cards: Card[]; week: number }) {
+export function RosterCards({ cards, week, runBusy }: { cards: Card[]; week: number; runBusy: boolean }) {
   return (
     <div className="space-y-7">
       {GROUPS.map(({ key, title }) => {
@@ -165,7 +165,7 @@ export function RosterCards({ cards, week }: { cards: Card[]; week: number }) {
               <Separator className="mb-1.5 flex-1 self-end bg-foreground/12" />
             </h2>
             <div className="grid gap-3 md:grid-cols-2">
-              {rows.map((c) => <PlayerCard key={c.player_id} c={c} week={week} />)}
+              {rows.map((c) => <PlayerCard key={c.player_id} c={c} week={week} runBusy={runBusy} />)}
             </div>
           </section>
         );

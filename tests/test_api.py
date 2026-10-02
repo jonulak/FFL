@@ -281,7 +281,7 @@ def _fa_pool(monkeypatch):
            "opponent": "BUF", "kickoff": None, "return_week": None, "injury_note": None, "add": 9.0}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
                         lambda week=None: {"week": 3, "positions": {"RB": [row], "WR": []}})
-    monkeypatch.setattr(api.outlook, "_WRITING", set())
+    monkeypatch.setattr(api.outlook, "_WRITING", {})
     api.cache.clear()
     return row
 
@@ -343,3 +343,23 @@ def test_roster_cards_never_carry_last_weeks_live_overlay(client, monkeypatch):
     st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=3)
     card = client.get("/roster").json()["cards"][0]
     assert card["game"]["status"] == "post"
+
+
+def test_card_outlook_is_rewritten_on_a_post_and_polled_on_a_get(client, monkeypatch):
+    import threading
+    gate = threading.Event()
+    take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
+    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), [take])[1])
+    monkeypatch.setattr(api.outlook, "_WRITING", {})
+    assert client.post("/outlook/1").status_code == 202
+    assert client.post("/outlook/1").status_code == 409
+    assert client.get("/outlook/1").json()["outlook_running"] is True
+    assert client.get("/roster").json()["cards"][0]["outlook_running"] is True
+    gate.set()
+    for _ in range(50):
+        if not client.get("/outlook/1").json()["outlook_running"]:
+            break
+        time.sleep(0.05)
+    assert client.get("/outlook/1").json()["outlook"] == [take]
+    assert client.get("/roster").json()["cards"][0]["outlook"] == [take]
+    assert client.post("/outlook/99").status_code == 404 and client.get("/outlook/99").status_code == 404

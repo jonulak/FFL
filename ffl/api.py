@@ -339,8 +339,35 @@ def roster_():
     data = live.overlay_roster(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring())
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
-    return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"])),
+    return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"]), outlook.writing()),
             "outlook_run": {**outlook.LAST, "running": outlook.running()}}
+
+
+def _roster_card(player_id: int) -> tuple[dict, int]:
+    """His card in the cached roster and its week; 404 once he is off the roster."""
+    data = _serve("roster", lambda: espn_season.roster_state(None))
+    for c in data["cards"]:
+        if c["player_id"] == player_id:
+            return c, data["week"]
+    raise HTTPException(status_code=404, detail=f"player {player_id} is not on the roster")
+
+
+@app.get("/outlook/{player_id:int}")
+def card_outlook(player_id: int):
+    card, week = _roster_card(player_id)
+    return outlook.roster_entry(card, week)
+
+
+@app.post("/outlook/{player_id:int}", status_code=202)
+def card_outlook_write(player_id: int):
+    """One Roster card's outlook, rewritten in the background whether or not his facts moved; the card
+    polls the GET until `outlook_running` clears. 409 while the full run holds the Roster file."""
+    card, week = _roster_card(player_id)
+    try:
+        outlook.start_one(card, week, run=outlook.run_claude, kind=outlook.ROSTER)
+    except outlook.Busy as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"started": True}
 
 
 @app.post("/outlook/refresh", status_code=202)

@@ -57,7 +57,11 @@ export type Card = Player & {
   group: "starter" | "bench" | "ir"; call: "START" | "BENCH" | "OUT" | "BYE" | "IR";
   gap: number | null; close_call: boolean; reason: string;
   outlook: OutlookBullet[] | null; outlook_at: string | null; outlook_stale: boolean;
+  // a rewrite of this card alone is running (POST /outlook/{id}); the last one's failure, if it failed
+  outlook_running: boolean; outlook_error: string | null;
 };
+// GET /outlook/{id}: one card's outlook fields, polled while its rewrite runs.
+export type CardOutlook = Pick<Card, "outlook" | "outlook_at" | "outlook_stale" | "outlook_running" | "outlook_error">;
 export type OutlookRun = {
   at: string | null; generated: number; skipped: number; failed: number; running: boolean;
   error: string | null; last_failure: string | null; pending: number | null;

@@ -198,16 +198,18 @@ def save(week: int, entries: dict[int, dict], kind: str = ROSTER) -> None:
     os.replace(tmp, _path(week, kind))
 
 
-def attach(cards: list[dict], entries: dict[int, dict]) -> list[dict]:
-    """The stored bullets on each card, flagged stale when the card's own facts have moved since."""
+def attach(cards: list[dict], entries: dict[int, dict], writing: set[int] = frozenset()) -> list[dict]:
+    """The stored bullets on each card, flagged stale when the card's own facts have moved since, with
+    whether a one-card write is running for him and the last one's failure."""
     out = []
     for c in cards:
-        e = entries.get(c["player_id"])
+        raw = entries.get(c["player_id"])
+        raw = raw if isinstance(raw, dict) else {}
         # a half-written entry, or a paragraph from before the bullets, is no entry: the next run rewrites it
-        if not isinstance(e, dict) or "card_hash" not in e or not isinstance(e.get("bullets"), list):
-            e = None
+        e = raw if "card_hash" in raw and isinstance(raw.get("bullets"), list) else None
         out.append({**c, "outlook": e["bullets"] if e else None, "outlook_at": e.get("generated_at") if e else None,
-                    "outlook_stale": bool(e) and e["card_hash"] != card_hash(c)})
+                    "outlook_stale": bool(e) and e["card_hash"] != card_hash(c),
+                    "outlook_running": c["player_id"] in writing, "outlook_error": raw.get("error")})
     return out
 
 
@@ -334,6 +336,12 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
     """
     if not LOCK.acquire(blocking=False):
         raise Busy("outlook refresh already running")
+    # generate() rewrites the file from what it loaded at its start, so a card written on its own
+    # mid-run would be lost: the two never overlap (start_one refuses a card while LOCK is held)
+    with _WLOCK:
+        if writing(ROSTER):
+            LOCK.release()
+            raise Busy("a card's outlook is being written; try again when it lands")
 
     def work():
         # Nothing above this thread can see an exception it raises, so a run that dies has to leave
@@ -355,10 +363,22 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
     return t
 
 
-# Free agents, one at a time, on a click from the Waivers page. Players being written, and the lock that
-# guards that set and the waivers file's read-modify-write (the calls run side by side, WORKERS at most).
-_WRITING: set[int] = set()
+# One player at a time, on a click: a free agent from the Waivers page, or a Roster card. Players being
+# written (to which store), and the lock that guards that map and each file's read-modify-write (the
+# calls run side by side, WORKERS at most).
+_WRITING: dict[int, str] = {}
 _WLOCK = threading.Lock()
+
+
+def writing(kind: str = ROSTER) -> set[int]:
+    """The players whose one-off write into `kind`'s store is running."""
+    return {pid for pid, k in _WRITING.items() if k == kind}
+
+
+def roster_entry(card: dict, week: int) -> dict:
+    """What a Roster card's rewrite polls: his outlook fields as /roster attaches them."""
+    a = attach([card], load(week), writing())[0]
+    return {k: a[k] for k in ("outlook", "outlook_at", "outlook_stale", "outlook_running", "outlook_error")}
 
 
 def waiver_entry(row: dict, week: int) -> dict:
@@ -377,9 +397,11 @@ def written(week: int) -> set[int]:
     return {pid for pid, e in load(week, WAIVERS).items() if isinstance(e, dict) and isinstance(e.get("bullets"), list)}
 
 
-def start_one(row: dict, week: int, run=run_claude, gather=None) -> threading.Thread:
-    """Write one free agent's outlook on a daemon thread. It always writes: the click is the ask. Busy when
-    he is already being written or WORKERS calls are in flight. A failed call keeps the old bullets and
+def start_one(row: dict, week: int, run=run_claude, gather=None, kind: str = WAIVERS) -> threading.Thread:
+    """Write one player's outlook on a daemon thread: a free agent (WAIVERS, the claim-framed sheet) or a
+    Roster card (ROSTER, stored with the fact hash, so the hourly run skips him until his facts move). It
+    always writes: the click is the ask. Busy when he is already being written, WORKERS calls are in
+    flight, or — for a card — the full run holds the Roster file. A failed call keeps the old bullets and
     records the reason on his entry."""
     pid = row["player_id"]
     with _WLOCK:
@@ -387,30 +409,35 @@ def start_one(row: dict, week: int, run=run_claude, gather=None) -> threading.Th
             raise Busy(f"{row['name']}'s outlook is already being written")
         if len(_WRITING) >= WORKERS:
             raise Busy(f"{WORKERS} outlooks are already being written")
-        _WRITING.add(pid)
+        if kind == ROSTER and LOCK.locked():
+            raise Busy("the full outlook run is writing; his card is part of it")
+        _WRITING[pid] = kind
 
     def work():
         try:
+            today = date.today()
             ctx = (gather or news.gather)([row], week)[pid]
-            bullets = run(fact_sheet(row, week, ctx, date.today(), free_agent=True))
+            bullets = run(fact_sheet(row, week, ctx, today, free_agent=kind == WAIVERS))
             entry = {"card_hash": card_hash(row), "bullets": bullets,
                      "generated_at": datetime.now().astimezone().isoformat(timespec="minutes")}
-        except Exception as e:  # noqa: BLE001 — the dialog needs the reason, not a lost traceback
+            if kind == ROSTER:
+                entry["hash"] = fact_hash(row, ctx, today)
+        except Exception as e:  # noqa: BLE001 — the page needs the reason, not a lost traceback
             entry = {"error": f"{type(e).__name__}: {e}"[:200]}
         with _WLOCK:
             try:
-                entries = load(week, WAIVERS)
+                entries = load(week, kind)
                 old = entries.get(pid) if isinstance(entries.get(pid), dict) else {}
                 entries[pid] = entry if "bullets" in entry else {**old, **entry}
-                save(week, entries, WAIVERS)
+                save(week, entries, kind)
             finally:
-                _WRITING.discard(pid)
+                _WRITING.pop(pid, None)
 
     t = threading.Thread(target=work, name=f"outlook-{pid}", daemon=True)
     try:
         t.start()
     except Exception:  # noqa: BLE001 — a thread that never ran would hold his slot forever
         with _WLOCK:
-            _WRITING.discard(pid)
+            _WRITING.pop(pid, None)
         raise
     return t
