@@ -136,8 +136,13 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   drive plays and scoringPlays), never simply the game's last play: stats arrive one to three frames after
   the play text, by which time lastPlay is often the next play. `match: "last"` marks the fallback (D/ST).
 - **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (STRATEGY.md "Lineup"), pure;
-  `ffl/outlook.py` writes the paragraph under each card by running `claude -p` (Opus, tools off) from a
-  fact sheet, one player per call, cached in `data/outlook/week-<n>.json` under a hash of the facts.
+  `ffl/outlook.py` writes labelled bullets under each card (Injury, Usage, Depth, Team, Take; each cites
+  dated, linked sources; never projections) by running `claude -p` (Opus, WebSearch + WebFetch) from a
+  fact sheet: the card's non-projection facts, per-game usage rows (`form["rows"]`) and `ffl/news.py`'s
+  context — Rotowire blurbs (ESPN's public fantasy news feed, per player), Sleeper's depth order (one bulk
+  dump), the teammates in scope by position with their injury status, and ESPN's per-player news stamps
+  (one `kona_player_info` call). Four calls at a time, each card saved as it lands, cached in
+  `data/outlook/week-<n>.json` under a hash of the facts, the news stamps and the day (so at least daily).
   GETs never generate. `POST /outlook/refresh` starts a locked background run; `launchd/com.jonulak.ffl-outlook`
   curls it at five past every hour. The CLI must be logged in for the launchd user (`claude -p` from a plain
   terminal answers; from inside a Claude Code session it says "Not logged in").

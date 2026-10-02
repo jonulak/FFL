@@ -33,7 +33,7 @@ def client(monkeypatch, tmp_path):
     # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
     monkeypatch.setattr(api.outlook, "LAST",
                         {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None,
-                         "last_failure": None})
+                         "last_failure": None, "pending": None})
     monkeypatch.setattr(api, "sync_all", lambda: {"transactions": 0})
     dec = tmp_path / "DECISIONS.md"
     dec.write_text("# Decisions log\n")
@@ -245,7 +245,7 @@ def test_roster_attaches_the_cached_outlook_on_every_get(client):
     body = r.json()
     assert body["cards"][0]["outlook"] is None and body["cards"][0]["outlook_stale"] is False
     assert body["outlook_run"] == {"at": None, "generated": 0, "skipped": 0, "failed": 0,
-                                   "error": None, "last_failure": None, "running": False}
+                                   "error": None, "last_failure": None, "pending": None, "running": False}
     take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
     api.outlook.save(3, {1: {"hash": "h", "card_hash": api.outlook.card_hash(body["cards"][0]), "bullets": [take], "generated_at": "t"}})
     assert client.get("/roster").json()["cards"][0]["outlook"] == [take], "no TTL wait for new bullets"

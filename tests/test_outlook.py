@@ -42,7 +42,7 @@ def outlook_dir(tmp_path, monkeypatch):
     # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
     monkeypatch.setattr(outlook.news, "gather", lambda cards, week: {c["player_id"]: ctx() for c in cards})
     monkeypatch.setattr(outlook, "LAST", {"at": None, "generated": 0, "skipped": 0, "failed": 0,
-                                          "error": None, "last_failure": None})
+                                          "error": None, "last_failure": None, "pending": None})
     return tmp_path / "outlook"
 
 
@@ -143,13 +143,45 @@ def test_generate_writes_bullets_and_keeps_the_old_entry_on_failure(outlook_dir)
             raise RuntimeError("claude exited 1")
         return [TAKE]
     counts = outlook.generate(cards, 5, run=run, now=datetime(2026, 10, 2, 9, 30), today=TODAY)
-    assert counts == {"generated": 1, "skipped": 0, "failed": 1, "last_failure": "RuntimeError: claude exited 1"}
+    assert counts == {"generated": 1, "skipped": 0, "failed": 1, "last_failure": "RuntimeError: claude exited 1",
+                      "pending": 2}
     got = outlook.load(5)
     assert got[4]["hash"] == "old"
     assert got[5] == {"hash": outlook.fact_hash(cards[1], ctx(), TODAY), "card_hash": outlook.card_hash(cards[1]),
                       "bullets": [TAKE], "generated_at": "2026-10-02T09:30"}
     outlook.generate([card(player_id=6, name="Aware")], 5, run=run)
     assert re.search(r"T\d\d:\d\d[+-]\d\d:\d\d$", outlook.load(5)[6]["generated_at"])
+
+
+def test_generate_runs_calls_side_by_side(outlook_dir):
+    """Two calls must be in flight at once: serial calls never meet at the barrier."""
+    meet = threading.Barrier(2, timeout=5)
+    def run(prompt):
+        meet.wait()
+        return [TAKE]
+    counts = outlook.generate([card(player_id=1), card(player_id=2, name="Other")], 5, run=run, today=TODAY)
+    assert counts["generated"] == 2 and counts["failed"] == 0
+
+
+def test_generate_saves_each_card_as_it_lands(outlook_dir, monkeypatch):
+    monkeypatch.setattr(outlook, "WORKERS", 1)  # one at a time, so the second call can see the first on disk
+    seen = []
+    def run(prompt):
+        seen.append(set(outlook.load(5)))
+        if "Dies" in prompt:
+            raise RuntimeError("timeout")
+        return [TAKE]
+    counts = outlook.generate([card(player_id=1), card(player_id=2, name="Dies"), card(player_id=3, name="Last")],
+                              5, run=run, today=TODAY)
+    assert seen == [set(), {1}, {1}], "card 1 was on disk before the next call started"
+    assert set(outlook.load(5)) == {1, 3} and counts["failed"] == 1 and counts["pending"] == 3
+    assert not list(outlook_dir.glob("*.tmp"))
+
+
+def test_start_records_the_pending_count(outlook_dir):
+    t = outlook.start([card()], 2, run=lambda p: [TAKE])
+    t.join(5)
+    assert outlook.LAST["pending"] == 1
 
 
 def test_load_and_save_round_trip_and_tolerate_a_missing_or_corrupt_file(outlook_dir):

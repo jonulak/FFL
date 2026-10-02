@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
 
@@ -49,7 +50,11 @@ VOICE = ("Write this player's outlook as bullets labelled Injury, Usage, Depth, 
          "his manager.")
 LOCK = threading.Lock()
 # the last generation run, shown on the Roster page beside the button
-LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None, "last_failure": None}
+LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None, "last_failure": None,
+              "pending": None}
+# calls in flight at once: a full rewrite is ~15 cards of one to two minutes each. Lower it if the
+# Claude plan starts refusing calls (they show as failures with the CLI's message in last_failure).
+WORKERS = 4
 
 
 class Busy(RuntimeError):
@@ -268,28 +273,37 @@ def pending(cards: list[dict], entries: dict[int, dict], ctxs: dict[int, dict], 
 
 def generate(cards: list[dict], week: int, run=run_claude, gather=None, now: datetime | None = None,
              today: date | None = None) -> dict:
-    """Write bullets for every pending card, one CLI call each. A failed call keeps the old entry and
-    moves on. `gather` defaults to news.gather, looked up here so a test can replace it."""
+    """Write bullets for every pending card, WORKERS CLI calls at a time. Each finished card is saved
+    at once, so a run that dies keeps what it wrote; a failed call keeps the old entry. `gather`
+    defaults to news.gather, looked up here so a test can replace it."""
     today = today or date.today()
     ctxs = (gather or news.gather)(cards, week)
     entries = load(week)
     todo = pending(cards, entries, ctxs, today)
-    counts: dict = {"generated": 0, "skipped": len(cards) - len(todo), "failed": 0, "last_failure": None}
-    for c in todo:
+    counts: dict = {"generated": 0, "skipped": len(cards) - len(todo), "failed": 0, "last_failure": None,
+                    "pending": len(todo)}
+    lock = threading.Lock()  # entries, counts and the file are shared by the workers
+
+    def one(c: dict) -> None:
         ctx = ctxs[c["player_id"]]
-        try:
-            bullets = run(fact_sheet(c, week, ctx, today))
-        except Exception as e:  # noqa: BLE001 — a missing CLI, a timeout or bad JSON costs one card
-            counts["failed"] += 1
-            # the run survives, so LAST["error"] stays None; without this the reason is lost entirely
-            if counts["last_failure"] is None:
-                counts["last_failure"] = f"{type(e).__name__}: {e}"[:200]
-            continue
+        bullets = run(fact_sheet(c, week, ctx, today))
         stamp = (now or datetime.now().astimezone()).isoformat(timespec="minutes")
-        entries[c["player_id"]] = {"hash": fact_hash(c, ctx, today), "card_hash": card_hash(c),
-                                   "bullets": bullets, "generated_at": stamp}
-        counts["generated"] += 1
-    save(week, entries)
+        with lock:
+            entries[c["player_id"]] = {"hash": fact_hash(c, ctx, today), "card_hash": card_hash(c),
+                                       "bullets": bullets, "generated_at": stamp}
+            save(week, entries)
+            counts["generated"] += 1
+
+    with ThreadPoolExecutor(WORKERS) as pool:
+        for f in as_completed([pool.submit(one, c) for c in todo]):
+            try:
+                f.result()
+            except Exception as e:  # noqa: BLE001 — a missing CLI, a timeout or bad JSON costs one card
+                with lock:
+                    counts["failed"] += 1
+                    # the run survives, so LAST["error"] stays None; without this the reason is lost
+                    if counts["last_failure"] is None:
+                        counts["last_failure"] = f"{type(e).__name__}: {e}"[:200]
     return counts
 
 
@@ -300,7 +314,7 @@ def running() -> bool:
 def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
     """Run generate() on a daemon thread under LOCK; Busy when one is already running.
 
-    POST /outlook/refresh cannot wait: a week rollover is a dozen serial Opus calls and the
+    POST /outlook/refresh cannot wait: a week rollover is a dozen Opus calls with web search, WORKERS at a time and the
     page's fetch gives up at twenty seconds. LAST carries the finished run's counts to the page.
     """
     if not LOCK.acquire(blocking=False):
