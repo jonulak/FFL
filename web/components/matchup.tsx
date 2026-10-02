@@ -6,7 +6,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
-import { injuryLabel, injuryTone, pts, shortName, signed } from "@/lib/format";
+import { injuryTone, pts, shortName, signed } from "@/lib/format";
 import { gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
@@ -16,7 +16,6 @@ import { PlayFeedStrip } from "./play-feed";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 
-const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN names the flex slot by what it takes; the board calls it FLEX (season.py SLOT_LABEL).
 const SLOT_LABEL: Record<string, string> = { "RB/WR/TE": "FLEX", "RB/WR": "FLEX", "WR/TE": "FLEX" };
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
@@ -98,8 +97,10 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
   );
 }
 
-// The phone's injury chip: ESPN's own one-letter marks, so the chip sits beside the name in a
-// half column instead of wrapping under it. The full status is the chip's title.
+// A player's injury status is ESPN's own one-letter mark beside the name, in the status colour
+// with no chip behind it: amber for a game-time call, red for out. The full status is its title
+// (and the injury note when ESPN has one); the return week is on the game line.
+const TONE = { ok: "text-muted-foreground", warn: "text-close-foreground dark:text-close", bad: "text-out" } as const;
 const STATUS_SHORT: Record<string, string> = { QUESTIONABLE: "Q", DOUBTFUL: "D", OUT: "O", "INJURY RESERVE": "IR", SUSPENSION: "SUSP" };
 
 // The number with its own unit, because on a Sunday afternoon the rows are a mix: PROJ is the
@@ -171,10 +172,10 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
         <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 font-display text-[1rem] font-semibold leading-none tracking-tight sm:flex-wrap sm:gap-x-2 sm:gap-y-0.5 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${idle ? "text-foreground/70" : ""}`}>
           <span className="min-w-0 truncate"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
           {hurt && (
-            <Badge variant={TAG[injuryTone(p.injury)]} shape="chip" title={p.injury_note ?? status}>
-              <span className="sm:hidden">{STATUS_SHORT[status] ?? status}</span>
-              <span className="hidden sm:inline">{injuryLabel(status, p.return_week, week)}</span>
-            </Badge>
+            <span title={p.injury_note ?? status} className={`shrink-0 font-bold ${TONE[injuryTone(p.injury)]}`}>
+              <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
+              <span className="sr-only">{status.toLowerCase()}</span>
+            </span>
           )}
           {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
         </ItemTitle>
@@ -183,6 +184,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
           <span className="font-semibold text-foreground/80">{p.pos}</span>
           {/* the bye says itself in the chip; the line keeps only a real game */}
           {!p.bye && <GameLine p={p} size={14} />}
+          {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </ItemDescription>
         {/* The row's one fact once he has played: the box-score line, in the play feed's register,
             wrapping at its groups. The phone has the lead group only, as the footer below. */}
