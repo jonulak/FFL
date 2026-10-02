@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 
 import requests
 from espn_api.football.constant import PRO_TEAM_MAP
 
+from .adp import norm_name
 from .config import raw_league_get
 
 ROTOWIRE = "https://site.api.espn.com/apis/fantasy/v2/games/ffl/news/players"
@@ -114,3 +117,76 @@ def fetch_news_index(week: int) -> dict[int, dict]:
         return _INDEX[1] if _INDEX else {}
     _INDEX[:] = [time.time() + NEWS_S, index]
     return index
+
+
+# Agreed with Jonathan: the teammates whose news moves his week, by position.
+# (position, how many from the top of the chart); RB takes every other back on the chart.
+TEAMMATES = {"QB": (("WR", 3), ("TE", 1), ("RB", 1)),
+             "WR": (("QB", 1), ("WR", 3), ("TE", 1)),
+             "TE": (("QB", 1), ("WR", 3), ("TE", 1)),
+             "RB": (("QB", 1), ("RB", 99)),
+             "K": (("QB", 1),)}
+RECENT_DAYS = 10
+
+
+def _ranked(rows: list[dict], pos: str) -> list[dict]:
+    return [{**r, "rank": i} for i, r in enumerate((r for r in rows if r["pos"] == pos), 1)]
+
+
+def own_depth(card: dict, chart: dict[str, list[dict]]) -> dict | None:
+    """His place on his club's chart at his position, or None when Sleeper's chart does not name him."""
+    same = _ranked(chart.get(card["team"]) or [], card["pos"])
+    me = norm_name(card["name"])
+    r = next((r for r in same if norm_name(r["name"]) == me), None)
+    return None if r is None else {"slot": r["slot"], "order": r["order"], "rank": r["rank"], "of": len(same)}
+
+
+def teammates(card: dict, chart: dict[str, list[dict]]) -> list[dict]:
+    rows, me = chart.get(card["team"]) or [], norm_name(card["name"])
+    out = []
+    for pos, n in TEAMMATES.get(card["pos"], ()):
+        out += [r for r in _ranked(rows, pos)[:n] if norm_name(r["name"]) != me]
+    return out
+
+
+def context(card: dict, chart: dict, index: dict[int, dict], injuries: dict[int, dict], rotowire: list[dict]) -> dict:
+    """Everything the fact sheet says about him beyond the card: his depth, the teammates in scope with
+    their injury status (ESPN's report, Sleeper's when ESPN has none) and news stamps, his Rotowire items."""
+    by_name = {(norm_name(v["name"]), v["team"]): pid for pid, v in index.items()}
+    mates = []
+    for r in teammates(card, chart):
+        pid = by_name.get((norm_name(r["name"]), card["team"]))
+        inj = injuries.get(pid) or {}
+        mates.append({"name": r["name"], "pos": r["pos"], "rank": r["rank"],
+                      "status": inj.get("status") or r.get("injury") or "Active", "note": inj.get("note"),
+                      "last_news": (index.get(pid) or {}).get("last_news")})
+    return {"depth": own_depth(card, chart), "teammates": mates, "rotowire": rotowire,
+            "last_news": (index.get(card["player_id"]) or {}).get("last_news")}
+
+
+def _recent(published: str | None, today: date) -> bool:
+    try:
+        return (today - date.fromisoformat(published[:10])).days <= RECENT_DAYS
+    except (TypeError, ValueError):
+        return False
+
+
+def has_news(card: dict, ctx: dict, today: date) -> bool:
+    """Whether a bye-week card is worth an outlook: he is hurt, a teammate in scope is, or Rotowire
+    has written about him in the last RECENT_DAYS."""
+    if (card.get("injury") or "ACTIVE") != "ACTIVE":
+        return True
+    if any((m.get("status") or "Active").upper() != "ACTIVE" for m in ctx["teammates"]):
+        return True
+    return any(_recent(i.get("published"), today) for i in ctx["rotowire"])
+
+
+def gather(cards: list[dict], week: int) -> dict[int, dict]:
+    """context() for every card. Each source degrades to empty on its own; this never raises for one."""
+    from .espn_season import fetch_injuries  # espn_season imports a lot; keep news importable alone
+
+    chart, index, injuries = fetch_depth(), fetch_news_index(week), fetch_injuries()
+    players = [c for c in cards if c["pos"] != "D/ST"]  # a defence has no Rotowire page
+    with ThreadPoolExecutor(8) as pool:
+        roto = dict(zip((c["player_id"] for c in players), pool.map(lambda c: fetch_rotowire(c["player_id"]), players)))
+    return {c["player_id"]: context(c, chart, index, injuries, roto.get(c["player_id"], [])) for c in cards}

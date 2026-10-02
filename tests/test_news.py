@@ -68,3 +68,71 @@ def test_fetch_depth_and_index_return_empty_when_never_reached(monkeypatch):
     monkeypatch.setattr(news.requests, "get", boom)
     monkeypatch.setattr(news, "raw_league_get", boom)
     assert news.fetch_depth() == {} and news.fetch_news_index(5) == {}
+
+from datetime import date
+
+def chart_row(name, pos, order, slot=None, injury=None):
+    return {"name": name, "pos": pos, "slot": slot or pos, "order": order, "injury": injury}
+
+CHART = {"CIN": [chart_row("Joe Burrow", "QB", 1), chart_row("Joe Flacco", "QB", 2),
+                 chart_row("Chase Brown", "RB", 1), chart_row("Samaje Perine", "RB", 2),
+                 chart_row("Mike Gesicki", "TE", 1), chart_row("Erick All Jr.", "TE", 2),
+                 chart_row("Ja'Marr Chase", "WR", 1, "LWR"), chart_row("Tee Higgins", "WR", 1, "RWR"),
+                 chart_row("Andrei Iosivas", "WR", 1, "SWR"), chart_row("Colbie Young", "WR", 6, "LWR", "Out")]}
+
+def c(name, pos, team="CIN", pid=1, **kw):
+    return {"player_id": pid, "name": name, "pos": pos, "team": team, "injury": "ACTIVE", **kw}
+
+def names(rows): return [r["name"] for r in rows]
+
+def test_teammates_by_position():
+    assert names(news.teammates(c("Ja'Marr Chase", "WR"), CHART)) == ["Joe Burrow", "Tee Higgins", "Andrei Iosivas", "Mike Gesicki"]
+    assert names(news.teammates(c("Joe Burrow", "QB"), CHART)) == ["Ja'Marr Chase", "Tee Higgins", "Andrei Iosivas", "Mike Gesicki", "Chase Brown"]
+    assert names(news.teammates(c("Chase Brown", "RB"), CHART)) == ["Joe Burrow", "Samaje Perine"]
+    assert names(news.teammates(c("Evan McPherson", "K"), CHART)) == ["Joe Burrow"]
+    assert news.teammates(c("Bengals D/ST", "D/ST"), CHART) == []
+    assert news.teammates(c("Nobody", "WR", team="XXX"), CHART) == [], "no chart for his club: nobody"
+
+def test_own_depth_ranks_within_his_position_and_matches_suffixes():
+    assert news.own_depth(c("Colbie Young", "WR"), CHART) == {"slot": "LWR", "order": 6, "rank": 4, "of": 4}
+    assert news.own_depth(c("Erick All", "TE"), CHART)["rank"] == 2, "norm_name drops the Jr."
+    assert news.own_depth(c("Somebody Else", "WR"), CHART) is None, "unmatched is None, never a guess"
+
+def test_context_joins_teammate_status_and_stamps_through_the_index():
+    index = {10: {"name": "Joe Burrow", "pos": "QB", "team": "CIN", "last_news": 1790000000000},
+             1: {"name": "Ja'Marr Chase", "pos": "WR", "team": "CIN", "last_news": 1790000001000}}
+    injuries = {10: {"status": "Out", "note": "Burrow (toe) won't play Sunday."}}
+    ctx = news.context(c("Ja'Marr Chase", "WR", pid=1), CHART, index, injuries, [{"id": "9"}])
+    burrow = ctx["teammates"][0]
+    assert burrow == {"name": "Joe Burrow", "pos": "QB", "rank": 1, "status": "Out",
+                      "note": "Burrow (toe) won't play Sunday.", "last_news": 1790000000000}
+    higgins = ctx["teammates"][1]
+    assert higgins["status"] == "Active" and higgins["last_news"] is None, "not in the index: no stamp, no crash"
+    assert ctx["depth"]["rank"] == 1 and ctx["rotowire"] == [{"id": "9"}] and ctx["last_news"] == 1790000001000
+
+def test_context_falls_back_to_sleepers_status():
+    ctx = news.context(c("Tee Higgins", "WR"), CHART, {}, {}, [])
+    young = [m for m in ctx["teammates"] if m["name"] == "Colbie Young"]
+    assert young == [], "rank 4 WR is outside the top 3"
+    ctx = news.context(c("Joe Burrow", "QB"), {"CIN": [chart_row("Ja'Marr Chase", "WR", 1, injury="Questionable")]}, {}, {}, [])
+    assert ctx["teammates"][0]["status"] == "Questionable"
+
+def test_has_news():
+    today = date(2026, 10, 2)
+    quiet = {"teammates": [{"status": "Active"}], "rotowire": [{"published": "2026-09-15T10:00:00Z"}]}
+    assert not news.has_news(c("X", "WR"), quiet, today)
+    assert news.has_news(c("X", "WR", injury="QUESTIONABLE"), quiet, today)
+    assert news.has_news(c("X", "WR"), {**quiet, "teammates": [{"status": "Out"}]}, today)
+    assert news.has_news(c("X", "WR"), {**quiet, "rotowire": [{"published": "2026-09-25T10:00:00Z"}]}, today)
+    assert not news.has_news(c("X", "WR"), {**quiet, "rotowire": [{"published": None}]}, today)
+
+def test_gather_builds_every_card_and_survives_dead_sources(monkeypatch):
+    import ffl.espn_season as es
+    monkeypatch.setattr(news, "fetch_depth", lambda: {})
+    monkeypatch.setattr(news, "fetch_news_index", lambda week: {})
+    monkeypatch.setattr(es, "fetch_injuries", lambda: {})
+    asked = []
+    monkeypatch.setattr(news, "fetch_rotowire", lambda pid: asked.append(pid) or [])
+    got = news.gather([c("A", "WR", pid=1), c("Bengals D/ST", "D/ST", pid=-16004)], 5)
+    assert set(got) == {1, -16004} and got[1] == {"depth": None, "teammates": [], "rotowire": [], "last_news": None}
+    assert asked == [1], "a D/ST has no Rotowire page"
