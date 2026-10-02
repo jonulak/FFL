@@ -345,12 +345,12 @@ def outlook_refresh():
         state = espn_season.roster_state(None)
     except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
-    todo = outlook.pending(state["cards"], outlook.load(state["week"]))
     try:
         outlook.start(state["cards"], state["week"], run=outlook.run_claude)
     except outlook.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return {"started": True, "pending": len(todo)}
+    # pending needs the news context, which is fetched in the run's thread; the page reads the count from outlook_run
+    return {"started": True, "pending": None}
 
 
 class Decision(BaseModel):

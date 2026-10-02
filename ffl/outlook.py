@@ -1,9 +1,10 @@
 """Claude-written weekly outlooks for the Roster page, cached per week under a hash of the facts.
 
-The call and its reason are code (season.roster_cards); this module writes only the paragraph
-under them, from those facts alone, by running the Claude Code CLI one player at a time. Nothing
-here runs on a GET: generate() is started by POST /outlook/refresh in a background thread, and
-the page reads whatever data/outlook/week-<n>.json holds.
+The call and its reason are code (season.roster_cards). This module writes the bullets under them —
+injury, usage, depth, team news and a take: what the card's numbers cannot say. The fact sheet holds
+the card's non-projection facts plus news.gather's context; the CLI may search the web to check and
+extend it, and every bullet cites its sources. Nothing here runs on a GET: generate() is started by
+POST /outlook/refresh in a background thread, and the page reads data/outlook/week-<n>.json.
 """
 from __future__ import annotations
 
@@ -13,24 +14,39 @@ import os
 import shutil
 import subprocess
 import threading
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
+from . import news
 from .config import DATA
-from .season import CLOSE_SPREAD
 
 OUTLOOK_DIR = DATA / "outlook"
 MODEL = "opus"
-TIMEOUT_S = 120
-SCHEMA = {"type": "object", "properties": {"outlook": {"type": "string"}}, "required": ["outlook"]}
-# nothing to say beyond the reason line for these calls; they cost an Opus call for no text
-SKIP_CALLS = {"IR", "BYE"}
-# rest-of-season projection is hashed to this step: ~a week of a starter's points
-ROS_STEP = 10
-VOICE = ("Write this player's outlook for the week in two or three sentences, at most sixty words. "
-         "Plain statements from the facts above only: no hedging phrases, no advice beyond restating "
-         "the call, nothing that is not on this sheet. Do not repeat the kickoff or the opponent. "
-         "Third person about the player, written to his manager.")
+# each call searches the web: one to two minutes, sometimes more
+TIMEOUT_S = 300
+TOOLS = "WebSearch,WebFetch"
+LABELS = ("Injury", "Usage", "Depth", "Team", "Take")
+_SOURCE = {"type": "object", "properties": {"site": {"type": "string"}, "date": {"type": "string"},
+                                             "url": {"type": "string"}}, "required": ["site", "date", "url"]}
+SCHEMA = {"type": "object", "required": ["bullets"], "properties": {"bullets": {"type": "array", "items": {
+    "type": "object", "required": ["label", "text", "sources"], "properties": {
+        "label": {"type": "string", "enum": list(LABELS)}, "text": {"type": "string"},
+        "sources": {"type": "array", "minItems": 1, "items": _SOURCE}}}}}}
+GAMELOG = "https://www.espn.com/nfl/player/gamelog/_/id/{pid}"
+INJURY_REPORT = "https://www.espn.com/nfl/injuries"
+SLEEPER = "https://sleeper.com"
+VOICE = ("Write this player's outlook as bullets labelled Injury, Usage, Depth, Team and Take, in that order. "
+         "Injury: his status, practice reports and return timeline. Usage: the trend across his recent games "
+         "in snaps, targets, receptions and carries. Depth: who is ahead of and behind him, and who is hurt. "
+         "Team: teammate or scheme news that changes his week, such as his quarterback out, a coordinator "
+         "fired or a receiver traded. Take: your own read of what it all means for him; always include it. "
+         "Leave out any other label with nothing to report. One or two sentences, at most thirty words, per "
+         "bullet. Check the facts above with web search and add what they miss; say so when sources "
+         "disagree. Use nothing older than ten days unless it is the latest word on an injury that is still "
+         "active, and give the date of any injury news. Never quote projected or expected fantasy points and "
+         "do not restate the start or bench call. Every bullet cites at least one source with its site, date "
+         "(M/D) and URL; a fact from this sheet cites the source named beside it. Third person, written to "
+         "his manager.")
 LOCK = threading.Lock()
 # the last generation run, shown on the Roster page beside the button
 LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None, "last_failure": None}
@@ -40,30 +56,67 @@ class Busy(RuntimeError):
     """A generation run is already in progress."""
 
 
-def _ros_bucket(card: dict) -> int | None:
-    """Rest-of-season projection to the nearest ROS_STEP points: the two sources are revised every
-    week, and a couple of points is not a fact the text should be rewritten for."""
-    ros = card.get("ros_proj")
-    return None if ros is None else int(round(float(ros) / ROS_STEP))
-
-
-def fact_hash(card: dict) -> str:
-    """The facts the outlook text depends on. A tenth of a point of projection is not one of them."""
-    facts = [card.get("opponent"), card.get("kickoff"), bool(card.get("bye")), card.get("injury"),
-             card.get("injury_note"), card.get("return_week"), round(float(card.get("proj") or 0.0)),
-             float(card.get("spread") or 0.0) >= CLOSE_SPREAD, card.get("call"),
-             bool(card.get("close_call")), card.get("reason"), _ros_bucket(card)]
+def _sha(facts) -> str:
     return hashlib.sha256(json.dumps(facts).encode()).hexdigest()[:16]
 
 
-def _ros_text(card: dict) -> str:
-    """'309.6 (Sleeper 301.9, CBS 317.4)', the one source when one has him, 'not available' when none."""
-    ros = card.get("ros_proj")
-    if ros is None:
-        return "not available"
-    parts = [f"{label} {card[key]}" for label, key in (("Sleeper", "ros_sleeper"), ("CBS", "ros_cbs"))
-             if card.get(key) is not None]
-    return f"{ros} ({', '.join(parts)})" if parts else f"{ros}"
+def _rows(card: dict) -> list[dict]:
+    return (card.get("form") or {}).get("rows") or []
+
+
+def card_hash(card: dict) -> str:
+    """The card's own facts the bullets rest on — what the page can check on a GET without fetching
+    news. Projections are not among them: the outlook no longer mentions them."""
+    rows = [[r.get("week"), r.get("snap_pct"), r.get("tgt"), r.get("car"), r.get("rec"), r.get("pts")] for r in _rows(card)]
+    return _sha([card.get("opponent"), card.get("kickoff"), bool(card.get("bye")), card.get("injury"),
+                 card.get("injury_note"), card.get("return_week"), card.get("call"), rows])
+
+
+def fact_hash(card: dict, ctx: dict, today: date) -> str:
+    """card_hash plus the news (his depth, the teammates' status and news stamps, his own stamp, his
+    Rotowire items) and the day, so every outlook is rewritten at least once a day."""
+    mates = [[m.get("name"), m.get("status"), m.get("last_news")] for m in ctx.get("teammates") or []]
+    return _sha([card_hash(card), ctx.get("depth"), mates, ctx.get("last_news"),
+                 [i.get("id") for i in ctx.get("rotowire") or []], today.isoformat()])
+
+
+def _md(published: str | None) -> str:
+    try:
+        return datetime.fromisoformat(published.replace("Z", "+00:00")).astimezone().strftime("%-m/%-d")
+    except (AttributeError, ValueError):
+        return "undated"
+
+
+def _stamp(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1000).strftime("%-m/%-d")
+
+
+def _exp_text(card: dict) -> str:
+    exp = card.get("exp")
+    return "years in the league unknown" if exp is None else "rookie" if exp == 0 else f"{exp} years in the league"
+
+
+def _row_text(r: dict) -> str:
+    parts = [f"{r['snap_pct']}% snaps" if r.get("snap_pct") is not None else "snaps not in yet"]
+    for key, label in (("tgt", "targets"), ("rec", "receptions"), ("car", "carries"), ("pass_att", "pass attempts")):
+        if r.get(key):
+            parts.append(f"{r[key]:g} {label}")
+    return f"  Week {r['week']}: " + ", ".join(parts + [f"{r['pts']:g} pts"])
+
+
+def _depth_text(d: dict | None) -> str:
+    if d is None:
+        return "not on Sleeper's chart"
+    return f"{d['rank']} of {d['of']} at his position (Sleeper slot {d['slot']} #{d['order']})"
+
+
+def _mate_text(m: dict) -> str:
+    s = f"  {m['pos']}{m['rank']} {m['name']}: {m['status']}"
+    if m.get("note"):
+        s += f" — {m['note']}"
+    if m.get("last_news"):
+        s += f" (latest news {_stamp(m['last_news'])})"
+    return s
 
 
 def _kickoff_text(card: dict) -> str:
@@ -82,19 +135,23 @@ def _opponent_text(card: dict) -> str:
     return "none (bye)" if card.get("bye") else "not scheduled"
 
 
-def fact_sheet(card: dict, week: int) -> str:
-    """The prompt: every fact the card shows, then the voice rule."""
+def fact_sheet(card: dict, week: int, ctx: dict, today: date) -> str:
+    """The prompt: the card's facts that are not projections, the news context, then the voice rule."""
     lines = [
-        f"Week {week} fact sheet",
-        f"Player: {card['name']}, {card['pos']}, {card['team']}",
+        f"Week {week} fact sheet — today is {today:%A} {today.month}/{today.day}/{today.year}",
+        f"Player: {card['name']}, {card['pos']}, {card['team']}; {_exp_text(card)}",
         f"Opponent: {_opponent_text(card)}; kickoff: {_kickoff_text(card)}",
-        f"This week's projection: {card.get('proj')} points (ESPN {card.get('proj_espn')}, "
-        f"Sleeper {card.get('proj_sleeper')}, spread {card.get('spread')})",
-        f"Rest-of-season projection: {_ros_text(card)}",
-        f"Injury: {card.get('injury')}; note: {card.get('injury_note') or 'none'}; "
-        f"return week: {card.get('return_week') or 'n/a'}",
-        f"Call: {card['call']}; gap: {card.get('gap')}; close call: {bool(card.get('close_call'))}",
-        f"Reason: {card['reason']}",
+        f"Start/bench call (background only, do not restate): {card['call']}",
+        f"Injury (source: ESPN injury report, {INJURY_REPORT}): {card.get('injury')}; "
+        f"note: {card.get('injury_note') or 'none'}; return week: {card.get('return_week') or 'n/a'}",
+        f"Recent games (source: ESPN game log, {GAMELOG.format(pid=card['player_id'])}):",
+        *([_row_text(r) for r in _rows(card)] or ["  none yet"]),
+        f"Depth (source: Sleeper depth chart, {SLEEPER}): {_depth_text(ctx.get('depth'))}",
+        f"Teammates whose news matters to him (source: ESPN injury report, {INJURY_REPORT}):",
+        *([_mate_text(m) for m in ctx.get("teammates") or []] or ["  none in scope"]),
+        "Rotowire news (source: Rotowire via ESPN, each linked):",
+        *([f"  {_md(i.get('published'))} {i.get('headline')} {i.get('story')} ({i.get('url') or 'no link'})"
+           for i in ctx.get("rotowire") or []] or ["  none"]),
         "",
         VOICE,
     ]
@@ -122,20 +179,38 @@ def save(week: int, entries: dict[int, dict]) -> None:
 
 
 def attach(cards: list[dict], entries: dict[int, dict]) -> list[dict]:
-    """The stored text on each card, flagged stale when the facts have moved since it was written."""
+    """The stored bullets on each card, flagged stale when the card's own facts have moved since."""
     out = []
     for c in cards:
         e = entries.get(c["player_id"])
-        # a half-written entry is no entry: the page needs text and a hash or the card shows nothing
-        if not isinstance(e, dict) or "hash" not in e or "text" not in e:
+        # a half-written entry, or a paragraph from before the bullets, is no entry: the next run rewrites it
+        if not isinstance(e, dict) or "card_hash" not in e or not isinstance(e.get("bullets"), list):
             e = None
-        out.append({**c, "outlook": e["text"] if e else None, "outlook_at": e.get("generated_at") if e else None,
-                    "outlook_stale": bool(e) and e["hash"] != fact_hash(c)})
+        out.append({**c, "outlook": e["bullets"] if e else None, "outlook_at": e.get("generated_at") if e else None,
+                    "outlook_stale": bool(e) and e["card_hash"] != card_hash(c)})
     return out
 
 
-def parse_envelope(stdout: str) -> str:
-    """The outlook string out of `claude -p --output-format json`.
+def normalize(raw) -> list[dict]:
+    """The model's bullets in LABELS order. Unknown or repeated labels, empty text and bullets without a
+    usable source are dropped; no Take is a failed call — it is the one bullet every card shows."""
+    kept: dict[str, dict] = {}
+    for b in (raw or {}).get("bullets") or []:
+        if not isinstance(b, dict):
+            continue
+        label, text = b.get("label"), str(b.get("text") or "").strip()
+        sources = [{k: str(s.get(k) or "").strip() for k in ("site", "date", "url")}
+                   for s in b.get("sources") or [] if isinstance(s, dict)]
+        sources = [s for s in sources if s["site"] and s["url"].startswith(("http://", "https://"))]
+        if label in LABELS and label not in kept and text and sources:
+            kept[label] = {"label": label, "text": text, "sources": sources}
+    if "Take" not in kept:
+        raise RuntimeError("claude returned no Take")
+    return [kept[k] for k in LABELS if k in kept]
+
+
+def parse_envelope(stdout: str) -> list[dict]:
+    """The bullets out of `claude -p --output-format json`.
 
     The envelope is one JSON object: `is_error` + `result` on failure ("Not logged in …"),
     `structured_output` holding the schema'd object on success; older CLIs put that JSON in
@@ -147,14 +222,12 @@ def parse_envelope(stdout: str) -> str:
     out = d.get("structured_output")
     if not isinstance(out, dict):
         out = json.loads(d.get("result") or "{}")
-    text = str(out.get("outlook") or "").strip()
-    if not text:
-        raise RuntimeError("claude returned no outlook")
-    return text
+    return normalize(out)
 
 
-def run_claude(prompt: str) -> str:
-    """One outlook through the Claude Code CLI: Opus, tools off, structured output, the sheet on stdin."""
+def run_claude(prompt: str) -> list[dict]:
+    """One outlook through the Claude Code CLI: Opus with web search and fetch (allowed up front: there is
+    nobody to answer a permission prompt), structured output, the sheet on stdin."""
     exe = shutil.which("claude")
     if not exe:
         raise RuntimeError("claude CLI not on PATH")
@@ -165,8 +238,8 @@ def run_claude(prompt: str) -> str:
     # CLAUDE.md from its working directory, so run it from the outlook dir, not the repo — the sheet
     # is the whole prompt.
     OUTLOOK_DIR.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run([exe, "-p", "--model", MODEL, "--tools", "", "--no-session-persistence",
-                        "--output-format", "json", "--json-schema", json.dumps(SCHEMA)],
+    r = subprocess.run([exe, "-p", "--model", MODEL, "--tools", TOOLS, "--allowedTools", TOOLS,
+                        "--no-session-persistence", "--output-format", "json", "--json-schema", json.dumps(SCHEMA)],
                        input=prompt, capture_output=True, text=True, timeout=TIMEOUT_S, env=env,
                        cwd=str(OUTLOOK_DIR))
     if r.returncode != 0:
@@ -179,26 +252,33 @@ def run_claude(prompt: str) -> str:
     return parse_envelope(r.stdout)
 
 
-def pending(cards: list[dict], entries: dict[int, dict]) -> list[dict]:
-    """Cards a run would write: not played, not IR/BYE, and no entry with the current hash."""
+def pending(cards: list[dict], entries: dict[int, dict], ctxs: dict[int, dict], today: date) -> list[dict]:
+    """Cards a run would write: not played, a bye only with news (news.has_news), and no entry with the
+    current hash. IR and OUT are written: the return timeline is the outlook they need."""
     out = []
     for c in cards:
-        old = entries.get(c["player_id"])
-        if c.get("game_played") or c.get("call") in SKIP_CALLS or (old and old["hash"] == fact_hash(c)):
+        ctx, old = ctxs[c["player_id"]], entries.get(c["player_id"])
+        if c.get("game_played") or (c.get("call") == "BYE" and not news.has_news(c, ctx, today)):
+            continue
+        if isinstance(old, dict) and old.get("hash") == fact_hash(c, ctx, today):
             continue
         out.append(c)
     return out
 
 
-def generate(cards: list[dict], week: int, run=run_claude, now: datetime | None = None) -> dict:
-    """Write text for every pending card, one CLI call each, in order. A failed call keeps the old
-    entry and moves on; the file is written once at the end, so a run that dies keeps nothing."""
+def generate(cards: list[dict], week: int, run=run_claude, gather=None, now: datetime | None = None,
+             today: date | None = None) -> dict:
+    """Write bullets for every pending card, one CLI call each. A failed call keeps the old entry and
+    moves on. `gather` defaults to news.gather, looked up here so a test can replace it."""
+    today = today or date.today()
+    ctxs = (gather or news.gather)(cards, week)
     entries = load(week)
-    todo = pending(cards, entries)
+    todo = pending(cards, entries, ctxs, today)
     counts: dict = {"generated": 0, "skipped": len(cards) - len(todo), "failed": 0, "last_failure": None}
     for c in todo:
+        ctx = ctxs[c["player_id"]]
         try:
-            text = run(fact_sheet(c, week))
+            bullets = run(fact_sheet(c, week, ctx, today))
         except Exception as e:  # noqa: BLE001 — a missing CLI, a timeout or bad JSON costs one card
             counts["failed"] += 1
             # the run survives, so LAST["error"] stays None; without this the reason is lost entirely
@@ -206,7 +286,8 @@ def generate(cards: list[dict], week: int, run=run_claude, now: datetime | None 
                 counts["last_failure"] = f"{type(e).__name__}: {e}"[:200]
             continue
         stamp = (now or datetime.now().astimezone()).isoformat(timespec="minutes")
-        entries[c["player_id"]] = {"hash": fact_hash(c), "text": text, "generated_at": stamp}
+        entries[c["player_id"]] = {"hash": fact_hash(c, ctx, today), "card_hash": card_hash(c),
+                                   "bullets": bullets, "generated_at": stamp}
         counts["generated"] += 1
     save(week, entries)
     return counts

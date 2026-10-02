@@ -28,6 +28,7 @@ def client(monkeypatch, tmp_path):
                              "proj": 12.0, "spread": 1.0, "game_played": 0, "opponent": "GB", "kickoff": None,
                              "return_week": None, "injury_note": None, "call": "START", "close_call": False,
                              "reason": "starts at RB: no bench alternative", "group": "starter", "gap": None}]})
+    monkeypatch.setattr(api.outlook.news, "gather", lambda cards, week: {c["player_id"]: {"depth": None, "teammates": [], "rotowire": [], "last_news": None} for c in cards})
     monkeypatch.setattr(api.outlook, "OUTLOOK_DIR", tmp_path / "outlook")
     # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
     monkeypatch.setattr(api.outlook, "LAST",
@@ -245,17 +246,18 @@ def test_roster_attaches_the_cached_outlook_on_every_get(client):
     assert body["cards"][0]["outlook"] is None and body["cards"][0]["outlook_stale"] is False
     assert body["outlook_run"] == {"at": None, "generated": 0, "skipped": 0, "failed": 0,
                                    "error": None, "last_failure": None, "running": False}
-    api.outlook.save(3, {1: {"hash": api.outlook.fact_hash(body["cards"][0]), "text": "He starts.",
-                             "generated_at": "t"}})
-    assert client.get("/roster").json()["cards"][0]["outlook"] == "He starts.", "no TTL wait for new text"
+    take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
+    api.outlook.save(3, {1: {"hash": "h", "card_hash": api.outlook.card_hash(body["cards"][0]), "bullets": [take], "generated_at": "t"}})
+    assert client.get("/roster").json()["cards"][0]["outlook"] == [take], "no TTL wait for new bullets"
 
 
 def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeypatch):
     import threading
     gate = threading.Event()
-    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), "text")[1])
+    take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
+    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), [take])[1])
     r = client.post("/outlook/refresh")
-    assert r.status_code == 202 and r.json() == {"started": True, "pending": 1}
+    assert r.status_code == 202 and r.json() == {"started": True, "pending": None}
     assert client.post("/outlook/refresh").status_code == 409
     assert client.get("/roster").json()["outlook_run"]["running"] is True
     gate.set()
@@ -263,7 +265,7 @@ def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeyp
         if not api.outlook.running():
             break
         time.sleep(0.05)
-    assert client.get("/roster").json()["cards"][0]["outlook"] == "text"
+    assert client.get("/roster").json()["cards"][0]["outlook"] == [take]
     assert client.get("/roster").json()["outlook_run"]["generated"] == 1
 
 

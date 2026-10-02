@@ -2,10 +2,25 @@
 import json
 import re
 import threading
+from datetime import date, datetime
 
 import pytest
 
 from ffl import outlook
+
+TODAY = date(2026, 10, 2)
+TAKE = {"label": "Take", "text": "Lead back.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test/1"}]}
+
+
+def ctx(**kw):
+    base = {"depth": {"slot": "RB", "order": 1, "rank": 1, "of": 3},
+            "teammates": [{"name": "Jared Goff", "pos": "QB", "rank": 1, "status": "Out",
+                           "note": "Goff (thumb) won't play.", "last_news": 1790000000000}],
+            "rotowire": [{"id": "64002028", "headline": "Gibbs logged a full practice.", "story": "He is fine.",
+                          "published": "2026-09-30T21:10:56Z", "url": "http://m.espn.go.com/wireless/story?storyId=64002028"}],
+            "last_news": 1790000001000}
+    base.update(kw)
+    return base
 
 
 def card(**kw):
@@ -15,7 +30,8 @@ def card(**kw):
             "season_proj_sleeper": 300.0, "return_week": None, "injury_note": None,
             "opponent": "GB", "kickoff": "2026-09-13T13:00:00-04:00",
             "group": "starter", "call": "START", "gap": 6.1, "close_call": False,
-            "reason": "starts at RB: 20.2 vs 14.1 for Warren"}
+            "reason": "starts at RB: 20.2 vs 14.1 for Warren", "exp": 3,
+            "form": {"rows": [{"week": 3, "pts": 18.4, "snap_pct": 74, "tgt": 2.0, "car": 17.0, "rec": 2.0, "pass_att": 0.0}]}}
     base.update(kw)
     return base
 
@@ -24,40 +40,116 @@ def card(**kw):
 def outlook_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(outlook, "OUTLOOK_DIR", tmp_path / "outlook")
     # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
+    monkeypatch.setattr(outlook.news, "gather", lambda cards, week: {c["player_id"]: ctx() for c in cards})
     monkeypatch.setattr(outlook, "LAST", {"at": None, "generated": 0, "skipped": 0, "failed": 0,
                                           "error": None, "last_failure": None})
     return tmp_path / "outlook"
 
 
-def test_fact_hash_ignores_a_tenth_of_a_point_but_not_the_news():
-    base = outlook.fact_hash(card())
-    assert outlook.fact_hash(card(proj=20.4)) == base
-    assert outlook.fact_hash(card(spread=2.9)) == base, "spread only matters at CLOSE_SPREAD"
-    assert outlook.fact_hash(card(spread=3.0)) != base
-    assert outlook.fact_hash(card(injury_note="limited in practice")) != base
-    assert outlook.fact_hash(card(call="BENCH")) != base
-    assert outlook.fact_hash(card(proj=21.0)) != base, "a whole point changes the text"
-    assert outlook.fact_hash(card(reason="starts at RB: 20.2 vs 15.0 for Other")) != base
-
-
-def test_fact_sheet_carries_the_facts_and_the_voice_rule():
-    sheet = outlook.fact_sheet(card(injury="QUESTIONABLE", injury_note="ankle", return_week=None), 2)
-    for s in ("Week 2", "Jahmyr Gibbs, RB, DET", "GB", "Sunday 1:00 PM", "20.2", "21.4", "19.0",
-              "QUESTIONABLE", "ankle", "START", "starts at RB", "sixty words"):
+def test_fact_sheet_has_the_news_and_no_projections():
+    sheet = outlook.fact_sheet(card(injury="QUESTIONABLE", injury_note="ankle"), 5, ctx(), TODAY)
+    for s in ("Week 5", "Friday 10/2/2026", "Jahmyr Gibbs, RB, DET", "3 years in the league", "GB",
+              "QUESTIONABLE", "ankle", "Week 3: 74% snaps", "17 carries", "18.4 pts",
+              "1 of 3", "QB1 Jared Goff: Out", "Goff (thumb) won't play.", "9/30 Gibbs logged a full practice.",
+              "storyId=64002028", "background only", "START", "Injury, Usage, Depth, Team and Take",
+              "ten days", "https://www.espn.com/nfl/player/gamelog/_/id/1"):
         assert s in sheet, s
-    assert "rank" not in sheet.lower()
+    for s in ("20.2", "21.4", "19.0", "320.5", "projection:", "starts at RB"):
+        assert s not in sheet, f"{s}: projections and the reason line are already on the card"
 
 
-def test_fact_sheet_on_a_bye_says_so():
-    sheet = outlook.fact_sheet(card(bye=True, opponent=None, kickoff=None, call="BYE", reason="bye week"), 2)
-    assert "none (bye)" in sheet and "no game" in sheet
+def test_fact_sheet_with_nothing_to_report_says_none():
+    sheet = outlook.fact_sheet(card(form=None, exp=0), 5, ctx(depth=None, teammates=[], rotowire=[], last_news=None), TODAY)
+    assert "rookie" in sheet and "not on Sleeper's chart" in sheet
+    assert sheet.count("none") >= 3, "games, teammates and Rotowire each say none"
 
 
-def test_fact_sheet_without_a_schedule_is_not_a_bye():
-    """ESPN leaves opponent/kickoff empty for an unscheduled player too; that is not a bye week."""
-    sheet = outlook.fact_sheet(card(bye=False, opponent=None, kickoff=None), 2)
-    assert "not scheduled" in sheet
-    assert "bye" not in sheet.lower()
+def test_fact_sheet_bye_and_unscheduled_still_differ():
+    assert "none (bye)" in outlook.fact_sheet(card(bye=True, opponent=None, kickoff=None, call="BYE"), 5, ctx(), TODAY)
+    assert "not scheduled" in outlook.fact_sheet(card(opponent=None, kickoff=None), 5, ctx(), TODAY)
+
+
+def test_card_hash_moves_with_card_facts_not_projections():
+    base = outlook.card_hash(card())
+    assert outlook.card_hash(card(proj=25.0, spread=9.0, ros_proj=400.0, reason="other")) == base
+    assert outlook.card_hash(card(injury_note="limited")) != base
+    assert outlook.card_hash(card(call="BENCH")) != base
+    assert outlook.card_hash(card(form={"rows": [{"week": 4, "pts": 3.0, "snap_pct": 30}]})) != base
+
+
+def test_fact_hash_moves_with_news_and_the_day():
+    base = outlook.fact_hash(card(), ctx(), TODAY)
+    assert outlook.fact_hash(card(), ctx(), date(2026, 10, 3)) != base, "rewritten at least daily"
+    assert outlook.fact_hash(card(), ctx(last_news=1790000009000), TODAY) != base
+    mate = {**ctx()["teammates"][0], "last_news": 1790000009000}
+    assert outlook.fact_hash(card(), ctx(teammates=[mate]), TODAY) != base, "a teammate's news rewrites him"
+    assert outlook.fact_hash(card(), ctx(rotowire=[]), TODAY) != base
+    assert outlook.fact_hash(card(), ctx(depth={"slot": "RB", "order": 2, "rank": 2, "of": 3}), TODAY) != base
+    assert outlook.fact_hash(card(proj=30.0), ctx(), TODAY) == base
+
+
+def test_normalize_orders_drops_and_requires_take():
+    src = [{"site": "Rotowire", "date": "10/1", "url": "https://x.test/1"}]
+    raw = {"bullets": [TAKE, {"label": "Usage", "text": "Up.", "sources": src},
+                       {"label": "Injury", "text": "Fine.", "sources": src},
+                       {"label": "Usage", "text": "dup", "sources": src},
+                       {"label": "Vibes", "text": "?", "sources": src},
+                       {"label": "Team", "text": "No source.", "sources": []},
+                       {"label": "Depth", "text": "Bad link.", "sources": [{"site": "x", "date": "", "url": "javascript:1"}]}]}
+    got = outlook.normalize(raw)
+    assert [b["label"] for b in got] == ["Injury", "Usage", "Take"]
+    assert got[1]["text"] == "Up."
+    with pytest.raises(RuntimeError, match="no Take"):
+        outlook.normalize({"bullets": [{"label": "Usage", "text": "Up.", "sources": src}]})
+
+
+def test_parse_envelope_reads_structured_bullets_and_refuses_errors():
+    ok = json.dumps({"is_error": False, "structured_output": {"bullets": [TAKE]}})
+    assert outlook.parse_envelope(ok) == [TAKE]
+    old_cli = json.dumps({"is_error": False, "result": json.dumps({"bullets": [TAKE]})})
+    assert outlook.parse_envelope(old_cli) == [TAKE]
+    with pytest.raises(RuntimeError, match="Not logged in"):
+        outlook.parse_envelope(json.dumps({"is_error": True, "result": "Not logged in"}))
+
+
+def test_attach_shows_bullets_flags_moved_card_facts_and_ignores_paragraphs():
+    c = card()
+    fresh = {1: {"hash": "h", "card_hash": outlook.card_hash(c), "bullets": [TAKE], "generated_at": "t"}}
+    a, = outlook.attach([c], fresh)
+    assert (a["outlook"], a["outlook_at"], a["outlook_stale"]) == ([TAKE], "t", False)
+    b, = outlook.attach([card(injury_note="new")], fresh)
+    assert b["outlook_stale"] is True
+    for e in ({"hash": "x", "text": "a paragraph from before", "generated_at": "t"}, {"hash": "x"}, "junk"):
+        n, = outlook.attach([c], {1: e})
+        assert (n["outlook"], n["outlook_at"], n["outlook_stale"]) == (None, None, False)
+
+
+def test_pending_writes_ir_and_out_skips_played_and_quiet_byes():
+    cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, call="IR", group="ir"),
+             card(player_id=4, call="OUT", injury="OUT"), card(player_id=5, call="BYE", bye=True),
+             card(player_id=6, call="BYE", bye=True)]
+    quiet = ctx(teammates=[], rotowire=[])
+    ctxs = {1: ctx(), 2: ctx(), 3: ctx(), 4: ctx(), 5: quiet, 6: ctx()}
+    assert [c["player_id"] for c in outlook.pending(cards, {}, ctxs, TODAY)] == [1, 3, 4, 6]
+    same = {1: {"hash": outlook.fact_hash(cards[0], ctxs[1], TODAY)}}
+    assert 1 not in [c["player_id"] for c in outlook.pending(cards, same, ctxs, TODAY)]
+
+
+def test_generate_writes_bullets_and_keeps_the_old_entry_on_failure(outlook_dir):
+    cards = [card(player_id=4, name="Fails"), card(player_id=5, name="New")]
+    outlook.save(5, {4: {"hash": "old", "card_hash": "c", "bullets": [TAKE], "generated_at": "y"}})
+    def run(prompt):
+        if "Fails" in prompt:
+            raise RuntimeError("claude exited 1")
+        return [TAKE]
+    counts = outlook.generate(cards, 5, run=run, now=datetime(2026, 10, 2, 9, 30), today=TODAY)
+    assert counts == {"generated": 1, "skipped": 0, "failed": 1, "last_failure": "RuntimeError: claude exited 1"}
+    got = outlook.load(5)
+    assert got[4]["hash"] == "old"
+    assert got[5] == {"hash": outlook.fact_hash(cards[1], ctx(), TODAY), "card_hash": outlook.card_hash(cards[1]),
+                      "bullets": [TAKE], "generated_at": "2026-10-02T09:30"}
+    outlook.generate([card(player_id=6, name="Aware")], 5, run=run)
+    assert re.search(r"T\d\d:\d\d[+-]\d\d:\d\d$", outlook.load(5)[6]["generated_at"])
 
 
 def test_load_and_save_round_trip_and_tolerate_a_missing_or_corrupt_file(outlook_dir):
@@ -71,66 +163,12 @@ def test_load_and_save_round_trip_and_tolerate_a_missing_or_corrupt_file(outlook
     assert not list(outlook_dir.glob("*.tmp")), "the temp file is renamed away"
 
 
-def test_attach_marks_stale_when_the_facts_moved():
-    c = card()
-    fresh = {1: {"hash": outlook.fact_hash(c), "text": "fine", "generated_at": "2026-09-10T09:00"}}
-    old = {1: {"hash": "stale", "text": "old", "generated_at": "2026-09-09T09:00"}}
-    a, = outlook.attach([c], fresh)
-    assert (a["outlook"], a["outlook_at"], a["outlook_stale"]) == ("fine", "2026-09-10T09:00", False)
-    b, = outlook.attach([c], old)
-    assert (b["outlook"], b["outlook_stale"]) == ("old", True)
-    n, = outlook.attach([c], {})
-    assert (n["outlook"], n["outlook_at"], n["outlook_stale"]) == (None, None, False)
-
-
-def test_attach_treats_a_half_written_entry_as_absent():
-    """A truncated or hand-edited file must not 500 the GET that reads it."""
-    h, = outlook.attach([card()], {1: {"hash": "x"}})
-    assert (h["outlook"], h["outlook_at"], h["outlook_stale"]) == (None, None, False)
-
-
-def test_generate_skips_matched_played_and_ir_bye_and_keeps_old_text_on_failure(outlook_dir):
-    cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, call="IR", group="ir"),
-             card(player_id=4, name="Fails"), card(player_id=5, name="New")]
-    outlook.save(2, {1: {"hash": outlook.fact_hash(cards[0]), "text": "same", "generated_at": "x"},
-                     4: {"hash": "old", "text": "kept", "generated_at": "y"}})
-    seen = []
-
-    def run(prompt):
-        seen.append(prompt)
-        if "Fails" in prompt:
-            raise RuntimeError("claude exited 1")
-        return "fresh text"
-
-    from datetime import datetime
-    counts = outlook.generate(cards, 2, run=run, now=datetime(2026, 9, 10, 9, 30))
-    assert counts == {"generated": 1, "skipped": 3, "failed": 1,
-                      "last_failure": "RuntimeError: claude exited 1"}
-    assert counts["last_failure"].startswith("RuntimeError")
-    assert len(seen) == 2 and all("Week 2" in p for p in seen)
-    got = outlook.load(2)
-    assert got[1]["text"] == "same"
-    assert got[4] == {"hash": "old", "text": "kept", "generated_at": "y"}
-    assert got[5] == {"hash": outlook.fact_hash(cards[4]), "text": "fresh text", "generated_at": "2026-09-10T09:30"}
-    assert 2 not in got and 3 not in got
-    # with no caller-supplied clock the stamp carries the host's offset, or a browser elsewhere
-    # reads the age wrong by whole hours
-    outlook.generate([card(player_id=6, name="Aware")], 2, run=run)
-    assert re.search(r"T\d\d:\d\d[+-]\d\d:\d\d$", outlook.load(2)[6]["generated_at"])
-
-
-def test_pending_lists_only_the_cards_a_run_would_write():
-    cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, call="BYE")]
-    assert [c["player_id"] for c in outlook.pending(cards, {})] == [1]
-    assert outlook.pending(cards, {1: {"hash": outlook.fact_hash(cards[0]), "text": "t", "generated_at": "x"}}) == []
-
-
 def test_start_runs_in_the_background_under_the_lock_and_records_last(outlook_dir):
     gate = threading.Event()
 
     def run(prompt):
         gate.wait(5)
-        return "done"
+        return [TAKE]
 
     t = outlook.start([card()], 2, run=run)
     assert outlook.running() is True
@@ -141,14 +179,14 @@ def test_start_runs_in_the_background_under_the_lock_and_records_last(outlook_di
     assert outlook.running() is False
     assert outlook.LAST["generated"] == 1 and outlook.LAST["at"] is not None
     assert outlook.LAST["error"] is None
-    assert outlook.load(2)[1]["text"] == "done"
+    assert outlook.load(2)[1]["bullets"] == [TAKE]
 
 
 @pytest.mark.filterwarnings("error")
 def test_start_releases_the_lock_when_the_run_raises(outlook_dir, monkeypatch):
     """A dying run must record its error and never let the exception escape the thread."""
     monkeypatch.setattr(outlook, "generate", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
-    t = outlook.start([card()], 2, run=lambda p: "x")
+    t = outlook.start([card()], 2, run=lambda p: [TAKE])
     t.join(5)
     assert outlook.running() is False
     assert outlook.LAST["error"].startswith("RuntimeError")
@@ -166,46 +204,8 @@ def test_start_releases_the_lock_when_the_thread_will_not_start(outlook_dir, mon
 
     monkeypatch.setattr(outlook.threading, "Thread", DeadThread)
     with pytest.raises(RuntimeError, match="can't start new thread"):
-        outlook.start([card()], 2, run=lambda p: "x")
+        outlook.start([card()], 2, run=lambda p: [TAKE])
     assert outlook.running() is False
-
-
-def test_parse_envelope_reads_structured_output_and_refuses_errors():
-    ok = json.dumps({"type": "result", "is_error": False, "result": "{\"outlook\": \"ignored\"}",
-                     "structured_output": {"outlook": "  He starts.  "}})
-    assert outlook.parse_envelope(ok) == "He starts."
-    older = json.dumps({"type": "result", "is_error": False, "result": "{\"outlook\": \"From result\"}"})
-    assert outlook.parse_envelope(older) == "From result"
-    with pytest.raises(RuntimeError, match="Not logged in"):
-        outlook.parse_envelope(json.dumps({"is_error": True, "result": "Not logged in · Please run /login"}))
-    with pytest.raises(RuntimeError):
-        outlook.parse_envelope(json.dumps({"is_error": False, "structured_output": {"outlook": ""}}))
-
-
-def test_run_claude_invokes_the_cli_exactly(monkeypatch):
-    calls = {}
-
-    class R:
-        returncode = 0
-        stdout = json.dumps({"is_error": False, "structured_output": {"outlook": "ok"}})
-        stderr = ""
-
-    def fake_run(args, **kw):
-        calls["args"], calls["kw"] = args, kw
-        return R()
-
-    monkeypatch.setattr(outlook.shutil, "which", lambda name: "/Users/x/.local/bin/claude")
-    monkeypatch.setattr(outlook.subprocess, "run", fake_run)
-    monkeypatch.setenv("CLAUDECODE", "1")
-    assert outlook.run_claude("the sheet") == "ok"
-    assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--model", "opus", "--tools", "",
-                             "--no-session-persistence", "--output-format", "json",
-                             "--json-schema", json.dumps(outlook.SCHEMA)]
-    assert "--bare" not in calls["args"], "--bare skips the keychain: every call answers Not logged in"
-    assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 120
-    assert "CLAUDECODE" not in calls["kw"]["env"]
-    assert calls["kw"]["cwd"] == str(outlook.OUTLOOK_DIR), "not the repo: its CLAUDE.md would join the prompt"
-    assert outlook.OUTLOOK_DIR.is_dir()
 
 
 def test_run_claude_surfaces_the_cli_message_on_a_non_zero_exit(monkeypatch):
@@ -235,22 +235,24 @@ def test_run_claude_without_the_cli_raises(monkeypatch):
         outlook.run_claude("x")
 
 
-def test_fact_sheet_carries_rest_of_season_not_the_frozen_season_total():
-    sheet = outlook.fact_sheet(card(ros_proj=309.6, ros_sleeper=301.9, ros_cbs=317.4, ros_spread=15.5), 2)
-    assert "Rest-of-season projection: 309.6" in sheet
-    assert "Sleeper 301.9" in sheet and "CBS 317.4" in sheet
-    assert "320.5" not in sheet, "the draft-day season total is frozen; it is not a fact of the week"
-
-
-def test_fact_sheet_without_a_ros_source_says_so():
-    sheet = outlook.fact_sheet(card(ros_proj=100.9, ros_sleeper=100.9, ros_cbs=None, ros_spread=None), 2)
-    assert "Rest-of-season projection: 100.9 (Sleeper 100.9)" in sheet
-    sheet = outlook.fact_sheet(card(ros_proj=None, ros_sleeper=None, ros_cbs=None, ros_spread=None), 2)
-    assert "Rest-of-season projection: not available" in sheet
-
-
-def test_fact_hash_moves_with_a_rest_of_season_revision_but_not_a_tick():
-    base = outlook.fact_hash(card(ros_proj=309.6))
-    assert outlook.fact_hash(card(ros_proj=311.0)) == base, "a couple of points of ROS is noise"
-    assert outlook.fact_hash(card(ros_proj=290.0)) != base, "a revision that moves the text regenerates it"
-    assert outlook.fact_hash(card(ros_proj=None)) != base
+def test_run_claude_invokes_the_cli_with_web_tools(monkeypatch):
+    calls = {}
+    class R:
+        returncode = 0
+        stdout = json.dumps({"is_error": False, "structured_output": {"bullets": [TAKE]}})
+        stderr = ""
+    def fake_run(args, **kw):
+        calls["args"], calls["kw"] = args, kw
+        return R()
+    monkeypatch.setattr(outlook.shutil, "which", lambda name: "/Users/x/.local/bin/claude")
+    monkeypatch.setattr(outlook.subprocess, "run", fake_run)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert outlook.run_claude("the sheet") == [TAKE]
+    assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--model", "opus",
+                             "--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch",
+                             "--no-session-persistence", "--output-format", "json",
+                             "--json-schema", json.dumps(outlook.SCHEMA)]
+    assert "--bare" not in calls["args"]
+    assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 300
+    assert "CLAUDECODE" not in calls["kw"]["env"]
+    assert calls["kw"]["cwd"] == str(outlook.OUTLOOK_DIR)
