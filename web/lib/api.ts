@@ -85,6 +85,12 @@ export type Week = { week: number; live: boolean; me: Side; opp: Side | null; pl
 export type WaiverRow = Player & {
   ros_proj: number; ros_adj: number; week_proj: number; delta_roster: number; delta_pool: number;
   would_start: boolean; week_delta: number; add: number;
+  has_outlook: boolean;  // bullets written for him this week, from the Waivers dialog
+};
+// One free agent's outlook (GET /waivers/outlook/{id}): written on a click, a minute or two of
+// Opus with web search, so `running` is polled. `error` is the last failed write's reason.
+export type WaiverOutlook = {
+  bullets: OutlookBullet[] | null; at: string | null; stale: boolean; running: boolean; error: string | null;
 };
 // One of my players as the Waivers table compares a free agent against him: the same ROS and
 // week figures, by adjusted ROS best first (season.roster_rows).

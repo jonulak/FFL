@@ -36,14 +36,17 @@ SCHEMA = {"type": "object", "required": ["bullets"], "properties": {"bullets": {
 GAMELOG = "https://www.espn.com/nfl/player/gamelog/_/id/{pid}"
 INJURY_REPORT = "https://www.espn.com/nfl/injuries"
 SLEEPER = "https://sleeper.com"
+# The Take is the one rule a free agent's sheet changes: there is no call to read, only a claim to weigh.
+TAKE = "Take: your own read of what it all means for him; always include it. "
+FA_TAKE = ("Take: what adding him would mean for his manager — a stash, a one-week fill-in or a starter, and "
+           "for how long; always include it. ")
 VOICE = ("Write this player's outlook as bullets labelled Injury, Usage, Depth, Team and Take, in that order. "
          "Injury: only when he is on the injury report, missed or was limited in practice this week, or is "
          "working back from an injury — then his status, practice reports and return timeline; a healthy "
          "player gets no Injury bullet. Usage: the trend across his recent games "
          "in snaps, targets, receptions and carries. Depth: who is ahead of and behind him, and who is hurt. "
          "Team: teammate or scheme news that changes his week, such as his quarterback out, a coordinator "
-         "fired or a receiver traded. Take: your own read of what it all means for him; always include it. "
-         "Leave out any other label with nothing to report: never a bullet that only says there is no news. One or two sentences, at most thirty words, per "
+         "fired or a receiver traded. " + TAKE + "Leave out any other label with nothing to report: never a bullet that only says there is no news. One or two sentences, at most thirty words, per "
          "bullet. Check the facts above with web search and add what they miss; say so when sources "
          "disagree. Use nothing older than ten days unless it is the latest word on an injury that is still "
          "active, and give the date of any injury news. Never quote projected or expected fantasy points and "
@@ -143,13 +146,17 @@ def _opponent_text(card: dict) -> str:
     return "none (bye)" if card.get("bye") else "not scheduled"
 
 
-def fact_sheet(card: dict, week: int, ctx: dict, today: date) -> str:
-    """The prompt: the card's facts that are not projections, the news context, then the voice rule."""
+def fact_sheet(card: dict, week: int, ctx: dict, today: date, free_agent: bool = False) -> str:
+    """The prompt: the card's facts that are not projections, the news context, then the voice rule.
+    A free agent (a Waivers row) has no call: the sheet says a claim is being weighed and the Take reads
+    what adding him would mean."""
+    role = ("Roster status: free agent; his manager is weighing a claim on him" if free_agent
+            else f"Start/bench call (background only, do not restate): {card['call']}")
     lines = [
         f"Week {week} fact sheet — today is {today:%A} {today.month}/{today.day}/{today.year}",
         f"Player: {card['name']}, {card['pos']}, {card['team']}; {_exp_text(card)}",
         f"Opponent: {_opponent_text(card)}; kickoff: {_kickoff_text(card)}",
-        f"Start/bench call (background only, do not restate): {card['call']}",
+        role,
         f"Injury (source: ESPN injury report, {INJURY_REPORT}): {card.get('injury')}; "
         f"note: {card.get('injury_note') or 'none'}; return week: {card.get('return_week') or 'n/a'}",
         f"Recent games (source: ESPN game log, {GAMELOG.format(pid=card['player_id'])}):",
@@ -161,29 +168,34 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date) -> str:
         *([f"  {_md(i.get('published'))} {i.get('headline')} {i.get('story')} ({i.get('url') or 'no link'})"
            for i in ctx.get("rotowire") or []] or ["  none"]),
         "",
-        VOICE,
+        VOICE.replace(TAKE, FA_TAKE) if free_agent else VOICE,
     ]
     return "\n".join(lines)
 
 
-def _path(week: int) -> Path:
-    return OUTLOOK_DIR / f"week-{week}.json"
+# The two stores: the Roster run's week file, and the free agents written on a click from Waivers. Kept
+# apart so the hourly run's read-modify-write never meets a click's.
+ROSTER, WAIVERS = "week", "waivers-week"
 
 
-def load(week: int) -> dict[int, dict]:
+def _path(week: int, kind: str = ROSTER) -> Path:
+    return OUTLOOK_DIR / f"{kind}-{week}.json"
+
+
+def load(week: int, kind: str = ROSTER) -> dict[int, dict]:
     """The week's entries by player id; a missing or corrupt file is an empty week."""
     try:
-        raw = json.loads(_path(week).read_text())
+        raw = json.loads(_path(week, kind).read_text())
         return {int(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
     except (OSError, ValueError, AttributeError, TypeError):
         return {}
 
 
-def save(week: int, entries: dict[int, dict]) -> None:
+def save(week: int, entries: dict[int, dict], kind: str = ROSTER) -> None:
     OUTLOOK_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = _path(week).with_suffix(".json.tmp")
+    tmp = _path(week, kind).with_suffix(".json.tmp")
     tmp.write_text(json.dumps({str(k): v for k, v in entries.items()}, indent=1))
-    os.replace(tmp, _path(week))
+    os.replace(tmp, _path(week, kind))
 
 
 def attach(cards: list[dict], entries: dict[int, dict]) -> list[dict]:
@@ -339,5 +351,66 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
         t.start()
     except Exception:  # noqa: BLE001 — a thread that never ran will never release the lock
         LOCK.release()
+        raise
+    return t
+
+
+# Free agents, one at a time, on a click from the Waivers page. Players being written, and the lock that
+# guards that set and the waivers file's read-modify-write (the calls run side by side, WORKERS at most).
+_WRITING: set[int] = set()
+_WLOCK = threading.Lock()
+
+
+def waiver_entry(row: dict, week: int) -> dict:
+    """What the Waivers dialog shows for him: the stored bullets, stale when his facts have moved, whether
+    a write is running, and the last write's failure, which a good write clears."""
+    e = load(week, WAIVERS).get(row["player_id"])
+    e = e if isinstance(e, dict) else {}
+    ok = isinstance(e.get("bullets"), list) and "card_hash" in e
+    return {"bullets": e["bullets"] if ok else None, "at": e.get("generated_at") if ok else None,
+            "stale": ok and e["card_hash"] != card_hash(row), "running": row["player_id"] in _WRITING,
+            "error": e.get("error")}
+
+
+def written(week: int) -> set[int]:
+    """The free agents with bullets this week, for the Waivers table's button."""
+    return {pid for pid, e in load(week, WAIVERS).items() if isinstance(e, dict) and isinstance(e.get("bullets"), list)}
+
+
+def start_one(row: dict, week: int, run=run_claude, gather=None) -> threading.Thread:
+    """Write one free agent's outlook on a daemon thread. It always writes: the click is the ask. Busy when
+    he is already being written or WORKERS calls are in flight. A failed call keeps the old bullets and
+    records the reason on his entry."""
+    pid = row["player_id"]
+    with _WLOCK:
+        if pid in _WRITING:
+            raise Busy(f"{row['name']}'s outlook is already being written")
+        if len(_WRITING) >= WORKERS:
+            raise Busy(f"{WORKERS} outlooks are already being written")
+        _WRITING.add(pid)
+
+    def work():
+        try:
+            ctx = (gather or news.gather)([row], week)[pid]
+            bullets = run(fact_sheet(row, week, ctx, date.today(), free_agent=True))
+            entry = {"card_hash": card_hash(row), "bullets": bullets,
+                     "generated_at": datetime.now().astimezone().isoformat(timespec="minutes")}
+        except Exception as e:  # noqa: BLE001 — the dialog needs the reason, not a lost traceback
+            entry = {"error": f"{type(e).__name__}: {e}"[:200]}
+        with _WLOCK:
+            try:
+                entries = load(week, WAIVERS)
+                old = entries.get(pid) if isinstance(entries.get(pid), dict) else {}
+                entries[pid] = entry if "bullets" in entry else {**old, **entry}
+                save(week, entries, WAIVERS)
+            finally:
+                _WRITING.discard(pid)
+
+    t = threading.Thread(target=work, name=f"outlook-{pid}", daemon=True)
+    try:
+        t.start()
+    except Exception:  # noqa: BLE001 — a thread that never ran would hold his slot forever
+        with _WLOCK:
+            _WRITING.discard(pid)
         raise
     return t

@@ -300,3 +300,94 @@ def test_run_claude_invokes_the_cli_with_web_tools(monkeypatch):
     assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 300
     assert "CLAUDECODE" not in calls["kw"]["env"]
     assert calls["kw"]["cwd"] == str(outlook.OUTLOOK_DIR)
+
+
+# --- free agents: one outlook at a time, on a click, from the Waivers page ---
+
+def fa(**kw):
+    """A waiver row: the card's facts without the call, with the waiver numbers beside them."""
+    row = {k: v for k, v in card(**kw).items() if k not in ("call", "group", "gap", "close_call", "reason", "slot")}
+    return {**row, "add": 14.2, "ros_proj": 120.0}
+
+
+@pytest.fixture
+def writing(monkeypatch):
+    s: set[int] = set()
+    monkeypatch.setattr(outlook, "_WRITING", s)
+    return s
+
+
+def test_free_agent_sheet_frames_the_claim_and_keeps_projections_out():
+    sheet = outlook.fact_sheet(fa(), 5, ctx(), TODAY, free_agent=True)
+    assert "free agent" in sheet and "weighing a claim" in sheet
+    assert "Start/bench call" not in sheet and "None" not in sheet
+    assert "what adding him would mean" in sheet
+    assert "your own read of what it all means for him" not in sheet, "the roster Take rule is swapped out"
+    for s in ("14.2", "120.0", "20.2"):
+        assert s not in sheet
+    assert "Injury, Usage, Depth, Team and Take" in sheet and "a healthy player gets no Injury bullet" in sheet
+
+
+def test_waiver_outlooks_keep_their_own_file(outlook_dir):
+    outlook.save(5, {1: {"bullets": [TAKE]}}, kind=outlook.WAIVERS)
+    assert outlook.load(5) == {}, "the roster run never sees a free agent's entry"
+    assert outlook.load(5, kind=outlook.WAIVERS)[1]["bullets"] == [TAKE]
+    assert (outlook_dir / "waivers-week-5.json").exists()
+
+
+def test_start_one_writes_his_outlook_and_waiver_entry_reads_it(outlook_dir, writing):
+    gate, prompts = threading.Event(), []
+
+    def run(prompt):
+        prompts.append(prompt)
+        gate.wait(5)
+        return [TAKE]
+
+    assert outlook.waiver_entry(fa(), 5) == {"bullets": None, "at": None, "stale": False, "running": False, "error": None}
+    t = outlook.start_one(fa(), 5, run=run)
+    assert outlook.waiver_entry(fa(), 5)["running"] is True
+    with pytest.raises(outlook.Busy):
+        outlook.start_one(fa(), 5, run=run)
+    gate.set()
+    t.join(5)
+    e = outlook.waiver_entry(fa(), 5)
+    assert e["bullets"] == [TAKE] and e["at"] and e["running"] is False and e["error"] is None
+    assert e["stale"] is False and "weighing a claim" in prompts[0]
+    assert outlook.waiver_entry(fa(injury_note="limited Thursday"), 5)["stale"] is True
+    assert outlook.load(5) == {}, "the roster file is untouched"
+
+
+def test_start_one_keeps_the_old_bullets_and_records_a_failure(outlook_dir, writing):
+    outlook.start_one(fa(), 5, run=lambda p: [TAKE]).join(5)
+    outlook.start_one(fa(), 5, run=lambda p: (_ for _ in ()).throw(RuntimeError("Not logged in"))).join(5)
+    e = outlook.waiver_entry(fa(), 5)
+    assert e["bullets"] == [TAKE] and e["error"] == "RuntimeError: Not logged in" and e["running"] is False
+    outlook.start_one(fa(), 5, run=lambda p: [TAKE]).join(5)
+    assert outlook.waiver_entry(fa(), 5)["error"] is None, "a good write clears the failure"
+
+
+def test_start_one_caps_the_calls_in_flight(outlook_dir, writing):
+    gate = threading.Event()
+    threads = [outlook.start_one(fa(player_id=i), 5, run=lambda p: (gate.wait(5), [TAKE])[1])
+               for i in range(1, outlook.WORKERS + 1)]
+    with pytest.raises(outlook.Busy):
+        outlook.start_one(fa(player_id=99), 5, run=lambda p: [TAKE])
+    gate.set()
+    for t in threads:
+        t.join(5)
+    assert set(outlook.load(5, kind=outlook.WAIVERS)) == set(range(1, outlook.WORKERS + 1)), "parallel saves all land"
+    assert not writing
+
+
+def test_start_one_frees_the_slot_when_the_thread_will_not_start(outlook_dir, writing, monkeypatch):
+    class DeadThread:
+        def __init__(self, *a, **kw):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(outlook.threading, "Thread", DeadThread)
+    with pytest.raises(RuntimeError):
+        outlook.start_one(fa(), 5, run=lambda p: [TAKE])
+    assert not writing

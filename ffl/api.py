@@ -5,9 +5,10 @@
 Loopback only; Next.js on :3300 proxies /api/* here. Stale payloads are kept past the TTL and
 served, flagged, when a source is down — never a blank page on Sunday.
 
-Only three endpoints write anything: POST /decisions appends to journal/DECISIONS.md, POST /refresh
-runs the journal sync, and POST /outlook/refresh starts a background run that writes
-data/outlook/week-<n>.json. Every GET is read-only.
+Only four endpoints write anything: POST /decisions appends to journal/DECISIONS.md, POST /refresh
+runs the journal sync, POST /outlook/refresh starts a background run that writes
+data/outlook/week-<n>.json, and POST /waivers/outlook/{id} writes one free agent's into
+data/outlook/waivers-week-<n>.json. Every GET is read-only.
 """
 from __future__ import annotations
 
@@ -291,7 +292,10 @@ def live_status():
 @app.get("/waivers")
 def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-    return {"week": data["week"], "pos": pos, "rows": data["positions"].get(pos, []),
+    # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
+    written = outlook.written(data["week"])
+    rows = [{**r, "has_outlook": r["player_id"] in written} for r in data["positions"].get(pos, [])]
+    return {"week": data["week"], "pos": pos, "rows": rows,
             "roster": data.get("roster", []),  # my players, for the row's comparison dropdown
             # the week ROS starts from, and whether this week's games are all played (no week term)
             "ros_week": data.get("ros_week", data["week"]), "week_over": data.get("week_over", False),
@@ -351,6 +355,34 @@ def outlook_refresh():
         raise HTTPException(status_code=409, detail=str(e))
     # pending needs the news context, which is fetched in the run's thread; the page reads the count from outlook_run
     return {"started": True, "pending": None}
+
+
+def _free_agent(player_id: int) -> tuple[dict, int]:
+    """His row in the cached pool and its week; 404 once he is off the wire."""
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    for rows in data["positions"].values():
+        for r in rows:
+            if r["player_id"] == player_id:
+                return r, data["week"]
+    raise HTTPException(status_code=404, detail=f"player {player_id} is not a free agent")
+
+
+@app.get("/waivers/outlook/{player_id}")
+def waiver_outlook(player_id: int):
+    row, week = _free_agent(player_id)
+    return outlook.waiver_entry(row, week)
+
+
+@app.post("/waivers/outlook/{player_id}", status_code=202)
+def waiver_outlook_write(player_id: int):
+    """One free agent's outlook, written in the background (a minute or two of Opus with web search);
+    the dialog polls the GET until `running` clears."""
+    row, week = _free_agent(player_id)
+    try:
+        outlook.start_one(row, week, run=outlook.run_claude)
+    except outlook.Busy as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"started": True}
 
 
 class Decision(BaseModel):

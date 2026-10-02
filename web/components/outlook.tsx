@@ -16,7 +16,7 @@ import { Ago } from "./local-time";
 // One block per label: the label as a small heading over its text, so the sentence gets the card's full
 // width, and the sources trailing it as small dotted links that open in a new tab. Each link keeps its
 // site and date together; the list itself wraps, or a long one runs past the card's clipped edge.
-function Bullets({ bullets }: { bullets: OutlookBullet[] }) {
+export function Bullets({ bullets }: { bullets: OutlookBullet[] }) {
   return (
     <dl className="max-w-[68ch] space-y-2 text-sm leading-relaxed text-muted-foreground">
       {bullets.map((b) => (

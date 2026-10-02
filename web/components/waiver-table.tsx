@@ -11,6 +11,7 @@ import { sortRows, type Sort } from "@/lib/waiver-sort";
 import { TrendArrow } from "./form-strip";
 import { Kickoff } from "./local-time";
 import { TeamLogo, TeamPanel } from "./player-media";
+import { WaiverOutlookButton } from "./waiver-outlook";
 
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
@@ -128,8 +129,9 @@ export function comparePositions(pos: string): Set<string> {
 
 // The name cell every row shares: name and chip stack, then POS · TEAM · matchup. A rostered
 // player carries a muted chip with his slot in place of START; his tile and name step in
-// 12px so the group reads as the free agent's dropdown.
-function NameCell({ r, week, mine = false, chip }: { r: WaiverRow | RosterRow; week: number; mine?: boolean; chip?: React.ReactNode }) {
+// 12px so the group reads as the free agent's dropdown. `tail` closes the caption line: the
+// free agent's outlook button (my own players have theirs on the Roster page).
+function NameCell({ r, week, mine = false, chip, tail }: { r: WaiverRow | RosterRow; week: number; mine?: boolean; chip?: React.ReactNode; tail?: React.ReactNode }) {
   const hurt = !HEALTHY.has(r.injury);
   const idle = r.bye || injuryTone(r.injury) === "bad";
   return (
@@ -157,6 +159,7 @@ function NameCell({ r, week, mine = false, chip }: { r: WaiverRow | RosterRow; w
         )}
         <span aria-hidden>·</span>
         <Matchup r={r} />
+        {tail && <><span aria-hidden>·</span>{tail}</>}
       </p>
       {/* the hurt teammates at his position: a fill-in's window ends when they are back */}
       {aheadLabel(r.ahead, week) && (
@@ -256,7 +259,8 @@ function Row({ r, week, cols, roster, open, onToggle }: {
             </div>
           </div>
         </TableCell>
-        <NameCell r={r} week={week} chip={r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta)}</Badge>} />
+        <NameCell r={r} week={week} chip={r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta)}</Badge>}
+          tail={<WaiverOutlookButton r={r} />} />
         <TableCell className={`text-right font-display text-[1.5rem] font-bold tabular-nums tracking-tight ${r.add > 0 ? "" : "text-foreground/70"}`}>
           {signed(r.add)}
         </TableCell>

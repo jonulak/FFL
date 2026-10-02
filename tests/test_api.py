@@ -276,6 +276,42 @@ def test_outlook_refresh_reports_a_source_failure_as_502(client, monkeypatch):
     assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
 
 
+def _fa_pool(monkeypatch):
+    row = {"player_id": 7, "name": "B", "pos": "RB", "team": "MIA", "bye": False, "injury": "ACTIVE",
+           "opponent": "BUF", "kickoff": None, "return_week": None, "injury_note": None, "add": 9.0}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool",
+                        lambda week=None: {"week": 3, "positions": {"RB": [row], "WR": []}})
+    monkeypatch.setattr(api.outlook, "_WRITING", set())
+    api.cache.clear()
+    return row
+
+
+def test_waiver_outlook_is_written_on_a_post_and_read_on_a_get(client, monkeypatch):
+    import threading
+    _fa_pool(monkeypatch)
+    gate = threading.Event()
+    take = {"label": "Take", "text": "A stash.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
+    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), [take])[1])
+    assert client.get("/waivers?pos=RB").json()["rows"][0]["has_outlook"] is False
+    assert client.get("/waivers/outlook/7").json() == {"bullets": None, "at": None, "stale": False, "running": False, "error": None}
+    assert client.post("/waivers/outlook/7").status_code == 202
+    assert client.post("/waivers/outlook/7").status_code == 409
+    assert client.get("/waivers/outlook/7").json()["running"] is True
+    gate.set()
+    for _ in range(50):
+        if not client.get("/waivers/outlook/7").json()["running"]:
+            break
+        time.sleep(0.05)
+    assert client.get("/waivers/outlook/7").json()["bullets"] == [take]
+    assert client.get("/waivers?pos=RB").json()["rows"][0]["has_outlook"] is True
+
+
+def test_waiver_outlook_for_a_player_off_the_wire_is_404(client, monkeypatch):
+    _fa_pool(monkeypatch)
+    assert client.get("/waivers/outlook/1").status_code == 404
+    assert client.post("/waivers/outlook/1").status_code == 404
+
+
 def test_live_points_from_another_week_never_overlay_the_current_page(client, monkeypatch):
     """After Monday night the feed still holds last week's totals until the next kickoff; the
     week payload rolls over first, and last week's points must not land on it."""
