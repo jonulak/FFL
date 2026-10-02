@@ -145,7 +145,7 @@ function PlayerCard({ c, week }: { c: Card; week: number }) {
         <FormStrip form={c.form} className="mt-2" />
       </CardContent>
       <CardFooter className="flex flex-col items-stretch rounded-none border-t border-foreground/10 bg-transparent pt-2 pb-3 sm:pb-3.5">
-        <Outlook text={c.outlook} at={c.outlook_at} stale={c.outlook_stale} />
+        <Outlook bullets={c.outlook} at={c.outlook_at} stale={c.outlook_stale} />
       </CardFooter>
     </UiCard>
   );

@@ -15,8 +15,8 @@ export function OutlookButton({ running }: { running: boolean }) {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await clientPost<OutlookStarted>("/outlook/refresh");
-      setMsg(r.pending === 0 ? "nothing to write" : `writing ${r.pending} — reload in a minute`);
+      await clientPost<OutlookStarted>("/outlook/refresh");
+      setMsg("writing — reload in a few minutes");
       router.refresh();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
