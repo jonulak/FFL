@@ -2,7 +2,7 @@
 import copy
 import json
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ffl import live
@@ -53,6 +53,19 @@ def test_idle_stays_connected_during_a_game():
 def test_idle_stays_connected_just_before_kickoff():
     now = datetime(2026, 9, 13, 16, 50, tzinfo=timezone.utc)  # 1 PM ET slate at 17:00Z
     assert live.idle_for(FIX, now) is None
+
+
+def test_idle_stays_connected_past_a_kickoff_that_has_not_happened_yet():
+    # 8:15 PM is the scheduled time; the game reads "pre" until the ball is actually kicked,
+    # and the next slate is days out. Sleeping here missed the first half hour of every TNF.
+    now = datetime(2026, 9, 13, 17, 4, tzinfo=timezone.utc)
+    assert live.idle_for(FIX, now) is None
+
+
+def test_idle_gives_up_on_a_game_long_past_its_kickoff():
+    # a postponed game keeps "pre" for days; it must not hold the socket open
+    now = datetime(2026, 9, 13, 17, 0, tzinfo=timezone.utc) + timedelta(seconds=live.LATE_KICKOFF)
+    assert live.idle_for(FIX, now) == live.MAX_IDLE
 
 
 def test_idle_sleeps_until_shortly_before_the_next_kickoff():

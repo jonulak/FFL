@@ -17,7 +17,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import fastcast as fc
 from . import plays as P
@@ -28,6 +28,9 @@ IDLE_BEFORE_KICKOFF = 15 * 60  # connect this long before the next kickoff
 ROSTER_REFRESH = 10 * 60  # how often the runner re-reads who starts in my matchup
 OFF_WINDOW_CHECK = 5 * 60  # outside the game window, look at the clock this often
 MAX_IDLE = 30 * 60  # never sleep longer than this without re-reading the schedule
+# a game reads "pre" until the ball is kicked, minutes after the listed time (hours, in a weather
+# delay): stay connected this long past a kickoff that has not happened, then let it go (postponed)
+LATE_KICKOFF = 2 * 3600
 
 
 class State:
@@ -211,12 +214,13 @@ def idle_for(doc: dict, now: datetime | None = None) -> float | None:
 
     Connected while a game is in progress or a kickoff is close; otherwise sleep until just
     before the next kickoff (capped so a schedule change is noticed), or the cap when the
-    checkpoint lists no game still to come.
+    checkpoint lists no game still to come. A game past its listed kickoff but not yet started
+    counts as the next kickoff, so the socket is up when the ball is kicked.
     """
     now = now or datetime.now(timezone.utc)
     if fc.games_in_progress(doc):
         return None
-    nxt = fc.next_kickoff(doc, now)
+    nxt = fc.next_kickoff(doc, now - timedelta(seconds=LATE_KICKOFF))
     if nxt is None:
         return float(MAX_IDLE)
     until = (nxt - now).total_seconds() - IDLE_BEFORE_KICKOFF
