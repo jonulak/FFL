@@ -110,6 +110,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production
   runs from the main checkout under launchd (`launchd/`), on :3300, exposed tailnet-only via
   `tailscale serve` at https://macbook-pro.tailnet.ts.net:3300. Ports 3000/8000 are other projects'.
+- A League scoreboard tile opens that game on the Matchup board at `/league/<week>/<away team id>`
+  (`GET /week/{n}?team=`, `week_state(team=)`). The payload's `me`/`opp` are the board's left/right sides:
+  I stand left of my own game (`mine: true`), any other game reads away then home. No play feed off my game;
+  future weeks have no lineups, so their tiles are not links.
 - Every player dict carries `home` (True hosts, False travels, None unknown): espn-api drops the venue,
   so `espn_season.home_by_team` re-reads ESPN's `proTeamSchedules_wl` view, cached per League build,
   and a failed read leaves every venue None rather than failing the page. Headshots and logos are

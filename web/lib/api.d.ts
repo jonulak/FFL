@@ -65,7 +65,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Week */
+        /**
+         * Week
+         * @description My week's board, or with `team` the board of that team's game (a League scoreboard tile).
+         */
         get: operations["week_week__n__get"];
         put?: never;
         post?: never;
@@ -421,7 +424,9 @@ export interface operations {
     };
     week_week__n__get: {
         parameters: {
-            query?: never;
+            query?: {
+                team?: number | null;
+            };
             header?: never;
             path: {
                 n: number;

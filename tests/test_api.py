@@ -331,6 +331,25 @@ def test_week_plays_come_only_from_the_runner_scoring_that_week(client, monkeypa
     assert client.get("/week").json()["plays"] == [{"delta": 6.0}]
 
 
+def test_week_for_a_team_is_cached_apart_and_carries_no_plays_when_not_mine(client, monkeypatch):
+    """`/week/{n}?team=` opens any scoreboard matchup; it caches under its own key, so my week's
+    board is never served for someone else's game, and the play feed (my starters only) stays off it."""
+    asked = []
+
+    def fake_week(week=None, team=None):
+        asked.append(team)
+        return {"week": week, "live": False, "me": {"team": f"t{team}"}, "opp": {"team": "x"}, "mine": team is None}
+
+    monkeypatch.setattr(api.espn_season, "week_state", fake_week)
+    store = SimpleNamespace(latest=lambda n=None: [{"delta": 6.0}])
+    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=3, store=store), raising=False)
+    assert client.get("/week/3").json()["plays"] == [{"delta": 6.0}]
+    r = client.get("/week/3?team=4").json()
+    assert r["me"]["team"] == "t4" and r["plays"] == []
+    client.get("/week/3?team=4")
+    assert asked == [None, 4]
+
+
 def test_roster_cards_never_carry_last_weeks_live_overlay(client, monkeypatch):
     """The Roster page is gated on its own week like /week: after the rollover the feed still
     holds last week's points, final scores and stat lines, and none of them may reach this

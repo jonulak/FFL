@@ -83,7 +83,9 @@ export type Play = {
   match?: "player" | "last"; // "player": a play naming him; "last": the game's last play, possibly the next one
 };
 export type Plays = { week: number | null; live: boolean; plays: Play[]; stale_since: null };
-export type Week = { week: number; live: boolean; me: Side; opp: Side | null; plays: Play[]; stale_since: string | null };
+// `me` is the left side of the board, `opp` the right: I stand left of my own game (`mine`); any other
+// game (a League scoreboard tile) reads away then home.
+export type Week = { week: number; live: boolean; mine: boolean; me: Side; opp: Side | null; plays: Play[]; stale_since: string | null };
 // ros_proj is the model mean (resolved: the season formula when no source has him); ros_adj the
 // usage-adjusted number `add` and the deltas run on (STRATEGY.md "Usage-adjusted ROS").
 export type WaiverRow = Player & {

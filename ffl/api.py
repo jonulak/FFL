@@ -257,10 +257,15 @@ def plays_():
 
 
 @app.get("/week/{n}")
-def week(n: int):
-    data = _serve(f"week:{n}", lambda: espn_season.week_state(n))
+def week(n: int, team: int | None = None):
+    """My week's board, or with `team` the board of that team's game (a League scoreboard tile)."""
+    if team is None:
+        data = _serve(f"week:{n}", lambda: espn_season.week_state(n))
+    else:
+        data = _serve(f"week:{n}:{team}", lambda: espn_season.week_state(n, team=team))
     runner = getattr(app.state, "runner", None)
-    plays = _plays(FEED_ROWS) if runner and runner.week == n else []
+    # the feed follows my starters only, so another game's board goes without it
+    plays = _plays(FEED_ROWS) if runner and runner.week == n and data.get("mine", True) else []
     return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()), "plays": plays}
 
 

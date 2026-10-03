@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronLeft } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
@@ -331,6 +333,16 @@ function Swaps({ side, end }: { side: Side; end: End }) {
   );
 }
 
+// A side's name in the board header: the full name from `sm`; the phone's half-width gets ESPN's abbreviation.
+function TeamName({ side }: { side: Side }) {
+  return (
+    <>
+      <span className="sm:hidden">{side.abbrev || side.team}</span>
+      <span className="hidden sm:inline">{side.team}</span>
+    </>
+  );
+}
+
 // Both lineups on one board, slot for slot: my side reads in from the left edge, the opponent's
 // in from the right, and the slot code runs down the spine between them, so QB sits beside QB
 // and FLEX beside FLEX at every width. The header names each side with its state (PROJ, "4 TO
@@ -346,17 +358,17 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
     <Card className={BOARD_CARD} aria-label="Lineups">
       <CardHeader className={`${grid} items-baseline pt-3 sm:pt-3.5`}>
         <div className="flex min-w-0 items-baseline gap-x-2.5">
-          <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">My lineup</h2>
+          <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">
+            {data.mine !== false ? "My lineup" : <TeamName side={me} />}
+          </h2>
           <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{mine.label}</span>
         </div>
         <span />
         {opp && theirs && (
           <div className="flex min-w-0 items-baseline justify-end gap-x-2.5">
             <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{theirs.label}</span>
-            {/* the full name from `sm`; the phone's half-width gets ESPN's abbreviation */}
             <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">
-              <span className="sm:hidden">{opp.abbrev || opp.team}</span>
-              <span className="hidden sm:inline">{opp.team}</span>
+              <TeamName side={opp} />
             </h2>
           </div>
         )}
@@ -385,7 +397,8 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
 // `now` is the clock the game phases are read against; the live wrapper advances it on each poll.
 // The breakdown dialog holds the tapped player's id, not the player, so a live tick refreshes
 // his numbers while it is open.
-export function MatchupView({ data, now }: { data: Week; now: number }) {
+// `back` is the League scoreboard a game was opened from; my own Matchup page has none.
+export function MatchupView({ data, now, back }: { data: Week; now: number; back?: string }) {
   const [picked, setPicked] = useState<{ id: number; end: End } | null>(null);
   const [open, setOpen] = useState(false);
   const roster = (s: Side | null) => (s ? [...s.lineup, ...s.bench, ...s.ir] : []);
@@ -396,6 +409,15 @@ export function MatchupView({ data, now }: { data: Week; now: number }) {
   };
   return (
     <div className="space-y-5">
+      {back && (
+        <Link
+          href={back}
+          className="-ml-1 -mb-2 inline-flex items-center gap-0.5 rounded-sm pr-1 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 outline-none transition-colors hover:text-foreground/85 focus-visible:ring-2 focus-visible:ring-ring/60"
+        >
+          <ChevronLeft aria-hidden className="size-4" />
+          Scoreboard
+        </Link>
+      )}
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
           Matchup

@@ -712,28 +712,39 @@ def _boxes_by_team(lg, week: int) -> dict[int, list]:
 
 
 def week_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
-               injuries: dict | None = None) -> dict:
+               injuries: dict | None = None, team: int | None = None) -> dict:
+    """The matchup board for `team`'s game (mine by default). `me` is the left side and `opp`
+    the right: I stand on the left of my own game; any other game reads away then home, as the
+    League scoreboard stacks it. `mine` says which kind of board it is."""
     lg = fresh_league()
     settings = load()
     week = week or lg.current_week
     me = my_team_id(lg)
+    team = team or me
     sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
     seas = _season_for(settings, season, week)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     home = home_by_team(lg, week)
     for m in box_scores(lg, week):
-        sides = [(m.home_team, m.home_lineup), (m.away_team, m.away_lineup)]
-        if not any(getattr(t, "team_id", None) == me for t, _ in sides):
+        sides = [(m.away_team, m.away_lineup), (m.home_team, m.home_lineup)]
+        ids = [getattr(t, "team_id", None) for t, _ in sides]
+        if team not in ids:
             continue
-        built = {}
+        mine = me in ids
+        if mine and ids[0] != me:
+            sides.reverse()
+        # a bye or placeholder side has no team to build; the real side takes the left
+        sides = [s for s in sides if hasattr(s[0], "team_id")]
+        built = []
         for t, lineup in sides:
-            if not hasattr(t, "team_id"):
-                continue  # a bye or placeholder side: no opponent to build
             players = apply_home(apply_injuries(
                 apply_season(merge_weekly([{**flatten_box_player(bp), "stat_row": stat_row(bp, settings)}
                                            for bp in lineup], sl), seas), inj, w1), home)
-            built["me" if t.team_id == me else "opp"] = build_side(t, players, settings)
-        return {"week": week, "live": S.is_live(), "me": built["me"], "opp": built.get("opp")}
+            built.append(build_side(t, players, settings))
+        return {"week": week, "live": S.is_live(), "mine": mine, "me": built[0],
+                "opp": built[1] if len(built) > 1 else None}
+    if team != me:
+        raise LookupError(f"no matchup for team {team} in week {week}")
     raise RuntimeError(f"no matchup for team {me} in week {week}")
 
 

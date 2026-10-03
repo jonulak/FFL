@@ -1,9 +1,12 @@
+import { ChevronRight } from "lucide-react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Club, League, ScoreSide } from "@/lib/api";
 import { pts } from "@/lib/format";
+import { matchupHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { StaleBadge } from "./stale-badge";
@@ -107,17 +110,22 @@ function ScoreRow({ side, on, trailing }: { side: ScoreSide; on: boolean; traili
 
 // One matchup per card, away over home the way a broadcast stacks a scorebug. Before kickoff
 // the number is the projection; once points post it is the score with the projection beneath.
-function MatchupCard({ m, final, live }: { m: League["scoreboard"][number]; final: boolean; live: boolean }) {
+// A tile with a board behind it (this week and earlier) is a link to that board: the ring
+// firms and a chevron closes the header on hover, the way a row in a broadcast menu lifts.
+function MatchupCard({ m, final, live, href }: { m: League["scoreboard"][number]; final: boolean; live: boolean; href: string | null }) {
   const on = final || live || m.home.score > 0 || m.away.score > 0;
   const lead = on ? Math.sign(m.away.score - m.home.score) : 0;
   const projected = m.home.proj > 0 || m.away.proj > 0;
-  return (
-    <Card className={`${BOARD_CARD} ${m.home.me || m.away.me ? "ring-foreground/30" : ""}`}>
+  const card = (
+    <Card className={`${BOARD_CARD} ${m.home.me || m.away.me ? "ring-foreground/30" : ""} ${href ? "transition-[box-shadow,background-color] group-hover/tile:bg-foreground/[0.025] group-hover/tile:ring-foreground/35 group-focus-visible/tile:ring-2 group-focus-visible/tile:ring-ring/60" : ""}`}>
       <CardHeader className="flex flex-row items-center justify-between gap-3 pt-2.5 sm:pt-3">
         <span className={`${LABEL} flex items-center gap-2`}>
           {final ? "Final" : live ? <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge> : projected ? "Matchup" : "Upcoming"}
         </span>
-        <span className={LABEL}>{on ? "pts" : projected ? "proj" : ""}</span>
+        <span className={`${LABEL} flex items-center gap-1`}>
+          {on ? "pts" : projected ? "proj" : ""}
+          {href && <ChevronRight aria-hidden className="-mr-1 size-4 text-foreground/40 transition-[color,translate] group-hover/tile:translate-x-0.5 group-hover/tile:text-foreground/80" />}
+        </span>
       </CardHeader>
       <CardContent className="-mt-2 pb-1">
         <ul className="divide-y divide-foreground/10">
@@ -126,6 +134,12 @@ function MatchupCard({ m, final, live }: { m: League["scoreboard"][number]; fina
         </ul>
       </CardContent>
     </Card>
+  );
+  if (!href) return card;
+  return (
+    <Link href={href} className="group/tile block rounded-lg outline-none">
+      {card}
+    </Link>
   );
 }
 
@@ -151,7 +165,7 @@ export function LeagueView({ data }: { data: League }) {
           ? <p className="text-sm text-muted-foreground">No matchups scheduled for week {data.week}.</p>
           : (
             <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-              {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final} live={data.live} />)}
+              {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final} live={data.live} href={matchupHref(m, data.week, data.current_week)} />)}
             </div>
           )}
       </section>

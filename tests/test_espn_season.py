@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 import requests
 
 from ffl import espn_season
@@ -581,3 +582,41 @@ def test_stat_row_maps_espn_names_back_to_the_scored_ids():
     assert row == {"3": 250.0, "53": 4.0, "214": 2.0}
     assert espn_season.stat_row(bp(breakdown={}), settings) is None
     assert espn_season.stat_row(bp(), settings) is None
+
+
+def _two_games():
+    """Week 1 with two matchups: mine (7 at home against 2) and 3 at 4, away first."""
+    roster = [as_box(p) for p in season_roster()]
+    mine = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"), home_lineup=roster,
+                           away_team=SimpleNamespace(team_id=2, team_name="Them"), away_lineup=roster[:3])
+    other = SimpleNamespace(home_team=SimpleNamespace(team_id=4, team_name="Home"), home_lineup=roster[:2],
+                            away_team=SimpleNamespace(team_id=3, team_name="Away"), away_lineup=roster[:4])
+    return SimpleNamespace(box_scores=lambda week: [mine, other], current_week=1)
+
+
+def test_week_state_for_another_team_puts_the_away_side_first(monkeypatch):
+    """Any matchup on the League scoreboard opens on the Matchup board: the away team on the
+    left, as the scoreboard tile stacks it, whichever of the two was asked for."""
+    monkeypatch.setattr(espn_season, "league", _two_games)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    for team in (3, 4):
+        st = espn_season.week_state(week=1, sleeper={}, season={}, injuries={}, team=team)
+        assert (st["me"]["team"], st["opp"]["team"], st["mine"]) == ("Away", "Home", False)
+
+
+def test_week_state_keeps_me_on_the_left_of_my_own_game(monkeypatch):
+    monkeypatch.setattr(espn_season, "league", _two_games)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    for team in (None, 7, 2):
+        st = espn_season.week_state(week=1, sleeper={}, season={}, injuries={}, team=team)
+        assert (st["me"]["team"], st["opp"]["team"], st["mine"]) == ("Mine", "Them", True)
+
+
+def test_week_state_for_an_unknown_team_raises(monkeypatch):
+    monkeypatch.setattr(espn_season, "league", _two_games)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    with pytest.raises(LookupError):
+        espn_season.week_state(week=1, sleeper={}, season={}, injuries={}, team=99)
