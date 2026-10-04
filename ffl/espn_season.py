@@ -803,17 +803,46 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
             sides.reverse()
         # a bye or placeholder side has no team to build; the real side takes the left
         sides = [s for s in sides if hasattr(s[0], "team_id")]
-        built = []
-        for t, lineup in sides:
-            players = apply_home(apply_injuries(
-                apply_season(merge_weekly([{**flatten_box_player(bp), "stat_row": stat_row(bp, settings)}
-                                           for bp in lineup], sl), seas), inj, w1), home)
-            built.append(build_side(t, players, settings))
+        built = [build_side(t, _side_players(lineup, settings, sl, seas, inj, w1, home), settings)
+                 for t, lineup in sides]
         return {"week": week, "live": S.is_live(), "mine": mine, "me": built[0],
                 "opp": built[1] if len(built) > 1 else None}
     if team != me:
         raise LookupError(f"no matchup for team {team} in week {week}")
     raise RuntimeError(f"no matchup for team {me} in week {week}")
+
+
+def _side_players(lineup: list, settings: dict, sl: dict, seas: dict, inj: dict, w1, home: dict) -> list[dict]:
+    """One side's box players as the board shows them: both sources' projections, the season
+    lookup, injury return weeks and the venue."""
+    return apply_home(apply_injuries(
+        apply_season(merge_weekly([{**flatten_box_player(bp), "stat_row": stat_row(bp, settings)}
+                                   for bp in lineup], sl), seas), inj, w1), home)
+
+
+def team_state(team_id: int, week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
+               injuries: dict | None = None) -> dict:
+    """Any team's roster for the week (the team page): its side of the box scores, grouped
+    starters / bench / IR as the board groups them, under the club as the League page shows it
+    plus its standings rank. A team with no game this week (a playoff bye) is listed from its
+    roster, without points. Raises LookupError on an unknown team id."""
+    lg = fresh_league()
+    t = next((t for t in lg.teams if t.team_id == team_id), None)
+    if t is None:
+        raise LookupError(f"no team {team_id}")
+    settings = load()
+    week = week or lg.current_week
+    sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
+    seas = _season_for(settings, season, week)
+    players = _boxes_by_team(lg, week).get(team_id)
+    built = _side_players(players or getattr(t, "roster", []), settings, sl, seas,
+                          _injuries_for(injuries), _week1_start(settings), home_by_team(lg, week))
+    if players is None:  # roster Players carry lineupSlot, not the box score's slot_position
+        slots = {rp.playerId: getattr(rp, "lineupSlot", "BE") for rp in t.roster}
+        built = [{**p, "slot": slots.get(p["player_id"], "BE")} for p in built]
+    rank = next((i for i, s in enumerate(lg.standings(), 1) if s.team_id == team_id), None)
+    return {"week": week, "live": S.is_live(), "mine": team_id == my_team_id(lg),
+            "club": {**_club(t), "rank": rank}, "side": build_side(t, built, settings)}
 
 
 def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None,

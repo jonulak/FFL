@@ -1,4 +1,5 @@
 import { ErrorCard } from "@/components/error-card";
+import { TeamLink } from "@/components/team-link";
 import { Markdown } from "@/components/markdown";
 import { PlayerTrigger } from "@/components/player-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -59,7 +60,7 @@ export default async function Page() {
                           <PlayerTrigger p={{ player_id: Number(r.player_id), name: r.player, pos: r.pos, team: r.nfl }} className={`rounded-sm ${NAME_LINK}`}>
                             {r.player}
                           </PlayerTrigger>
-                        ) : r[c]}
+                        ) : c === "team" ? <TeamLink id={r.team_id}>{r.team}</TeamLink> : r[c]}
                       </TableCell>
                     ))}
                   </TableRow>

@@ -1,7 +1,19 @@
-import type { Ahead, Form } from "./api";
+import type { Ahead, Club, Form } from "./api";
 
 export function pts(n: number | null | undefined): string {
   return n == null ? "—" : n.toFixed(1);
+}
+
+// A club's record as the standings set it: W-L, with ties only when there are any.
+export function record(t: Pick<Club, "wins" | "losses" | "ties">): string {
+  return `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ""}`;
+}
+
+// A standings place in words: 1st, 2nd, 3rd, 11th.
+export function ordinal(n: number): string {
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th";
+  return `${n}${suffix}`;
 }
 
 export function signed(n: number): string {

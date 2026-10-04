@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { aheadLabel, expLabel, formCell, formItems, injuryLabel, oppTrend, injuryTone, pts, signed } from "./format";
+import { aheadLabel, expLabel, formCell, formItems, injuryLabel, oppTrend, injuryTone, ordinal, pts, record, signed } from "./format";
+
+describe("standings", () => {
+  it("sets a record with ties only when there are any", () => {
+    expect(record({ wins: 3, losses: 1, ties: 0 })).toBe("3-1");
+    expect(record({ wins: 2, losses: 1, ties: 1 })).toBe("2-1-1");
+  });
+  it("puts a place in words", () => {
+    expect([1, 2, 3, 4, 10, 11, 12, 13, 21, 22, 103].map(ordinal)).toEqual(
+      ["1st", "2nd", "3rd", "4th", "10th", "11th", "12th", "13th", "21st", "22nd", "103rd"]);
+  });
+});
 
 describe("format", () => {
   it("pts", () => { expect(pts(12.34)).toBe("12.3"); expect(pts(null)).toBe("—"); });

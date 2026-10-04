@@ -217,13 +217,17 @@ def overlay_week(payload: dict, points: dict[int, float], games: dict[str, dict]
                  stats: dict[int, dict] | None = None, scoring: list[dict] | None = None) -> dict:
     out = dict(payload)
     for key in ("me", "opp"):
-        side = payload.get(key)
-        if not side:
-            continue
-        side = {**side, **{g: overlay_players(side.get(g, []), points, games, stats, scoring) for g in ("lineup", "bench", "ir")}}
-        side["actual_total"] = round(sum(p["actual"] for p in side["lineup"]), 1)
-        out[key] = side
+        if payload.get(key):
+            out[key] = overlay_side(payload[key], points, games, stats, scoring)
     return out
+
+
+def overlay_side(side: dict, points: dict[int, float], games: dict[str, dict] | None = None,
+                 stats: dict[int, dict] | None = None, scoring: list[dict] | None = None) -> dict:
+    """One build_side side with live points on every group, its total re-summed over the starters."""
+    side = {**side, **{g: overlay_players(side.get(g, []), points, games, stats, scoring) for g in ("lineup", "bench", "ir")}}
+    side["actual_total"] = round(sum(p["actual"] for p in side["lineup"]), 1)
+    return side
 
 
 def overlay_roster(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None,

@@ -8,6 +8,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
+import { BOARD_CARD, HEALTHY, isIdle, LABEL, SLOT_LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, pts, shortName, signed } from "@/lib/format";
 import { gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { clubLogoSrc } from "@/lib/teams";
@@ -17,14 +18,7 @@ import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
-
-// ESPN names the flex slot by what it takes; the board calls it FLEX (season.py SLOT_LABEL).
-const SLOT_LABEL: Record<string, string> = { "RB/WR/TE": "FLEX", "RB/WR": "FLEX", "WR/TE": "FLEX" };
-// ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
-const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
-
-const BOARD_CARD = "rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]";
-const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+import { TeamLink } from "./team-link";
 
 // The board's grid, shared by every line so the slot column runs in one spine from the header to
 // the footer: my half, the slot, the opponent's half.
@@ -33,9 +27,6 @@ const HALF_GRID = "grid grid-cols-[minmax(0,1fr)_1.75rem_minmax(0,1fr)] gap-x-1 
 const SOLO_GRID = "grid grid-cols-[minmax(0,1fr)_1.75rem] gap-x-1 sm:grid-cols-[minmax(0,1fr)_2.5rem] sm:gap-x-3";
 
 type End = "me" | "opp";
-
-// Idle for the week: on bye, or OUT/IR/SUSP. His game cannot add points.
-const isIdle = (p: Player) => p.bye || injuryTone(p.injury) === "bad";
 
 // Where a side stands: nothing started yet, some starters still to play, or every game final.
 // A side has started once any starter's game is on or any points have posted.
@@ -67,7 +58,7 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={40} className="sm:hidden" />
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={48} className="hidden sm:flex" />
         <p className="line-clamp-2 min-w-0 text-balance font-display text-[1.375rem] font-semibold leading-none tracking-tight sm:text-[1.65rem]">
-          {side.team}
+          <TeamLink id={side.team_id}>{side.team}</TeamLink>
         </p>
       </div>
       {/* From `sm` the totals meet at VS, so the one comparison the bug exists for is one glance,
@@ -98,12 +89,6 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
     </Card>
   );
 }
-
-// A player's injury status is ESPN's own one-letter mark beside the name, in the status colour
-// with no chip behind it: amber for a game-time call, red for out. The full status is its title
-// (and the injury note when ESPN has one); the return week is on the game line.
-const TONE = { ok: "text-muted-foreground", warn: "text-close-foreground dark:text-close", bad: "text-out" } as const;
-const STATUS_SHORT: Record<string, string> = { QUESTIONABLE: "Q", DOUBTFUL: "D", OUT: "O", "INJURY RESERVE": "IR", SUSPENSION: "SUSP" };
 
 // The number with its own unit, because on a Sunday afternoon the rows are a mix: PROJ is the
 // forecast for a game still to come, PTS the posted score with the projection it replaced

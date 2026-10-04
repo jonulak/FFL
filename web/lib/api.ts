@@ -132,7 +132,13 @@ export type League = {
   scoreboard: { home: ScoreSide; away: ScoreSide }[];
   stale_since: string | null;
 };
-export type Journal = { decisions_md: string; transactions: Record<string, string>[]; stale_since: null };
+// GET /team/{id}: any team's roster for the week (the team page), its club with the standings
+// rank (null before ESPN has standings), `mine` when it is my own team.
+export type TeamRoster = {
+  week: number; live: boolean; mine: boolean; club: Club & { rank: number | null }; side: Side;
+  stale_since: string | null;
+};
+export type Journal ={ decisions_md: string; transactions: Record<string, string>[]; stale_since: null };
 export type Draft = { picks: Record<string, string>[]; recap_md: string; stale_since: null };
 
 async function handle<T>(r: Response): Promise<T> {

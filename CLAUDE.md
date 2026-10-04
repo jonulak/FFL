@@ -114,6 +114,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   (`GET /week/{n}?team=`, `week_state(team=)`). The payload's `me`/`opp` are the board's left/right sides:
   I stand left of my own game (`mine: true`), any other game reads away then home. No play feed off my game;
   future weeks have no lineups, so their tiles are not links.
+- A fantasy team's name (standings, the Matchup scorebug, Draft and Journal rows) opens its roster as a
+  plain list at `/team/<id>` (`GET /team/{id}`, `espn_season.team_state`: that side of the week's box
+  scores, grouped like the board, with the club and its rank; live points through `live.overlay_side`).
+  Journal rows take the id from the transaction id, not the name column: teams get renamed.
 - Every player dict carries `home` (True hosts, False travels, None unknown): espn-api drops the venue,
   so `espn_season.home_by_team` re-reads ESPN's `proTeamSchedules_wl` view, cached per League build,
   and a failed read leaves every venue None rather than failing the page. Headshots and logos are

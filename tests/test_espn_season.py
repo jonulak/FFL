@@ -620,3 +620,43 @@ def test_week_state_for_an_unknown_team_raises(monkeypatch):
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     with pytest.raises(LookupError):
         espn_season.week_state(week=1, sleeper={}, season={}, injuries={}, team=99)
+
+
+def test_team_state_lists_any_team_with_its_club_and_rank(monkeypatch):
+    """The team page: one side of the week's box scores, any team's, with the club header."""
+    theirs = season_roster()
+    club = dict(team_abbrev="THM", logo_url="", wins=2, losses=1, ties=0)
+    them = SimpleNamespace(team_id=8, team_name="Theirs", **club)
+    mine = SimpleNamespace(team_id=7, team_name="Mine", **club)
+    matchup = SimpleNamespace(home_team=mine, home_lineup=[as_box(p) for p in season_roster()],
+                              away_team=them, away_lineup=[as_box(p) for p in theirs])
+    lg = SimpleNamespace(box_scores=lambda week: [matchup], current_week=1, teams=[mine, them],
+                         standings=lambda: [them, mine])
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    st = espn_season.team_state(8, week=1, sleeper={}, season={}, injuries={})
+    assert st["week"] == 1 and st["mine"] is False
+    assert st["club"] == {"team_id": 8, "team": "Theirs", "abbrev": "THM", "logo": "", "wins": 2,
+                          "losses": 1, "ties": 0, "rank": 1}
+    side = st["side"]
+    assert side["team_id"] == 8 and len(side["lineup"]) == 11
+    assert len(side["lineup"]) + len(side["bench"]) + len(side["ir"]) == len(theirs)
+    assert espn_season.team_state(7, week=1, sleeper={}, season={}, injuries={})["mine"] is True
+    with pytest.raises(LookupError):
+        espn_season.team_state(99, week=1, sleeper={}, season={}, injuries={})
+
+
+def test_team_state_lists_a_team_without_a_game_from_its_roster(monkeypatch):
+    """A playoff bye: no box score, so the roster's lineupSlot places each player."""
+    qb, rb = season_roster()[0], season_roster()[2]
+    roster = [SimpleNamespace(**vars(as_box(qb)), lineupSlot="QB"), SimpleNamespace(**vars(as_box(rb)), lineupSlot="BE")]
+    bye = SimpleNamespace(team_id=9, team_name="Idle", team_abbrev="IDL", logo_url="", wins=9, losses=5, ties=0,
+                          roster=roster)
+    lg = SimpleNamespace(box_scores=lambda week: [], current_week=15, teams=[bye], standings=lambda: [bye])
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    side = espn_season.team_state(9, week=15, sleeper={}, season={}, injuries={})["side"]
+    assert [p["player_id"] for p in side["lineup"]] == [qb["player_id"]]
+    assert [p["player_id"] for p in side["bench"]] == [rb["player_id"]]

@@ -1,5 +1,6 @@
 import { DecisionForm } from "@/components/decision-form";
 import { ErrorCard } from "@/components/error-card";
+import { TeamLink } from "@/components/team-link";
 import { Markdown } from "@/components/markdown";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -47,7 +48,7 @@ export default async function Page() {
                   <TableRow key={r.id}>
                     {COLS.map((c) => (
                       <TableCell key={c} className={c === "reasoning" ? "" : "whitespace-nowrap"}>
-                        {r[c]}
+                        {c === "team" ? <TeamLink id={r.team_id}>{r.team}</TeamLink> : r[c]}
                       </TableCell>
                     ))}
                   </TableRow>

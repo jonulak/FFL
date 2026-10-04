@@ -269,6 +269,14 @@ def week(n: int, team: int | None = None):
     return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()), "plays": plays}
 
 
+@app.get("/team/{team_id}")
+def team(team_id: int):
+    """Any fantasy team's roster for the current week (the team page), live points laid on."""
+    data = _serve(f"team:{team_id}", lambda: espn_season.team_state(team_id))
+    wk = data["week"]
+    return {**data, "side": live.overlay_side(data["side"], _live_points(wk), _live_games(wk), _live_stats(wk), _scoring())}
+
+
 PLAYER_TTL = 600.0  # a game log moves once a week; the live week rides on the feed, not this cache
 
 
@@ -343,7 +351,16 @@ def logo(team_id: int):
 
 @app.get("/journal")
 def journal_():
-    return {**_journal_serve(espn_season.journal_state), "stale_since": None}
+    data = _journal_serve(espn_season.journal_state)
+    rows = [{**r, "team_id": tid} if (tid := _tx_team_id(r.get("id", ""))) else r for r in data["transactions"]]
+    return {**data, "transactions": rows, "stale_since": None}
+
+
+def _tx_team_id(tx_id: str) -> str | None:
+    """The team id inside a transaction id (`{date}-{team_id}-{action}-{player}`, ffl/journal.py),
+    the team page's link. Not the name column: a team renamed since keeps its id."""
+    parts = tx_id.split("-")
+    return parts[1] if len(parts) > 2 and parts[1].isdigit() else None
 
 
 @app.get("/draft")

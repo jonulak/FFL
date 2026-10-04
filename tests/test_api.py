@@ -21,6 +21,9 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 3, "positions": {"RB": []}})
     monkeypatch.setattr(api.espn_season, "league_state", lambda week=None: {"week": week or 3, "standings": [], "scoreboard": []})
     monkeypatch.setattr(api.espn_season, "journal_state", lambda: {"decisions_md": "# x", "transactions": []})
+    monkeypatch.setattr(api.espn_season, "team_state", lambda team_id: {
+        "week": 3, "live": False, "mine": team_id == 7, "club": {"team_id": team_id, "rank": 2},
+        "side": {"team_id": team_id, "lineup": [{"player_id": 1, "actual": 0.0, "team": "DET"}], "bench": [], "ir": []}})
     monkeypatch.setattr(api.espn_season, "draft_recap", lambda: {"picks": [], "recap_md": ""})
     monkeypatch.setattr(api.espn_season, "roster_state",
                         lambda week=None: {"week": 3, "live": False, "cards": [
@@ -219,6 +222,23 @@ def test_health_and_journal_and_draft(client):
     assert client.get("/health").json() == {"ok": True}
     assert client.get("/journal").json()["stale_since"] is None
     assert client.get("/draft").json()["stale_since"] is None
+
+
+def test_journal_rows_carry_the_team_id_from_their_transaction_id(client, monkeypatch):
+    rows = [{"id": "1788937502756-6-DROPPED-4688380", "team": "henry's Imposing Team"},
+            {"id": "1788937502756-3-WAIVER ADDED--16020", "team": "Anthony's Astounding Team"},
+            {"id": "odd", "team": "X"}]
+    monkeypatch.setattr(api.espn_season, "journal_state", lambda: {"decisions_md": "", "transactions": rows})
+    got = client.get("/journal").json()["transactions"]
+    assert [r.get("team_id") for r in got] == ["6", "3", None], "a D/ST's negative id does not confuse it"
+
+
+def test_team_overlays_live_points(client, monkeypatch):
+    monkeypatch.setattr(api.live.STATE, "points", {1: 14.5})
+    monkeypatch.setattr(api.live.STATE, "week", 3)
+    body = client.get("/team/4").json()
+    assert body["club"]["rank"] == 2 and body["mine"] is False and body["stale_since"] is None
+    assert body["side"]["lineup"][0]["actual"] == 14.5 and body["side"]["actual_total"] == 14.5
 
 
 def test_refresh_expires_the_injury_cache_but_keeps_the_last_good_data(client, monkeypatch):

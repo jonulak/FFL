@@ -2,35 +2,17 @@ import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { Club, League, ScoreSide } from "@/lib/api";
-import { pts } from "@/lib/format";
+import type { League, ScoreSide } from "@/lib/api";
+import { BOARD_CARD, LABEL } from "@/lib/board";
+import { pts, record } from "@/lib/format";
 import { matchupHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
+import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
+import { TeamLink } from "./team-link";
 import { WeekSelect } from "./week-select";
-
-const BOARD_CARD = "rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]";
-const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
-
-function record(t: Club) {
-  return `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ""}`;
-}
-
-// The section heading the Roster page uses: condensed caps, a muted count, a hairline running
-// out; `children` sit at the far end of the line (the scoreboard's week picker).
-function Heading({ title, count, children }: { title: string; count?: number; children?: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3">
-      <h2 className="font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</h2>
-      {count != null && <span className="font-display text-base font-medium tabular-nums text-muted-foreground">{count}</span>}
-      <Separator className="flex-1 bg-foreground/12" />
-      {children}
-    </div>
-  );
-}
 
 // One full-width table: rank, mark and name, then the record and the points columns in
 // condensed numerals. A heavier rule under the last playoff seed marks the cut line.
@@ -61,7 +43,7 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
                     <ClubLogo src={clubLogoSrc(t)} abbrev={t.abbrev} size={32} />
                     <div className="min-w-0">
                       <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
-                        <span className="truncate">{t.team}</span>
+                        <TeamLink id={t.team_id} className="truncate">{t.team}</TeamLink>
                         {t.me && <Badge variant="muted" shape="chip">me</Badge>}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -152,15 +134,15 @@ export function LeagueView({ data }: { data: League }) {
         <StaleBadge since={data.stale_since} />
       </div>
       <section className="space-y-3">
-        <Heading title="Standings" />
+        <SectionHeading title="Standings" />
         <Standings rows={data.standings} playoffTeams={data.playoff_teams} />
         <p className="text-xs text-muted-foreground">Top {data.playoff_teams} make the playoffs. PF and PA are season points for and against.</p>
       </section>
       <section className="space-y-3">
-        <Heading title="Scoreboard" count={data.scoreboard.length}>
+        <SectionHeading title="Scoreboard" count={data.scoreboard.length}>
           {data.live && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
           <WeekSelect week={data.week} current={data.current_week} weeks={data.weeks} base="/league" />
-        </Heading>
+        </SectionHeading>
         {data.scoreboard.length === 0
           ? <p className="text-sm text-muted-foreground">No matchups scheduled for week {data.week}.</p>
           : (
