@@ -162,6 +162,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - Commit and push (`git push`) at the end of every session; the GitHub repo is the backup.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
 - `journal/results/` is written by `journal sync` / the UI's Refresh and is committed like the rest of `journal/`.
+- UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`
+  when one fits, and add a missing one with `pnpm dlx shadcn add <name>` (style base-nova, on `@base-ui/react`)
+  rather than writing it. If shadcn has nothing that fits, use a well-tested library (Base UI primitives,
+  TanStack Table, Recharts, date-fns, ...). Hand-roll only when neither fits, and say why in the commit.
 
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
