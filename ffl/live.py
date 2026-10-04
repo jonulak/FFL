@@ -328,12 +328,14 @@ class Runner(threading.Thread):
     def _on_doc(self, doc: dict) -> None:
         self._refresh_roster()
         before, first = dict(self.state.points), self.state.version == 0
+        stats_before = self.state.stats  # replaced, not mutated, by update: a D/ST's play is read off what moved
         after = fc.score_all(doc, self.table)
         self.state.update(after, fc.game_states(doc), fc.player_stats(doc), week=self.week)
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if self.store is not None and not first:
-            self.store.add(P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays))
+            self.store.add(P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays,
+                                           stats_before))
         idle = idle_for(doc)
         if idle is not None:
             self.idle_until = time.time() + idle

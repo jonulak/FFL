@@ -116,3 +116,51 @@ def test_cache_forgets_old_plays_per_game():
     cache.remember(_doc(FG, [FG, TIMEOUT, KICKOFF]))
     assert cache.play_for("g", 40)["playId"] == KICKOFF["playId"]
     assert len(cache.plays["g"]) == 2 and FG["playId"] not in cache.plays["g"]
+
+
+# A play names the defenders, never the D/ST, so a D/ST row is matched by which of its stats
+# moved: a sack and fumble recovery was once captioned with the incompletion after it.
+STRIP = {"playId": "4018729741650", "text": "M.Willis sacked at MIA 30 for -6 yards (D.Turner). FUMBLES (D.Turner), "
+         "RECOVERED by MIN-J.Metellus at MIA 28.", "period": 2, "clock": 380.0, "start": {"team": "15"},
+         "players": [{"playerId": "777", "type": "sackedBy"}]}
+INCOMPLETE = {"playId": "4018729741684", "text": "(Shotgun) M.Willis pass incomplete short middle to M.Washington.",
+              "period": 2, "clock": 350.0, "start": {"team": "15"}, "players": []}
+OWN_SACK = {"playId": "4018729741700", "text": "S.Darnold sacked at MIN 20 for -5 yards (J.Phillips).", "period": 2,
+            "clock": 300.0, "start": {"team": "16"}, "players": []}
+TD_ALLOWED = {"playId": "4018729741720", "text": "D.Achane 12 yard run, TOUCHDOWN.", "period": 2, "clock": 200.0,
+              "scoringPlay": True, "start": {"team": "15"}, "players": []}
+DST = {-16016: {"name": "Vikings D/ST", "pos": "D/ST", "team": "MIN", "team_id": 7}}
+
+
+def _dst_doc(last, drive_plays, stats, scoring=()):
+    return {"statistics": {"-16016": {"gameId": "g", "proTeamId": "16", "stats": stats}},
+            "events": [{"id": "g", "period": 2, "clock": "5:50", "lastPlay": last,
+                        "drive": {"plays": list(drive_plays)}, "scoringPlays": list(scoring)}]}
+
+
+def test_dst_event_takes_the_play_its_moved_stats_describe_not_the_last_play():
+    cache = plays.PlayCache()
+    cache.remember(_dst_doc(STRIP, [STRIP], {}))
+    doc = _dst_doc(INCOMPLETE, [INCOMPLETE, OWN_SACK], {"99": 2.0, "96": 1.0})
+    cache.remember(doc)
+    rows = plays.events_from({-16016: 11.0}, {-16016: 14.0}, doc, DST, AT, 4, cache, {-16016: {"99": 1.0}})
+    assert rows[0]["play_id"] == STRIP["playId"] and rows[0]["match"] == "defence", \
+        "the strip sack, not the incompletion after it nor the Vikings' own QB sacked"
+    assert rows[0]["clock"] == "6:20"
+
+
+def test_dst_points_allowed_takes_the_opponents_scoring_play():
+    cache = plays.PlayCache()
+    doc = _dst_doc(INCOMPLETE, [INCOMPLETE], {"120": 7.0}, [TD_ALLOWED])
+    cache.remember(doc)
+    rows = plays.events_from({-16016: 14.0}, {-16016: 11.0}, doc, DST, AT, 4, cache, {-16016: {"120": 0.0}})
+    assert rows[0]["play_id"] == TD_ALLOWED["playId"] and rows[0]["match"] == "defence"
+
+
+def test_dst_yardage_band_alone_falls_back_to_the_last_play():
+    cache = plays.PlayCache()
+    doc = _dst_doc(INCOMPLETE, [STRIP, INCOMPLETE], {"127": 101.0, "128": 0, "129": 1})
+    cache.remember(doc)
+    rows = plays.events_from({-16016: 14.0}, {-16016: 13.0}, doc, DST, AT, 4, cache,
+                             {-16016: {"127": 96.0, "128": 1, "129": 0}})
+    assert rows[0]["play_id"] == INCOMPLETE["playId"] and rows[0]["match"] == "last"

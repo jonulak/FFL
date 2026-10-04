@@ -7,8 +7,11 @@ by which time the game's `lastPlay` is often already the *next* play (a field go
 captioned with the timeout after it). Every play the feed shows (`lastPlay`, the current
 drive's `plays`, the game's `scoringPlays`) names its players by id, so the cache remembers
 them per game and an event takes the newest remembered play naming the player; `lastPlay` is
-only the fallback (D/ST rows, stat corrections). Events are appended to a JSONL file per week
-under data/live/ and reloaded at boot, so a deploy mid-slate does not empty the feed.
+only the fallback (stat corrections, a yardage band). A play names the defenders, never the
+D/ST, so a D/ST row is matched by what moved in its stat row instead: a sack takes the newest
+remembered play the other club ran that reads "sacked", a turnover "INTERCEPTED" or
+"RECOVERED by", points allowed the other club's newest scoring play (`DEFENCE_TEXT`).
+Events are appended to a JSONL file per week under data/live/ and reloaded at boot, so a deploy mid-slate does not empty the feed.
 
 Every matchup's starters are followed, so every board has a feed. A row carries the fantasy
 team it scored for (`team_id`), not a side: a team plays one game a week, so a board takes the
@@ -56,6 +59,18 @@ def _clock(play: dict, game: dict) -> str | None:
     return game.get("clock")
 
 
+# D/ST stat id -> what the play's text says when that stat moves (live.DEFENCE and the TDs)
+DEFENCE_TEXT = {"99": "sacked", "95": "INTERCEPTED", "96": "RECOVERED by", "98": "SAFETY", "97": "BLOCKED",
+                **{s: "TOUCHDOWN" for s in ("93", "94", "101", "102", "103", "104")}}
+POINTS_ALLOWED = "120"
+
+
+def _offence(play: dict) -> str | None:
+    """The pro team id (ESPN's competitor id, "16") that had the ball at the snap."""
+    team = (play.get("start") or {}).get("team")
+    return str(team.get("id") if isinstance(team, dict) else team) if team is not None else None
+
+
 class PlayCache:
     """The last `keep` plays of each game, by play id, gathered from every document seen.
 
@@ -88,12 +103,36 @@ class PlayCache:
                 return known[pid]
         return None
 
+    def defence_play(self, game_id: str, team: str | None, moved: set[str]) -> dict | None:
+        """The newest remembered play the D/ST's opponent ran (`team` is the D/ST's club id)
+        whose text says what `moved` in its stat row; a points-allowed move takes the newest
+        scoring play. None when nothing moved that a play can be found for (a yardage band)."""
+        words = [DEFENCE_TEXT[s].lower() for s in moved if s in DEFENCE_TEXT]
+        scored = POINTS_ALLOWED in moved
+        known = self.plays.get(game_id) or {}
+        for pid in sorted(known, key=int, reverse=True):
+            play = known[pid]
+            offence = _offence(play)
+            if team is not None and offence is not None and offence == team:
+                continue
+            text = (play.get("text") or "").lower()
+            if any(w in text for w in words) or (scored and play.get("scoringPlay")):
+                return play
+        return None
+
+
+def _moved(before: dict | None, after: dict | None) -> set[str]:
+    before, after = before or {}, after or {}
+    return {s for s, v in after.items() if v != before.get(s, 0)}
+
 
 def events_from(before: dict[int, float], after: dict[int, float], doc: dict, roster: dict[int, dict],
-                at: datetime, week: int, cache: PlayCache | None = None) -> list[dict]:
+                at: datetime, week: int, cache: PlayCache | None = None,
+                stats_before: dict[int, dict] | None = None) -> list[dict]:
     """The play-feed rows for one rescoring: every rostered starter whose points moved.
 
-    `match` says where the caption came from: "player" (a remembered play naming him) or
+    `match` says where the caption came from: "player" (a remembered play naming him),
+    "defence" (a D/ST's play, read off which of its stats moved since `stats_before`) or
     "last" (the game's current last play, which may already be the next one)."""
     rows = []
     for pid, who in roster.items():
@@ -101,8 +140,16 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
         if new is None or new == (old if old is not None else 0.0):
             continue
         game = _game_of(doc, pid) or {}
-        play = cache.play_for(game.get("id"), pid) if cache is not None else None
-        match = "player" if play else "last"
+        play, match = None, "last"
+        if cache is not None and who["pos"] == "D/ST":
+            row = doc.get("statistics", {}).get(str(pid)) or {}
+            moved = _moved((stats_before or {}).get(pid), row.get("stats"))
+            team = row.get("proTeamId")
+            play = cache.defence_play(game.get("id"), str(team) if team is not None else None, moved)
+            match = "defence" if play else "last"
+        elif cache is not None:
+            play = cache.play_for(game.get("id"), pid)
+            match = "player" if play else "last"
         play = play or game.get("lastPlay") or {}
         rows.append({"at": at.isoformat(timespec="seconds"), "week": week, "player_id": pid, **who,
                      "delta": round(new - (old or 0.0), 2), "total": round(new, 2),
