@@ -384,7 +384,7 @@ def test_card_outlook_is_rewritten_on_a_post_and_polled_on_a_get(client, monkeyp
     assert client.post("/outlook/99").status_code == 404 and client.get("/outlook/99").status_code == 404
 
 
-PLAYER_LOG = {"name": "X", "pos": "QB", "team": "BUF", "current_week": 4,
+PLAYER_LOG = {"name": "X", "pos": "QB", "team": "BUF", "season": 2026, "current_week": 4,
               "seasons": [{"season": 2026, "weeks": [], "totals": None}]}
 
 

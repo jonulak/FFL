@@ -102,7 +102,7 @@ def test_week_state_top_level_keys(monkeypatch):
 
 
 # web/lib/api.ts: type PlayerLog / SeasonLog / WeekLog / SeasonTotals
-PLAYER_LOG = {"player_id", "name", "pos", "team", "current_week", "seasons"}
+PLAYER_LOG = {"player_id", "name", "pos", "team", "season", "current_week", "seasons"}
 SEASON_LOG = {"season", "weeks", "totals"}
 WEEK_LOG = {"week", "opp", "home", "status", "pts", "summary", "box"}
 SEASON_TOTALS = {"games", "pts", "ppg", "summary", "box"}

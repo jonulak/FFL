@@ -132,20 +132,24 @@ def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], curr
         if s:
             seasons.append(s)
     return {"player_id": p["id"], "name": p.get("fullName"), "pos": pos, "team": team,
-            "current_week": current_week, "seasons": seasons}
+            "season": season, "current_week": current_week, "seasons": seasons}
 
 
 def with_live(log: dict, week: int, stats: dict, scoring: list[dict], game: dict | None) -> dict:
     """The live week from the FastCast stat row in place of ESPN's, which runs minutes behind it.
     The opponent stays ESPN's when it has the week; a week it does not have yet goes without one
-    (the header's game line carries it). Returns a new payload: the cached one is not touched."""
-    if not log["seasons"]:
-        return log
-    cur = dict(log["seasons"][0])
+    (the header's game line carries it). A player yet to play this season gets it opened for him.
+    Returns a new payload: the cached one is not touched."""
+    season = log.get("season")
+    first = log["seasons"][0] if log["seasons"] else None
+    if first and first["season"] == season:
+        cur, rest = dict(first), log["seasons"][1:]
+    else:
+        cur, rest = {"season": season, "weeks": [], "totals": None}, log["seasons"]
     old = next((w for w in cur["weeks"] if w["week"] == week), None)
     entry = _entry(week, {"stats": stats}, None, None, log.get("pos", ""), scoring,
                    status="live" if (game or {}).get("status") == "in" else "played")
     if old:
         entry["opp"], entry["home"] = old["opp"], old["home"]
     cur["weeks"] = sorted([w for w in cur["weeks"] if w["week"] != week] + [entry], key=lambda w: w["week"])
-    return {**log, "seasons": [cur, *log["seasons"][1:]]}
+    return {**log, "seasons": [cur, *rest]}

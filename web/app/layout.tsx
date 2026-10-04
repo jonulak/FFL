@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Barlow_Condensed, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Nav } from "@/components/nav";
+import { PlayerDialogProvider } from "@/components/player-dialog";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -16,8 +17,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${barlow.variable}`} suppressHydrationWarning>
       <body className="min-h-dvh bg-background text-foreground antialiased">
-        <Nav />
-        <main className="mx-auto max-w-5xl px-3 py-4">{children}</main>
+        {/* the season modal: one dialog for the app, opened from any player row */}
+        <PlayerDialogProvider>
+          <Nav />
+          <main className="mx-auto max-w-5xl px-3 py-4">{children}</main>
+        </PlayerDialogProvider>
       </body>
     </html>
   );

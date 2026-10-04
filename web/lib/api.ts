@@ -53,9 +53,10 @@ export type WeekLog = {
   pts: number | null; summary: [string, string][]; box: BoxItem[];
 };
 export type SeasonTotals = { games: number; pts: number; ppg: number; summary: [string, string][]; box: BoxItem[] };
-export type SeasonLog = { season: number; weeks: WeekLog[]; totals: SeasonTotals };
+// `totals` is null only for a season the live feed opened (his first game of it is in progress).
+export type SeasonLog = { season: number; weeks: WeekLog[]; totals: SeasonTotals | null };
 export type PlayerLog = {
-  player_id: number; name: string; pos: string; team: string; current_week: number; seasons: SeasonLog[];
+  player_id: number; name: string; pos: string; team: string; season: number; current_week: number; seasons: SeasonLog[];
   stale_since: string | null;
 };
 // A hurt teammate at his position: ESPN's status upper-cased, the return week when the feed has one.

@@ -73,13 +73,22 @@ def test_current_week_not_played_yet_is_omitted():
 def test_player_log_both_seasons():
     card = {"players": [{"player": player(3916433)}]}
     log = pc.player_log(card, SCORING, {2025: SCHED25}, 4, 2026)
-    assert (log["pos"], log["team"], log["current_week"]) == ("WR", "JAX", 4)
+    assert (log["pos"], log["team"], log["current_week"], log["season"]) == ("WR", "JAX", 4, 2026)
     assert [s["season"] for s in log["seasons"]] == [2026, 2025]
 
 
 def test_with_live_inserts_week():
-    log = {"pos": "QB", "seasons": [{"season": 2026, "weeks": [], "totals": None}], "current_week": 4, "team": "BUF"}
+    log = {"pos": "QB", "season": 2026, "seasons": [{"season": 2026, "weeks": [], "totals": None}], "current_week": 4, "team": "BUF"}
     out = pc.with_live(log, 4, {"0": 10, "1": 7, "3": 80}, SCORING, {"status": "in"})
     w = out["seasons"][0]["weeks"][-1]
     assert (w["week"], w["status"]) == (4, "live") and w["pts"] > 0
     assert log["seasons"][0]["weeks"] == []  # the cached payload is not touched
+
+
+def test_with_live_first_game_of_the_season():
+    """Back from a season-long absence: the live week opens this season, not last season's log."""
+    last = {"season": 2025, "weeks": [], "totals": None}
+    log = {"pos": "QB", "season": 2026, "seasons": [last], "current_week": 4, "team": "BUF"}
+    out = pc.with_live(log, 4, {"0": 10, "1": 7, "3": 80}, SCORING, {"status": "in"})
+    assert [s["season"] for s in out["seasons"]] == [2026, 2025]
+    assert [w["week"] for w in out["seasons"][0]["weeks"]] == [4]
