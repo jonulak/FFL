@@ -1,4 +1,4 @@
-"""The play feed: one event per points change of a starter in my matchup, from the live feed.
+"""The play feed: one event per points change of any league starter, from the live feed.
 
 An event is derived, not received: the feed pushes a stats patch for a player, `live` rescores
 him, and the difference is the event. The play text comes from `PlayCache`: the stats and the
@@ -9,6 +9,10 @@ drive's `plays`, the game's `scoringPlays`) names its players by id, so the cach
 them per game and an event takes the newest remembered play naming the player; `lastPlay` is
 only the fallback (D/ST rows, stat corrections). Events are appended to a JSONL file per week
 under data/live/ and reloaded at boot, so a deploy mid-slate does not empty the feed.
+
+Every matchup's starters are followed, so every board has a feed. A row carries the fantasy
+team it scored for (`team_id`), not a side: a team plays one game a week, so a board takes the
+rows of its two teams (`Store.latest(teams=)`) and `for_board` says which side each is on.
 """
 from __future__ import annotations
 
@@ -22,17 +26,21 @@ from .config import DATA
 PLAYS_DIR = DATA / "live"
 
 
-def roster_index(week: dict) -> dict[int, dict]:
-    """player_id -> {name, pos, team, side, team_id} for every *starter* in a week payload."""
+def roster_index(league: dict) -> dict[int, dict]:
+    """player_id -> {name, pos, team, team_id} for every starter in every game of a
+    `espn_season.league_starters` payload."""
     out: dict[int, dict] = {}
-    for side in ("me", "opp"):
-        s = week.get(side)
-        if not s:
-            continue
-        for p in s.get("lineup", []):
-            out[p["player_id"]] = {"name": p["name"], "pos": p["pos"], "team": p["team"],
-                                   "side": side, "team_id": s["team_id"]}
+    for game in league.get("games", []):
+        for s in game:
+            for p in s.get("lineup", []):
+                out[p["player_id"]] = {"name": p["name"], "pos": p["pos"], "team": p["team"], "team_id": s["team_id"]}
     return out
+
+
+def for_board(rows: list[dict], left: int) -> list[dict]:
+    """The rows with `side` set for one board: "me" for the left team (`left`), else "opp".
+    Rows written before the feed went league-wide carry a side already; the board's wins."""
+    return [{**r, "side": "me" if r.get("team_id") == left else "opp"} for r in rows]
 
 
 def _game_of(doc: dict, player_id: int) -> dict | None:
@@ -125,9 +133,12 @@ class Store:
                 for r in rows:
                     f.write(json.dumps(r) + "\n")
 
-    def latest(self, n: int | None = None) -> list[dict]:
+    def latest(self, n: int | None = None, teams: set[int] | None = None) -> list[dict]:
+        """Newest first; with `teams`, only the rows scored for those fantasy teams (one board)."""
         with self._lock:
             rows = self.rows[::-1]
+        if teams is not None:
+            rows = [r for r in rows if r.get("team_id") in teams]
         return rows[:n] if n else rows
 
 

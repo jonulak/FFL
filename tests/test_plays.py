@@ -4,33 +4,46 @@ from datetime import datetime
 
 from ffl import plays
 
-WEEK = {"week": 1, "me": {"team_id": 7, "lineup": [{"player_id": 1, "name": "Me QB", "pos": "QB", "team": "SF"}],
-                          "bench": [{"player_id": 9, "name": "Benchy", "pos": "RB", "team": "SF"}]},
-        "opp": {"team_id": 3, "lineup": [{"player_id": 2, "name": "Their WR", "pos": "WR", "team": "CHI"}]}}
+LEAGUE = {"week": 1, "games": [[{"team_id": 7, "lineup": [{"player_id": 1, "name": "Me QB", "pos": "QB", "team": "SF"}]},
+                                {"team_id": 3, "lineup": [{"player_id": 2, "name": "Their WR", "pos": "WR", "team": "CHI"}]}],
+                               [{"team_id": 5, "lineup": [{"player_id": 4, "name": "Other RB", "pos": "RB", "team": "DET"}]}]]}
 DOC = {"statistics": {"1": {"gameId": "g1", "stats": {}}, "2": {"gameId": "g2", "stats": {}}},
        "events": [{"id": "g1", "period": 1, "clock": "4:12", "lastPlay": {"playId": "p1", "text": " J.Doe pass to X for 12 yards. "}},
                   {"id": "g2", "period": 2, "clock": "0:30", "lastPlay": {}}]}
 AT = datetime(2026, 9, 13, 13, 5, 0)
 
 
-def test_roster_index_is_starters_only_with_side_and_team():
-    idx = plays.roster_index(WEEK)
-    assert set(idx) == {1, 2}
-    assert idx[1] == {"name": "Me QB", "pos": "QB", "team": "SF", "side": "me", "team_id": 7}
-    assert idx[2]["side"] == "opp" and idx[2]["team_id"] == 3
+def test_roster_index_covers_every_game_with_the_fantasy_team():
+    idx = plays.roster_index(LEAGUE)
+    assert set(idx) == {1, 2, 4}
+    assert idx[1] == {"name": "Me QB", "pos": "QB", "team": "SF", "team_id": 7}
+    assert idx[4]["team_id"] == 5, "another game's starter is followed too"
+
+
+def test_for_board_sides_rows_by_the_left_team():
+    rows = [{"team_id": 7, "side": "opp"}, {"team_id": 3}]
+    assert [r["side"] for r in plays.for_board(rows, 7)] == ["me", "opp"]
+    assert [r["side"] for r in plays.for_board(rows, 3)] == ["opp", "me"], "another game reads from its own left"
+
+
+def test_store_latest_filters_to_one_boards_teams(tmp_path):
+    st = plays.Store(tmp_path / "p.jsonl")
+    st.add([{"at": "a", "team_id": 7}, {"at": "b", "team_id": 5}, {"at": "c", "team_id": 3}, {"at": "d", "team_id": 5}])
+    assert [r["at"] for r in st.latest(teams={7, 3})] == ["c", "a"]
+    assert [r["at"] for r in st.latest(1, teams={5})] == ["d"]
 
 
 def test_events_from_reports_each_moved_starter_with_play_text():
-    rows = plays.events_from({1: 10.0}, {1: 11.2, 2: 0.5, 9: 4.0}, DOC, plays.roster_index(WEEK), AT, 1)
+    rows = plays.events_from({1: 10.0}, {1: 11.2, 2: 0.5, 9: 4.0}, DOC, plays.roster_index(LEAGUE), AT, 1)
     assert [(r["player_id"], r["delta"], r["total"]) for r in rows] == [(1, 1.2, 11.2), (2, 0.5, 0.5)]
     me = rows[0]
     assert me["text"] == "J.Doe pass to X for 12 yards." and me["quarter"] == 1 and me["clock"] == "4:12"
-    assert me["side"] == "me" and me["at"] == "2026-09-13T13:05:00" and me["week"] == 1
+    assert "side" not in me and me["team_id"] == 7 and me["at"] == "2026-09-13T13:05:00" and me["week"] == 1
     assert rows[1]["text"] is None, "a game with no last play: delta alone"
 
 
 def test_events_from_skips_unmoved_and_unknown_players():
-    rows = plays.events_from({1: 10.0, 2: 3.0}, {1: 10.0, 2: 3.0, 5: 9.0}, DOC, plays.roster_index(WEEK), AT, 1)
+    rows = plays.events_from({1: 10.0, 2: 3.0}, {1: 10.0, 2: 3.0, 5: 9.0}, DOC, plays.roster_index(LEAGUE), AT, 1)
     assert rows == []
 
 

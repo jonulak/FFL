@@ -343,31 +343,44 @@ def test_live_points_from_another_week_never_overlay_the_current_page(client, mo
     assert api._live_points(3) == {1: 24.7}
 
 
+def _store(rows):
+    return SimpleNamespace(latest=lambda n=None, teams=None: [r for r in rows if teams is None or r["team_id"] in teams][:n])
+
+
 def test_week_plays_come_only_from_the_runner_scoring_that_week(client, monkeypatch):
-    store = SimpleNamespace(latest=lambda n=None: [{"delta": 6.0}])
+    monkeypatch.setattr(api.espn_season, "week_state",
+                        lambda week=None: {"week": week or 3, "live": False, "me": {"team_id": 7}, "opp": {"team_id": 3}})
+    store = _store([{"delta": 6.0, "team_id": 7}])
     monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=2, store=store), raising=False)
     assert client.get("/week").json()["plays"] == []
+    api.cache.clear()
     monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=3, store=store), raising=False)
-    assert client.get("/week").json()["plays"] == [{"delta": 6.0}]
+    assert client.get("/week").json()["plays"] == [{"delta": 6.0, "team_id": 7, "side": "me"}]
 
 
-def test_week_for_a_team_is_cached_apart_and_carries_no_plays_when_not_mine(client, monkeypatch):
+def test_every_board_carries_its_own_games_plays_sided_from_its_left(client, monkeypatch):
     """`/week/{n}?team=` opens any scoreboard matchup; it caches under its own key, so my week's
-    board is never served for someone else's game, and the play feed (my starters only) stays off it."""
+    board is never served for someone else's game, and each board's feed is its two teams' rows."""
     asked = []
 
     def fake_week(week=None, team=None):
         asked.append(team)
-        return {"week": week, "live": False, "me": {"team": f"t{team}"}, "opp": {"team": "x"}, "mine": team is None}
+        left, right = (7, 3) if team is None else (team, 5)
+        return {"week": week or 3, "live": False, "me": {"team": f"t{left}", "team_id": left, "abbrev": "L"},
+                "opp": {"team": "x", "team_id": right, "abbrev": "R"}, "mine": team is None}
 
     monkeypatch.setattr(api.espn_season, "week_state", fake_week)
-    store = SimpleNamespace(latest=lambda n=None: [{"delta": 6.0}])
+    store = _store([{"delta": 6.0, "team_id": 7}, {"delta": 2.0, "team_id": 5}, {"delta": 1.0, "team_id": 4}])
     monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=3, store=store), raising=False)
-    assert client.get("/week/3").json()["plays"] == [{"delta": 6.0}]
+    assert [(p["delta"], p["side"]) for p in client.get("/week/3").json()["plays"]] == [(6.0, "me")]
     r = client.get("/week/3?team=4").json()
-    assert r["me"]["team"] == "t4" and r["plays"] == []
+    assert r["me"]["team"] == "t4" and [(p["delta"], p["side"]) for p in r["plays"]] == [(2.0, "opp"), (1.0, "me")]
     client.get("/week/3?team=4")
     assert asked == [None, 4]
+    every = client.get("/plays?team=4").json()
+    assert every["mine"] is False and every["me"] == {"team_id": 4, "team": "t4", "abbrev": "L"}
+    assert [p["delta"] for p in every["plays"]] == [2.0, 1.0]
+    assert [p["delta"] for p in client.get("/plays").json()["plays"]] == [6.0]
 
 
 def test_roster_cards_never_carry_last_weeks_live_overlay(client, monkeypatch):

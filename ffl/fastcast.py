@@ -138,7 +138,8 @@ def score_all(doc: dict, table: dict[int, float]) -> dict[int, float]:
 # ---- game state -------------------------------------------------------------------------------
 
 def game_states(doc: dict) -> dict[str, dict]:
-    """team abbreviation -> {status: pre|in|post, quarter, clock} for every game in the checkpoint.
+    """team abbreviation -> {status: pre|in|post, quarter, clock, score, and while it is on `ball` and
+    `red_zone` (`possession`)} for every game in the checkpoint.
 
     Keyed by team because the page's players carry a pro team, not a game id; a player without
     a stat line yet (a kicker before his first kick) still finds his game this way.
@@ -150,9 +151,34 @@ def game_states(doc: dict) -> dict[str, dict]:
         state = {"status": (full.get("type") or {}).get("state") or e.get("status"),
                  "quarter": full.get("period"), "clock": full.get("displayClock"),
                  "score": {c["abbreviation"]: _score(c.get("score")) for c in teams if _score(c.get("score")) is not None}}
+        state.update(possession(e))
         for c in teams:
             out[c["abbreviation"]] = state
     return out
+
+
+RED_ZONE = 20  # yards to the end zone
+
+
+def possession(event: dict) -> dict:
+    """{ball: team abbreviation, red_zone: bool} while a game is on and someone has the ball, else {}.
+
+    The feed names no personnel, so this is all "on the field" can be read from: the team that
+    has the ball after the last play (`lastPlay.end`, the spot of the next snap), else the
+    current drive's team; red zone is the ball inside the opponent's 20. Halftime has no ball.
+    """
+    full = event.get("fullStatus") or {}
+    kind = full.get("type") or {}
+    if (kind.get("state") or event.get("status")) != "in" or kind.get("name") == "STATUS_HALFTIME":
+        return {}
+    abbr = {str(c["id"]): c["abbreviation"] for c in event.get("competitors", []) if c.get("id") is not None and c.get("abbreviation")}
+    end = (event.get("lastPlay") or {}).get("end") or {}
+    drive = event.get("drive") or {}
+    team = abbr.get(str(end.get("team")))
+    if team is not None and isinstance(end.get("yardsToEndzone"), (int, float)):
+        return {"ball": team, "red_zone": end["yardsToEndzone"] <= RED_ZONE}
+    team = abbr.get(str(drive.get("teamId")))
+    return {"ball": team, "red_zone": bool(drive.get("isRedZone"))} if team else {}
 
 
 def _score(raw) -> int | None:

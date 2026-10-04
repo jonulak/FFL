@@ -10,10 +10,13 @@ import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
 import { BOARD_CARD, HEALTHY, isIdle, LABEL, SLOT_LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, pts, shortName, signed } from "@/lib/format";
+import { FIELD, fieldOf } from "@/lib/field";
 import { gamePhase, sideTotals, toPlay } from "@/lib/game";
+import { playsHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { BoxScoreDialog } from "./box-score-dialog";
+import { FieldBall } from "./field-ball";
 import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
 import { StaleBadge } from "./stale-badge";
@@ -112,13 +115,21 @@ function Num({ p, now, end }: { p: Player; now: number; end: End }) {
 }
 
 // What stands under the number: before kickoff the source spread when it is 3+ (and, on the
-// phone, the PROJ unit); once his game is on, the projection it replaced, after a live dot.
+// phone, the PROJ unit); once his game is on, the projection it replaced, after a live dot. With
+// his unit on the field the dot becomes the football and "live" says where he is (lib/field.ts).
 function NumNote({ p, now }: { p: Player; now: number }) {
   const phase = gamePhase(p, now);
   const on = phase !== "pending";
+  const field = fieldOf(p);
   return (
     <span className="flex shrink-0 items-center gap-x-1 whitespace-nowrap text-[0.6875rem] leading-4 tabular-nums text-muted-foreground sm:text-xs">
-      {phase === "live" && <><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" /><span className="max-sm:sr-only">live</span><span aria-hidden className="max-sm:hidden">·</span></>}
+      {phase === "live" && (field
+        ? <span className={`flex items-center gap-x-1 font-medium ${field === "red_zone" ? "text-redzone" : "text-foreground/85"}`}>
+            <FieldBall key={field} className="h-2 w-3.5" />
+            <span className="max-sm:sr-only">{FIELD[field].label}</span>
+          </span>
+        : <><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" /><span className="max-sm:sr-only">live</span></>)}
+      {phase === "live" && <span aria-hidden className="max-sm:hidden">·</span>}
       {!on && <Unit fact={false} className="sm:hidden" />}
       {on
         ? <span>proj {pts(p.proj)}</span>
@@ -144,6 +155,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
   const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
   const on = gamePhase(p, now) !== "pending";
+  const field = fieldOf(p);
   // The phone half: the short name (`B. Purdy`) with a one-letter status chip, then the game on
   // one line, `[SF] vs [DEN] Sun 4:25 PM` or `24 [PIT] @ 27 [CLE] Final`, and once he has played
   // the lead stat group (passing for a QB, rushing for a RB, receiving for a WR) as the footer,
@@ -152,8 +164,10 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
   return (
     <Item
       size="sm"
-      render={<button type="button" onClick={() => onPick(p)} aria-label={`${p.name}: scoring breakdown`} />}
-      className={`min-w-0 cursor-pointer flex-wrap gap-x-2 gap-y-1 rounded-md border-0 px-1 py-1 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-ring/60 sm:flex-nowrap sm:gap-3 sm:px-1.5 ${opp ? "-mr-1 flex-row-reverse sm:-mr-1.5" : "-ml-1 sm:-ml-1.5"}`}
+      render={<button type="button" onClick={() => onPick(p)} aria-label={`${p.name}${field ? `, ${FIELD[field].sr}` : ""}: scoring breakdown`} />}
+      data-end={end}
+      data-field={field ?? undefined}
+      className={`field-half min-w-0 cursor-pointer flex-wrap gap-x-2 gap-y-1 rounded-md border-0 px-1 py-1 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-ring/60 sm:flex-nowrap sm:gap-3 sm:px-1.5 ${opp ? "-mr-1 flex-row-reverse sm:-mr-1.5" : "-ml-1 sm:-ml-1.5"}`}
     >
       <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
         <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 font-display text-[1rem] font-semibold leading-none tracking-tight sm:flex-wrap sm:gap-x-2 sm:gap-y-0.5 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${idle ? "text-foreground/70" : ""}`}>
@@ -165,6 +179,12 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
             </span>
           )}
           {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
+          {/* filled, where an injury is a bare letter: the one chip on the board that is good news or bad by side */}
+          {field === "red_zone" && (
+            <span aria-hidden className="shrink-0 rounded-[3px] bg-redzone px-1 py-px font-display text-[0.625rem] font-bold leading-none tracking-[0.08em] text-redzone-foreground sm:text-[0.6875rem]">
+              {FIELD.red_zone.chip}
+            </span>
+          )}
         </ItemTitle>
         {/* `max-sm:hidden!`: the `flex!` that beats shadcn's line-clamp reset would beat a plain `max-sm:hidden` too */}
         <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1.5 text-xs leading-4 tabular-nums max-sm:hidden! ${opp ? "justify-end text-right" : ""}`}>
@@ -413,7 +433,7 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
       </div>
       <Scorebug data={data} now={now} />
       {/* The feed only earns its place once something has happened; before kickoff it stays out of the way. */}
-      {data.plays.length > 0 && <PlayFeedStrip plays={data.plays} />}
+      {data.plays.length > 0 && <PlayFeedStrip plays={data.plays} href={playsHref(data.mine !== false, data.me.team_id)} />}
       <Board data={data} now={now} onPick={onPick} />
       <BoxScoreDialog p={player} open={open && player != null} onOpenChange={setOpen} />
     </div>

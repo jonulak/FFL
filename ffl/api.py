@@ -23,6 +23,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, field_validator
 
 from . import cbs, espn_season, live, outlook, player_card, season
+from . import plays as plays_mod
 from .config import JOURNAL
 from .journal import sync_results, sync_transactions
 from .settings import load
@@ -146,7 +147,7 @@ async def lifespan(app: FastAPI):
     t.start()
     # One FastCast subscription per process; overlays live points on the cached payloads and
     # wakes /live. FFL_LIVE=0 keeps it off (tests, a second dev API).
-    runner = live.Runner(week_fn=lambda: cache.get_or_build("week:current", lambda: espn_season.week_state(None))[0]) \
+    runner = live.Runner(week_fn=lambda: cache.get_or_build("starters:current", lambda: espn_season.league_starters(None))[0]) \
         if live.enabled() else None
     if runner:
         runner.start()
@@ -232,41 +233,53 @@ def _scoring() -> list[dict] | None:
 FEED_ROWS = 5
 
 
-def _plays(limit: int | None = None) -> list[dict]:
+def _plays(data: dict, limit: int | None = None) -> list[dict]:
+    """The feed rows of one board's two teams, newest first, sided for that board. The runner's
+    store is the week it last scored, which after Tuesday's rollover is still last week's, so a
+    board of any other week has none."""
     runner = getattr(app.state, "runner", None)
     store = runner.store if runner else None
-    return store.latest(limit) if store else []
+    if store is None or runner.week != data.get("week"):
+        return []
+    sides = [s for s in (data.get("me"), data.get("opp")) if s]
+    rows = store.latest(limit, teams={s.get("team_id") for s in sides})
+    return plays_mod.for_board(rows, sides[0].get("team_id")) if sides else []
+
+
+def _week_payload(data: dict) -> dict:
+    """A board with the live points laid on and its feed riding along, so one live tick refreshes both."""
+    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()),
+            "plays": _plays(data, FEED_ROWS)}
+
+
+def _board(n: int | None, team: int | None) -> dict:
+    """My week's board, or with `team` the board of that team's game; each cached under its own key."""
+    if team is None:
+        return _serve("week:current" if n is None else f"week:{n}", lambda: espn_season.week_state(n))
+    return _serve(f"week:{n or 'current'}:{team}", lambda: espn_season.week_state(n, team=team))
 
 
 @app.get("/week")
 def week_current():
-    data = _serve("week:current", lambda: espn_season.week_state(None))
-    # the feed rides on the page's own payload so one live tick refreshes both; the runner's
-    # store is the week it last scored, which after Tuesday's rollover is still last week's
-    runner = getattr(app.state, "runner", None)
-    plays = _plays(FEED_ROWS) if runner and runner.week == data["week"] else []
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()), "plays": plays}
+    return _week_payload(_board(None, None))
 
 
 @app.get("/plays")
-def plays_():
-    """Every play-feed row of the current week, newest first (the /plays page)."""
+def plays_(team: int | None = None):
+    """Every feed row of the current week for one game, newest first (the /plays page): mine, or
+    with `team` that team's. `me`/`opp` name the two sides the way the board does."""
     runner = getattr(app.state, "runner", None)
-    return {"week": runner.week if runner else None, "live": season.is_live(), "plays": _plays(),
-            "stale_since": None}
+    data = _board(None, None) if team is None else _board(runner.week if runner and runner.week else None, team)
+    club = lambda s: {k: s.get(k) for k in ("team_id", "team", "abbrev")} if s else None  # noqa: E731
+    return {"week": data["week"], "live": season.is_live(), "mine": data.get("mine", True),
+            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data),
+            "stale_since": data.get("stale_since")}
 
 
 @app.get("/week/{n}")
 def week(n: int, team: int | None = None):
     """My week's board, or with `team` the board of that team's game (a League scoreboard tile)."""
-    if team is None:
-        data = _serve(f"week:{n}", lambda: espn_season.week_state(n))
-    else:
-        data = _serve(f"week:{n}:{team}", lambda: espn_season.week_state(n, team=team))
-    runner = getattr(app.state, "runner", None)
-    # the feed follows my starters only, so another game's board goes without it
-    plays = _plays(FEED_ROWS) if runner and runner.week == n and data.get("mine", True) else []
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()), "plays": plays}
+    return _week_payload(_board(n, team))
 
 
 @app.get("/team/{team_id}")

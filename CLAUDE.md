@@ -137,9 +137,14 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   the fallback. The socket is held only while a game is in progress or a kickoff is close (`live.idle_for`),
   inside `season.is_live`. The stream's `cache-control: no-transform` is load-bearing: without it Next's
   compression gzips the stream and the browser never sees a byte. Run a second dev API with `FFL_LIVE=0`.
-  The play feed (`ffl/plays.py`) is derived from the same rescoring: every points change of a starter in
-  my matchup becomes a row (delta, total, play text, clock) appended to
-  `data/live/plays-week-<n>.jsonl` and reloaded at boot. `/week` carries the latest five, `/plays` the week.
+  The play feed (`ffl/plays.py`) is derived from the same rescoring: every points change of any league
+  starter (`espn_season.league_starters`) becomes a row (fantasy `team_id`, delta, total, play text, clock)
+  appended to `data/live/plays-week-<n>.jsonl` and reloaded at boot. Rows carry no side: each board takes
+  its two teams' rows and `plays.for_board` sides them from its left team. Every `/week` board carries its
+  game's latest five; `/plays` (`?team=` for any other game) the week.
+  On field: `fastcast.possession` adds `ball`/`red_zone` (lastPlay.end: next snap's team and yards to go;
+  else the drive) to each game state, and `live.field` marks a player `on`/`red_zone` when his club has the
+  ball, a D/ST when the other club does. The feed names no personnel, so this is the whole signal.
   The caption is the newest play *naming the player* (`plays.PlayCache`, fed from every game's lastPlay,
   drive plays and scoringPlays), never simply the game's last play: stats arrive one to three frames after
   the play text, by which time lastPlay is often the next play. `match: "last"` marks the fallback (D/ST).

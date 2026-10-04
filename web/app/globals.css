@@ -29,6 +29,9 @@
   --color-close: var(--close);
   --color-close-foreground: var(--close-foreground);
   --color-out: var(--out);
+  /* a unit on the field inside the 20 (lib/field.ts); crimson, so it never reads as OUT's red */
+  --color-redzone: var(--redzone);
+  --color-redzone-foreground: var(--redzone-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -78,6 +81,8 @@
   --close: oklch(0.86 0.15 85);
   --close-foreground: oklch(0.34 0.09 70);
   --out: oklch(0.55 0.22 27);
+  --redzone: oklch(0.55 0.21 14);
+  --redzone-foreground: oklch(0.985 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -118,6 +123,8 @@
   --close: oklch(0.83 0.16 85);
   --close-foreground: oklch(0.25 0.07 70);
   --out: oklch(0.7 0.19 22);
+  --redzone: oklch(0.66 0.2 14);
+  --redzone-foreground: oklch(0.16 0.03 14);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
@@ -159,6 +166,8 @@
     --close: oklch(0.83 0.16 85);
     --close-foreground: oklch(0.25 0.07 70);
     --out: oklch(0.7 0.19 22);
+  --redzone: oklch(0.66 0.2 14);
+  --redzone-foreground: oklch(0.16 0.03 14);
     --card-foreground: oklch(0.985 0 0);
     --popover: oklch(0.205 0 0);
     --popover-foreground: oklch(0.985 0 0);
@@ -268,6 +277,32 @@
 @keyframes play-in { from { opacity: 0; translate: var(--play-from) 0; } }
 @keyframes play-wash { 0%, 25% { opacity: 1; } 100% { opacity: 0; } }
 
+/* A unit on the field (lib/field.ts): a wash running in from the half's outer edge toward the
+   spine, neutral with the ball, crimson inside the 20. One layer whose colour cross-fades, so a
+   drive crossing the 20 deepens the wash rather than swapping it, and a change of possession
+   lets it ebb. The football beside the number pulses once when the unit comes on. */
+.field-half {
+  position: relative;
+  isolation: isolate;
+}
+.field-half::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background-color: transparent;
+  mask-image: linear-gradient(var(--field-wash, to right), black 0%, rgb(0 0 0 / 0.55) 45%, transparent 92%);
+  transition: background-color 700ms var(--ease-arrive);
+}
+.field-half[data-end="opp"] { --field-wash: to left; }
+.field-half[data-field="on"]::before { background-color: color-mix(in oklab, var(--foreground) 7%, transparent); }
+.field-half[data-field="red_zone"]::before { background-color: color-mix(in oklab, var(--redzone) 17%, transparent); }
+.field-ball {
+  animation: field-ball 520ms var(--ease-arrive) both;
+}
+@keyframes field-ball { from { opacity: 0; scale: 0.4; rotate: -40deg; } }
+
 /* The season log arriving: the rows come in down the table, a beat apart and capped, the way the
    skeleton's bars were laid out. The skeleton itself waits a beat before showing, so a quick
    answer goes straight from the header to the log without a flash of grey. */
@@ -287,4 +322,6 @@
   .play-slot[data-enter] .play-row { animation: log-fade 200ms ease-out both; }
   .play-slot[data-leave] { display: none; }
   .log-in { animation-name: log-fade; }
+  .field-half::before { transition: none; }
+  .field-ball { animation-name: log-fade; }
 }

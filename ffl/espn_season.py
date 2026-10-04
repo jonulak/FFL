@@ -812,6 +812,21 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
     raise RuntimeError(f"no matchup for team {me} in week {week}")
 
 
+def league_starters(week: int | None = None) -> dict:
+    """Every game's starters, the play feed's roster: {week, games: [[side, side], ...]}, each side
+    {team_id, lineup: [{player_id, name, pos, team}]}. Bench and IR are left out; a bye slot too."""
+    lg = fresh_league()
+    week = week or lg.current_week
+    games = []
+    for m in box_scores(lg, week):
+        games.append([{"team_id": t.team_id,
+                       "lineup": [{"player_id": bp.playerId, "name": bp.name, "pos": bp.position, "team": bp.proTeam}
+                                  for bp in lineup or [] if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]}
+                      for t, lineup in ((m.away_team, m.away_lineup), (m.home_team, m.home_lineup))
+                      if hasattr(t, "team_id")])
+    return {"week": week, "games": games}
+
+
 def _side_players(lineup: list, settings: dict, sl: dict, seas: dict, inj: dict, w1, home: dict) -> list[dict]:
     """One side's box players as the board shows them: both sources' projections, the season
     lookup, injury return weeks and the venue."""

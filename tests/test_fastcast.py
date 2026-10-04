@@ -191,3 +191,32 @@ def test_next_kickoff_is_the_earliest_future_pre_game():
     assert fc.next_kickoff(FIX, now) == datetime(2026, 9, 13, 17, 0, tzinfo=timezone.utc)
     late = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
     assert fc.next_kickoff(FIX, late) is None
+
+
+def _live_game(**over):
+    g = {"id": "g", "status": "in", "fullStatus": {"period": 3, "displayClock": "2:29", "type": {"state": "in", "name": "STATUS_IN_PROGRESS"}},
+         "competitors": [{"id": "2", "abbreviation": "BUF", "score": 21}, {"id": "17", "abbreviation": "NE", "score": 17}],
+         "drive": {"teamId": "17", "isRedZone": False},
+         "lastPlay": {"end": {"team": "17", "yardsToEndzone": 55}}}
+    g.update(over)
+    return g
+
+
+def test_possession_reads_the_next_snap_off_the_last_play():
+    """Shaped on the 2026-10-04 checkpoint: lastPlay.end names the team (by id) and the yards to go."""
+    assert fc.possession(_live_game()) == {"ball": "NE", "red_zone": False}
+    assert fc.possession(_live_game(lastPlay={"end": {"team": "2", "yardsToEndzone": 14}})) == {"ball": "BUF", "red_zone": True}
+    assert fc.possession(_live_game(lastPlay={"end": {"team": "2", "yardsToEndzone": 20}}))["red_zone"] is True
+
+
+def test_possession_falls_back_to_the_drive_and_is_empty_off_the_field():
+    assert fc.possession(_live_game(lastPlay={}, drive={"teamId": "2", "isRedZone": True})) == {"ball": "BUF", "red_zone": True}
+    half = _live_game(fullStatus={"period": 2, "type": {"state": "in", "name": "STATUS_HALFTIME"}})
+    assert fc.possession(half) == {}
+    assert fc.possession(_live_game(status="post", fullStatus={"type": {"state": "post"}})) == {}
+    assert fc.possession(_live_game(lastPlay={}, drive={})) == {}
+
+
+def test_game_states_carry_possession():
+    g = fc.game_states({"events": [_live_game()]})
+    assert g["BUF"]["ball"] == g["NE"]["ball"] == "NE" and g["NE"]["red_zone"] is False

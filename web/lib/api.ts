@@ -25,6 +25,7 @@ export type Player = {
   exp: number | null; ahead: Ahead[];
   opponent: string | null; kickoff: string | null; home: boolean | null;
   game?: GameState; // present once his pro team has kicked off (live overlay, ffl/live.py)
+  field?: Field; // his unit is on the field (live.field): the offense with the ball, a D/ST without it
   stat_line?: string; // his box-score line, once a stat that scores has happened (live.stat_line)
   box?: BoxItem[]; // the line items behind his points (live.box_score); Matchup payload only
   form?: Form | null; // his last three games (STRATEGY.md "Recent form"); Roster cards and Waiver rows
@@ -64,7 +65,10 @@ export type Ahead = { name: string | null; status: string; return_week: number |
 export type GameState = {
   status: "in" | "post"; quarter: number | null; clock: string | null;
   score: Record<string, number>; // team abbreviation -> points, both sides
+  // while the game is on and someone has the ball (fastcast.possession): who, and inside the 20
+  ball?: string; red_zone?: boolean;
 };
+export type Field = "on" | "red_zone";
 export type OutlookSource = { site: string; date: string; url: string };
 export type OutlookBullet = { label: "Injury" | "Usage" | "Depth" | "Team" | "Take"; text: string; sources: OutlookSource[] };
 export type Card = Player & {
@@ -96,7 +100,12 @@ export type Play = {
   play_id: string | null; quarter: number | null; clock: string | null; game_id: string | null;
   match?: "player" | "last"; // "player": a play naming him; "last": the game's last play, possibly the next one
 };
-export type Plays = { week: number | null; live: boolean; plays: Play[]; stale_since: null };
+// One game's whole week (GET /plays, `?team=` for any game but mine); `me`/`opp` as on its board.
+export type PlaysSide = { team_id: number; team: string; abbrev: string };
+export type Plays = {
+  week: number | null; live: boolean; mine: boolean; me: PlaysSide | null; opp: PlaysSide | null;
+  plays: Play[]; stale_since: string | null;
+};
 // `me` is the left side of the board, `opp` the right: I stand left of my own game (`mine`); any other
 // game (a League scoreboard tile) reads away then home.
 export type Week = { week: number; live: boolean; mine: boolean; me: Side; opp: Side | null; plays: Play[]; stale_since: string | null };

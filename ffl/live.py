@@ -25,7 +25,7 @@ from . import season as S
 from .settings import load
 
 IDLE_BEFORE_KICKOFF = 15 * 60  # connect this long before the next kickoff
-ROSTER_REFRESH = 10 * 60  # how often the runner re-reads who starts in my matchup
+ROSTER_REFRESH = 10 * 60  # how often the runner re-reads who starts across the league
 OFF_WINDOW_CHECK = 5 * 60  # outside the game window, look at the clock this often
 MAX_IDLE = 30 * 60  # never sleep longer than this without re-reading the schedule
 # a game reads "pre" until the ball is kicked, minutes after the listed time (hours, in a weather
@@ -86,7 +86,8 @@ class State:
 
 
 def _sans_clock(games: dict[str, dict]) -> dict[str, tuple]:
-    return {t: (g.get("status"), g.get("quarter")) for t, g in games.items()}
+    # a change of possession or a drive into the red zone wakes the page: the board marks both
+    return {t: (g.get("status"), g.get("quarter"), g.get("ball"), g.get("red_zone")) for t, g in games.items()}
 
 
 STATE = State()
@@ -186,11 +187,25 @@ def box_score(stats: dict, scoring: list[dict]) -> list[dict]:
     return items
 
 
+def field(pos: str, team: str | None, game: dict) -> str | None:
+    """"red_zone", "on" or None: whether a player's unit is on the field, read off possession.
+
+    An offensive player (and the kicker) is on when his club has the ball; a D/ST when the other
+    club does. Red zone is the ball inside the 20 either way, so a D/ST shows it defending its own.
+    """
+    ball = game.get("ball")
+    if not ball or not team:
+        return None
+    if (ball != team) if pos == "D/ST" else (ball == team):
+        return "red_zone" if game.get("red_zone") else "on"
+    return None
+
+
 def overlay_players(players: list[dict], points: dict[int, float], games: dict[str, dict] | None = None,
                     stats: dict[int, dict] | None = None, scoring: list[dict] | None = None) -> list[dict]:
     """Live `actual` for players the feed has scored; `game` (status, quarter, clock, score) for
     players whose pro team has kicked off, so the page can show the clock where the kickoff
-    time was; `stat_line` for players with a stat that scores, and with `scoring` (the league's
+    time was, and with it `field` (`field`) while his unit is on; `stat_line` for players with a stat that scores, and with `scoring` (the league's
     stat table, settings["scoring"]) `box`, the line items behind his points. The stat row is
     the feed's while it has him, else ESPN's own (`stat_row`, the week payload's), which is
     dropped from the output either way."""
@@ -203,6 +218,9 @@ def overlay_players(players: list[dict], points: dict[int, float], games: dict[s
         game = (games or {}).get(p.get("team"))
         if game and game.get("status") in ("in", "post"):
             p["game"] = game
+            on = field(p.get("pos", ""), p.get("team"), game)
+            if on:
+                p["field"] = on
         row = (stats or {}).get(p.get("player_id")) or espn_row
         line = stat_line(p.get("pos", ""), row) if row else None
         if line:
@@ -272,8 +290,8 @@ def idle_for(doc: dict, now: datetime | None = None) -> float | None:
 
 
 class Runner(threading.Thread):
-    """`week_fn` returns the current week payload (the API's cached /week); the play feed is
-    derived for its starters. None (tests, a dev API) means no play feed."""
+    """`week_fn` returns the current week's starters in every game (`espn_season.league_starters`,
+    cached by the API); the play feed is derived for them. None (tests, a dev API) means no feed."""
 
     def __init__(self, state: State = STATE, settings: dict | None = None,
                  week_fn: Callable[[], dict] | None = None):

@@ -206,9 +206,36 @@ def test_runner_tags_the_points_with_the_week_of_the_roster_it_scored(monkeypatc
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
     current = {"week": 1}
     r = live.Runner(state=live.State(), settings={"scoring": []},
-                    week_fn=lambda: {"week": current["week"], "me": None, "opp": None})
+                    week_fn=lambda: {"week": current["week"], "games": []})
     r._on_doc(copy.deepcopy(FIX))
     assert r.state.week == 1
     current["week"] = 2
     r._on_doc(copy.deepcopy(FIX))
     assert r.state.week == 2
+
+
+def test_field_marks_the_offense_with_the_ball_and_the_defense_without_it():
+    rz = {"status": "in", "ball": "BUF", "red_zone": True}
+    mid = {"status": "in", "ball": "NE", "red_zone": False}
+    assert live.field("QB", "BUF", rz) == "red_zone" and live.field("K", "BUF", rz) == "red_zone"
+    assert live.field("D/ST", "NE", rz) == "red_zone", "a D/ST defending its own 20"
+    assert live.field("D/ST", "BUF", rz) is None and live.field("WR", "NE", rz) is None
+    assert live.field("RB", "NE", mid) == "on" and live.field("D/ST", "BUF", mid) == "on"
+    assert live.field("QB", "BUF", {"status": "in"}) is None, "no ball (halftime): nobody is marked"
+
+
+def test_overlay_sets_field_only_while_a_unit_is_on():
+    games = {"BUF": {"status": "in", "ball": "BUF", "red_zone": False}, "NE": {"status": "in", "ball": "BUF", "red_zone": False}}
+    out = live.overlay_players([{"player_id": 1, "pos": "QB", "team": "BUF"}, {"player_id": 2, "pos": "D/ST", "team": "NE"},
+                                {"player_id": 3, "pos": "WR", "team": "NE"}], {}, games)
+    assert [p.get("field") for p in out] == ["on", "on", None]
+
+
+def test_a_change_of_possession_bumps_the_version_but_the_clock_does_not():
+    st = live.State()
+    st.update({}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:29", "ball": "NE", "red_zone": False}})
+    v = st.version
+    st.update({}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:10", "ball": "NE", "red_zone": False}})
+    assert st.version == v
+    st.update({}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:10", "ball": "NE", "red_zone": True}})
+    assert st.version == v + 1

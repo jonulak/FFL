@@ -187,7 +187,8 @@ export function PlayFeedCard({ plays, title, count, link, empty, compact }: {
   );
 }
 
-// The strip on the Matchup page: the latest few rows, one line each, and the way to the whole day.
-export function PlayFeedStrip({ plays }: { plays: Play[] }) {
-  return <PlayFeedCard plays={plays} title="Latest plays" link={{ href: "/plays", label: "All plays" }} compact />;
+// The strip on every Matchup board: the latest few rows, one line each, and the way to that
+// game's whole day (`href`, lib/matchup-link.ts playsHref).
+export function PlayFeedStrip({ plays, href }: { plays: Play[]; href: string }) {
+  return <PlayFeedCard plays={plays} title="Latest plays" link={{ href, label: "All plays" }} compact />;
 }
