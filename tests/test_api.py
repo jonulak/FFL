@@ -382,3 +382,31 @@ def test_card_outlook_is_rewritten_on_a_post_and_polled_on_a_get(client, monkeyp
     assert client.get("/outlook/1").json()["outlook"] == [take]
     assert client.get("/roster").json()["cards"][0]["outlook"] == [take]
     assert client.post("/outlook/99").status_code == 404 and client.get("/outlook/99").status_code == 404
+
+
+PLAYER_LOG = {"name": "X", "pos": "QB", "team": "BUF", "current_week": 4,
+              "seasons": [{"season": 2026, "weeks": [], "totals": None}]}
+
+
+def test_player_route(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "player_card", lambda pid: {**PLAYER_LOG, "player_id": pid})
+    r = client.get("/player/7")
+    assert r.status_code == 200 and r.json()["player_id"] == 7 and r.json()["stale_since"] is None
+
+
+def test_player_502(client, monkeypatch):
+    def boom(pid):
+        raise RuntimeError("espn down")
+    monkeypatch.setattr(api.espn_season, "player_card", boom)
+    assert client.get("/player/8").status_code == 502
+
+
+def test_player_live_week(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "player_card", lambda pid: {**PLAYER_LOG, "player_id": pid})
+    monkeypatch.setattr(api.live.STATE, "stats", {9: {"0": 10, "1": 7, "3": 80}})
+    monkeypatch.setattr(api.live.STATE, "points", {9: 3.2})
+    monkeypatch.setattr(api.live.STATE, "week", 4)
+    monkeypatch.setattr(api.live.STATE, "games", {"BUF": {"status": "in"}})
+    monkeypatch.setattr(api, "_scoring", lambda: [{"stat_id": 3, "label": "Passing yards", "points": 0.04}])
+    weeks = client.get("/player/9").json()["seasons"][0]["weeks"]
+    assert [(w["week"], w["status"], w["pts"]) for w in weeks] == [(4, "live", 3.2)]

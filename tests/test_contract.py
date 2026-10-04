@@ -5,9 +5,11 @@ nothing but this file stops a renamed key from reaching the UI as `undefined`. E
 mirrors a type in `web/lib/api.ts` — Player, Side, LineupEntry, Swap, WaiverRow, League.standings —
 and the two must change together. No network: the standings row is built from a fake league object.
 """
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
-from ffl import espn_season, season
+from ffl import espn_season, player_card, season
 from tests.test_espn_season import bp
 from tests.test_season import TWO_QB, P, roster
 
@@ -97,3 +99,45 @@ def test_week_state_top_level_keys(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     assert set(espn_season.week_state(week=1, sleeper={}, season={}, injuries={})) == WEEK
+
+
+# web/lib/api.ts: type PlayerLog / SeasonLog / WeekLog / SeasonTotals
+PLAYER_LOG = {"player_id", "name", "pos", "team", "current_week", "seasons"}
+SEASON_LOG = {"season", "weeks", "totals"}
+WEEK_LOG = {"week", "opp", "home", "status", "pts", "summary", "box"}
+SEASON_TOTALS = {"games", "pts", "ppg", "summary", "box"}
+FX = Path(__file__).parent / "fixtures"
+
+
+def _allen() -> dict:
+    card = json.loads((FX / "espn_playercard.json").read_text())
+    return {"players": [p for p in card["players"] if p["player"]["id"] == 3918298]}
+
+
+def test_player_log_keys():
+    scoring = json.loads((FX / "settings_scoring.json").read_text())["scoring"]
+    log = player_card.player_log(_allen(), scoring, {2025: json.loads((FX / "pro_schedule_2025.json").read_text())}, 4, 2026)
+    assert set(log) == PLAYER_LOG
+    s = log["seasons"][-1]
+    assert set(s) == SEASON_LOG and set(s["weeks"][0]) == WEEK_LOG and set(s["totals"]) == SEASON_TOTALS
+
+
+def test_player_card_io(monkeypatch):
+    """espn_season.player_card wires the fetch to player_log: one kona_playercard call, both
+    schedules, the league's scoring; a failed schedule read leaves opponents unknown."""
+    seen = {}
+
+    def fake_get(view, extend="", headers=None, **params):
+        seen["view"], seen["filter"] = view, json.loads(headers["x-fantasy-filter"])
+        return _allen()
+
+    def down(*a):
+        raise RuntimeError("down")
+    monkeypatch.setattr(espn_season, "raw_league_get", fake_get)
+    monkeypatch.setattr(espn_season, "fresh_league", lambda: SimpleNamespace(current_week=4))
+    monkeypatch.setattr(espn_season, "load", lambda: json.loads((FX / "settings_scoring.json").read_text()))
+    monkeypatch.setattr(espn_season, "_schedule_doc", down)
+    monkeypatch.setattr(espn_season, "past_schedule", down)
+    log = espn_season.player_card(3918298)
+    assert seen["view"] == "kona_playercard" and seen["filter"]["players"]["filterIds"]["value"] == [3918298]
+    assert set(log) == PLAYER_LOG and log["seasons"][-1]["weeks"][0]["opp"] is None

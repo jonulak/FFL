@@ -45,6 +45,19 @@ export type Form = {
 // One scoring stat of his game: the count, the league's rate and the points it earned. A band
 // row (points or yards allowed) is a flat award; its count is the total it was read off.
 export type BoxItem = { stat_id: number; label: string; count: number; rate: number; flat: boolean; points: number };
+// ffl/player_card.py: one player's game log, this season first. `summary` is the collapsed row's
+// columns ([label, value], the position's own stat group); `box` the week's scoring breakdown.
+// A bye or a missed game has no points and an empty box; `live` is the feed's week in progress.
+export type WeekLog = {
+  week: number; opp: string | null; home: boolean | null; status: "played" | "bye" | "out" | "live";
+  pts: number | null; summary: [string, string][]; box: BoxItem[];
+};
+export type SeasonTotals = { games: number; pts: number; ppg: number; summary: [string, string][]; box: BoxItem[] };
+export type SeasonLog = { season: number; weeks: WeekLog[]; totals: SeasonTotals };
+export type PlayerLog = {
+  player_id: number; name: string; pos: string; team: string; current_week: number; seasons: SeasonLog[];
+  stale_since: string | null;
+};
 // A hurt teammate at his position: ESPN's status upper-cased, the return week when the feed has one.
 export type Ahead = { name: string | null; status: string; return_week: number | null };
 export type GameState = {

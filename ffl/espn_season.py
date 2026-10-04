@@ -6,6 +6,7 @@ pure seams the tests cover.
 from __future__ import annotations
 
 import csv
+import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,7 @@ import requests
 from . import calibrate, cbs
 from . import season as S
 from .adp import norm_name
-from .config import JOURNAL, MY_TEAM_ID, SEASON, SWID, cookies, league
+from .config import JOURNAL, MY_TEAM_ID, SEASON, SWID, cookies, league, raw_league_get
 from .players import fetch_pool
 from .settings import key_scoring, load
 from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
@@ -699,6 +700,41 @@ def box_scores(lg, week: int) -> list:
     boxes = lg.box_scores(week)
     _BOXES[week] = (time.time() + BOXES_TTL_S, lg, boxes)
     return boxes
+
+
+PRO_SCHEDULE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}"
+_PAST_SCHED: dict[int, dict] = {}  # season -> its proTeamSchedules_wl document; a past season never changes
+
+
+def past_schedule(season: int) -> dict:
+    """An earlier season's pro schedule (opponents and byes for last season's game log)."""
+    if season not in _PAST_SCHED:
+        r = requests.get(PRO_SCHEDULE.format(season=season), params={"view": "proTeamSchedules_wl"},
+                         cookies=cookies(), timeout=20)
+        r.raise_for_status()
+        _PAST_SCHED[season] = r.json()
+    return _PAST_SCHED[season]
+
+
+def player_card(player_id: int) -> dict:
+    """One player's game log, this season and last (player_card.player_log): one kona_playercard
+    call returns every week of both. A failed schedule read leaves the opponents unknown rather
+    than failing the log."""
+    from . import player_card as card_log  # player_card imports this module
+
+    lg = fresh_league()
+    filt = {"players": {"filterIds": {"value": [player_id]},
+                        "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": [f"00{SEASON}", f"10{SEASON}"]}}}
+    card = raw_league_get("kona_playercard", headers={"x-fantasy-filter": json.dumps(filt)})
+    if not card.get("players"):
+        raise LookupError(f"ESPN has no player {player_id}")
+    schedules = {}
+    for yr, read in ((SEASON, lambda: _schedule_doc(lg)), (SEASON - 1, lambda: past_schedule(SEASON - 1))):
+        try:
+            schedules[yr] = read()
+        except Exception as e:  # noqa: BLE001 — opponents are decoration, the log is not
+            print(f"pro schedule {yr} unavailable, opponents unknown: {e}")
+    return card_log.player_log(card, load()["scoring"], schedules, lg.current_week, SEASON)
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:

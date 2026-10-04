@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, field_validator
 
-from . import cbs, espn_season, live, outlook, season
+from . import cbs, espn_season, live, outlook, player_card, season
 from .config import JOURNAL
 from .journal import sync_results, sync_transactions
 from .settings import load
@@ -181,8 +181,8 @@ def _journal_serve(fn: Callable[[], dict]) -> dict:
         raise HTTPException(status_code=502, detail={"source": "journal", "error": str(e)})
 
 
-def _serve(key: str, fn: Callable[[], dict]) -> dict:
-    payload, stale = cache.get_or_build(key, fn)
+def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None) -> dict:
+    payload, stale = cache.get_or_build(key, fn, ttl)
     return {**payload, "stale_since": stale}
 
 
@@ -267,6 +267,20 @@ def week(n: int, team: int | None = None):
     # the feed follows my starters only, so another game's board goes without it
     plays = _plays(FEED_ROWS) if runner and runner.week == n and data.get("mine", True) else []
     return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()), "plays": plays}
+
+
+PLAYER_TTL = 600.0  # a game log moves once a week; the live week rides on the feed, not this cache
+
+
+@app.get("/player/{player_id}")
+def player(player_id: int):
+    """One player's game log, this season and last (the season modal), the live week from the feed."""
+    data = _serve(f"player:{player_id}", lambda: espn_season.player_card(player_id), PLAYER_TTL)
+    wk = data["current_week"]
+    row, scoring = _live_stats(wk).get(player_id), _scoring()
+    if row and scoring:
+        data = player_card.with_live(data, wk, row, scoring, _live_games(wk).get(data["team"]))
+    return data
 
 
 @app.get("/live")
