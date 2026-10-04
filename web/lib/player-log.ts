@@ -18,3 +18,7 @@ export function seasonPts(weeks: WeekLog[]): { games: number; pts: number } {
   const played = weeks.filter((w) => w.status === "played" || w.status === "live");
   return { games: played.length, pts: Math.round(played.reduce((t, w) => t + (w.pts ?? 0), 0) * 100) / 100 };
 }
+
+// A name that opens the season modal: plain type at rest, underlined under a pointer. Here, not in
+// the client module, so server components (the play feed, the Draft page) can read the string.
+export const NAME_LINK = "decoration-foreground/35 decoration-1 underline-offset-[0.2em] hover:underline";

@@ -51,7 +51,7 @@ export function PlayerTrigger({ p, className = "", children }: { p: PlayerSeed; 
   );
 }
 
-type Load = { state: "loading" } | { state: "ready"; log: PlayerLog } | { state: "error" };
+type Load ={ state: "loading" } | { state: "ready"; log: PlayerLog } | { state: "error" };
 
 function Body({ seed }: { seed: PlayerSeed }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });

@@ -1,9 +1,11 @@
 import { ErrorCard } from "@/components/error-card";
 import { Markdown } from "@/components/markdown";
+import { PlayerTrigger } from "@/components/player-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiGet, type Draft } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
+import { NAME_LINK } from "@/lib/player-log";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +55,11 @@ export default async function Page() {
                   <TableRow key={r.overall}>
                     {COLS.map((c) => (
                       <TableCell key={c} className="whitespace-nowrap">
-                        {r[c]}
+                        {c === "player" && r.player_id ? (
+                          <PlayerTrigger p={{ player_id: Number(r.player_id), name: r.player, pos: r.pos, team: r.nfl }} className={`rounded-sm ${NAME_LINK}`}>
+                            {r.player}
+                          </PlayerTrigger>
+                        ) : r[c]}
                       </TableCell>
                     ))}
                   </TableRow>

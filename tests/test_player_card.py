@@ -38,9 +38,18 @@ def test_gaps_bye_and_out():
 def test_traded_club():
     s = log25(3916433, "WR", "JAX")
     by_week = {w["week"]: w for w in s["weeks"]}
-    assert (by_week[7]["opp"], by_week[7]["home"]) == ("KC", False)  # LV@KC, still a Raider
+    assert (by_week[6]["opp"], by_week[6]["home"]) == ("TEN", True)  # TEN@LV, still a Raider
     assert (by_week[9]["opp"], by_week[9]["home"]) == ("LV", False)  # JAX@LV, first game as a Jaguar
     assert by_week[8]["status"] == "bye"  # the Raiders' bye
+
+
+def test_empty_row_is_a_game_missed():
+    """ESPN writes a row for a game he sat out, with no stats (no 210, games played): Meyers
+    missed 2025 week 7 at Kansas City. It reads as did-not-play and is not counted as a game."""
+    s = log25(3916433, "WR", "JAX")
+    w7 = next(w for w in s["weeks"] if w["week"] == 7)
+    assert (w7["status"], w7["pts"], w7["box"]) == ("out", None, [])
+    assert s["totals"]["games"] == 16
 
 
 def test_rookie_has_no_2025():

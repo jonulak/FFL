@@ -7,6 +7,8 @@ import { team } from "@/lib/teams";
 import { FormStrip } from "./form-strip";
 import { Kickoff } from "./local-time";
 import { Outlook } from "./outlook";
+import { NAME_LINK } from "@/lib/player-log";
+import { PlayerTrigger } from "./player-dialog";
 import { TeamLogo, TeamPanel } from "./player-media";
 import { StatLine } from "./stat-line";
 
@@ -115,11 +117,11 @@ function PlayerCard({ c, week, runBusy }: { c: Card; week: number; runBusy: bool
       className="grid grid-cols-[5.25rem_minmax(0,1fr)] grid-rows-[auto_auto_1fr] gap-0 rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] sm:grid-cols-[6.25rem_minmax(0,1fr)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]"
       aria-label={`${c.name}, ${c.call}`}
     >
-      <div className="row-span-3 h-full"><TeamPanel abbr={c.team} playerId={c.player_id} name={c.name} muted={idle} /></div>
+      <PlayerTrigger p={c} className="row-span-3 block h-full overflow-hidden rounded-l-lg"><TeamPanel abbr={c.team} playerId={c.player_id} name={c.name} muted={idle} /></PlayerTrigger>
       <CardHeader className="flex flex-row items-start justify-between gap-2 pt-2.5 sm:pt-3">
         <div className="min-w-0">
           <CardTitle className={`line-clamp-2 text-balance font-display text-[1.65rem] font-semibold leading-none tracking-tight ${idle ? "text-foreground/70" : ""}`}>
-            {c.name}
+            <PlayerTrigger p={c} className={`rounded-sm ${NAME_LINK}`}>{c.name}</PlayerTrigger>
           </CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
             <span className="font-semibold text-foreground/80">{c.pos}</span>

@@ -5,6 +5,8 @@ import { Separator } from "@/components/ui/separator";
 import type { Play } from "@/lib/api";
 import { pts, signed } from "@/lib/format";
 import { Clock } from "./local-time";
+import { NAME_LINK } from "@/lib/player-log";
+import { PlayerTrigger } from "./player-dialog";
 import { TeamPanel } from "./player-media";
 
 // The play feed, on the board: a ledger of every points change for a starter in the matchup,
@@ -29,6 +31,9 @@ export function PlayFeed({ plays, empty = "No plays yet.", compact = false }: { 
 
 const UNIT = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
+// A play row opens the player's season modal from its tile and name, with what the row knows.
+const seed = (p: Play) => ({ player_id: p.player_id, name: p.name, pos: p.pos, team: p.team });
+
 // A row is mirrored, not merely aligned, for the opponent: the Item is reversed so tile and
 // numeral swap ends and the two sides read as two teams facing each other across the same ledger.
 function PlayRow({ p }: { p: Play }) {
@@ -38,11 +43,13 @@ function PlayRow({ p }: { p: Play }) {
     <div role="listitem" className={`flex py-2.5 ${mine ? "justify-start" : "justify-end"}`}>
       <Item size="sm" className={`w-full max-w-[88%] flex-nowrap gap-2.5 rounded-none border-0 p-0 sm:max-w-[74%] sm:gap-3 ${mine ? "" : "flex-row-reverse"}`}>
         <ItemMedia className="size-10 overflow-hidden rounded-md sm:size-12 *:w-full">
-          <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
+          <PlayerTrigger p={seed(p)} className="block size-full">
+            <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
+          </PlayerTrigger>
         </ItemMedia>
         <ItemContent className={`min-w-0 gap-0 ${mine ? "" : "items-end text-right"}`}>
           <ItemTitle className={`line-clamp-none flex! max-w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 ${mine ? "" : "flex-row-reverse"}`}>
-            <span className="truncate font-display text-[1.125rem] font-semibold leading-none tracking-tight">{p.name}</span>
+            <PlayerTrigger p={seed(p)} className={`truncate rounded-sm font-display text-[1.125rem] font-semibold leading-none tracking-tight ${NAME_LINK}`}>{p.name}</PlayerTrigger>
             <span className="text-xs font-normal text-muted-foreground">
               <span className="font-semibold text-foreground/80">{p.pos}</span> <span aria-hidden>·</span> {p.team}
             </span>

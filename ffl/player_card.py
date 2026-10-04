@@ -40,10 +40,16 @@ def parse_games(sched: dict) -> dict[int, tuple[int, str, str]]:
     return out
 
 
+GAMES_PLAYED = "210"
+
+
 def _game_rows(rows: list[dict], season: int) -> list[dict]:
-    """The season's actual per-week rows (statSourceId 0 actual, statSplitTypeId 1 one week)."""
+    """The games he played: the season's actual per-week rows (statSourceId 0 actual,
+    statSplitTypeId 1 one week) that carry stat 210, games played. ESPN also writes an empty row
+    for a game he sat out (Bryce Young, 2025 week 8); that week reads as missed, like no row."""
     return sorted((r for r in rows if r.get("seasonId") == season and r.get("statSourceId") == 0
-                   and r.get("statSplitTypeId") == 1 and r.get("scoringPeriodId")), key=lambda r: r["scoringPeriodId"])
+                   and r.get("statSplitTypeId") == 1 and r.get("scoringPeriodId")
+                   and (r.get("stats") or {}).get(GAMES_PLAYED)), key=lambda r: r["scoringPeriodId"])
 
 
 def _game(row: dict, games: dict) -> tuple[int, str, str] | None:

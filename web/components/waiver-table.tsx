@@ -10,6 +10,8 @@ import { FORM_COLUMNS, aheadLabel, expLabel, formCell, injuryLabel, injuryTone, 
 import { sortRows, type Sort } from "@/lib/waiver-sort";
 import { TrendArrow } from "./form-strip";
 import { Kickoff } from "./local-time";
+import { NAME_LINK } from "@/lib/player-log";
+import { PlayerTrigger } from "./player-dialog";
 import { TeamLogo, TeamPanel } from "./player-media";
 import { WaiverOutlookButton } from "./waiver-outlook";
 
@@ -137,7 +139,7 @@ function NameCell({ r, week, mine = false, chip, tail }: { r: WaiverRow | Roster
   return (
     <TableCell className={`py-2 whitespace-normal max-sm:w-[9.5rem] max-sm:min-w-[9.5rem] sm:max-xl:w-[11rem] sm:max-xl:min-w-[11rem] xl:w-full xl:max-w-0 ${PIN_NAME} ${mine ? "pl-5" : ""}`}>
       <p className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight ${idle ? "text-foreground/70" : ""}`}>
-        <span className="truncate">{r.name}</span>
+        <PlayerTrigger p={r} className={`truncate rounded-sm ${NAME_LINK}`}>{r.name}</PlayerTrigger>
         {chip}
         {hurt && (
           <Badge variant={TAG[injuryTone(r.injury)]} shape="chip" title={r.injury_note ?? undefined}>
@@ -218,9 +220,9 @@ function CompareRow({ fa, mine, week, cols }: { fa: WaiverRow; mine: RosterRow; 
   return (
     <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
       <TableCell className={`w-0 py-1.5 pr-0 pl-6 sm:pl-7 ${PIN_TILE} bg-[color-mix(in_oklab,var(--card),var(--foreground)_3%)]`}>
-        <div className="size-8 overflow-hidden rounded-md">
+        <PlayerTrigger p={mine} className="block size-8 overflow-hidden rounded-md">
           <TeamPanel abbr={mine.team} playerId={mine.player_id} name={mine.name} muted={idle} tile />
-        </div>
+        </PlayerTrigger>
       </TableCell>
       <NameCell r={mine} week={week} mine chip={<Badge variant="muted" shape="chip">{slotName(mine.slot)}</Badge>} />
       <TableCell className={`text-right font-display text-lg font-semibold tabular-nums tracking-tight ${gap > 0 ? "" : "text-foreground/70"}`}
@@ -254,9 +256,9 @@ function Row({ r, week, cols, roster, open, onToggle }: {
               className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/55 hover:text-foreground focus-visible:outline-2">
               <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180" : ""}`} />
             </button>
-            <div className="size-9 overflow-hidden rounded-md sm:size-10">
+            <PlayerTrigger p={r} className="block size-9 overflow-hidden rounded-md sm:size-10">
               <TeamPanel abbr={r.team} playerId={r.player_id} name={r.name} muted={idle} tile />
-            </div>
+            </PlayerTrigger>
           </div>
         </TableCell>
         <NameCell r={r} week={week} chip={r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta)}</Badge>}
