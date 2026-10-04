@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
@@ -17,16 +20,70 @@ import { TeamPanel } from "./player-media";
 // `compact` is the Matchup strip's one-line form: name and play on a single truncated line, the
 // game clock and the delta at the inner end, no running total (that is the /plays page's job).
 export function PlayFeed({ plays, empty = "No plays yet.", compact = false }: { plays: Play[]; empty?: string; compact?: boolean }) {
-  if (plays.length === 0) {
+  const rows = useLedger(plays);
+  if (rows.length === 0) {
     return <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>;
   }
+  const Row = compact ? CompactRow : PlayRow;
+  // The hairline and the gap between rows live inside each slot's clip, so they open and fold
+  // with it: below every row but the last that stays, above a row on its way out. Drawn by the
+  // group (divide-y, gap) they would step 9px the moment a row came or went.
+  const sep = <div aria-hidden className={`border-b border-foreground/10 ${compact ? "pt-2" : "pt-2.5"}`} />;
+  const last = plays.length - 1;
+  // the nth row in pairs with the nth row out, so both carry their own count
+  let fresh = 0;
+  let gone = 0;
   return (
-    <ItemGroup className="gap-0 divide-y divide-foreground/10">
-      {plays.map((p) => compact
-        ? <CompactRow key={`${p.at}-${p.player_id}-${p.total}`} p={p} />
-        : <PlayRow key={`${p.at}-${p.player_id}-${p.total}`} p={p} />)}
+    <ItemGroup className="gap-0 has-data-[size=sm]:gap-0 has-data-[size=xs]:gap-0">
+      {rows.map(({ p, state }, i) => (
+        // the slot is the list item; its inner clip is what the opening and folding animate
+        <div key={key(p)} role={state === "leave" ? undefined : "listitem"} aria-hidden={state === "leave" || undefined}
+          inert={state === "leave"} className="play-slot" data-side={p.side === "me" ? "me" : "opp"}
+          data-enter={state === "enter" || undefined} data-leave={state === "leave" || undefined}
+          data-gain={p.delta > 0 || undefined} style={state === "still" ? undefined : { "--i": state === "enter" ? fresh++ : gone++ } as React.CSSProperties}>
+          <div className="play-clip">
+            {state === "leave" && sep}
+            <Row p={p} />
+            {state !== "leave" && i < last && sep}
+          </div>
+        </div>
+      ))}
     </ItemGroup>
   );
+}
+
+const key = (p: Play) => `${p.at}-${p.player_id}-${p.total}`;
+// play-close's 380ms plus slack; a batch of several staggers past it, and a cut-short fold of
+// the last one is the cost of not tracking animationend per row
+const LEAVE_MS = 450;
+
+type Ledger = { p: Play; state: "still" | "enter" | "leave" }[];
+
+// What the feed draws: the rows on screen when it mounted stay still, any row that arrives after
+// is marked to enter (and keeps the mark, so a re-render never replays it), and a row that drops
+// off the end (the strip shows the latest five) is held for one fold before it goes.
+function useLedger(plays: Play[]): Ledger {
+  const [first] = useState(() => new Set(plays.map(key)));
+  const [prev, setPrev] = useState(plays);
+  const [leaving, setLeaving] = useState<Play[]>([]);
+  if (prev !== plays) {
+    const now = new Set(plays.map(key));
+    const gone = prev.filter((p) => !now.has(key(p)));
+    setPrev(plays);
+    if (gone.length > 0 || leaving.some((p) => now.has(key(p)))) {
+      setLeaving([...leaving.filter((p) => !now.has(key(p))), ...gone]);
+    }
+  }
+  useEffect(() => {
+    if (leaving.length === 0) return;
+    const t = setTimeout(() => setLeaving([]), LEAVE_MS);
+    return () => clearTimeout(t);
+  }, [leaving]);
+  return [
+    ...plays.map((p) => ({ p, state: first.has(key(p)) ? "still" as const : "enter" as const })),
+    // the dropped rows are the oldest, so they fold at the foot of the ledger
+    ...leaving.map((p) => ({ p, state: "leave" as const })),
+  ];
 }
 
 const UNIT = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
@@ -40,7 +97,7 @@ function PlayRow({ p }: { p: Play }) {
   const mine = p.side === "me";
   const loss = p.delta < 0;
   return (
-    <div role="listitem" className={`flex py-2.5 ${mine ? "justify-start" : "justify-end"}`}>
+    <div className={`play-row flex py-2.5 ${mine ? "justify-start" : "justify-end"}`}>
       <Item size="sm" className={`w-full max-w-[88%] flex-nowrap gap-2.5 rounded-none border-0 p-0 sm:max-w-[74%] sm:gap-3 ${mine ? "" : "flex-row-reverse"}`}>
         <ItemMedia className="size-10 overflow-hidden rounded-md sm:size-12 *:w-full">
           <PlayerTrigger p={seed(p)} className="block size-full">
@@ -80,7 +137,7 @@ function CompactRow({ p }: { p: Play }) {
   const mine = p.side === "me";
   const loss = p.delta < 0;
   return (
-    <div role="listitem" className={`flex py-1.5 ${mine ? "justify-start" : "justify-end"}`}>
+    <div className={`play-row flex py-1.5 ${mine ? "justify-start" : "justify-end"}`}>
       <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`} title={p.text ?? undefined}>
         <ItemMedia className="size-7 overflow-hidden rounded-sm *:w-full">
           <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />

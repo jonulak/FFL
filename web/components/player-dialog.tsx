@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { clientGet } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -64,29 +64,70 @@ function Body({ seed }: { seed: PlayerSeed }) {
     return () => { current = false; };
   }, [seed.player_id, attempt]);
   const retry = () => { setLoad({ state: "loading" }); setAttempt((n) => n + 1); };
+  const grow = useGrow(load.state);
   return (
     <>
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined} />
-      <div className="overflow-y-auto overscroll-contain px-4 pt-4 pb-5">
-        {load.state === "loading" && <Loading />}
-        {load.state === "error" && (
-          <div className="py-2">
-            <p className="text-sm text-muted-foreground">ESPN&apos;s game log didn&apos;t load.</p>
-            <Button size="sm" variant="outline" className="mt-2.5" onClick={retry}>Retry</Button>
-          </div>
-        )}
-        {load.state === "ready" && <Seasons log={load.log} />}
+      <div className="overflow-y-auto overscroll-contain">
+        <div ref={grow} className="overflow-hidden px-4 pt-4 pb-5">
+          {load.state === "loading" && <Loading />}
+          {load.state === "error" && (
+            <div className="log-in py-2">
+              <p className="text-sm text-muted-foreground">ESPN&apos;s game log didn&apos;t load.</p>
+              <Button size="sm" variant="outline" className="mt-2.5" onClick={retry}>Retry</Button>
+            </div>
+          )}
+          {load.state === "ready" && <Seasons log={load.log} />}
+        </div>
       </div>
     </>
   );
 }
 
+const GROW_MS = 360;
+
+// The body's height follows the content through a change of state (skeleton to log, log to
+// error, retry): measured before and after the swap and animated between, so the dialog grows
+// from where it stood instead of snapping taller around its centre. Rows opening inside the log
+// change no state and keep their own animation.
+function useGrow(state: Load["state"]) {
+  const ref = useRef<HTMLDivElement>(null);
+  const last = useRef(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const to = el.offsetHeight;
+    const from = last.current;
+    last.current = to;
+    if (!from || from === to || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: GROW_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+  }, [state]);
+  return ref;
+}
+
+// The skeleton is the log's own shape (a section heading with its hairline, a table head, the
+// week rows at their height), so the swap reads as the log filling in. It waits a beat before
+// showing (log-wait): a quick answer never flashes grey.
 function Loading() {
   return (
-    <div role="status" className="space-y-2">
+    <div role="status" className="log-wait space-y-1.5">
       <span className="sr-only">Loading the game log</span>
-      <Skeleton className="h-5 w-24" />
-      {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+      <div className="flex items-end gap-3 pb-1">
+        <Skeleton className="h-5 w-14" />
+        <Skeleton className="h-3.5 w-24" />
+        <Separator className="mb-1.5 flex-1 bg-foreground/12" />
+      </div>
+      <Skeleton className="h-3 w-full opacity-60" />
+      <div className="divide-y divide-foreground/10">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div key={i} className="flex items-center gap-3 py-2.5">
+            <Skeleton className="h-4 w-8" />
+            <Skeleton className="h-4 w-14" />
+            <Skeleton className="ml-auto h-4 w-1/3" />
+            <Skeleton className="h-5 w-10" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -98,14 +139,14 @@ function Seasons({ log }: { log: PlayerLog }) {
   const played = seasonPts(now?.weeks ?? []);
   return (
     <div className="space-y-7">
-      <section aria-labelledby="season-now" className="space-y-1.5">
+      <section aria-labelledby="season-now" className="log-in space-y-1.5">
         <Heading id="season-now" title={String(log.season)} stale={log.stale_since}
           note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts` : undefined} />
         {now && now.weeks.length > 0
           ? <Weeks s={now} />
           : <p className="py-1 text-sm text-muted-foreground">No games yet.</p>}
       </section>
-      <section aria-labelledby="season-past" className="space-y-1.5">
+      <section aria-labelledby="season-past" className="log-in space-y-1.5" style={{ "--i": Math.min(now?.weeks.length ?? 0, 10) + 1 } as React.CSSProperties}>
         <Heading id="season-past" title="Past seasons" />
         {past.length > 0
           ? <PastSeasons seasons={past} />
@@ -165,7 +206,7 @@ function Toggle({ open, label }: { open: boolean; label: string }) {
 
 function Weeks({ s }: { s: SeasonLog }) {
   const cols = columns(s);
-  return <SeasonTable cols={cols}>{s.weeks.map((w) => <WeekRows key={w.week} w={w} span={cols.length + 4} />)}</SeasonTable>;
+  return <SeasonTable cols={cols}>{s.weeks.map((w, i) => <WeekRows key={w.week} w={w} span={cols.length + 4} i={i + 1} />)}</SeasonTable>;
 }
 
 function Opponent({ w }: { w: WeekLog }) {
@@ -182,8 +223,12 @@ function Opponent({ w }: { w: WeekLog }) {
 
 // A week he played: the collapsed line, and beneath it a full-width row holding the week's
 // breakdown, open or shut. A bye or a missed game is a quiet row that does not open.
-function WeekRows({ w, span }: { w: WeekLog; span: number }) {
+// `i` places the row in the log's entrance (log-in), a beat after the one above it; a row
+// opened from a past season has none and simply appears.
+function WeekRows({ w, span, i }: { w: WeekLog; span: number; i?: number }) {
   const [open, setOpen] = useState(false);
+  const enter = i == null ? "" : "log-in";
+  const order = i == null ? undefined : { "--i": i } as React.CSSProperties;
   const label = (
     <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold text-muted-foreground`}>
       {/* a game in progress: a lime dot before the week, not a chip in the narrow Opp column */}
@@ -193,7 +238,7 @@ function WeekRows({ w, span }: { w: WeekLog; span: number }) {
   );
   if (w.status === "bye" || w.status === "out") {
     return (
-      <TableRow className={`${ROW} hover:bg-transparent`}>
+      <TableRow className={`${ROW} hover:bg-transparent ${enter}`} style={order}>
         {label}
         <TableCell colSpan={span - 1} className={`${CELL} ${LABEL}`}>{w.status === "bye" ? "bye" : "did not play"}</TableCell>
       </TableRow>
@@ -201,7 +246,7 @@ function WeekRows({ w, span }: { w: WeekLog; span: number }) {
   }
   return (
     <>
-      <TableRow className={`${ROW} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
+      <TableRow className={`${ROW} cursor-pointer ${enter}`} style={order} onClick={() => setOpen((o) => !o)}>
         {label}
         <TableCell className={CELL}><Opponent w={w} /></TableCell>
         {w.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right`}>{v}</TableCell>)}

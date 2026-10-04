@@ -150,7 +150,8 @@ Everything is a shadcn (base-ui) component. New looks are expressed by extending
 - Team-colour gradient panels from the 32-club table are the only saturated surfaces besides the three verdict colours.
 - Barlow Condensed for names, numerals and labels; Geist for reasons and prose; Geist Mono for slot codes in tables.
 - Three verdict colours (lime START, amber close/questionable, red OUT/IR); nothing else is coloured.
-- One card shadow, one authored motion (the outlook panel opening), no decoration beyond the watermark.
+- One card shadow, no decoration beyond the watermark.
+- Motion (`globals.css` "Motion"): one authored moment, a play arriving in the feed (its slot opens at the top, the row slides in from its own team's edge, a scoring play leaves a lime wash that fades over 2.6s; the dropped row folds on the mirror curve so the card holds its height). Everything else is continuity on `--ease-arrive` (`cubic-bezier(0.16, 1, 0.3, 1)`): the outlook panel opening; dialogs fading up 12px from 0.97 over 300ms and out in 150ms on `--ease-leave`, over a plain scrim (no backdrop blur, which stuttered on the phone); the season modal's body growing from the skeleton's height to the log's over 360ms, rows entering 28ms apart. Reduced motion keeps the fades and the wash and drops the travel.
 
 ## Colors
 
@@ -242,7 +243,7 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 
 ### Outlook (Collapsible)
 - **Laptop:** paragraph in muted body, 68ch max, stamp beneath.
-- **Phone:** the stamp is the trigger (min 32px tall, 12px text) with a lucide `ChevronDown` that rotates 180°; the panel animates height over 300ms on `cubic-bezier(0.16, 1, 0.3, 1)`. No fade is stacked on top. This is the page's only authored motion.
+- **Phone:** the stamp is the trigger (min 32px tall, 12px text) with a lucide `ChevronDown` that rotates 180°; the panel animates height over 300ms on `cubic-bezier(0.16, 1, 0.3, 1)`. No fade is stacked on top. This is the Roster page's only motion of its own.
 
 ### Section Heading
 - Condensed uppercase title, muted count, hairline (`bg-foreground/12`) filling the rest of the line, baseline-aligned.

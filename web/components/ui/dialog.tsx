@@ -31,7 +31,9 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        // A plain scrim, not a backdrop blur: blurring the whole page every frame of the fade is
+        // what made opening a dialog stutter on the phone.
+        "fixed inset-0 isolate z-50 bg-black/25 transition-opacity duration-300 ease-(--ease-arrive) data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) dark:bg-black/50",
         className
       )}
       {...props}
@@ -53,7 +55,10 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // Transitions on Base UI's starting/ending styles rather than keyframes, so a tap that
+        // closes the dialog mid-open reverses it from where it is instead of jumping.
+        "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm",
+        "transition-[opacity,scale,translate] duration-300 ease-(--ease-arrive) data-starting-style:translate-y-[calc(-50%+0.75rem)] data-starting-style:scale-[0.97] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) motion-reduce:data-starting-style:-translate-y-1/2 motion-reduce:data-starting-style:scale-100",
           className
         )}
         {...props}
