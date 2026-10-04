@@ -16,7 +16,6 @@ import { playsHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { BoxScoreDialog } from "./box-score-dialog";
-import { FieldBall } from "./field-ball";
 import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
 import { StaleBadge } from "./stale-badge";
@@ -116,20 +115,15 @@ function Num({ p, now, end }: { p: Player; now: number; end: End }) {
 
 // What stands under the number: before kickoff the source spread when it is 3+ (and, on the
 // phone, the PROJ unit); once his game is on, the projection it replaced, after a live dot. With
-// his unit on the field the dot becomes the football and "live" says where he is (lib/field.ts).
+// his unit on the field the dot takes the half's wash colour (lib/field.ts): colour, not words.
 function NumNote({ p, now }: { p: Player; now: number }) {
   const phase = gamePhase(p, now);
   const on = phase !== "pending";
   const field = fieldOf(p);
+  const dot = field === "red_zone" ? "bg-redzone" : field === "on" ? "bg-onfield" : "bg-foreground/75";
   return (
     <span className="flex shrink-0 items-center gap-x-1 whitespace-nowrap text-[0.6875rem] leading-4 tabular-nums text-muted-foreground sm:text-xs">
-      {phase === "live" && (field
-        ? <span className={`flex items-center gap-x-1 font-medium ${field === "red_zone" ? "text-redzone" : "text-foreground/85"}`}>
-            <FieldBall key={field} className="h-2 w-3.5" />
-            <span className="max-sm:sr-only">{FIELD[field].label}</span>
-          </span>
-        : <><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" /><span className="max-sm:sr-only">live</span></>)}
-      {phase === "live" && <span aria-hidden className="max-sm:hidden">·</span>}
+      {phase === "live" && <><span aria-hidden className={`size-1.5 rounded-full transition-colors duration-700 ${dot}`} /><span className="max-sm:sr-only">live</span><span aria-hidden className="max-sm:hidden">·</span></>}
       {!on && <Unit fact={false} className="sm:hidden" />}
       {on
         ? <span>proj {pts(p.proj)}</span>
@@ -179,12 +173,6 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
             </span>
           )}
           {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
-          {/* filled, where an injury is a bare letter: the one chip on the board that is good news or bad by side */}
-          {field === "red_zone" && (
-            <span aria-hidden className="shrink-0 rounded-[3px] bg-redzone px-1 py-px font-display text-[0.625rem] font-bold leading-none tracking-[0.08em] text-redzone-foreground sm:text-[0.6875rem]">
-              {FIELD.red_zone.chip}
-            </span>
-          )}
         </ItemTitle>
         {/* `max-sm:hidden!`: the `flex!` that beats shadcn's line-clamp reset would beat a plain `max-sm:hidden` too */}
         <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1.5 text-xs leading-4 tabular-nums max-sm:hidden! ${opp ? "justify-end text-right" : ""}`}>

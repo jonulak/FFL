@@ -11,8 +11,8 @@ describe("fieldOf", () => {
     expect(fieldOf({ field: "on" })).toBeNull();
     expect(fieldOf({ field: "red_zone", game: { status: "post" } })).toBeNull();
   });
-  it("chips only the red zone", () => {
-    expect(FIELD.on.chip).toBeNull();
-    expect(FIELD.red_zone.chip).toBe("RZ");
+  it("says the red zone to a screen reader, since the board shows it by colour alone", () => {
+    expect(FIELD.on.sr).toBe("on the field");
+    expect(FIELD.red_zone.sr).toContain("red zone");
   });
 });
