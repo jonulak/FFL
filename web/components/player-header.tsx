@@ -28,9 +28,7 @@ const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 export function PlayerHeader({ p, week }: { p: PlayerSeed; week?: number }) {
   const t = team(p.team);
   const src = headshotUrl(p.player_id);
-  const [portrait, setPortrait] = useState(src !== null);
-  const [shown, setShown] = useState(false);
-  const hurt = p.injury != null && !HEALTHY.has(p.injury);
+  const [portrait, setPortrait] = useState(src !== null);  const hurt = p.injury != null && !HEALTHY.has(p.injury);
   const scheduled = p.opponent !== undefined || p.bye !== undefined;
   return (
     <DialogHeader className="gap-0">
@@ -42,9 +40,11 @@ export function PlayerHeader({ p, week }: { p: PlayerSeed; week?: number }) {
           className="pointer-events-none absolute -top-10 -right-10 -z-10 w-56 max-w-none select-none opacity-[0.18]" />
         <div aria-hidden className="absolute bottom-0 left-2 h-full w-28 overflow-hidden sm:left-3 sm:w-32">
           {portrait && src ? (
-            // fades up when it lands rather than popping in over a dialog already open
-            <img src={src} alt="" decoding="async" onError={() => setPortrait(false)} onLoad={() => setShown(true)}
-              className={`absolute bottom-0 left-1/2 h-[112%] w-auto max-w-none -translate-x-1/2 drop-shadow-[0_8px_12px_rgb(0_0_0_/_0.5)] transition-opacity duration-300 ease-(--ease-arrive) motion-reduce:transition-none ${shown ? "opacity-100" : "opacity-0"}`} />
+            // No fade of its own: a fading image is lifted onto its own layer, which on iOS Safari
+            // draws over the caption scrim until the fade ends, and the portrait then visibly
+            // darkens. The dialog's own entrance already carries it in.
+            <img src={src} alt="" decoding="async" onError={() => setPortrait(false)}
+              className="absolute bottom-0 left-1/2 h-[112%] w-auto max-w-none -translate-x-1/2 drop-shadow-[0_8px_12px_rgb(0_0_0_/_0.5)]" />
           ) : (
             <img src={logoUrl(p.team)} alt="" decoding="async"
               className="absolute top-1/2 left-1/2 w-20 -translate-x-1/2 -translate-y-1/2 drop-shadow-[0_6px_10px_rgb(0_0_0_/_0.45)] sm:w-24" />
