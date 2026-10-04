@@ -716,10 +716,31 @@ def past_schedule(season: int) -> dict:
     return _PAST_SCHED[season]
 
 
+HISTORY = 3  # past seasons in the season modal
+_PAST_STATS: dict[tuple[int, int], list[dict]] = {}  # (season, player) -> his stat rows; a past season never changes
+
+
+def past_stats(season: int, player_id: int) -> list[dict]:
+    """One player's stat rows for a season before last, off that season's default league (the
+    league call carries only this season and last). Same row shape, same stat ids."""
+    key = (season, player_id)
+    if key not in _PAST_STATS:
+        filt = {"players": {"filterIds": {"value": [player_id]},
+                            "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": [f"00{season}"]}}}
+        r = requests.get(f"{PRO_SCHEDULE.format(season=season)}/segments/0/leaguedefaults/3",
+                         params={"view": "kona_playercard"}, headers={"x-fantasy-filter": json.dumps(filt)},
+                         cookies=cookies(), timeout=20)
+        r.raise_for_status()
+        players = r.json().get("players") or []
+        _PAST_STATS[key] = players[0]["player"].get("stats") or [] if players else []
+    return _PAST_STATS[key]
+
+
 def player_card(player_id: int) -> dict:
-    """One player's game log, this season and last (player_card.player_log): one kona_playercard
-    call returns every week of both. A failed schedule read leaves the opponents unknown rather
-    than failing the log."""
+    """One player's game log, this season and HISTORY before it (player_card.player_log): the
+    league call returns every week of this season and last, each earlier season is one more call,
+    made side by side. A failed earlier season or schedule read drops that season or its opponents
+    rather than failing the log."""
     from . import player_card as card_log  # player_card imports this module
 
     lg = fresh_league()
@@ -728,13 +749,24 @@ def player_card(player_id: int) -> dict:
     card = raw_league_get("kona_playercard", headers={"x-fantasy-filter": json.dumps(filt)})
     if not card.get("players"):
         raise LookupError(f"ESPN has no player {player_id}")
-    schedules = {}
-    for yr, read in ((SEASON, lambda: _schedule_doc(lg)), (SEASON - 1, lambda: past_schedule(SEASON - 1))):
+    earlier = range(SEASON - 2, SEASON - HISTORY - 1, -1)
+    reads = {("sched", SEASON): lambda: _schedule_doc(lg)}
+    reads |= {("sched", yr): (lambda yr=yr: past_schedule(yr)) for yr in range(SEASON - 1, SEASON - HISTORY - 1, -1)}
+    reads |= {("stats", yr): (lambda yr=yr: past_stats(yr, player_id)) for yr in earlier}
+    with ThreadPoolExecutor(max_workers=len(reads)) as pool:
+        futures = {k: pool.submit(fn) for k, fn in reads.items()}
+    schedules, rows = {}, []
+    for (kind, yr), f in futures.items():
         try:
-            schedules[yr] = read()
-        except Exception as e:  # noqa: BLE001 — opponents are decoration, the log is not
-            print(f"pro schedule {yr} unavailable, opponents unknown: {e}")
-    return card_log.player_log(card, load()["scoring"], schedules, lg.current_week, SEASON)
+            if kind == "sched":
+                schedules[yr] = f.result()
+            else:
+                rows += f.result()
+        except Exception as e:  # noqa: BLE001 — an earlier season or the opponents are not worth the log
+            print(f"{kind} {yr} unavailable for player {player_id}: {e}")
+    p = card["players"][0]["player"]
+    card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
+    return card_log.player_log(card, load()["scoring"], schedules, lg.current_week, SEASON, HISTORY)
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:

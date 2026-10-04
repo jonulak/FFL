@@ -138,6 +138,17 @@ def test_player_card_io(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: json.loads((FX / "settings_scoring.json").read_text()))
     monkeypatch.setattr(espn_season, "_schedule_doc", down)
     monkeypatch.setattr(espn_season, "past_schedule", down)
+    rows24 = json.loads((FX / "espn_playercard_2024.json").read_text())["players"][0]["player"]["stats"]
+    past = []
+
+    def past_stats(season, pid):
+        past.append(season)
+        if season == 2023:
+            raise RuntimeError("down")  # one season failing leaves the others
+        return rows24
+    monkeypatch.setattr(espn_season, "past_stats", past_stats)
     log = espn_season.player_card(3918298)
     assert seen["view"] == "kona_playercard" and seen["filter"]["players"]["filterIds"]["value"] == [3918298]
-    assert set(log) == PLAYER_LOG and log["seasons"][-1]["weeks"][0]["opp"] is None
+    assert set(log) == PLAYER_LOG and log["seasons"][1]["weeks"][0]["opp"] is None
+    assert sorted(past) == [2023, 2024]
+    assert [s["season"] for s in log["seasons"]] == [2026, 2025, 2024]

@@ -124,13 +124,16 @@ def season_log(rows: list[dict], season: int, pos: str, scoring: list[dict], gam
                        "summary": summary(pos, totals), "box": box}}
 
 
-def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], current_week: int, season: int) -> dict:
-    """The modal's payload from one kona_playercard response: this season through the current
-    week, last season whole, newest first; a season he did not play is left out."""
+def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], current_week: int, season: int,
+               history: int = 1) -> dict:
+    """The modal's payload from a kona_playercard response: this season through the current
+    week, then `history` past seasons whole, newest first; a season he did not play is left out.
+    The rows may come from several calls (earlier seasons are fetched apart): each season reads
+    only its own."""
     p = card["players"][0]["player"]
     pos, team = POS.get(p.get("defaultPositionId"), "?"), PRO_TEAM_MAP.get(p.get("proTeamId"))
     seasons = []
-    for yr in (season, season - 1):
+    for yr in range(season, season - history - 1, -1):
         sched = schedules.get(yr) or {}
         games = parse_games(sched)
         through = current_week if yr == season else max((w for w, _, _ in games.values()), default=18)

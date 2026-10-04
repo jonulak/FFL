@@ -91,36 +91,36 @@ function Loading() {
   );
 }
 
-// This season's weeks, then last season folded into one totals row that opens onto its weeks.
+// This season's weeks, then each past season folded into one totals row that opens onto its weeks.
 function Seasons({ log }: { log: PlayerLog }) {
   const now = log.seasons.find((s) => s.season === log.season);
-  const last = log.seasons.find((s) => s.season === log.season - 1);
+  const past = log.seasons.filter((s) => s.season < log.season && s.totals);
   const played = seasonPts(now?.weeks ?? []);
   return (
     <div className="space-y-7">
       <section aria-labelledby="season-now" className="space-y-1.5">
-        <Heading id="season-now" season={log.season} stale={log.stale_since}
+        <Heading id="season-now" title={String(log.season)} stale={log.stale_since}
           note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts` : undefined} />
         {now && now.weeks.length > 0
           ? <Weeks s={now} />
           : <p className="py-1 text-sm text-muted-foreground">No games yet.</p>}
       </section>
-      <section aria-labelledby="season-last" className="space-y-1.5">
-        <Heading id="season-last" season={log.season - 1} />
-        {last?.totals
-          ? <PastSeason s={last} totals={last.totals} />
-          : <p className="py-1 text-sm text-muted-foreground">No {log.season - 1} games.</p>}
+      <section aria-labelledby="season-past" className="space-y-1.5">
+        <Heading id="season-past" title="Past seasons" />
+        {past.length > 0
+          ? <PastSeasons seasons={past} />
+          : <p className="py-1 text-sm text-muted-foreground">No games before {log.season}.</p>}
       </section>
     </div>
   );
 }
 
-// A section heading as the Roster page sets its groups: the season in the board face, its count
+// A section heading as the Roster page sets its groups: the title in the board face, its count
 // beside it, the hairline running out to the right.
-function Heading({ id, season, note, stale }: { id: string; season: number; note?: string; stale?: string | null }) {
+function Heading({ id, title, note, stale }: { id: string; title: string; note?: string; stale?: string | null }) {
   return (
     <h3 id={id} className="flex items-baseline gap-3">
-      <span className="font-display text-xl font-semibold uppercase tracking-[0.14em]">{season}</span>
+      <span className="shrink-0 font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</span>
       {note && <span className="font-display text-sm font-medium tabular-nums text-muted-foreground">{note}</span>}
       {stale && <StaleBadge since={stale} />}
       <Separator className="mb-1.5 flex-1 self-end bg-foreground/12" />
@@ -136,12 +136,12 @@ const PANEL = "h-(--collapsible-panel-height) overflow-hidden transition-[height
 
 // A season as a table: week, opponent, the position's stat group, points, and the toggle that
 // opens a row onto its breakdown. The table lines every stat up straight down the weeks.
-function SeasonTable({ cols, children }: { cols: string[]; children: React.ReactNode }) {
+function SeasonTable({ cols, first = "Wk", children }: { cols: string[]; first?: string; children: React.ReactNode }) {
   return (
     <Table className="tabular-nums">
       <TableHeader>
         <TableRow className={`${ROW} hover:bg-transparent`}>
-          <TableHead className={`${HEAD} pl-0`}>Wk</TableHead>
+          <TableHead className={`${HEAD} pl-0`}>{first}</TableHead>
           <TableHead className={HEAD}>Opp</TableHead>
           {cols.map((c) => <TableHead key={c} className={`${HEAD} text-right`}>{c}</TableHead>)}
           <TableHead className={`${HEAD} text-right`}>Pts</TableHead>
@@ -225,15 +225,24 @@ function WeekRows({ w, span }: { w: WeekLog; span: number }) {
   );
 }
 
-// A past season as one row: games, the stat group summed, points with the per-game rate beneath.
-// It opens onto his weeks, each of which opens onto its breakdown.
-function PastSeason({ s, totals }: { s: SeasonLog; totals: SeasonTotals }) {
-  const [open, setOpen] = useState(false);
-  const cols = columns(s);
+// The past seasons in one table, newest first, so a season's totals read against the others.
+function PastSeasons({ seasons }: { seasons: SeasonLog[] }) {
+  const cols = columns(seasons[0]);
   return (
-    <SeasonTable cols={cols}>
+    <SeasonTable cols={cols} first="Yr">
+      {seasons.map((s) => <PastSeason key={s.season} s={s} totals={s.totals!} span={cols.length + 4} />)}
+    </SeasonTable>
+  );
+}
+
+// A past season as one row: the year, games, the stat group summed, points with the per-game
+// rate beneath. It opens onto his weeks, each of which opens onto its breakdown.
+function PastSeason({ s, totals, span }: { s: SeasonLog; totals: SeasonTotals; span: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
       <TableRow className={`${ROW} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
-        <TableCell className={`${CELL} pl-0 ${LABEL}`}>All</TableCell>
+        <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold`}>{s.season}</TableCell>
         <TableCell className={`${CELL} text-xs text-foreground/80`}>{totals.games} G</TableCell>
         {totals.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right font-medium`}>{v}</TableCell>)}
         <TableCell className={`${CELL} text-right`}>
@@ -244,7 +253,7 @@ function PastSeason({ s, totals }: { s: SeasonLog; totals: SeasonTotals }) {
           <Toggle open={open} label={`${s.season} season: ${totals.games} games, ${pts(totals.pts)} points, weeks`} />
         </TableCell>
       </TableRow>
-      {open && s.weeks.map((w) => <WeekRows key={w.week} w={w} span={cols.length + 4} />)}
-    </SeasonTable>
+      {open && s.weeks.map((w) => <WeekRows key={w.week} w={w} span={span} />)}
+    </>
   );
 }

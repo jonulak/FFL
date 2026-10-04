@@ -86,6 +86,19 @@ def test_player_log_both_seasons():
     assert [s["season"] for s in log["seasons"]] == [2026, 2025]
 
 
+def test_player_log_history():
+    """Past seasons' rows come from other calls, merged into the one stats list; each season
+    keeps to its own rows, newest first, and a season he did not play is left out."""
+    rows24 = json.loads((FX / "espn_playercard_2024.json").read_text())["players"][0]["player"]["stats"]
+    allen = player(3918298)
+    card = {"players": [{"player": {**allen, "stats": allen["stats"] + rows24}}]}
+    log = pc.player_log(card, SCORING, {2025: SCHED25}, 4, 2026, history=3)
+    assert [s["season"] for s in log["seasons"]] == [2026, 2025, 2024]
+    s24 = log["seasons"][2]
+    assert s24["totals"]["games"] == sum(w["status"] == "played" for w in s24["weeks"]) > 0
+    assert all(w["opp"] is None for w in s24["weeks"])  # no 2024 schedule given: opponents unknown
+
+
 def test_with_live_inserts_week():
     log = {"pos": "QB", "season": 2026, "seasons": [{"season": 2026, "weeks": [], "totals": None}], "current_week": 4, "team": "BUF"}
     out = pc.with_live(log, 4, {"0": 10, "1": 7, "3": 80}, SCORING, {"status": "in"})
