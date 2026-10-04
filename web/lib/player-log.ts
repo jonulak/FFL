@@ -1,5 +1,5 @@
 import type { SeasonLog, WeekLog } from "./api";
-import { pts } from "./format";
+import { injuryLabel, pts } from "./format";
 
 // The season modal's column headings: the position's stat group, read off the first week that has
 // one (a bye or a missed game has none), else off the season's totals.
@@ -8,7 +8,7 @@ export function columns(s: SeasonLog): string[] {
   return (w?.summary ?? s.totals?.summary ?? []).map(([label]) => label);
 }
 
-export const weekLabel = (w: WeekLog) => `W${w.week}`;
+export const weekLabel =(w: WeekLog) => `W${w.week}`;
 
 export const ptsText = (n: number | null) => pts(n);
 
@@ -17,6 +17,12 @@ export const ptsText = (n: number | null) => pts(n);
 export function seasonPts(weeks: WeekLog[]): { games: number; pts: number } {
   const played = weeks.filter((w) => w.status === "played" || w.status === "live");
   return { games: played.length, pts: Math.round(played.reduce((t, w) => t + (w.pts ?? 0), 0) * 100) / 100 };
+}
+
+// The header's injury chip: the return week only once the current week is known (the season
+// log brings it) and it is still ahead; until then the bare status, never a week already past.
+export function headerInjury(status: string, returnWeek: number | null, week?: number): string {
+  return week == null ? status : injuryLabel(status, returnWeek, week);
 }
 
 // A name that opens the season modal: plain type at rest, underlined under a pointer. Here, not in

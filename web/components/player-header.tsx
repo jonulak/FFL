@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Player } from "@/lib/api";
-import { injuryLabel, injuryTone } from "@/lib/format";
+import { injuryTone } from "@/lib/format";
+import { headerInjury } from "@/lib/player-log";
 import { headshotUrl, logoUrl, team } from "@/lib/teams";
 import { GameLine } from "./local-time";
 
@@ -59,7 +60,7 @@ export function PlayerHeader({ p, week }: { p: PlayerSeed; week?: number }) {
             <span>{t.name || p.team}</span>
             {hurt && (
               <Badge variant={TAG[injuryTone(p.injury!)]} shape="chip" title={p.injury_note ?? undefined} className="ml-0.5">
-                {injuryLabel(p.injury!.replaceAll("_", " "), p.return_week ?? null, week ?? 0)}
+                {headerInjury(p.injury!.replaceAll("_", " "), p.return_week ?? null, week)}
               </Badge>
             )}
           </DialogDescription>

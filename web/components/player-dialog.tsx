@@ -3,12 +3,12 @@
 import { ChevronDown } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { clientGet } from "@/app/api-client";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { PlayerLog, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
 import { pts } from "@/lib/format";
 import { columns, ptsText, seasonPts, weekLabel } from "@/lib/player-log";
@@ -51,7 +51,7 @@ export function PlayerTrigger({ p, className = "", children }: { p: PlayerSeed; 
   );
 }
 
-type Load ={ state: "loading" } | { state: "ready"; log: PlayerLog } | { state: "error" };
+type Load = { state: "loading" } | { state: "ready"; log: PlayerLog } | { state: "error" };
 
 function Body({ seed }: { seed: PlayerSeed }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });
@@ -66,7 +66,7 @@ function Body({ seed }: { seed: PlayerSeed }) {
   const retry = () => { setLoad({ state: "loading" }); setAttempt((n) => n + 1); };
   return (
     <>
-      <PlayerHeader p={seed} />
+      <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined} />
       <div className="overflow-y-auto overscroll-contain px-4 pt-4 pb-5">
         {load.state === "loading" && <Loading />}
         {load.state === "error" && (
@@ -83,7 +83,8 @@ function Body({ seed }: { seed: PlayerSeed }) {
 
 function Loading() {
   return (
-    <div aria-busy className="space-y-2" aria-label="loading the game log">
+    <div role="status" className="space-y-2">
+      <span className="sr-only">Loading the game log</span>
       <Skeleton className="h-5 w-24" />
       {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-9 w-full" />)}
     </div>
@@ -107,7 +108,7 @@ function Seasons({ log }: { log: PlayerLog }) {
       <section aria-labelledby="season-last" className="space-y-1.5">
         <Heading id="season-last" season={log.season - 1} />
         {last?.totals
-          ? <LastSeason s={last} totals={last.totals} />
+          ? <PastSeason s={last} totals={last.totals} />
           : <p className="py-1 text-sm text-muted-foreground">No {log.season - 1} games.</p>}
       </section>
     </div>
@@ -127,113 +128,123 @@ function Heading({ id, season, note, stale }: { id: string; season: number; note
   );
 }
 
-// One grid for the column heads and every row of a season, so each stat reads straight down:
-// week, opponent, the position's stat group, points, the chevron.
-const grid = (n: number): React.CSSProperties => ({
-  gridTemplateColumns: `2rem minmax(2.25rem,1fr) repeat(${n}, minmax(2rem,auto)) 3.25rem 0.875rem`,
-});
 const LABEL = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+const HEAD = `h-auto px-1.5 pb-1 ${LABEL}`;
+const CELL = "px-1.5 py-2";
+const ROW = "border-foreground/10";
+const PANEL = "h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] data-ending-style:h-0 data-starting-style:h-0 motion-reduce:transition-none";
 
-function ColumnHeads({ cols }: { cols: string[] }) {
+// A season as a table: week, opponent, the position's stat group, points, and the toggle that
+// opens a row onto its breakdown. The table lines every stat up straight down the weeks.
+function SeasonTable({ cols, children }: { cols: string[]; children: React.ReactNode }) {
   return (
-    <div aria-hidden className={`grid items-end gap-x-1.5 border-b border-foreground/10 pb-1 sm:gap-x-2.5 ${LABEL}`} style={grid(cols.length)}>
-      <span>Wk</span>
-      <span>Opp</span>
-      {cols.map((c, i) => <span key={i} className="text-right">{c}</span>)}
-      <span className="text-right">Pts</span>
-      <span />
-    </div>
+    <Table className="tabular-nums">
+      <TableHeader>
+        <TableRow className={`${ROW} hover:bg-transparent`}>
+          <TableHead className={`${HEAD} pl-0`}>Wk</TableHead>
+          <TableHead className={HEAD}>Opp</TableHead>
+          {cols.map((c) => <TableHead key={c} className={`${HEAD} text-right`}>{c}</TableHead>)}
+          <TableHead className={`${HEAD} text-right`}>Pts</TableHead>
+          <TableHead className={`${HEAD} w-0 pr-0`}><span className="sr-only">Breakdown</span></TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>{children}</TableBody>
+    </Table>
+  );
+}
+
+// The row's toggle. The whole row takes the click; the button is the keyboard and screen-reader
+// handle on it (its click bubbles to the row), so it carries no handler of its own.
+function Toggle({ open, label }: { open: boolean; label: string }) {
+  return (
+    <Button variant="ghost" size="icon-xs" aria-expanded={open} aria-label={label} className="text-foreground/45">
+      <ChevronDown aria-hidden className={`stroke-[2.5] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
+    </Button>
   );
 }
 
 function Weeks({ s }: { s: SeasonLog }) {
   const cols = columns(s);
-  return (
-    <div>
-      <ColumnHeads cols={cols} />
-      {s.weeks.map((w) => <WeekRow key={w.week} w={w} n={cols.length} />)}
-    </div>
-  );
-}
-
-const ROW = "grid w-full items-center gap-x-1.5 py-2 text-left tabular-nums sm:gap-x-2.5";
-const PANEL = "h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] data-ending-style:h-0 data-starting-style:h-0 motion-reduce:transition-none";
-
-function Chevron() {
-  return <ChevronDown aria-hidden className="size-3.5 stroke-[2.5] text-foreground/45 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-data-panel-open:rotate-180 motion-reduce:transition-none" />;
+  return <SeasonTable cols={cols}>{s.weeks.map((w) => <WeekRows key={w.week} w={w} span={cols.length + 4} />)}</SeasonTable>;
 }
 
 function Opponent({ w }: { w: WeekLog }) {
+  if (!w.opp) return null;
   return (
-    <span className="flex min-w-0 items-center gap-1 text-xs text-foreground/80">
-      {w.opp && (
-        <>
-          <span aria-hidden className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em]">{w.home ? "vs" : "@"}</span>
-          <TeamLogo abbr={w.opp} size={16} fallback className="shrink-0" />
-          <span aria-hidden className="hidden font-medium sm:inline">{w.opp}</span>
-          <span className="sr-only">{w.home ? "vs" : "at"} {w.opp}</span>
-        </>
-      )}
-      {w.status === "live" && <Badge variant="muted" shape="chip" className="ml-0.5">live</Badge>}
+    <span className="flex items-center gap-1 text-xs text-foreground/80">
+      <span aria-hidden className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em]">{w.home ? "vs" : "@"}</span>
+      <TeamLogo abbr={w.opp} size={16} fallback className="shrink-0" />
+      <span aria-hidden className="hidden font-medium sm:inline">{w.opp}</span>
+      <span className="sr-only">{w.home ? "vs" : "at"} {w.opp}</span>
     </span>
   );
 }
 
-// A week he played: the collapsed line, opening onto the week's full breakdown. A bye or a missed
-// game is a quiet row that does not open.
-function WeekRow({ w, n }: { w: WeekLog; n: number }) {
+// A week he played: the collapsed line, and beneath it a full-width row holding the week's
+// breakdown, open or shut. A bye or a missed game is a quiet row that does not open.
+function WeekRows({ w, span }: { w: WeekLog; span: number }) {
+  const [open, setOpen] = useState(false);
+  const label = (
+    <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold text-muted-foreground`}>
+      {/* a game in progress: a lime dot before the week, not a chip in the narrow Opp column */}
+      {w.status === "live" && <span aria-hidden className="mr-1 inline-block size-1.5 rounded-full bg-start align-middle motion-safe:animate-pulse" />}
+      {weekLabel(w)}
+    </TableCell>
+  );
   if (w.status === "bye" || w.status === "out") {
     return (
-      <div className={`${ROW} border-b border-foreground/10 text-muted-foreground`} style={grid(n)}>
-        <span className="font-display text-sm font-semibold">{weekLabel(w)}</span>
-        <span className={`${LABEL} col-[2/-1]`}>{w.status === "bye" ? "bye" : "did not play"}</span>
-      </div>
+      <TableRow className={`${ROW} hover:bg-transparent`}>
+        {label}
+        <TableCell colSpan={span - 1} className={`${CELL} ${LABEL}`}>{w.status === "bye" ? "bye" : "did not play"}</TableCell>
+      </TableRow>
     );
   }
   return (
-    <Collapsible className="border-b border-foreground/10">
-      <CollapsibleTrigger className={`group ${ROW} cursor-pointer rounded-sm outline-none hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-ring/60`} style={grid(n)}
-        aria-label={`Week ${w.week}${w.opp ? `, ${w.home ? "vs" : "at"} ${w.opp}` : ""}: ${ptsText(w.pts)} points`}>
-        <span className="font-display text-sm font-semibold text-muted-foreground">{weekLabel(w)}</span>
-        <Opponent w={w} />
-        {w.summary.map(([, v], i) => <span key={i} className="text-right text-sm">{v}</span>)}
-        <span className="text-right font-display text-lg font-bold leading-none tracking-tight">{ptsText(w.pts)}</span>
-        <Chevron />
-      </CollapsibleTrigger>
-      <CollapsibleContent className={PANEL}>
-        <div className="mb-2.5 rounded-md bg-foreground/[0.035] px-3 pt-2 pb-2.5">
-          {w.box.length > 0 ? <BoxTable box={w.box} /> : <p className="py-1 text-xs text-muted-foreground">Nothing that scores.</p>}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+    <>
+      <TableRow className={`${ROW} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
+        {label}
+        <TableCell className={CELL}><Opponent w={w} /></TableCell>
+        {w.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right`}>{v}</TableCell>)}
+        <TableCell className={`${CELL} text-right font-display text-lg font-bold leading-none tracking-tight`}>{ptsText(w.pts)}</TableCell>
+        <TableCell className="py-2 pr-0 pl-1">
+          <Toggle open={open} label={`Week ${w.week}${w.status === "live" ? " (live)" : ""}${w.opp ? `, ${w.home ? "vs" : "at"} ${w.opp}` : ""}: ${ptsText(w.pts)} points, breakdown`} />
+        </TableCell>
+      </TableRow>
+      <TableRow className="border-0 hover:bg-transparent">
+        <TableCell colSpan={span} className="p-0 whitespace-normal">
+          <Collapsible open={open}>
+            <CollapsibleContent className={PANEL}>
+              <div className="my-2 rounded-md bg-foreground/[0.035] px-3 pt-2 pb-2.5">
+                {w.box.length > 0 ? <BoxTable box={w.box} /> : <p className="py-1 text-xs text-muted-foreground">Nothing that scores.</p>}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        </TableCell>
+      </TableRow>
+    </>
   );
 }
 
-// Last season as one row: games, the stat group summed, points with the per-game rate beneath.
+// A past season as one row: games, the stat group summed, points with the per-game rate beneath.
 // It opens onto his weeks, each of which opens onto its breakdown.
-function LastSeason({ s, totals }: { s: SeasonLog; totals: SeasonTotals }) {
+function PastSeason({ s, totals }: { s: SeasonLog; totals: SeasonTotals }) {
+  const [open, setOpen] = useState(false);
   const cols = columns(s);
   return (
-    <div>
-      <ColumnHeads cols={cols} />
-      <Collapsible>
-        <CollapsibleTrigger className={`group ${ROW} cursor-pointer rounded-sm outline-none hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-ring/60`} style={grid(cols.length)}
-          aria-label={`${s.season} season: ${totals.games} games, ${pts(totals.pts)} points`}>
-          <span className={LABEL}>All</span>
-          <span className="text-xs text-foreground/80">{totals.games} G</span>
-          {totals.summary.map(([, v], i) => <span key={i} className="text-right text-sm font-medium">{v}</span>)}
-          <span className="flex flex-col items-end">
-            <span className="font-display text-lg font-bold leading-none tracking-tight">{pts(totals.pts)}</span>
-            <span className="mt-0.5 text-[0.6875rem] leading-none text-muted-foreground">{pts(totals.ppg)}/g</span>
-          </span>
-          <Chevron />
-        </CollapsibleTrigger>
-        <CollapsibleContent className={PANEL}>
-          <div className="border-t border-foreground/10">
-            {s.weeks.map((w) => <WeekRow key={w.week} w={w} n={cols.length} />)}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
+    <SeasonTable cols={cols}>
+      <TableRow className={`${ROW} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
+        <TableCell className={`${CELL} pl-0 ${LABEL}`}>All</TableCell>
+        <TableCell className={`${CELL} text-xs text-foreground/80`}>{totals.games} G</TableCell>
+        {totals.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right font-medium`}>{v}</TableCell>)}
+        <TableCell className={`${CELL} text-right`}>
+          <span className="block font-display text-lg font-bold leading-none tracking-tight">{pts(totals.pts)}</span>
+          <span className="mt-0.5 block text-[0.6875rem] leading-none text-muted-foreground">{pts(totals.ppg)}/g</span>
+        </TableCell>
+        <TableCell className="py-2 pr-0 pl-1">
+          <Toggle open={open} label={`${s.season} season: ${totals.games} games, ${pts(totals.pts)} points, weeks`} />
+        </TableCell>
+      </TableRow>
+      {open && s.weeks.map((w) => <WeekRows key={w.week} w={w} span={cols.length + 4} />)}
+    </SeasonTable>
   );
 }

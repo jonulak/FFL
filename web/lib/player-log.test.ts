@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SeasonLog, WeekLog } from "./api";
-import { columns, ptsText, seasonPts, weekLabel } from "./player-log";
+import { columns, headerInjury, ptsText, seasonPts, weekLabel } from "./player-log";
 
 const wk = (week: number, summary: [string, string][] = [], status: WeekLog["status"] = "played", pts: number | null = null): WeekLog =>
   ({ week, opp: null, home: null, status, pts, summary, box: [] });
@@ -16,6 +16,11 @@ describe("player-log", () => {
     expect(weekLabel(wk(7))).toBe("W7");
     expect(ptsText(null)).toBe("—");
     expect(ptsText(12.25)).toBe("12.3");
+  });
+  it("adds the return week to the header chip only when the week is known and it is still ahead", () => {
+    expect(headerInjury("OUT", 4)).toBe("OUT");
+    expect(headerInjury("OUT", 4, 4)).toBe("OUT");
+    expect(headerInjury("OUT", 6, 4)).toBe("OUT · wk 6");
   });
   it("sums the season from its weeks, the live one included", () => {
     expect(seasonPts([wk(1, [], "played", 10.2), wk(2, [], "bye"), wk(3, [], "live", 4.1)])).toEqual({ games: 2, pts: 14.3 });
