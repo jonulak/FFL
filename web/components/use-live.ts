@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clientGet } from "@/app/api-client";
 
 // A page's data kept live: the server render hands us `initial`; while the API says games are
@@ -10,13 +10,25 @@ import { clientGet } from "@/app/api-client";
 // (router.refresh(), navigation) hands us a fresh `initial`, adopted during render.
 const POLL_MS = 60_000;
 
+// The newest data each path has fetched, and the server render it superseded. A back or
+// forward navigation restores the page from the router cache with that same, now stale,
+// `initial`; resuming from here instead keeps the plays since from replaying as new. A
+// different `initial` is a fresh server render and wins.
+const latest = new Map<string, { initial: unknown; data: unknown }>();
+const resume = <T,>(initial: T, path: string): T => {
+  const hit = latest.get(path);
+  return hit && hit.initial === initial ? (hit.data as T) : initial;
+};
+
 export function useLive<T extends { live: boolean }>(initial: T, path: string): { data: T; now: number } {
-  const [data, setData] = useState(initial);
+  const [data, setData] = useState(() => resume(initial, path));
   const [seen, setSeen] = useState(initial);
   if (seen !== initial) {
     setSeen(initial);
-    setData(initial);
+    setData(resume(initial, path));
   }
+  const from = useRef(initial);
+  useEffect(() => { from.current = initial; }, [initial]);
   // The clock game phases are read against: fixed at first render (react-hooks/purity), then
   // advanced with each update so a row turns live at kickoff without a reload.
   const [now, setNow] = useState(() => Date.now());
@@ -32,7 +44,12 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
       if (inflight) { again = true; return; }
       inflight = true;
       clientGet<T>(path)
-        .then((d) => { if (!closed) { setData(d); setNow(Date.now()); } })
+        .then((d) => {
+          if (closed) return;
+          latest.set(path, { initial: from.current, data: d });
+          setData(d);
+          setNow(Date.now());
+        })
         .catch(() => {})
         .finally(() => { inflight = false; if (again && !closed) { again = false; refetch(); } });
     };
