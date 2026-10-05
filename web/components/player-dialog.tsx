@@ -2,6 +2,7 @@
 
 import { ChevronDown } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { clientGet } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -301,11 +302,22 @@ function PastSeasons({ seasons }: { seasons: SeasonLog[] }) {
 
 // A past season as one row: the year, games, the stat group summed, points with the per-game
 // rate beneath. It opens onto his weeks, each of which opens onto its breakdown.
+// The weeks are rendered on the first open, not with the log: three seasons of folded rows were
+// enough work to stall the modal's grow on a phone as the log landed. That first open commits
+// them shut (flushSync) and reads the layout, so the fold has a shut state to run from.
 function PastSeason({ s, totals, span }: { s: SeasonLog; totals: SeasonTotals; span: number }) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const toggle = (e: React.MouseEvent<HTMLTableRowElement>) => {
+    if (!mounted) {
+      flushSync(() => setMounted(true));
+      void e.currentTarget.offsetHeight;
+    }
+    setOpen((o) => !o);
+  };
   return (
     <>
-      <TableRow className={`${ROW} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
+      <TableRow className={`${ROW} cursor-pointer`} onClick={toggle}>
         <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold`}>{s.season}</TableCell>
         <TableCell className={`${CELL} text-xs text-foreground/80`}>{totals.games} G</TableCell>
         {totals.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right font-medium`}>{v}</TableCell>)}
@@ -317,7 +329,7 @@ function PastSeason({ s, totals, span }: { s: SeasonLog; totals: SeasonTotals; s
           <Toggle open={open} label={`${s.season} season: ${totals.games} games, ${pts(totals.pts)} points, weeks`} />
         </TableCell>
       </TableRow>
-      {s.weeks.map((w) => <WeekRows key={w.week} w={w} span={span} fold={open} />)}
+      {mounted && s.weeks.map((w) => <WeekRows key={w.week} w={w} span={span} fold={open} />)}
     </>
   );
 }
