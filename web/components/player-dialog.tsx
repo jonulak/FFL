@@ -10,8 +10,8 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { PlayerLog, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
-import { pts } from "@/lib/format";
+import type { OppRank, PlayerLog, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
+import { ordinal, pts } from "@/lib/format";
 import { columns, ptsText, seasonPts, weekLabel } from "@/lib/player-log";
 import { BoxTable } from "./box-table";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
@@ -171,7 +171,7 @@ function Seasons({ log }: { log: PlayerLog }) {
         <Heading id="season-now" title={String(log.season)} stale={log.stale_since}
           note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts` : undefined} />
         {now && now.weeks.length > 0
-          ? <Weeks s={now} />
+          ? <Weeks s={now} pos={log.pos} week={log.current_week} />
           : <p className="py-1 text-sm text-muted-foreground">No games yet.</p>}
       </section>
       <section aria-labelledby="season-past" className="log-in space-y-1.5" style={{ "--i": Math.min(now?.weeks.length ?? 0, 10) + 1 } as React.CSSProperties}>
@@ -232,9 +232,63 @@ function Toggle({ open, label }: { open: boolean; label: string }) {
   );
 }
 
-function Weeks({ s }: { s: SeasonLog }) {
+// The weeks played, then the weeks still ahead under their own rule: the games to play with the
+// opponent's rank against his position, and the bye where it falls. A bye still to come belongs ahead, so the rule falls at the first game to play or the first
+// week past the current one, whichever comes first.
+function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
   const cols = columns(s);
-  return <SeasonTable cols={cols}>{s.weeks.map((w, i) => <WeekRows key={w.week} w={w} span={cols.length + 4} i={i + 1} />)}</SeasonTable>;
+  const span = cols.length + 4;
+  const split = s.weeks.findIndex((w) => w.status === "upcoming" || w.week > week);
+  const done = split < 0 ? s.weeks : s.weeks.slice(0, split);
+  const ahead = split < 0 ? [] : s.weeks.slice(split);
+  const of = ahead.find((w) => w.opp_rank)?.opp_rank?.of;
+  return (
+    <SeasonTable cols={cols}>
+      {done.map((w, i) => <WeekRows key={w.week} w={w} span={span} i={i + 1} />)}
+      {ahead.length > 0 && (
+        <TableRow className={`${ROW} hover:bg-transparent log-in`} style={{ "--i": done.length + 1 } as React.CSSProperties}>
+          <TableCell colSpan={span} className="px-0 pt-5 pb-1">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em]">Ahead</span>
+              <span className={LABEL}>{pos} pts/g allowed · rank{of ? `, ${ordinal(of)} = most` : ""}</span>
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+      {ahead.map((w, i) => w.status === "upcoming"
+        ? <AheadRow key={w.week} w={w} pos={pos} span={cols.length + 1} i={done.length + i + 2} />
+        : <WeekRows key={w.week} w={w} span={span} i={done.length + i + 2} />)}
+    </SeasonTable>
+  );
+}
+
+// A game still to play: the week, the opponent, and across the stat and points columns how that
+// defence has held his position, per game and as ESPN's rank. Nothing opens; there is no box yet.
+function AheadRow({ w, pos, span, i }: { w: WeekLog; pos: string; span: number; i: number }) {
+  return (
+    <TableRow className={`${ROW} hover:bg-transparent log-in`} style={{ "--i": i } as React.CSSProperties}>
+      <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold text-muted-foreground`}>{weekLabel(w)}</TableCell>
+      <TableCell className={CELL}><Opponent w={w} /></TableCell>
+      <TableCell colSpan={span} className={`${CELL} text-right`}><OppRankCell r={w.opp_rank} pos={pos} /></TableCell>
+      <TableCell className="py-2 pr-0 pl-1" />
+    </TableRow>
+  );
+}
+
+// Points allowed per game, a bar running the rank's length (a longer bar gave up more), and the
+// rank. The bar is ink, not a verdict colour: it is context for the call, never the call.
+function OppRankCell({ r, pos }: { r: OppRank | null | undefined; pos: string }) {
+  if (!r) return <span className={LABEL}>no rank yet</span>;
+  return (
+    <span className="inline-flex items-center justify-end gap-2.5">
+      <span aria-hidden className="text-xs text-foreground/70">{pts(r.allowed)}<span className="text-muted-foreground">/g</span></span>
+      <span aria-hidden className="relative h-1 w-12 overflow-hidden rounded-full bg-foreground/10 sm:w-16">
+        <span className="absolute inset-y-0 left-0 rounded-full bg-foreground/60" style={{ width: `${(r.rank / r.of) * 100}%` }} />
+      </span>
+      <span aria-hidden className="w-9 font-display text-base font-semibold leading-none">{ordinal(r.rank)}</span>
+      <span className="sr-only">{ordinal(r.rank)} of {r.of} against {pos}s, {pts(r.allowed)} points allowed per game</span>
+    </span>
+  );
 }
 
 function Opponent({ w }: { w: WeekLog }) {

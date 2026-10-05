@@ -1,8 +1,11 @@
 """One player's game log, this season and last, from ESPN's kona_playercard view: every week's raw
 stats scored with the league's table (live.box_score, so a week reads exactly like the Matchup
-breakdown), the week's opponent off that season's pro schedule, and the season's totals. Pure: the
-fetch is espn_season.player_card's."""
+breakdown), the week's opponent off that season's pro schedule, and the season's totals. This
+season's games still to play follow the log, each with the opponent's rank against his position
+(ESPN's positionAgainstOpponent). Pure: the fetch is espn_season.player_card's."""
 from __future__ import annotations
+
+import time
 
 from espn_api.football.constant import PRO_TEAM_MAP
 
@@ -124,12 +127,53 @@ def season_log(rows: list[dict], season: int, pos: str, scoring: list[dict], gam
                        "summary": summary(pos, totals), "box": box}}
 
 
+def parse_ranks(doc: dict) -> dict[str, dict[str, dict]]:
+    """ESPN's opponent ranks from a kona_player_info response's positionAgainstOpponent: position ->
+    club -> {rank, of, allowed}. `allowed` is the fantasy points the position has scored per game
+    against that defence this season; rank 1 allowed the fewest, so the last rank is the softest."""
+    out: dict[str, dict[str, dict]] = {}
+    for pid, r in ((doc.get("positionAgainstOpponent") or {}).get("positionalRatings") or {}).items():
+        pos, opps = POS.get(int(pid)), r.get("ratingsByOpponent") or {}
+        if pos:
+            out[pos] = {PRO_TEAM_MAP[int(t)]: {"rank": int(o["rank"]), "of": len(opps), "allowed": round(float(o["average"]), 1)}
+                        for t, o in opps.items() if int(t) in PRO_TEAM_MAP and o.get("rank")}
+    return out
+
+
+# A game is still to play until four hours after its kickoff (season.ros_week's rule). Past that,
+# a week with no row is one ESPN has not written yet, and stays out of the log as it always has.
+GAME_S = 4 * 3600
+
+
+def schedule_ahead(sched: dict, club: str | None, after: int, ranks: dict[str, dict], now: float) -> list[dict]:
+    """His club's weeks after `after` through the season's last: a bye, or a game still to play
+    with the opponent's rank against his position (None where ESPN has none for that club)."""
+    games: dict[int, tuple[str, bool, float]] = {}
+    for t in sched.get("settings", {}).get("proTeams", []):
+        for wk, gs in (t.get("proGamesByScoringPeriod") or {}).items():
+            for g in gs:
+                away, home = PRO_TEAM_MAP.get(g["awayProTeamId"]), PRO_TEAM_MAP.get(g["homeProTeamId"])
+                if club and club in (away, home):
+                    games[int(wk)] = (home if club == away else away, club == home, (g.get("date") or 0) / 1000)
+    if not games:
+        return []
+    bye = parse_byes(sched).get(club)
+    out = []
+    for wk in range(after + 1, max(games) + 1):
+        if wk == bye:
+            out.append(_blank(wk, "bye"))
+        elif wk in games and games[wk][2] + GAME_S > now:
+            opp, home, _ = games[wk]
+            out.append({**_blank(wk, "upcoming"), "opp": opp, "home": home, "opp_rank": ranks.get(opp)})
+    return out
+
+
 def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], current_week: int, season: int,
-               history: int = 1) -> dict:
+               history: int = 1, ranks: dict[str, dict[str, dict]] | None = None, now: float | None = None) -> dict:
     """The modal's payload from a kona_playercard response: this season through the current
-    week, then `history` past seasons whole, newest first; a season he did not play is left out.
-    The rows may come from several calls (earlier seasons are fetched apart): each season reads
-    only its own."""
+    week and its games still to play (schedule_ahead), then `history` past seasons whole, newest
+    first; a season with neither a game played nor one ahead is left out. The rows may come from
+    several calls (earlier seasons are fetched apart): each season reads only its own."""
     p = card["players"][0]["player"]
     pos, team = POS.get(p.get("defaultPositionId"), "?"), PRO_TEAM_MAP.get(p.get("proTeamId"))
     seasons = []
@@ -138,6 +182,13 @@ def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], curr
         games = parse_games(sched)
         through = current_week if yr == season else max((w for w, _, _ in games.values()), default=18)
         s = season_log(p.get("stats") or [], yr, pos, scoring, games, parse_byes(sched), through, team)
+        if yr == season:
+            # the current week is in the log once played (or his bye); otherwise it is still ahead
+            logged = max((w["week"] for w in s["weeks"]), default=0) if s else 0
+            ahead = schedule_ahead(sched, team, max(logged, current_week - 1), (ranks or {}).get(pos, {}),
+                                   time.time() if now is None else now)
+            if ahead:
+                s = {**s, "weeks": s["weeks"] + ahead} if s else {"season": yr, "weeks": ahead, "totals": None}
         if s:
             seasons.append(s)
     return {"player_id": p["id"], "name": p.get("fullName"), "pos": pos, "team": team,

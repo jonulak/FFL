@@ -49,12 +49,17 @@ export type BoxItem = { stat_id: number; label: string; count: number; rate: num
 // ffl/player_card.py: one player's game log, this season first. `summary` is the collapsed row's
 // columns ([label, value], the position's own stat group); `box` the week's scoring breakdown.
 // A bye or a missed game has no points and an empty box; `live` is the feed's week in progress.
+// ESPN's rank of a defence against one position this season: 1 allowed the fewest points, `of` the
+// most; `allowed` is the position's fantasy points per game against it.
+export type OppRank = { rank: number; of: number; allowed: number };
 export type WeekLog = {
-  week: number; opp: string | null; home: boolean | null; status: "played" | "bye" | "out" | "live";
+  week: number; opp: string | null; home: boolean | null; status: "played" | "bye" | "out" | "live" | "upcoming";
   pts: number | null; summary: [string, string][]; box: BoxItem[];
+  opp_rank?: OppRank | null; // a game still to play only
 };
 export type SeasonTotals = { games: number; pts: number; ppg: number; summary: [string, string][]; box: BoxItem[] };
-// `totals` is null only for a season the live feed opened (his first game of it is in progress).
+// `totals` is null for a season he has yet to finish a game in: the live feed opened it (his first
+// game is in progress), or it holds only the weeks ahead.
 export type SeasonLog = { season: number; weeks: WeekLog[]; totals: SeasonTotals | null };
 export type PlayerLog = {
   player_id: number; name: string; pos: string; team: string; season: number; current_week: number; seasons: SeasonLog[];

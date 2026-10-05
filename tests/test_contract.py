@@ -138,6 +138,7 @@ def test_player_card_io(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: json.loads((FX / "settings_scoring.json").read_text()))
     monkeypatch.setattr(espn_season, "_schedule_doc", down)
     monkeypatch.setattr(espn_season, "past_schedule", down)
+    monkeypatch.setattr(espn_season, "opponent_ranks", dict)  # its own test below
     rows24 = json.loads((FX / "espn_playercard_2024.json").read_text())["players"][0]["player"]["stats"]
     past = []
 
@@ -152,3 +153,22 @@ def test_player_card_io(monkeypatch):
     assert set(log) == PLAYER_LOG and log["seasons"][1]["weeks"][0]["opp"] is None
     assert sorted(past) == [2023, 2024]
     assert [s["season"] for s in log["seasons"]] == [2026, 2025, 2024]
+
+
+def test_opponent_ranks_io(monkeypatch):
+    """One kona_player_info call, cached; once expired, a failed read serves the last good ranks."""
+    calls = []
+    doc = {"positionAgainstOpponent": {"positionalRatings": {"1": {"ratingsByOpponent": {"12": {"average": 8.9, "rank": 1}}}}}}
+
+    def fake_get(view, extend="", headers=None, **params):
+        calls.append(view)
+        if len(calls) > 1:
+            raise RuntimeError("down")
+        return doc
+    monkeypatch.setattr(espn_season, "raw_league_get", fake_get)
+    monkeypatch.setattr(espn_season, "_RANKS", [])
+    want = {"QB": {"KC": {"rank": 1, "of": 1, "allowed": 8.9}}}
+    assert espn_season.opponent_ranks() == want and espn_season.opponent_ranks() == want
+    assert calls == ["kona_player_info"]
+    espn_season._RANKS[0] = 0  # expired
+    assert espn_season.opponent_ranks() == want and len(calls) == 2

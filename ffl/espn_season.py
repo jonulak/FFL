@@ -717,6 +717,25 @@ def past_schedule(season: int) -> dict:
 
 
 HISTORY = 3  # past seasons in the season modal
+_RANKS: list = []  # [expires_at, ranks]
+
+
+def opponent_ranks() -> dict[str, dict[str, dict]]:
+    """ESPN's points-allowed rank of every defence against each position (player_card.parse_ranks),
+    off the league's kona_player_info view, which carries it beside any player list (one player is
+    asked for). Cached for CACHE_S; a failed read serves the last good ranks, or none."""
+    if _RANKS and _RANKS[0] > time.time():
+        return _RANKS[1]
+    from . import player_card as card_log  # player_card imports this module
+
+    filt = {"players": {"limit": 1, "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}}
+    try:
+        ranks = card_log.parse_ranks(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}))
+    except Exception as e:  # noqa: BLE001 — the ranks are context; the log stands without them
+        print(f"opponent ranks unavailable: {e}")
+        return _RANKS[1] if _RANKS else {}
+    _RANKS[:] = [time.time() + CACHE_S, ranks]
+    return ranks
 _PAST_STATS: dict[tuple[int, int], list[dict]] = {}  # (season, player) -> his stat rows; a past season never changes
 
 
@@ -750,23 +769,25 @@ def player_card(player_id: int) -> dict:
     if not card.get("players"):
         raise LookupError(f"ESPN has no player {player_id}")
     earlier = range(SEASON - 2, SEASON - HISTORY - 1, -1)
-    reads = {("sched", SEASON): lambda: _schedule_doc(lg)}
+    reads = {("sched", SEASON): lambda: _schedule_doc(lg), ("ranks", SEASON): opponent_ranks}
     reads |= {("sched", yr): (lambda yr=yr: past_schedule(yr)) for yr in range(SEASON - 1, SEASON - HISTORY - 1, -1)}
     reads |= {("stats", yr): (lambda yr=yr: past_stats(yr, player_id)) for yr in earlier}
     with ThreadPoolExecutor(max_workers=len(reads)) as pool:
         futures = {k: pool.submit(fn) for k, fn in reads.items()}
-    schedules, rows = {}, []
+    schedules, rows, ranks = {}, [], {}
     for (kind, yr), f in futures.items():
         try:
             if kind == "sched":
                 schedules[yr] = f.result()
+            elif kind == "ranks":
+                ranks = f.result()
             else:
                 rows += f.result()
         except Exception as e:  # noqa: BLE001 — an earlier season or the opponents are not worth the log
             print(f"{kind} {yr} unavailable for player {player_id}: {e}")
     p = card["players"][0]["player"]
     card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
-    return card_log.player_log(card, load()["scoring"], schedules, lg.current_week, SEASON, HISTORY)
+    return card_log.player_log(card, load()["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks)
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:

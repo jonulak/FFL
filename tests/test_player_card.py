@@ -114,3 +114,57 @@ def test_with_live_first_game_of_the_season():
     out = pc.with_live(log, 4, {"0": 10, "1": 7, "3": 80}, SCORING, {"status": "in"})
     assert [s["season"] for s in out["seasons"]] == [2026, 2025]
     assert [w["week"] for w in out["seasons"][0]["weeks"]] == [4]
+
+
+RANKS_DOC = {"positionAgainstOpponent": {"positionalRatings": {
+    "1": {"average": 16.7, "ratingsByOpponent": {"2": {"average": 19.66, "rank": 25}, "12": {"average": 10.53, "rank": 2}}},
+    "7": {"average": 1.0, "ratingsByOpponent": {"2": {"average": 1.0, "rank": 1}}},  # not a position we show
+}}}
+
+
+def test_parse_ranks():
+    assert pc.parse_ranks(RANKS_DOC) == {"QB": {"BUF": {"rank": 25, "of": 2, "allowed": 19.7},
+                                                "KC": {"rank": 2, "of": 2, "allowed": 10.5}}}
+    assert pc.parse_ranks({}) == {}
+
+
+def test_schedule_ahead_byes_and_ranks():
+    ranks = pc.parse_ranks(RANKS_DOC)["QB"]
+    ahead = pc.schedule_ahead(SCHED25, "BUF", 4, ranks, now=0)
+    assert [w["week"] for w in ahead] == list(range(5, 19))
+    by_week = {w["week"]: w for w in ahead}
+    assert by_week[7]["status"] == "bye" and "opp_rank" not in by_week[7]
+    assert all(w["status"] == "upcoming" and w["opp"] and w["pts"] is None for w in ahead if w["week"] != 7)
+    kc = next(w for w in ahead if w["opp"] == "KC")
+    assert kc["opp_rank"] == {"rank": 2, "of": 2, "allowed": 10.5}
+    assert all(w["opp_rank"] is None for w in ahead if w["status"] == "upcoming" and w["opp"] not in ranks)
+
+
+def test_schedule_ahead_drops_a_game_past():
+    """Four hours after kickoff a game is no longer ahead, though ESPN has not written its row."""
+    every = pc.schedule_ahead(SCHED25, "BUF", 0, {}, now=0)
+    kick = next(g["date"] for t in SCHED25["settings"]["proTeams"] if t["abbrev"].upper() == "BUF"
+                for g in t["proGamesByScoringPeriod"]["1"]) / 1000
+    later = pc.schedule_ahead(SCHED25, "BUF", 0, {}, now=kick + pc.GAME_S + 1)
+    assert [w["week"] for w in later] == [w["week"] for w in every][1:]
+    assert pc.schedule_ahead(SCHED25, None, 0, {}, now=0) == []
+
+
+def test_player_log_weeks_ahead():
+    """The current week not yet played opens the weeks ahead; the totals count only games played."""
+    allen = player(3918298)
+    rows = [r for r in allen["stats"] if not (r.get("seasonId") == 2026 and (r.get("scoringPeriodId") or 0) >= 4)]
+    card = {"players": [{"player": {**allen, "stats": rows}}]}
+    log = pc.player_log(card, SCORING, {2026: SCHED25}, 4, 2026, ranks=pc.parse_ranks(RANKS_DOC), now=0)
+    now = log["seasons"][0]
+    assert [w["week"] for w in now["weeks"]] == list(range(1, 19))
+    assert [w["status"] for w in now["weeks"][3:]] == ["upcoming"] * 3 + ["bye"] + ["upcoming"] * 11
+    assert now["totals"]["games"] == sum(w["status"] == "played" for w in now["weeks"])
+
+
+def test_with_live_keeps_the_week_ahead_opponent():
+    log = {"pos": "QB", "season": 2026, "current_week": 4, "team": "BUF", "seasons": [{"season": 2026, "totals": None, "weeks": [
+        {**pc._blank(4, "upcoming"), "opp": "KC", "home": True, "opp_rank": None}, pc._blank(5, "bye")]}]}
+    out = pc.with_live(log, 4, {"0": 10, "1": 7, "3": 80}, SCORING, {"status": "in"})
+    w4, w5 = out["seasons"][0]["weeks"]
+    assert (w4["status"], w4["opp"], w4["home"], w5["status"]) == ("live", "KC", True, "bye")
