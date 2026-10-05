@@ -64,7 +64,7 @@ function Body({ seed }: { seed: PlayerSeed }) {
     return () => { current = false; };
   }, [seed.player_id, attempt]);
   const retry = () => { setLoad({ state: "loading" }); setAttempt((n) => n + 1); };
-  const [grow, measure] = useGrow(load.state);
+  const grow = useGrow(load.state);
   return (
     <>
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined} />
@@ -77,7 +77,7 @@ function Body({ seed }: { seed: PlayerSeed }) {
               <Button size="sm" variant="outline" className="mt-2.5" onClick={retry}>Retry</Button>
             </div>
           )}
-          {load.state === "ready" && <Grow.Provider value={measure}><Seasons log={load.log} /></Grow.Provider>}
+          {load.state === "ready" && <Seasons log={load.log} />}
         </div>
       </div>
     </>
@@ -87,20 +87,12 @@ function Body({ seed }: { seed: PlayerSeed }) {
 const GROW_MS = 360;
 
 // The body's height follows the content through a change of state (skeleton to log, log to
-// error, retry, a past season opening or shutting): measured before and after the swap and
-// animated between, so the dialog grows from where it stood instead of snapping taller around its
-// centre. A past season inserts table rows, which no panel can wrap, so its toggle calls `measure`
-// (through Grow) just before it flips; a week's breakdown has its own panel and needs neither.
+// error, retry): measured before and after the swap and animated between, so the dialog grows
+// from where it stood instead of snapping taller around its centre. Rows opening inside the log
+// change no state and keep their own animation (a week's panel, a past season's fold).
 function useGrow(state: Load["state"]) {
   const ref = useRef<HTMLDivElement>(null);
   const last = useRef(0);
-  const [tick, setTick] = useState(0);
-  // Read before the change renders, since weeks opened since the last swap have moved the height.
-  // Mid-animation offsetHeight is the animated height, so a second tap turns back from where it is.
-  const measure = useCallback(() => {
-    if (ref.current) last.current = ref.current.offsetHeight;
-    setTick((n) => n + 1);
-  }, []);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -108,13 +100,10 @@ function useGrow(state: Load["state"]) {
     const from = last.current;
     last.current = to;
     if (!from || from === to || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    el.getAnimations().forEach((a) => a.cancel());
     el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: GROW_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
-  }, [state, tick]);
-  return [ref, measure] as const;
+  }, [state]);
+  return ref;
 }
-
-const Grow = createContext<() => void>(() => {});
 
 // The skeleton is the log's own shape (a section heading with its hairline, a table head, the
 // week rows at their height), so the swap reads as the log filling in. It waits a beat before
@@ -234,51 +223,66 @@ function Opponent({ w }: { w: WeekLog }) {
 
 // A week he played: the collapsed line, and beneath it a full-width row holding the week's
 // breakdown, open or shut. A bye or a missed game is a quiet row that does not open.
-// `i` places the row in the log's entrance (log-in), a beat after the one above it; a row
-// opened from a past season has none and simply appears.
-function WeekRows({ w, span, i }: { w: WeekLog; span: number; i?: number }) {
+// `i` places the row in the log's entrance (log-in), a beat after the one above it. A past
+// season's weeks carry `fold` instead: always mounted, they fold open and shut with their season
+// (globals.css, tr[data-fold]), and a shut one is inert so no tab stop or reader lands in it.
+function WeekRows({ w, span, i, fold }: { w: WeekLog; span: number; i?: number; fold?: boolean }) {
   const [open, setOpen] = useState(false);
   const enter = i == null ? "" : "log-in";
   const order = i == null ? undefined : { "--i": i } as React.CSSProperties;
+  const folds = fold != null;
+  const row = folds ? { "data-fold": fold ? "open" : "shut", inert: !fold } : {};
   const label = (
     <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold text-muted-foreground`}>
-      {/* a game in progress: a lime dot before the week, not a chip in the narrow Opp column */}
-      {w.status === "live" && <span aria-hidden className="mr-1 inline-block size-1.5 rounded-full bg-start align-middle motion-safe:animate-pulse" />}
-      {weekLabel(w)}
+      <Fold on={folds}>
+        {/* a game in progress: a lime dot before the week, not a chip in the narrow Opp column */}
+        {w.status === "live" && <span aria-hidden className="mr-1 inline-block size-1.5 rounded-full bg-start align-middle motion-safe:animate-pulse" />}
+        {weekLabel(w)}
+      </Fold>
     </TableCell>
   );
   if (w.status === "bye" || w.status === "out") {
     return (
-      <TableRow className={`${ROW} hover:bg-transparent ${enter}`} style={order}>
+      <TableRow className={`${ROW} hover:bg-transparent ${enter}`} style={order} {...row}>
         {label}
-        <TableCell colSpan={span - 1} className={`${CELL} ${LABEL}`}>{w.status === "bye" ? "bye" : "did not play"}</TableCell>
+        <TableCell colSpan={span - 1} className={`${CELL} ${LABEL}`}><Fold on={folds}>{w.status === "bye" ? "bye" : "did not play"}</Fold></TableCell>
       </TableRow>
     );
   }
   return (
     <>
-      <TableRow className={`${ROW} cursor-pointer ${enter}`} style={order} onClick={() => setOpen((o) => !o)}>
+      <TableRow className={`${ROW} cursor-pointer ${enter}`} style={order} onClick={() => setOpen((o) => !o)} {...row}>
         {label}
-        <TableCell className={CELL}><Opponent w={w} /></TableCell>
-        {w.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right`}>{v}</TableCell>)}
-        <TableCell className={`${CELL} text-right font-display text-lg font-bold leading-none tracking-tight`}>{ptsText(w.pts)}</TableCell>
+        <TableCell className={CELL}><Fold on={folds}><Opponent w={w} /></Fold></TableCell>
+        {w.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right`}><Fold on={folds}>{v}</Fold></TableCell>)}
+        <TableCell className={`${CELL} text-right font-display text-lg font-bold leading-none tracking-tight`}><Fold on={folds}>{ptsText(w.pts)}</Fold></TableCell>
         <TableCell className="py-2 pr-0 pl-1">
-          <Toggle open={open} label={`Week ${w.week}${w.status === "live" ? " (live)" : ""}${w.opp ? `, ${w.home ? "vs" : "at"} ${w.opp}` : ""}: ${ptsText(w.pts)} points, breakdown`} />
+          <Fold on={folds}>
+            <Toggle open={open} label={`Week ${w.week}${w.status === "live" ? " (live)" : ""}${w.opp ? `, ${w.home ? "vs" : "at"} ${w.opp}` : ""}: ${ptsText(w.pts)} points, breakdown`} />
+          </Fold>
         </TableCell>
       </TableRow>
-      <TableRow className="border-0 hover:bg-transparent">
+      <TableRow className="border-0 hover:bg-transparent" {...row}>
         <TableCell colSpan={span} className="p-0 whitespace-normal">
-          <Collapsible open={open}>
-            <CollapsibleContent className={PANEL}>
-              <div className="my-2 rounded-md bg-foreground/[0.035] px-3 pt-2 pb-2.5">
-                {w.box.length > 0 ? <BoxTable box={w.box} /> : <p className="py-1 text-xs text-muted-foreground">Nothing that scores.</p>}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+          <Fold on={folds} flush>
+            <Collapsible open={open}>
+              <CollapsibleContent className={PANEL}>
+                <div className="my-2 rounded-md bg-foreground/[0.035] px-3 pt-2 pb-2.5">
+                  {w.box.length > 0 ? <BoxTable box={w.box} /> : <p className="py-1 text-xs text-muted-foreground">Nothing that scores.</p>}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </Fold>
         </TableCell>
       </TableRow>
     </>
   );
+}
+
+// A folding row's cell content: a one-track grid the fold runs from 1fr to 0fr, the clipped
+// track, and inside it the cell's padding (`flush` for a cell that has none).
+function Fold({ on, flush, children }: { on: boolean; flush?: boolean; children: React.ReactNode }) {
+  return on ? <div className="fold" data-flush={flush || undefined}><div><div>{children}</div></div></div> : children;
 }
 
 // The past seasons in one table, newest first, so a season's totals read against the others.
@@ -295,10 +299,9 @@ function PastSeasons({ seasons }: { seasons: SeasonLog[] }) {
 // rate beneath. It opens onto his weeks, each of which opens onto its breakdown.
 function PastSeason({ s, totals, span }: { s: SeasonLog; totals: SeasonTotals; span: number }) {
   const [open, setOpen] = useState(false);
-  const measure = useContext(Grow);
   return (
     <>
-      <TableRow className={`${ROW} cursor-pointer`} onClick={() => { measure(); setOpen((o) => !o); }}>
+      <TableRow className={`${ROW} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
         <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold`}>{s.season}</TableCell>
         <TableCell className={`${CELL} text-xs text-foreground/80`}>{totals.games} G</TableCell>
         {totals.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right font-medium`}>{v}</TableCell>)}
@@ -310,7 +313,7 @@ function PastSeason({ s, totals, span }: { s: SeasonLog; totals: SeasonTotals; s
           <Toggle open={open} label={`${s.season} season: ${totals.games} games, ${pts(totals.pts)} points, weeks`} />
         </TableCell>
       </TableRow>
-      {open && s.weeks.map((w) => <WeekRows key={w.week} w={w} span={span} />)}
+      {s.weeks.map((w) => <WeekRows key={w.week} w={w} span={span} fold={open} />)}
     </>
   );
 }
