@@ -24,16 +24,37 @@ import { StaleBadge } from "./stale-badge";
 
 const Open = createContext<(p: PlayerSeed) => void>(() => {});
 
+// How long a tap waits for the log before opening the dialog without it. The log usually lands
+// in well under this (about 60ms on the phone over the tailnet), and then the dialog opens at its
+// full size. Opened first, it grew while its own entrance was still running, and iOS Safari drew
+// that as a snap from one size to the other. A slower log opens on the skeleton and grows.
+const HOLD_MS = 180;
+
+type Fetch = { promise: Promise<PlayerLog>; log?: PlayerLog };
+type Shown = { seed: PlayerSeed; fetch: Fetch };
+
 export function PlayerDialogProvider({ children }: { children: React.ReactNode }) {
-  const [seed, setSeed] = useState<PlayerSeed | null>(null);
+  const [shown, setShown] = useState<Shown | null>(null);
   const [open, setOpen] = useState(false);
-  const show = useCallback((p: PlayerSeed) => { setSeed(p); setOpen(true); }, []);
+  const latest = useRef(0);
+  const show = useCallback((p: PlayerSeed) => {
+    const tap = ++latest.current;
+    const fetch: Fetch = { promise: clientGet<PlayerLog>(`/player/${p.player_id}`) };
+    // registered before the race below, so `log` is set by the time the race settles
+    fetch.promise.then((log) => { fetch.log = log; }, () => {});
+    const hold = new Promise((r) => setTimeout(r, HOLD_MS));
+    void Promise.race([fetch.promise.catch(() => {}), hold]).then(() => {
+      if (tap !== latest.current) return; // a later tap took over
+      setShown({ seed: p, fetch });
+      setOpen(true);
+    });
+  }, []);
   return (
     <Open.Provider value={show}>
       {children}
-      <Dialog open={open && seed != null} onOpenChange={setOpen}>
+      <Dialog open={open && shown != null} onOpenChange={setOpen}>
         <DialogContent className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
-          {seed && <Body key={seed.player_id} seed={seed} />}
+          {shown && <Body key={shown.seed.player_id} seed={shown.seed} fetch={shown.fetch} />}
         </DialogContent>
       </Dialog>
     </Open.Provider>
@@ -54,16 +75,18 @@ export function PlayerTrigger({ p, className = "", children }: { p: PlayerSeed; 
 
 type Load = { state: "loading" } | { state: "ready"; log: PlayerLog } | { state: "error" };
 
-function Body({ seed }: { seed: PlayerSeed }) {
-  const [load, setLoad] = useState<Load>({ state: "loading" });
+// The log the tap already asked for; a retry asks again.
+function Body({ seed, fetch }: { seed: PlayerSeed; fetch: Fetch }) {
+  const [load, setLoad] = useState<Load>(() => fetch.log ? { state: "ready", log: fetch.log } : { state: "loading" });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (attempt === 0 && fetch.log) return;
     let current = true;
-    clientGet<PlayerLog>(`/player/${seed.player_id}`)
+    (attempt === 0 ? fetch.promise : clientGet<PlayerLog>(`/player/${seed.player_id}`))
       .then((log) => current && setLoad({ state: "ready", log }))
       .catch(() => current && setLoad({ state: "error" }));
     return () => { current = false; };
-  }, [seed.player_id, attempt]);
+  }, [seed.player_id, fetch, attempt]);
   const retry = () => { setLoad({ state: "loading" }); setAttempt((n) => n + 1); };
   const grow = useGrow(load.state);
   return (
