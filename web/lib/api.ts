@@ -55,7 +55,9 @@ export type OppRank = { rank: number; of: number; allowed: number };
 export type WeekLog = {
   week: number; opp: string | null; home: boolean | null; status: "played" | "bye" | "out" | "live" | "upcoming";
   pts: number | null; summary: [string, string][]; box: BoxItem[];
-  opp_rank?: OppRank | null; // a game still to play only
+  opp_rank?: OppRank | null; // this season's games, played or ahead
+  // a game still to play: Sleeper's projection, averaged with ESPN's for the current week
+  proj?: number | null; proj_espn?: number | null; proj_sleeper?: number | null;
 };
 export type SeasonTotals = { games: number; pts: number; ppg: number; summary: [string, string][]; box: BoxItem[] };
 // `totals` is null for a season he has yet to finish a game in: the live feed opened it (his first

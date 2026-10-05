@@ -139,6 +139,14 @@ def test_player_card_io(monkeypatch):
     monkeypatch.setattr(espn_season, "_schedule_doc", down)
     monkeypatch.setattr(espn_season, "past_schedule", down)
     monkeypatch.setattr(espn_season, "opponent_ranks", dict)  # its own test below
+    sleeper_weeks = []
+
+    def sleeper_for(week, settings):
+        sleeper_weeks.append(week)
+        if week == 6:
+            raise RuntimeError("down")  # one week failing costs that week's projection only
+        return {("josh allen", "QB"): 20.0 + week}
+    monkeypatch.setattr(espn_season, "_sleeper_for", sleeper_for)
     rows24 = json.loads((FX / "espn_playercard_2024.json").read_text())["players"][0]["player"]["stats"]
     past = []
 
@@ -153,6 +161,7 @@ def test_player_card_io(monkeypatch):
     assert set(log) == PLAYER_LOG and log["seasons"][1]["weeks"][0]["opp"] is None
     assert sorted(past) == [2023, 2024]
     assert [s["season"] for s in log["seasons"]] == [2026, 2025, 2024]
+    assert sorted(sleeper_weeks) == list(range(4, 19))
 
 
 def test_opponent_ranks_io(monkeypatch):

@@ -162,9 +162,42 @@ def test_player_log_weeks_ahead():
     assert now["totals"]["games"] == sum(w["status"] == "played" for w in now["weeks"])
 
 
+def test_week_projections_mean_this_week_sleeper_after():
+    """ESPN projects only the current week, so it is averaged with Sleeper there and the weeks
+    after are Sleeper's alone; a week Sleeper has no row for him has no projection."""
+    p = {"fullName": "Josh Allen", "stats": [
+        {"seasonId": 2026, "statSourceId": 1, "statSplitTypeId": 1, "scoringPeriodId": 5, "appliedTotal": 22.24},
+        {"seasonId": 2026, "statSourceId": 1, "statSplitTypeId": 0, "scoringPeriodId": 0, "appliedTotal": 285.5}]}
+    sleeper = {5: {("josh allen", "QB"): 20.0}, 6: {("josh allen", "QB"): 19.46}, 8: {("someone else", "QB"): 9.0}}
+    out = pc.week_projections(p, "QB", "BUF", 2026, 5, sleeper)
+    assert out[5] == {"proj": 21.1, "proj_espn": 22.2, "proj_sleeper": 20.0}
+    assert out[6] == {"proj": 19.5, "proj_espn": None, "proj_sleeper": 19.5}
+    assert out[8] == pc.NO_PROJ
+    dst = pc.week_projections({"fullName": "Commanders D/ST", "stats": []}, "D/ST", "WSH", 2026, 5,
+                              {5: {("WAS", "D/ST"): 6.0}})  # ESPN's WSH is Sleeper's WAS
+    assert dst[5]["proj"] == 6.0
+
+
+def test_player_log_ranks_and_projections():
+    """Ranks on the games played this season as well as ahead; projections on the games ahead."""
+    allen = player(3918298)
+    rows = [r for r in allen["stats"] if not (r.get("seasonId") == 2026 and (r.get("scoringPeriodId") or 0) >= 4)]
+    games = pc.parse_games(SCHED25)
+    played = [{**r, "externalId": next(g for g, (wk, a, h) in games.items() if wk == r["scoringPeriodId"] and "BUF" in (a, h))}
+              for r in pc._game_rows(rows, 2026)]  # the 2026 games as if on the 2025 schedule, so they have opponents
+    card = {"players": [{"player": {**allen, "stats": [r for r in rows if r not in pc._game_rows(rows, 2026)] + played}}]}
+    ranks = {"QB": {"BAL": {"rank": 3, "of": 32, "allowed": 12.0}, "KC": {"rank": 2, "of": 32, "allowed": 10.5}}}
+    sleeper = {wk: {("josh allen", "QB"): 20.0} for wk in range(4, 19)}
+    log = pc.player_log(card, SCORING, {2026: SCHED25}, 4, 2026, ranks=ranks, now=0, sleeper=sleeper)
+    weeks = {w["week"]: w for w in log["seasons"][0]["weeks"]}
+    assert weeks[1]["opp"] == "BAL" and weeks[1]["opp_rank"] == ranks["QB"]["BAL"] and "proj" not in weeks[1]
+    assert all("opp_rank" in w for w in weeks.values() if w["opp"])
+    assert weeks[4]["status"] == "upcoming" and weeks[4]["proj"] == 20.0 and weeks[4]["proj_espn"] is None
+
+
 def test_with_live_keeps_the_week_ahead_opponent():
     log = {"pos": "QB", "season": 2026, "current_week": 4, "team": "BUF", "seasons": [{"season": 2026, "totals": None, "weeks": [
-        {**pc._blank(4, "upcoming"), "opp": "KC", "home": True, "opp_rank": None}, pc._blank(5, "bye")]}]}
+        {**pc._blank(4, "upcoming"), "opp": "KC", "home": True, "opp_rank": {"rank": 2, "of": 32, "allowed": 10.5}}, pc._blank(5, "bye")]}]}
     out = pc.with_live(log, 4, {"0": 10, "1": 7, "3": 80}, SCORING, {"status": "in"})
     w4, w5 = out["seasons"][0]["weeks"]
-    assert (w4["status"], w4["opp"], w4["home"], w5["status"]) == ("live", "KC", True, "bye")
+    assert (w4["status"], w4["opp"], w4["home"], w4["opp_rank"]["rank"], w5["status"]) == ("live", "KC", True, 2, "bye")

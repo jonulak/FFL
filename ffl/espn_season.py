@@ -758,13 +758,14 @@ def past_stats(season: int, player_id: int) -> list[dict]:
 def player_card(player_id: int) -> dict:
     """One player's game log, this season and HISTORY before it (player_card.player_log): the
     league call returns every week of this season and last, each earlier season is one more call,
-    made side by side. A failed earlier season or schedule read drops that season or its opponents
-    rather than failing the log."""
+    made side by side, with the opponent ranks and Sleeper's projection for every week left. A
+    failed read drops what it carried (that season, its opponents, the ranks, a week's Sleeper
+    projection) rather than failing the log."""
     from . import player_card as card_log  # player_card imports this module
 
     lg = fresh_league()
     filt = {"players": {"filterIds": {"value": [player_id]},
-                        "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": [f"00{SEASON}", f"10{SEASON}"]}}}
+                        "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": [f"00{SEASON}", f"10{SEASON}", f"11{SEASON}{lg.current_week}"]}}}
     card = raw_league_get("kona_playercard", headers={"x-fantasy-filter": json.dumps(filt)})
     if not card.get("players"):
         raise LookupError(f"ESPN has no player {player_id}")
@@ -772,22 +773,27 @@ def player_card(player_id: int) -> dict:
     reads = {("sched", SEASON): lambda: _schedule_doc(lg), ("ranks", SEASON): opponent_ranks}
     reads |= {("sched", yr): (lambda yr=yr: past_schedule(yr)) for yr in range(SEASON - 1, SEASON - HISTORY - 1, -1)}
     reads |= {("stats", yr): (lambda yr=yr: past_stats(yr, player_id)) for yr in earlier}
+    settings = load()
+    reads |= {("sleeper", wk): (lambda wk=wk: _sleeper_for(wk, settings)) for wk in range(lg.current_week, S.NFL_WEEKS + 1)}
     with ThreadPoolExecutor(max_workers=len(reads)) as pool:
         futures = {k: pool.submit(fn) for k, fn in reads.items()}
-    schedules, rows, ranks = {}, [], {}
+    schedules, rows, ranks, sleeper = {}, [], {}, {}
     for (kind, yr), f in futures.items():
         try:
             if kind == "sched":
                 schedules[yr] = f.result()
             elif kind == "ranks":
                 ranks = f.result()
+            elif kind == "sleeper":
+                sleeper[yr] = f.result()  # yr is the week here
             else:
                 rows += f.result()
         except Exception as e:  # noqa: BLE001 — an earlier season or the opponents are not worth the log
             print(f"{kind} {yr} unavailable for player {player_id}: {e}")
     p = card["players"][0]["player"]
     card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
-    return card_log.player_log(card, load()["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks)
+    return card_log.player_log(card, settings["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks,
+                               sleeper=sleeper)
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:
