@@ -38,11 +38,14 @@ export function PlayerHeader({ p, week }: { p: PlayerSeed; week?: number }) {
       >
         <img src={logoUrl(p.team)} alt="" aria-hidden loading="lazy" decoding="async"
           className="pointer-events-none absolute -top-10 -right-10 -z-10 w-56 max-w-none select-none opacity-[0.18]" />
-        <div aria-hidden className="absolute bottom-0 left-2 h-full w-28 overflow-hidden sm:left-3 sm:w-32">
+        {/* Portrait, scrim and caption each hold a compositing layer of their own from the first
+            frame (will-change). Left to iOS Safari, the portrait is lifted onto a layer whenever
+            something in the modal animates (its old fade, the log rows arriving, a fold) and that
+            layer draws over the scrim until the animation ends, so the portrait landed bright and
+            then visibly darkened. With the three layers fixed, their order never changes. */}
+        <div aria-hidden className="absolute bottom-0 left-2 h-full w-28 overflow-hidden will-change-transform sm:left-3 sm:w-32">
           {portrait && src ? (
-            // No fade of its own: a fading image is lifted onto its own layer, which on iOS Safari
-            // draws over the caption scrim until the fade ends, and the portrait then visibly
-            // darkens. The dialog's own entrance already carries it in.
+            // No fade of its own: the dialog's entrance already carries it in.
             <img src={src} alt="" decoding="async" onError={() => setPortrait(false)}
               className="absolute bottom-0 left-1/2 h-[112%] w-auto max-w-none -translate-x-1/2 drop-shadow-[0_8px_12px_rgb(0_0_0_/_0.5)]" />
           ) : (
@@ -51,8 +54,8 @@ export function PlayerHeader({ p, week }: { p: PlayerSeed; week?: number }) {
           )}
         </div>
         {/* the caption scrim: dark enough at the foot for white type on every club's colour */}
-        <div aria-hidden className="absolute inset-0 bg-linear-to-t from-black/75 via-black/30 via-55% to-transparent" />
-        <div className="absolute right-12 bottom-0 left-32 pb-3 sm:left-38">
+        <div aria-hidden className="absolute inset-0 bg-linear-to-t from-black/75 via-black/30 via-55% to-transparent will-change-transform" />
+        <div className="absolute right-12 bottom-0 left-32 pb-3 will-change-transform sm:left-38">
           <DialogTitle className="line-clamp-2 text-balance font-display text-[1.65rem] font-semibold leading-none tracking-tight text-white">
             {p.name}
           </DialogTitle>
