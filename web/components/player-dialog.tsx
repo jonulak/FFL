@@ -31,7 +31,7 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
     <Open.Provider value={show}>
       {children}
       <Dialog open={open && seed != null} onOpenChange={setOpen}>
-        <DialogContent className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
+        <DialogContent anchor="top" className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
           {seed && <Body key={seed.player_id} seed={seed} />}
         </DialogContent>
       </Dialog>

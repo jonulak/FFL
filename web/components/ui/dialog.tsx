@@ -45,9 +45,15 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  anchor = "center",
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  // "top" for a dialog whose content arrives after it opens (a fetched log, an outlook being
+  // written): centred, every change of height moves its top edge, and the dialog reads as
+  // jumping into place; pinned at 7.5dvh it only grows downward. 7.5dvh is where a centred
+  // dialog at the 85dvh cap stands, so a full one sits where it always did.
+  anchor?: "center" | "top"
 }) {
   return (
     <DialogPortal>
@@ -57,8 +63,11 @@ function DialogContent({
         className={cn(
           // Transitions on Base UI's starting/ending styles rather than keyframes, so a tap that
         // closes the dialog mid-open reverses it from where it is instead of jumping.
-        "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm",
-        "transition-[opacity,scale,translate] duration-300 ease-(--ease-arrive) data-starting-style:translate-y-[calc(-50%+0.75rem)] data-starting-style:scale-[0.97] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) motion-reduce:data-starting-style:-translate-y-1/2 motion-reduce:data-starting-style:scale-100",
+        "fixed left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm",
+        "transition-[opacity,scale,translate] duration-300 ease-(--ease-arrive) data-starting-style:scale-[0.97] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) motion-reduce:data-starting-style:scale-100",
+        anchor === "top"
+          ? "top-[7.5dvh] origin-top data-starting-style:translate-y-3 motion-reduce:data-starting-style:translate-y-0"
+          : "top-1/2 -translate-y-1/2 data-starting-style:translate-y-[calc(-50%+0.75rem)] motion-reduce:data-starting-style:-translate-y-1/2",
           className
         )}
         {...props}
