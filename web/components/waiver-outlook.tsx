@@ -30,7 +30,7 @@ export function WaiverOutlookButton({ r }: { r: WaiverRow }) {
         {written && <span aria-hidden className="size-1.5 rounded-full bg-foreground/70" />}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent anchor="top" className="gap-0 rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-xl">
+        <DialogContent className="gap-0 rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-xl">
           {open && <Body r={r} setWritten={setWritten} />}
         </DialogContent>
       </Dialog>

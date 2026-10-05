@@ -31,7 +31,7 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
     <Open.Provider value={show}>
       {children}
       <Dialog open={open && seed != null} onOpenChange={setOpen}>
-        <DialogContent anchor="top" className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
+        <DialogContent className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
           {seed && <Body key={seed.player_id} seed={seed} />}
         </DialogContent>
       </Dialog>
@@ -84,7 +84,11 @@ function Body({ seed }: { seed: PlayerSeed }) {
   );
 }
 
-const GROW_MS = 360;
+const GROW_MS = 420;
+// Even in and out, not the arrive curve: the dialog is centred, so its top edge travels half the
+// growth, and an ease-out spends nine tenths of that in the first 40ms, which reads as the modal
+// opening off-centre and jumping into place.
+const GROW_EASE = "cubic-bezier(0.65, 0, 0.35, 1)";
 
 // The body's height follows the content through a change of state (skeleton to log, log to
 // error, retry): measured before and after the swap and animated between, so the dialog grows
@@ -100,7 +104,7 @@ function useGrow(state: Load["state"]) {
     const from = last.current;
     last.current = to;
     if (!from || from === to || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: GROW_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+    el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: GROW_MS, easing: GROW_EASE });
   }, [state]);
   return ref;
 }
