@@ -64,7 +64,7 @@ function Body({ seed }: { seed: PlayerSeed }) {
     return () => { current = false; };
   }, [seed.player_id, attempt]);
   const retry = () => { setLoad({ state: "loading" }); setAttempt((n) => n + 1); };
-  const grow = useGrow(load.state);
+  const [grow, measure] = useGrow(load.state);
   return (
     <>
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined} />
@@ -77,7 +77,7 @@ function Body({ seed }: { seed: PlayerSeed }) {
               <Button size="sm" variant="outline" className="mt-2.5" onClick={retry}>Retry</Button>
             </div>
           )}
-          {load.state === "ready" && <Seasons log={load.log} />}
+          {load.state === "ready" && <Grow.Provider value={measure}><Seasons log={load.log} /></Grow.Provider>}
         </div>
       </div>
     </>
@@ -87,12 +87,20 @@ function Body({ seed }: { seed: PlayerSeed }) {
 const GROW_MS = 360;
 
 // The body's height follows the content through a change of state (skeleton to log, log to
-// error, retry): measured before and after the swap and animated between, so the dialog grows
-// from where it stood instead of snapping taller around its centre. Rows opening inside the log
-// change no state and keep their own animation.
+// error, retry, a past season opening or shutting): measured before and after the swap and
+// animated between, so the dialog grows from where it stood instead of snapping taller around its
+// centre. A past season inserts table rows, which no panel can wrap, so its toggle calls `measure`
+// (through Grow) just before it flips; a week's breakdown has its own panel and needs neither.
 function useGrow(state: Load["state"]) {
   const ref = useRef<HTMLDivElement>(null);
   const last = useRef(0);
+  const [tick, setTick] = useState(0);
+  // Read before the change renders, since weeks opened since the last swap have moved the height.
+  // Mid-animation offsetHeight is the animated height, so a second tap turns back from where it is.
+  const measure = useCallback(() => {
+    if (ref.current) last.current = ref.current.offsetHeight;
+    setTick((n) => n + 1);
+  }, []);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -100,10 +108,13 @@ function useGrow(state: Load["state"]) {
     const from = last.current;
     last.current = to;
     if (!from || from === to || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    el.getAnimations().forEach((a) => a.cancel());
     el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: GROW_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
-  }, [state]);
-  return ref;
+  }, [state, tick]);
+  return [ref, measure] as const;
 }
+
+const Grow = createContext<() => void>(() => {});
 
 // The skeleton is the log's own shape (a section heading with its hairline, a table head, the
 // week rows at their height), so the swap reads as the log filling in. It waits a beat before
@@ -284,9 +295,10 @@ function PastSeasons({ seasons }: { seasons: SeasonLog[] }) {
 // rate beneath. It opens onto his weeks, each of which opens onto its breakdown.
 function PastSeason({ s, totals, span }: { s: SeasonLog; totals: SeasonTotals; span: number }) {
   const [open, setOpen] = useState(false);
+  const measure = useContext(Grow);
   return (
     <>
-      <TableRow className={`${ROW} cursor-pointer`} onClick={() => setOpen((o) => !o)}>
+      <TableRow className={`${ROW} cursor-pointer`} onClick={() => { measure(); setOpen((o) => !o); }}>
         <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold`}>{s.season}</TableCell>
         <TableCell className={`${CELL} text-xs text-foreground/80`}>{totals.games} G</TableCell>
         {totals.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right font-medium`}>{v}</TableCell>)}
