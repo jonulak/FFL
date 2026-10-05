@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "web/app/globals.css"
+        ],
+        "createdAt": "2026-10-05T18:13:13.712Z",
+        "reason": "Claude decided: the flagged transition is a 1px border-bottom-width on season-modal fold rows; the height itself folds via grid-template-rows, and without it each row's rule snaps"
+      }
+    ]
+  }
+}
