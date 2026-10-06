@@ -345,7 +345,7 @@ def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
 @app.get("/league")
 def league_(week: int | None = None):
     data = _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week))
-    return live.overlay_league(data, _live_points(data["week"]))
+    return live.overlay_league(data, _live_points(data["week"]), _live_games(data["week"]))
 
 
 LOGO_TTL = 24 * 3600.0

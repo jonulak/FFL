@@ -94,7 +94,8 @@ function ScoreRow({ side, on, trailing }: { side: ScoreSide; on: boolean; traili
 // the number is the projection; once points post it is the score with the projection beneath.
 // A tile with a board behind it (this week and earlier) is a link to that board: the ring
 // firms and a chevron closes the header on hover, the way a row in a broadcast menu lifts.
-function MatchupCard({ m, final, live, href }: { m: League["scoreboard"][number]; final: boolean; live: boolean; href: string | null }) {
+function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; final: boolean; href: string | null }) {
+  const live = m.live;
   const on = final || live || m.home.score > 0 || m.away.score > 0;
   const lead = on ? Math.sign(m.away.score - m.home.score) : 0;
   const projected = m.home.proj > 0 || m.away.proj > 0;
@@ -140,14 +141,14 @@ export function LeagueView({ data }: { data: League }) {
       </section>
       <section className="space-y-3">
         <SectionHeading title="Scoreboard" count={data.scoreboard.length}>
-          {data.live && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
+          {data.scoreboard.some((m) => m.live) && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
           <WeekSelect week={data.week} current={data.current_week} weeks={data.weeks} base="/league" />
         </SectionHeading>
         {data.scoreboard.length === 0
           ? <p className="text-sm text-muted-foreground">No matchups scheduled for week {data.week}.</p>
           : (
             <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-              {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final} live={data.live} href={matchupHref(m, data.week, data.current_week)} />)}
+              {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final} href={matchupHref(m, data.week, data.current_week)} />)}
             </div>
           )}
       </section>

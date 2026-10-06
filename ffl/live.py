@@ -253,16 +253,20 @@ def overlay_roster(payload: dict, points: dict[int, float], games: dict[str, dic
     return {**payload, "cards": overlay_players(payload.get("cards", []), points, games, stats, scoring)}
 
 
-def overlay_league(payload: dict, points: dict[int, float]) -> dict:
-    """Each scoreboard side re-summed over its `starter_ids` when any of them has live points."""
+def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None) -> dict:
+    """Each scoreboard side re-summed over its `starter_ids` when any of them has live points, and
+    each matchup `live` while a starter on either side has his game in progress — not merely
+    while some game in the league is on."""
     board = []
     for m in payload.get("scoreboard", []):
-        row = {}
-        for key, side in m.items():
+        row = dict(m)
+        for key in ("home", "away"):
+            side = m[key]
             ids = side.get("starter_ids") or []
             if any(i in points for i in ids):
-                side = {**side, "score": round(sum(points.get(i, 0.0) for i in ids), 1)}
-            row[key] = side
+                row[key] = {**side, "score": round(sum(points.get(i, 0.0) for i in ids), 1)}
+        row["live"] = any((games or {}).get(t, {}).get("status") == "in"
+                          for key in ("home", "away") for t in m[key].get("starter_teams") or [])
         board.append(row)
     return {**payload, "scoreboard": board}
 
