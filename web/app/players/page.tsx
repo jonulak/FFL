@@ -1,4 +1,5 @@
 import { ErrorCard } from "@/components/error-card";
+import { FaToggle } from "@/components/fa-toggle";
 import { PosTabs } from "@/components/pos-tabs";
 import { StaleBadge } from "@/components/stale-badge";
 import { WaiverSearch } from "@/components/waiver-search";
@@ -11,14 +12,17 @@ import { isFreeAgent } from "@/lib/players";
 
 export const dynamic = "force-dynamic";
 
-// `?q=` searches every position's pool by name or team and outranks `?pos=`, which stays in the
-// URL only so clearing the search returns to that tab.
-export default async function Page({ searchParams }: { searchParams: Promise<{ pos?: string; q?: string }> }) {
-  const { pos = "RB", q: raw = "" } = await searchParams;
+// Every player in the league at a position, or only the free agents (`?fa=0` turns the Free agents
+// toggle off; absent, it is on). `?q=` searches every player at every position by name or team,
+// whatever the toggle says, and outranks `?pos=`, which stays in the URL only so clearing the
+// search returns to that tab.
+export default async function Page({ searchParams }: { searchParams: Promise<{ pos?: string; q?: string; fa?: string }> }) {
+  const { pos = "RB", q: raw = "", fa: faParam } = await searchParams;
   const q = raw.trim();
+  const fa = faParam !== "0";
   // the claim plan loads beside the pool; its failure leaves the table without the panel, never the page
   const [pool, plan] = await Promise.allSettled([
-    apiGet<Players>(`/players?pos=${encodeURIComponent(pos)}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
+    apiGet<Players>(`/players?pos=${encodeURIComponent(pos)}&fa=${fa ? 1 : 0}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
     apiGet<Claims>("/claims"),
   ]);
   if (pool.status === "rejected") return <ErrorCard {...errorFields(pool.reason)} />;
@@ -31,25 +35,26 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
   }));
   const table = (
     <div className="min-w-0 space-y-3">
-      {/* phone: the field over the tabs, full width; from `sm` it closes the tab strip's line,
-          one hairline under both */}
+      {/* phone: the field, then the Free agents toggle, over the tabs; from `sm` the toggle and the
+          field close the tab strip's line, one hairline under all three */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 sm:border-b sm:border-foreground/12">
-        <div className="min-w-0 flex-1 sm:order-first"><PosTabs active={q ? null : pos} base="/waivers" /></div>
-        <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} pos={pos} fa /></div>
+        <div className="sm:py-1"><FaToggle fa={fa} pos={pos} q={q} /></div>
+        <div className="min-w-0 flex-1 sm:order-first"><PosTabs active={q ? null : pos} base="/players" extra={fa ? "" : "&fa=0"} /></div>
+        <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} pos={pos} fa={fa} /></div>
       </div>
       {q && data.rows.length > 0 && (
         <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" aria-live="polite">
-          {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every position, by add
+          {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every player, by add
         </p>
       )}
-      <WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} />
+      <WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} fa={fa} />
     </div>
   );
   return (
     <div className={`space-y-5 ${claims ? "max-lg:pb-28" : ""}`}>
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
-          Waivers
+          Players
           <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
         </h1>
         {/* the week's games are all played: ROS starts from the next one, and nothing is left to gain this week */}
@@ -62,7 +67,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
       </div>
       {/* The definition is a laptop read; on the phone the first screen belongs to the table. */}
       <p className="hidden max-w-[72ch] text-xs leading-relaxed text-muted-foreground md:block">
-        add = projected points gained this season by adding him (STRATEGY.md, Waivers), ranked
+        add = projected points gained this season by adding him (STRATEGY.md, Waivers; on a rostered player, what he&apos;d be worth to me, blank on my own), ranked
         top down. ROS = the models&apos; per-game rate shrunk toward his last three games, each game
         worth its snap share against the position&apos;s lead players (wt), the prior worth four games.
         model = Sleeper&apos;s remaining weeks and CBS&apos;s rest-of-season projection, averaged; ± is the

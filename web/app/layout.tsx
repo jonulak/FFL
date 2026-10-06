@@ -20,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* the season modal: one dialog for the app, opened from any player row */}
         <PlayerDialogProvider>
           <Nav />
-          {/* the Waivers page with its claims dock gets 86rem from `xl`, so the table still fits beside it */}
+          {/* the Players page with its claims dock gets 86rem from `xl`, so the table still fits beside it */}
           <main className="mx-auto max-w-5xl px-3 py-4 xl:has-[[data-claims-dock]]:max-w-[86rem]">{children}</main>
         </PlayerDialogProvider>
       </body>

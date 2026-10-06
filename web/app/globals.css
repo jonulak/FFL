@@ -16,7 +16,7 @@
   }
 }
 
-/* The Waivers table lays out in full (pinned to the page, no sideways scroll) only on an `xl`
+/* The Players table lays out in full (pinned to the page, no sideways scroll) only on an `xl`
    screen whose table column is at least 62.5rem wide (the page's own width). Beside the docked claims
    panel it is narrower even with the page widened to 86rem (layout.tsx), so the table keeps its
    scrolling panel there, ROS through Δ pool in view at 1440 and the last-3 columns behind the scroll.

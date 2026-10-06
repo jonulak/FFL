@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { RosterRow, PlayerRow } from "@/lib/api";
+import type { Owner, PlayerRow, RosterRow } from "@/lib/api";
 import { FORM_COLUMNS, aheadLabel, expLabel, formCell, injuryLabel, injuryTone, pts, signed } from "@/lib/format";
 import { sortRows, type Sort } from "@/lib/waiver-sort";
 import { TrendArrow } from "./form-strip";
@@ -16,7 +16,8 @@ import { TeamLogo, TeamPanel } from "./player-media";
 import { WaiverOutlookButton } from "./waiver-outlook";
 import { ClaimControl } from "./claim-control";
 import { statusTag } from "@/lib/claims";
-import { isFreeAgent } from "@/lib/players";
+import { isFreeAgent, ownerLabel, rowKind } from "@/lib/players";
+import { TeamLink } from "./team-link";
 
 // A worth-to-me number, or a dash where there is none (my own player).
 const dash = (v: number | null) => (v == null ? "—" : signed(v));
@@ -182,6 +183,18 @@ function NameCell({ r, week, mine = false, chip, tail }: { r: PlayerRow | Roster
 
 // ESPN's pool status beside the name: FA is added the moment the claims are submitted, so it reads
 // at full ink; W·Wed (on waivers, clears Wednesday) steps back. Nothing when the read failed.
+// Where a free agent's claim control sits, another team's player shows who has him: the team's
+// abbreviation, opening its roster (TeamLink). The full name rides the hover.
+function OwnerChip({ owner, className = "" }: { owner: Owner; className?: string }) {
+  return (
+    <span title={owner.name ?? undefined} className={className}>
+      <TeamLink id={owner.team_id} className="font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {ownerLabel(owner)}
+      </TeamLink>
+    </span>
+  );
+}
+
 function PoolTag({ r }: { r: PlayerRow }) {
   const tag = statusTag(r);
   if (!tag) return null;
@@ -268,29 +281,41 @@ function Row({ r, week, cols, roster, open, onToggle }: {
 }) {
   const idle = r.bye || injuryTone(r.injury) === "bad";
   const mine = roster.filter((m) => comparePositions(r.pos).has(m.pos));
+  const kind = rowKind(r);
+  const free = isFreeAgent(r);
   return (
     <>
       <TableRow className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
         <TableCell className={`w-0 py-2 pr-0 pl-1 sm:pl-2 ${PIN_TILE}`}>
           <div className="flex items-center gap-0.5">
-            <button type="button" onClick={onToggle} aria-expanded={open} aria-label={open ? `hide my ${[...comparePositions(r.pos)].join("/")}s` : `compare with my ${[...comparePositions(r.pos)].join("/")}s`}
+            {/* my own player has nothing to compare against: a spacer keeps the tiles aligned */}
+            {kind === "mine" ? <span aria-hidden className="size-8 shrink-0" /> : <button type="button" onClick={onToggle} aria-expanded={open} aria-label={open ? `hide my ${[...comparePositions(r.pos)].join("/")}s` : `compare with my ${[...comparePositions(r.pos)].join("/")}s`}
               className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/55 hover:text-foreground focus-visible:outline-2">
               <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180" : ""}`} />
-            </button>
+            </button>}
             <PlayerTrigger p={r} className="block size-9 overflow-hidden rounded-md sm:size-10">
               <TeamPanel abbr={r.team} playerId={r.player_id} name={r.name} muted={idle} tile />
             </PlayerTrigger>
           </div>
         </TableCell>
         <NameCell r={r} week={week} chip={<>
-          {r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta ?? 0)}</Badge>}
-          <PoolTag r={r} />
-        </>} tail={<>{isFreeAgent(r) && <WaiverOutlookButton r={r} />}<ClaimControl id={r.player_id} name={r.name} sep className="sm:hidden" /></>} />
-        <TableCell className={`text-right font-display text-[1.5rem] font-bold tabular-nums tracking-tight ${(r.add ?? 0) > 0 ? "" : "text-foreground/70"}`}>
+          {kind === "mine" && <Badge variant="muted" shape="chip">mine</Badge>}
+          {r.would_start && <Badge variant="start" shape="chip">{free ? "start" : "would start"} {signed(r.week_delta ?? 0)}</Badge>}
+          {free && <PoolTag r={r} />}
+        </>} tail={free
+          ? <><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} sep className="sm:hidden" /></>
+          : kind === "theirs" && r.owner && <OwnerChip owner={r.owner} className="sm:hidden" />} />
+        {/* a rostered player's add is what he'd be worth to me, never a claim: it stays stepped back */}
+        <TableCell className={`text-right font-display text-[1.5rem] font-bold tabular-nums tracking-tight ${free && r.add > 0 ? "" : "text-foreground/70"}`}>
           {dash(r.add)}
         </TableCell>
-        {/* the claim column from `sm`; on a phone it collapses to nothing and the control rides the caption line */}
-        <TableCell className="max-sm:p-0 sm:px-2"><ClaimControl id={r.player_id} name={r.name} className="max-sm:hidden" /></TableCell>
+        {/* the claim column from `sm` (another team's player shows who has him there); on a phone it
+            collapses to nothing and the control rides the caption line */}
+        <TableCell className="max-sm:p-0 sm:px-2">
+          {free
+            ? <ClaimControl id={r.player_id} name={r.name} className="max-sm:hidden" />
+            : kind === "theirs" && r.owner && <OwnerChip owner={r.owner} className="max-sm:hidden" />}
+        </TableCell>
         <NumberCells r={r} cols={cols} />
       </TableRow>
       {open && mine.map((m) => <CompareRow key={m.player_id} fa={r} mine={m} week={week} cols={cols} />)}
@@ -303,7 +328,7 @@ function Row({ r, week, cols, roster, open, onToggle }: {
   );
 }
 
-// The free-agent pool at one position as a board: a full-width card, the shadcn Table flush to
+// The player pool at one position as a board: a full-width card, the shadcn Table flush to
 // its edges, one row per player with his team-colour tile. Rows arrive in the API's `add` order
 // and open that way; any column heading re-sorts them (descending first, the numbers that
 // matter being high ones; a second tap flips it), the name column alphabetically. The header
@@ -311,17 +336,17 @@ function Row({ r, week, cols, roster, open, onToggle }: {
 // over the form columns), then the column labels; `add` and `wk` stand under no heading, they
 // are the row's own numbers. Both header rows pin to the top and the tile and name to the
 // left while the table scrolls.
-export function WaiverTable({ rows, roster, week, pos, q }: { rows: PlayerRow[]; roster: RosterRow[]; week: number; pos: string; q?: string | null }) {
+export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: PlayerRow[]; roster: RosterRow[]; week: number; pos: string; q?: string | null; fa?: boolean }) {
   const [sort, setSort] = useState<Sort>({ key: "add", dir: "desc" });
   const [open, setOpen] = useState<Set<number>>(new Set());
   const toggle = (id: number) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   if (rows.length === 0) {
-    // the pool is ESPN's top 60 at each position: a miss is not proof he is rostered
+    // every rostered player is in the pool, the free agents only to ESPN's top 60 at each position
     return (
       <p className="max-w-[60ch] py-6 text-sm text-muted-foreground">
         {q
-          ? <>No free agent matching <span className="font-medium text-foreground">&ldquo;{q}&rdquo;</span> in ESPN&apos;s top 60 at any position. He may be rostered, or deeper in the pool.</>
-          : <>ESPN lists no free agents at {pos} right now.</>}
+          ? <>No player matching <span className="font-medium text-foreground">&ldquo;{q}&rdquo;</span>, rostered or among ESPN&apos;s top 60 free agents at each position.</>
+          : fa ? <>ESPN lists no free agents at {pos} right now.</> : <>Nobody at {pos} right now.</>}
       </p>
     );
   }
