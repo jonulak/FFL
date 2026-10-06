@@ -1080,7 +1080,7 @@ def journal_state() -> dict:
     if TX_CSV.exists():
         with TX_CSV.open() as f:
             rows = list(csv.DictReader(f))
-    return {"decisions_md": (JOURNAL / "DECISIONS.md").read_text(), "transactions": rows}
+    return {"transactions": rows}
 
 
 def parse_tx_players(payload: dict) -> dict[int, dict]:
@@ -1156,11 +1156,3 @@ def draft_picks() -> list[dict]:
             for i, p in enumerate(fresh_league().draft, 1)]
 
 
-def draft_recap() -> dict:
-    picks_csv = JOURNAL / "draft" / "picks.csv"
-    recap = JOURNAL / "draft" / "recap.md"
-    picks = []
-    if picks_csv.exists():
-        with picks_csv.open() as f:
-            picks = list(csv.DictReader(f))
-    return {"picks": picks, "recap_md": recap.read_text() if recap.exists() else ""}

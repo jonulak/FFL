@@ -1,12 +1,11 @@
-"""FastAPI glue for the season UI: ESPN/Sleeper state behind a short cache, two writes.
+"""FastAPI glue for the season UI: ESPN/Sleeper state behind a short cache, a few writes.
 
     uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300
 
 Loopback only; Next.js on :3300 proxies /api/* here. Stale payloads are kept past the TTL and
 served, flagged, when a source is down — never a blank page on Sunday.
 
-Only four endpoints write anything: POST /decisions appends to journal/DECISIONS.md, POST /refresh
-runs the journal sync, POST /outlook/refresh starts a background run that writes
+Only three endpoints write anything: POST /refresh runs the journal sync, POST /outlook/refresh starts a background run that writes
 data/outlook/week-<n>.json, and POST /waivers/outlook/{id} writes one free agent's into
 data/outlook/waivers-week-<n>.json. Every GET is read-only.
 """
@@ -20,16 +19,13 @@ from typing import Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, field_validator
 
 from . import cbs, espn_season, live, outlook, player_card, season
 from . import plays as plays_mod
-from .config import JOURNAL
 from .journal import sync_results, sync_transactions
 from .settings import load
 
 TTL = 120.0
-DECISIONS = JOURNAL / "DECISIONS.md"
 
 
 class Entry:
@@ -134,11 +130,6 @@ cache = Cache(TTL)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # The journal is the durable record: the API reads and appends to it, and never creates it.
-    # Booting without it would mean a 500 on /journal and a silent new file on the first
-    # decision, so refuse to start instead. Read the module global so tests can repoint it.
-    if not DECISIONS.exists():
-        raise RuntimeError(f"journal decisions log missing: {DECISIONS} (the API never creates it)")
     # Warm the page caches so the first browser hit after a (re)start is not the cold build.
     # Registered with the cache's thread table so join() covers it; a failure is logged and the
     # request path builds inline as it always did.
@@ -169,17 +160,6 @@ def warm() -> None:
 
 
 app = FastAPI(title="FFL season API", lifespan=lifespan)
-
-
-def _journal_serve(fn: Callable[[], dict]) -> dict:
-    """Journal reads/writes are local files, but a missing or unreadable one must still come back
-    in the shape the UI's error card expects, never as a bare 500 traceback."""
-    try:
-        return fn()
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001 — any journal failure is reported like a source failure
-        raise HTTPException(status_code=502, detail={"source": "journal", "error": str(e)})
 
 
 def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None) -> dict:
@@ -373,20 +353,6 @@ def logo(team_id: int):
     return Response(content=body, media_type=ctype, headers={"cache-control": f"private, max-age={int(LOGO_TTL)}"})
 
 
-@app.get("/journal")
-def journal_():
-    data = _journal_serve(espn_season.journal_state)
-    rows = [{**r, "team_id": tid} if (tid := _tx_team_id(r.get("id", ""))) else r for r in data["transactions"]]
-    return {**data, "transactions": rows, "stale_since": None}
-
-
-def _tx_team_id(tx_id: str) -> str | None:
-    """The team id inside a transaction id (`{date}-{team_id}-{action}-{player}`, ffl/journal.py),
-    the team page's link. Not the name column: a team renamed since keeps its id."""
-    parts = tx_id.split("-")
-    return parts[1] if len(parts) > 2 and parts[1].isdigit() else None
-
-
 @app.get("/transactions")
 def transactions():
     """The league's adds, drops and trades as moves (an add beside the drop it made room with)."""
@@ -409,11 +375,6 @@ def player_transactions(player_id: int):
 
 
 DRAFT_TTL = 24 * 3600.0  # the draft is over; the record does not move
-
-
-@app.get("/draft")
-def draft_():
-    return {**espn_season.draft_recap(), "stale_since": None}
 
 
 @app.get("/roster")
@@ -494,27 +455,6 @@ def waiver_outlook_write(player_id: int):
     except outlook.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"started": True}
-
-
-class Decision(BaseModel):
-    title: str
-    decision: str
-    reasoning: str
-    alternatives: str = ""
-
-    @field_validator("title", "decision", "reasoning")
-    @classmethod
-    def not_blank(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("required")
-        return v
-
-
-@app.post("/decisions")
-def post_decision(d: Decision):
-    text = _journal_serve(
-        lambda: season.append_decision(DECISIONS, d.title, d.decision, d.reasoning, d.alternatives))
-    return {"decisions_md": text}
 
 
 def sync_all() -> dict:

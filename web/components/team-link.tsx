@@ -4,7 +4,7 @@ import { teamHref } from "@/lib/team-link";
 
 // A fantasy team's name that opens its roster list, set like a player name that opens the
 // season modal: plain type at rest, underlined under a pointer. An id with no team behind it
-// leaves the name as plain text. No "use client": server pages (Draft, Journal) render it too.
+// leaves the name as plain text. No "use client": server components render it too.
 export function TeamLink({ id, className = "", children }: { id: number | string | null | undefined; className?: string; children: React.ReactNode }) {
   const href = teamHref(id);
   if (!href) return <span className={className}>{children}</span>;

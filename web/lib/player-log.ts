@@ -26,7 +26,7 @@ export function headerInjury(status: string, returnWeek: number | null, week?: n
 }
 
 // A name that opens the season modal: plain type at rest, underlined under a pointer. Here, not in
-// the client module, so server components (the play feed, the Draft page) can read the string.
+// the client module, so server components (the play feed) can read the string.
 export const NAME_LINK = "decoration-foreground/35 decoration-1 underline-offset-[0.2em] hover:underline";
 
 // His rank at his position on this season's points to date, for the modal header; undefined until

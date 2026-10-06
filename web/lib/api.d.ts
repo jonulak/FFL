@@ -47,7 +47,8 @@ export interface paths {
         };
         /**
          * Plays
-         * @description Every play-feed row of the current week, newest first (the /plays page).
+         * @description Every feed row of the current week for one game, newest first (the /plays page): mine, or
+         *     with `team` that team's. `me`/`opp` name the two sides the way the board does.
          */
         get: operations["plays__plays_get"];
         put?: never;
@@ -70,6 +71,26 @@ export interface paths {
          * @description My week's board, or with `team` the board of that team's game (a League scoreboard tile).
          */
         get: operations["week_week__n__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/team/{team_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Team
+         * @description Any fantasy team's roster for the current week (the team page), live points laid on.
+         */
+        get: operations["team_team__team_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -191,15 +212,18 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/journal": {
+    "/transactions": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Journal */
-        get: operations["journal__journal_get"];
+        /**
+         * Transactions
+         * @description The league's adds, drops and trades as moves (an add beside the drop it made room with).
+         */
+        get: operations["transactions_transactions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -208,15 +232,19 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/draft": {
+    "/player/{player_id}/transactions": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Draft */
-        get: operations["draft__draft_get"];
+        /**
+         * Player Transactions
+         * @description One player's moves this season (the season modal's Transactions section), off the cached
+         *     /transactions payload: no ESPN call of its own.
+         */
+        get: operations["player_transactions_player__player_id__transactions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -303,23 +331,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/decisions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Post Decision */
-        post: operations["post_decision_decisions_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/refresh": {
         parameters: {
             query?: never;
@@ -341,20 +352,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** Decision */
-        Decision: {
-            /** Title */
-            title: string;
-            /** Decision */
-            decision: string;
-            /** Reasoning */
-            reasoning: string;
-            /**
-             * Alternatives
-             * @default
-             */
-            alternatives: string;
-        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -424,7 +421,9 @@ export interface operations {
     };
     plays__plays_get: {
         parameters: {
-            query?: never;
+            query?: {
+                team?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -440,6 +439,15 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     week_week__n__get: {
@@ -450,6 +458,37 @@ export interface operations {
             header?: never;
             path: {
                 n: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_team__team_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: number;
             };
             cookie?: never;
         };
@@ -548,8 +587,9 @@ export interface operations {
     };
     waivers_waivers_get: {
         parameters: {
-            query: {
-                pos: "QB" | "RB" | "WR" | "TE" | "D/ST" | "K";
+            query?: {
+                pos?: ("QB" | "RB" | "WR" | "TE" | "D/ST" | "K") | null;
+                q?: string | null;
             };
             header?: never;
             path?: never;
@@ -639,7 +679,7 @@ export interface operations {
             };
         };
     };
-    journal__journal_get: {
+    transactions_transactions_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -659,11 +699,13 @@ export interface operations {
             };
         };
     };
-    draft__draft_get: {
+    player_transactions_player__player_id__transactions_get: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                player_id: number;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -675,6 +717,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -825,39 +876,6 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    post_decision_decisions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Decision"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
                 headers: {
                     [name: string]: unknown;
                 };

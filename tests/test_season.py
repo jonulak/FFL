@@ -1,4 +1,4 @@
-"""Pure in-season maths: lineup-optimal, waiver deltas, the decisions append."""
+"""Pure in-season maths: lineup-optimal, waiver deltas."""
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -267,27 +267,6 @@ def test_waiver_deltas_price_an_ir_player_off_his_return_week():
     assert by_name["IR back soon"]["return_week"] == 4
     assert by_name["IR back soon"]["injury_note"] == "Expected back Week 4"
     assert by_name["IR no date"]["return_week"] is None and by_name["IR no date"]["injury_note"] is None
-
-
-def test_append_decision_writes_the_journal_block(tmp_path):
-    p = tmp_path / "DECISIONS.md"
-    p.write_text("# Decisions log\n\n---\n")
-    text = season.append_decision(p, "Claim X", "Claim X, drop Y", "Y is done", "Z was worse",
-                                  today=date(2026, 9, 10))
-    assert text == p.read_text()
-    assert text.endswith(
-        "\n## 2026-09-10 — Claim X\n- **Decision:** Claim X, drop Y\n- **Reasoning:** Y is done\n"
-        "- **Alternatives rejected:** Z was worse\n- **Outcome (fill in later):**\n")
-
-
-def test_append_decision_rejects_blank_fields_and_missing_file(tmp_path):
-    p = tmp_path / "DECISIONS.md"
-    p.write_text("x\n")
-    with pytest.raises(ValueError):
-        season.append_decision(p, " ", "d", "r", "")
-    with pytest.raises(FileNotFoundError):
-        season.append_decision(tmp_path / "nope.md", "t", "d", "r", "")
-    assert p.read_text() == "x\n"
 
 
 def test_is_live_window():

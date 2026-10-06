@@ -20,11 +20,9 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(api.espn_season, "week_state", fake_week)
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 3, "positions": {"RB": []}})
     monkeypatch.setattr(api.espn_season, "league_state", lambda week=None: {"week": week or 3, "standings": [], "scoreboard": []})
-    monkeypatch.setattr(api.espn_season, "journal_state", lambda: {"decisions_md": "# x", "transactions": []})
     monkeypatch.setattr(api.espn_season, "team_state", lambda team_id: {
         "week": 3, "live": False, "mine": team_id == 7, "club": {"team_id": team_id, "rank": 2},
         "side": {"team_id": team_id, "lineup": [{"player_id": 1, "actual": 0.0, "team": "DET"}], "bench": [], "ir": []}})
-    monkeypatch.setattr(api.espn_season, "draft_recap", lambda: {"picks": [], "recap_md": ""})
     monkeypatch.setattr(api.espn_season, "roster_state",
                         lambda week=None: {"week": 3, "live": False, "cards": [
                             {"player_id": 1, "name": "A", "pos": "RB", "team": "DET", "bye": False, "injury": "ACTIVE",
@@ -38,9 +36,6 @@ def client(monkeypatch, tmp_path):
                         {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None,
                          "last_failure": None, "pending": None})
     monkeypatch.setattr(api, "sync_all", lambda: {"transactions": 0})
-    dec = tmp_path / "DECISIONS.md"
-    dec.write_text("# Decisions log\n")
-    monkeypatch.setattr(api, "DECISIONS", dec)
     api.cache.clear()
     c = TestClient(api.app)
     c.calls = calls
@@ -94,32 +89,6 @@ def test_sync_all_rebuilds_the_league(monkeypatch):
     monkeypatch.setattr(api, "sync_results", lambda lg, s: None)
     assert api.sync_all() == {"transactions": True, "results": True}
     assert hits == {"refresh": 1, "fresh": 1}
-
-
-def test_journal_502s_instead_of_a_bare_500(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "journal_state",
-                        lambda: (_ for _ in ()).throw(FileNotFoundError("DECISIONS.md")))
-    r = client.get("/journal")
-    assert r.status_code == 502 and r.json()["detail"]["source"] == "journal"
-
-
-def test_decisions_502s_when_the_log_is_gone(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(api, "DECISIONS", tmp_path / "gone.md")
-    r = client.post("/decisions", json={"title": "T", "decision": "d", "reasoning": "r", "alternatives": ""})
-    assert r.status_code == 502 and r.json()["detail"]["source"] == "journal"
-
-
-def test_startup_refuses_a_missing_decisions_log(monkeypatch, tmp_path):
-    monkeypatch.setattr(api, "DECISIONS", tmp_path / "nope.md")
-    with pytest.raises(RuntimeError, match="nope.md"):
-        with TestClient(api.app):
-            pass
-
-
-def test_startup_accepts_an_existing_decisions_log(client, tmp_path):
-    """The fixture already repointed DECISIONS at a tmp file; lifespan must read that global."""
-    with TestClient(api.app) as c:
-        assert c.get("/health").json() == {"ok": True}
 
 
 def test_stale_payload_served_when_source_fails(client, monkeypatch):
@@ -204,13 +173,6 @@ def test_502_when_nothing_cached(client, monkeypatch):
     assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
 
 
-def test_decisions_validation_and_append(client):
-    r = client.post("/decisions", json={"title": "", "decision": "d", "reasoning": "r", "alternatives": ""})
-    assert r.status_code == 422
-    r = client.post("/decisions", json={"title": "T", "decision": "d", "reasoning": "r", "alternatives": "a"})
-    assert r.status_code == 200 and "## " in r.json()["decisions_md"] and "— T" in r.json()["decisions_md"]
-
-
 def test_waivers_requires_known_pos(client):
     r = client.get("/waivers?pos=RB")
     assert r.status_code == 200 and r.json()["ros_source"] == "season", "the stub carries no ROS sources"
@@ -218,19 +180,8 @@ def test_waivers_requires_known_pos(client):
     assert client.get("/waivers?pos=XX").status_code == 422
 
 
-def test_health_and_journal_and_draft(client):
+def test_health(client):
     assert client.get("/health").json() == {"ok": True}
-    assert client.get("/journal").json()["stale_since"] is None
-    assert client.get("/draft").json()["stale_since"] is None
-
-
-def test_journal_rows_carry_the_team_id_from_their_transaction_id(client, monkeypatch):
-    rows = [{"id": "1788937502756-6-DROPPED-4688380", "team": "henry's Imposing Team"},
-            {"id": "1788937502756-3-WAIVER ADDED--16020", "team": "Anthony's Astounding Team"},
-            {"id": "odd", "team": "X"}]
-    monkeypatch.setattr(api.espn_season, "journal_state", lambda: {"decisions_md": "", "transactions": rows})
-    got = client.get("/journal").json()["transactions"]
-    assert [r.get("team_id") for r in got] == ["6", "3", None], "a D/ST's negative id does not confuse it"
 
 
 def test_transactions_are_served_through_the_cache(client, monkeypatch):

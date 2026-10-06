@@ -2,15 +2,12 @@
 
 Same shape as board.build / draft_watch.recommend: facts, no verdicts. Nothing here reads the
 network, and every projection function is pure over its arguments, so every number the in-season
-UI shows can be reproduced in a test. Two deliberate exceptions: is_live() reads the clock, and
-append_decision() appends to journal/DECISIONS.md on disk.
+UI shows can be reproduced in a test. One deliberate exception: is_live() reads the clock.
 """
 from __future__ import annotations
 
-import os
 import unicodedata
 from datetime import date, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .board import bench_depth, starter_counts
@@ -400,24 +397,6 @@ def roster_rows(my_roster: list[dict], week: int) -> list[dict]:
     rows = [{**p, "ros_proj": ros_proj(p, week), "ros_adj": ros_adj(p, week), "week_proj": playable_proj(p)}
             for p in my_roster]
     return sorted(rows, key=lambda r: -r["ros_adj"])
-
-
-def append_decision(path: Path, title: str, decision: str, reasoning: str, alternatives: str,
-                    today: date | None = None) -> str:
-    """Append one DECISIONS.md entry in the journal's format. Never creates the file."""
-    if not all(s and s.strip() for s in (title, decision, reasoning)):
-        raise ValueError("title, decision and reasoning are required")
-    if not path.exists():
-        raise FileNotFoundError(path)
-    day = (today or date.today()).isoformat()
-    block = (f"\n## {day} — {title.strip()}\n- **Decision:** {decision.strip()}\n"
-             f"- **Reasoning:** {reasoning.strip()}\n- **Alternatives rejected:** {alternatives.strip()}\n"
-             f"- **Outcome (fill in later):**\n")
-    with path.open("a") as f:
-        f.write(block)
-        f.flush()
-        os.fsync(f.fileno())
-    return path.read_text()
 
 
 TX_KIND = {"WAIVER ADDED": "waiver", "FA ADDED": "free_agent"}

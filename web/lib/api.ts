@@ -165,7 +165,6 @@ export type TeamRoster = {
   week: number; live: boolean; mine: boolean; club: Club & { rank: number | null }; side: Side;
   stale_since: string | null;
 };
-export type Journal ={ decisions_md: string; transactions: Record<string, string>[]; stale_since: null };
 // GET /transactions: the league's log as moves, newest first (season.group_transactions). A
 // side's `added` is what it claimed or received, `dropped` what it cut; pos/team are null when
 // ESPN's lookup failed or he is out of the NFL. Week 0 is before the season's first week.
@@ -182,7 +181,6 @@ export type PlayerTx = {
   with: string[]; from: { team_id: number; team: string } | null;
   round?: number; pick?: number; overall?: number;
 };
-export type Draft ={ picks: Record<string, string>[]; recap_md: string; stale_since: null };
 
 async function handle<T>(r: Response): Promise<T> {
   if (r.ok) return (await r.json()) as T;

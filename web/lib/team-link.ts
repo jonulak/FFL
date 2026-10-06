@@ -1,5 +1,5 @@
 // Where a fantasy team's name goes: its roster list. Ids arrive as numbers off the API's payloads
-// and as strings off the journal and draft CSVs; anything that is not a positive integer (a
+// and as strings off the journal CSVs; anything that is not a positive integer (a
 // transaction whose team has left the league) gets no link.
 export function teamHref(id: number | string | null | undefined): string | null {
   const n = parseTeamParam(String(id ?? ""));
