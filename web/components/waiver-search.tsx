@@ -4,15 +4,15 @@ import { LoaderCircle, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
-import { waiverHref } from "@/lib/waiver-search";
+import { playersHref } from "@/lib/players";
 
 const DEBOUNCE_MS = 250;
 
-// The name search over every position's pool. The query is server state in `?q=`, like the
+// The name search over every player, rostered or free, at every position. The query is server state in `?q=`, like the
 // position: typing settles for a beat, then replaces the URL (no history entry per key) and the
 // page re-renders from it. `pos` rides along so clearing the search returns to the tab it left.
 // `/` focuses the field from anywhere on the page that is not itself a field; Esc clears it.
-export function WaiverSearch({ q, pos }: { q: string; pos: string }) {
+export function WaiverSearch({ q, pos, fa }: { q: string; pos: string; fa: boolean }) {
   const router = useRouter();
   const [value, setValue] = useState(q);
   const [pending, startTransition] = useTransition();
@@ -29,9 +29,9 @@ export function WaiverSearch({ q, pos }: { q: string; pos: string }) {
 
   useEffect(() => {
     if (value.trim() === q.trim()) return;
-    const t = setTimeout(() => startTransition(() => router.replace(waiverHref(value, pos), { scroll: false })), DEBOUNCE_MS);
+    const t = setTimeout(() => startTransition(() => router.replace(playersHref(value, pos, fa), { scroll: false })), DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [value, q, pos, router]);
+  }, [value, q, pos, fa, router]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,7 +59,7 @@ export function WaiverSearch({ q, pos }: { q: string; pos: string }) {
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        aria-label="Search free agents at every position by name or team"
+        aria-label="Search every player by name or team"
         placeholder="Name or team"
         value={value}
         onChange={(e) => setValue(e.target.value)}

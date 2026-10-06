@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { WaiverOutlook, WaiverRow } from "@/lib/api";
+import type { WaiverOutlook, FreeAgentRow } from "@/lib/api";
 import { outlookPhase } from "@/lib/waiver-outlook";
 import { Ago } from "./local-time";
 import { Bullets } from "./outlook";
@@ -18,7 +18,7 @@ const POLL_MS = 5_000;
 // might claim. The trigger sits on the row's caption line; a filled dot marks one already written
 // this week. Nothing is written until the button in the dialog is pressed, and closing the
 // dialog never cancels a write — reopening picks it up.
-export function WaiverOutlookButton({ r }: { r: WaiverRow }) {
+export function WaiverOutlookButton({ r }: { r: FreeAgentRow }) {
   const [open, setOpen] = useState(false);
   const [written, setWritten] = useState(r.has_outlook);
   return (
@@ -40,7 +40,7 @@ export function WaiverOutlookButton({ r }: { r: WaiverRow }) {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-function Body({ r, setWritten }: { r: WaiverRow; setWritten: (w: boolean) => void }) {
+function Body({ r, setWritten }: { r: FreeAgentRow; setWritten: (w: boolean) => void }) {
   const [o, setO] = useState<WaiverOutlook | null>(null);
   const [fault, setFault] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);

@@ -5,8 +5,9 @@ import { WaiverSearch } from "@/components/waiver-search";
 import { WaiverTable } from "@/components/waiver-table";
 import { ClaimsProvider, type TabPlayer } from "@/components/claims-context";
 import { ClaimsPanel } from "@/components/claims-panel";
-import { apiGet, type Claims, type Waivers } from "@/lib/api";
+import { apiGet, type Claims, type Players } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
+import { isFreeAgent } from "@/lib/players";
 
 export const dynamic = "force-dynamic";
 
@@ -17,14 +18,15 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
   const q = raw.trim();
   // the claim plan loads beside the pool; its failure leaves the table without the panel, never the page
   const [pool, plan] = await Promise.allSettled([
-    apiGet<Waivers>(`/waivers?pos=${encodeURIComponent(pos)}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
+    apiGet<Players>(`/players?pos=${encodeURIComponent(pos)}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
     apiGet<Claims>("/claims"),
   ]);
   if (pool.status === "rejected") return <ErrorCard {...errorFields(pool.reason)} />;
   const data = pool.value;
   const claims = plan.status === "fulfilled" ? plan.value : null;
   const claimsFault = plan.status === "rejected" ? errorFields(plan.reason) : null;
-  const tab: TabPlayer[] = data.rows.map((r) => ({
+  // the claims panel names free agents only: a rostered player is never a claim target
+  const tab: TabPlayer[] = data.rows.filter(isFreeAgent).map((r) => ({
     player_id: r.player_id, name: r.name, pos: r.pos, team: r.team, add: r.add, ros_adj: r.ros_adj, status: r.status, waiver_date: r.waiver_date,
   }));
   const table = (
@@ -33,7 +35,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
           one hairline under both */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 sm:border-b sm:border-foreground/12">
         <div className="min-w-0 flex-1 sm:order-first"><PosTabs active={q ? null : pos} base="/waivers" /></div>
-        <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} pos={pos} /></div>
+        <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} pos={pos} fa /></div>
       </div>
       {q && data.rows.length > 0 && (
         <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" aria-live="polite">

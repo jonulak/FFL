@@ -130,13 +130,21 @@ export type WinProb = { me: number; opp: number; sigma_source: "calibrated" | "f
 export type Week = { week: number; live: boolean; mine: boolean; me: Side; opp: Side | null; win_prob?: WinProb | null; plays: Play[]; stale_since: string | null };
 // ros_proj is the model mean (resolved: the season formula when no source has him); ros_adj the
 // usage-adjusted number `add` and the deltas run on (STRATEGY.md "Usage-adjusted ROS").
-export type WaiverRow = Player & {
-  ros_proj: number; ros_adj: number; week_proj: number; delta_roster: number; delta_pool: number;
-  would_start: boolean; week_delta: number; add: number;
-  has_outlook: boolean;  // bullets written for him this week, from the Waivers dialog
+// add and the deltas are "worth to me": on another team's player, what he'd add if I traded for
+// him; null on my own (measuring him against my weakest is circular). owner null = free agent.
+export type Owner = { team_id: number; name: string | null; abbrev: string | null };
+export type PlayerRow = Player & {
+  ros_proj: number; ros_adj: number; week_proj: number; delta_roster: number | null; delta_pool: number | null;
+  would_start: boolean | null; week_delta: number | null; add: number | null;
+  has_outlook: boolean;  // bullets written for him this week, from the row's outlook dialog (free agents only)
   // ESPN's waiver status: FREEAGENT is added instantly, WAIVERS is a claim; null when the read failed
-  // (counts as WAIVERS). waiver_date: ms epoch his waiver period ends.
+  // (counts as WAIVERS) and on a rostered player. waiver_date: ms epoch his waiver period ends.
   status: "FREEAGENT" | "WAIVERS" | null; waiver_date: number | null;
+  owner: Owner | null; mine: boolean;
+};
+// A free agent: the only row a claim, the START gain and the outlook dialog apply to.
+export type FreeAgentRow = PlayerRow & {
+  owner: null; mine: false; add: number; delta_roster: number; delta_pool: number; would_start: boolean; week_delta: number;
 };
 // One free agent's outlook (GET /waivers/outlook/{id}): written on a click, a minute or two of
 // Opus with web search, so `running` is polled. `error` is the last failed write's reason.
@@ -149,8 +157,10 @@ export type WaiverOutlook = {
 export type RosterRow = Player & { ros_proj: number; ros_adj: number; week_proj: number; droppable: boolean; locked: boolean };
 // ros_source "season": no source had anyone, every ROS is a scaled draft-day season total.
 // ros_week: the week ROS starts from; week_over: this week's games are all played (no week term).
-export type Waivers = {
-  week: number; ros_week: number; week_over: boolean; pos: string | null; q: string | null; rows: WaiverRow[]; roster: RosterRow[];
+// fa: the Free agents toggle as the API applied it (a search ignores it and spans everyone).
+export type Players = {
+  week: number; ros_week: number; week_over: boolean; pos: string | null; q: string | null; fa: boolean;
+  rows: PlayerRow[]; roster: RosterRow[];
   ros_source: "sources" | "season"; stale_since: string | null;
 };
 // GET/POST /claims: the week's "get K of N" claim groups (journal/waivers/week-<n>.json). A group gets

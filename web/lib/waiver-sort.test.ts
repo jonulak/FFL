@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { WaiverRow } from "./api";
+import type { PlayerRow } from "./api";
 import { sortRows } from "./waiver-sort";
 
-const row = (name: string, add: number, form: Partial<WaiverRow["form"]> | null, ros: [number, number] = [0, 0]) =>
-  ({ name, add, week_proj: 0, ros_proj: ros[0], ros_adj: ros[1], delta_roster: 0, delta_pool: 0, form } as unknown as WaiverRow);
+const row = (name: string, add: number, form: Partial<PlayerRow["form"]> | null, ros: [number, number] = [0, 0]) =>
+  ({ name, add, week_proj: 0, ros_proj: ros[0], ros_adj: ros[1], delta_roster: 0, delta_pool: 0, form } as unknown as PlayerRow);
 
 describe("sortRows", () => {
   const rows = [row("B", 1, { snap_pct: 40 }, [100, 90]), row("A", 3, null, [120, 120]), row("C", 2, { snap_pct: 90 }, [80, 130])];
@@ -22,5 +22,13 @@ describe("sortRows", () => {
   });
   it("sorts names alphabetically", () => {
     expect(sortRows(rows, { key: "name", dir: "asc" }).map((r) => r.name)).toEqual(["A", "B", "C"]);
+  });
+});
+
+describe("sortRows on the Players table", () => {
+  it("a null add (my own player) sorts last both ways", () => {
+    const rows = [{ name: "a", add: null }, { name: "b", add: 2 }, { name: "c", add: 5 }] as unknown as PlayerRow[];
+    expect(sortRows(rows, { key: "add", dir: "desc" }).map((r) => r.name)).toEqual(["c", "b", "a"]);
+    expect(sortRows(rows, { key: "add", dir: "asc" }).map((r) => r.name)).toEqual(["b", "c", "a"]);
   });
 });

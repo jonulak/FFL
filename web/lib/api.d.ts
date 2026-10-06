@@ -21,6 +21,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/claims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Claims Get */
+        get: operations["claims_get_claims_get"];
+        put?: never;
+        /** Claims Save */
+        post: operations["claims_save_claims_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/claims/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claims Submit */
+        post: operations["claims_submit_claims_submit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/week": {
         parameters: {
             query?: never;
@@ -157,15 +192,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/waivers": {
+    "/players": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Waivers */
-        get: operations["waivers_waivers_get"];
+        /** Players */
+        get: operations["players_players_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -352,10 +387,49 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** GroupIn */
+        GroupIn: {
+            /** Targets */
+            targets: number[];
+            /** Cuts */
+            cuts: number[];
+            /**
+             * Open
+             * @default 0
+             */
+            open: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** MoveIn */
+        MoveIn: {
+            /** Group */
+            group: number;
+            /** Add */
+            add: number;
+            /** Drop */
+            drop?: number | null;
+        };
+        /** PlanIn */
+        PlanIn: {
+            /** Groups */
+            groups: components["schemas"]["GroupIn"][];
+        };
+        /** SubmitIn */
+        SubmitIn: {
+            /**
+             * Replace Outside
+             * @default false
+             */
+            replace_outside: boolean;
+            /**
+             * Expect Now
+             * @default []
+             */
+            expect_now: components["schemas"]["MoveIn"][];
         };
         /** ValidationError */
         ValidationError: {
@@ -395,6 +469,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    claims_get_claims_get: {
+        parameters: {
+            query?: {
+                fresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claims_save_claims_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claims_submit_claims_submit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -585,11 +756,12 @@ export interface operations {
             };
         };
     };
-    waivers_waivers_get: {
+    players_players_get: {
         parameters: {
             query?: {
                 pos?: ("QB" | "RB" | "WR" | "TE" | "D/ST" | "K") | null;
                 q?: string | null;
+                fa?: boolean;
             };
             header?: never;
             path?: never;

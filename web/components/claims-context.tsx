@@ -2,13 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ClientError, clientGet, clientPost } from "@/app/api-client";
-import type { Claim, ClaimGroup, ClaimPlayer, Claims, PoolStatus, SubmitResult, WaiverRow } from "@/lib/api";
+import type { Claim, ClaimGroup, ClaimPlayer, Claims, PoolStatus, SubmitResult, FreeAgentRow } from "@/lib/api";
 import { submitFailure, type SubmitFailure } from "@/lib/claims";
 
 export type { SubmitFailure };
 
 // The tab's rows as the panel needs them, so a target added from this tab has a name before the save returns.
-export type TabPlayer = Pick<WaiverRow, "player_id" | "name" | "pos" | "team" | "add" | "ros_adj" | "status" | "waiver_date">;
+export type TabPlayer = Pick<FreeAgentRow, "player_id" | "name" | "pos" | "team" | "add" | "ros_adj" | "status" | "waiver_date">;
 
 type Ctx = {
   data: Claims;
