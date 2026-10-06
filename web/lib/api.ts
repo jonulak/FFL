@@ -166,7 +166,14 @@ export type TeamRoster = {
   stale_since: string | null;
 };
 export type Journal ={ decisions_md: string; transactions: Record<string, string>[]; stale_since: null };
-export type Draft = { picks: Record<string, string>[]; recap_md: string; stale_since: null };
+// GET /transactions: the league's log as moves, newest first (season.group_transactions). A
+// side's `added` is what it claimed or received, `dropped` what it cut; pos/team are null when
+// ESPN's lookup failed or he is out of the NFL. Week 0 is before the season's first week.
+export type TxPlayer = { player_id: number; name: string; pos: string | null; team: string | null };
+export type TxSide = { team_id: number; team: string; abbrev: string; logo: string; added: TxPlayer[]; dropped: TxPlayer[] };
+export type TxMove = { id: string; ms: number; at: string; kind: "waiver" | "free_agent" | "drop" | "trade"; week: number; sides: TxSide[] };
+export type Transactions = { me: number; current_week: number; moves: TxMove[]; teams: Club[]; stale_since: string | null };
+export type Draft ={ picks: Record<string, string>[]; recap_md: string; stale_since: null };
 
 async function handle<T>(r: Response): Promise<T> {
   if (r.ok) return (await r.json()) as T;

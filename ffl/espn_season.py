@@ -1083,6 +1083,59 @@ def journal_state() -> dict:
     return {"decisions_md": (JOURNAL / "DECISIONS.md").read_text(), "transactions": rows}
 
 
+def parse_tx_players(payload: dict) -> dict[int, dict]:
+    """A kona_player_info answer as player id -> position and NFL team (None once he is a free
+    agent of the NFL)."""
+    from espn_api.football.constant import PRO_TEAM_MAP
+
+    from .player_card import POS
+    out = {}
+    for e in payload.get("players") or []:
+        p = e.get("player") or {}
+        if p.get("id") is None:
+            continue
+        team = PRO_TEAM_MAP.get(p.get("proTeamId"))
+        out[int(p["id"])] = {"pos": POS.get(p.get("defaultPositionId")), "team": team if team and team != "None" else None}
+    return out
+
+
+def tx_player_info(ids: set[int]) -> dict[int, dict]:
+    """Position and NFL team of every player in the transaction log, in one call. A D/ST's id is
+    -16000 less its club's id, so it needs no lookup; a failed read leaves the rest without (the
+    page shows the name alone) rather than failing the page."""
+    from espn_api.football.constant import PRO_TEAM_MAP
+    info = {pid: {"pos": "D/ST", "team": PRO_TEAM_MAP.get(-16000 - pid)} for pid in ids if pid < 0}
+    people = sorted(pid for pid in ids if pid > 0)
+    # No "limit" in the filter: ESPN answers 400 to one beside filterIds. Asked in chunks so a
+    # season's worth of ids never meets whatever page size it applies instead.
+    for i in range(0, len(people), TX_CHUNK):
+        filt = {"players": {"filterIds": {"value": people[i:i + TX_CHUNK]}}}
+        try:
+            info |= parse_tx_players(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}))
+        except Exception as e:  # noqa: BLE001 — positions and clubs are dressing; the moves stand without them
+            print(f"transaction player info unavailable: {e}")
+    return info
+
+
+TX_CHUNK = 40
+
+
+def transactions_state() -> dict:
+    """The Transactions page: the journal's log grouped into moves (season.group_transactions), each
+    side dressed with its fantasy team as the League page shows it (current name: teams get
+    renamed, and the log keeps the name at the time)."""
+    rows = journal_state()["transactions"]
+    lg = fresh_league()
+    clubs = {t.team_id: _club(t) for t in lg.teams}
+    ids = {p[3] for r in rows if (p := S.parse_tx_id(r.get("id", "")))}
+    moves = S.group_transactions(rows, tx_player_info(ids), date.fromisoformat(load()["week1_start"]))
+    for m in moves:
+        m["sides"] = [{**s, **({k: v for k, v in clubs[s["team_id"]].items() if k in ("team", "abbrev", "logo")}
+                               if s["team_id"] in clubs else {"abbrev": "", "logo": ""})} for s in m["sides"]]
+    return {"me": my_team_id(lg), "current_week": lg.current_week, "moves": moves,
+            "teams": sorted(clubs.values(), key=lambda c: c["team"].lower())}
+
+
 def draft_recap() -> dict:
     picks_csv = JOURNAL / "draft" / "picks.csv"
     recap = JOURNAL / "draft" / "recap.md"

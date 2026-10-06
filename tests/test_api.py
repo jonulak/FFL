@@ -233,6 +233,15 @@ def test_journal_rows_carry_the_team_id_from_their_transaction_id(client, monkey
     assert [r.get("team_id") for r in got] == ["6", "3", None], "a D/ST's negative id does not confuse it"
 
 
+def test_transactions_are_served_through_the_cache(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(api.espn_season, "transactions_state",
+                        lambda: calls.append(1) or {"me": 7, "current_week": 5, "moves": [], "teams": []})
+    assert client.get("/transactions").json() == {"me": 7, "current_week": 5, "moves": [], "teams": [], "stale_since": None}
+    client.get("/transactions")
+    assert len(calls) == 1
+
+
 def test_team_overlays_live_points(client, monkeypatch):
     monkeypatch.setattr(api.live.STATE, "points", {1: 14.5})
     monkeypatch.setattr(api.live.STATE, "week", 3)

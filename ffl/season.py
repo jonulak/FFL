@@ -420,6 +420,56 @@ def append_decision(path: Path, title: str, decision: str, reasoning: str, alter
     return path.read_text()
 
 
+TX_KIND = {"WAIVER ADDED": "waiver", "FA ADDED": "free_agent"}
+
+
+def parse_tx_id(tx_id: str) -> tuple[str, int, str, int] | None:
+    """A transaction id (`{epoch ms}-{team_id}-{action}-{player_id}`, ffl/journal.py) as its parts.
+    A D/ST's player id is negative, so its key reads `...-DROPPED--16020`. None when malformed."""
+    parts = tx_id.split("-", 3)
+    if len(parts) != 4 or not parts[0].isdigit() or not parts[1].isdigit():
+        return None
+    try:
+        return parts[0], int(parts[1]), parts[2], int(parts[3])
+    except ValueError:
+        return None
+
+
+def group_transactions(rows: list[dict], info: dict[int, dict], week1_start: date) -> list[dict]:
+    """journal/transactions.csv rows as moves, newest first. A waiver run stamps every claim with one
+    timestamp across teams, so a move is one team's rows of one timestamp (its adds and drops,
+    paired); a trade is every row of a timestamp that has a TRADE_* row, one side per team, where a
+    side's `added` is what it received and `dropped` what it cut to make room (what it sent is the
+    other side's `added`). `info` is player id -> pos and NFL team; a player it lacks gets None."""
+    parsed = [(p, r) for r in rows if (p := parse_tx_id(r.get("id", "")))]
+    trades = {ms for (ms, _, action, _), _ in parsed if action.startswith("TRADE")}
+    groups: dict[str, list] = {}
+    for p, r in parsed:
+        ms, team_id = p[0], p[1]
+        groups.setdefault(ms if ms in trades else f"{ms}-{team_id}", []).append((p, r))
+    moves = []
+    for key, members in groups.items():
+        sides: dict[int, dict] = {}
+        for (_, team_id, action, pid), r in members:
+            side = sides.setdefault(team_id, {"team_id": team_id, "team": (r.get("team") or "").strip(),
+                                              "added": [], "dropped": []})
+            if action == "TRADE_SENT":
+                continue  # the other side's TRADE_RECEIVED
+            known = info.get(pid, {})
+            player = {"player_id": pid, "name": r.get("player", ""), "pos": known.get("pos"), "team": known.get("team")}
+            side["dropped" if action == "DROPPED" else "added"].append(player)
+        at = members[0][1].get("date", "")
+        if key in trades:
+            kind = "trade"
+        else:
+            kind = next((TX_KIND[a] for (_, _, a, _), _ in members if a in TX_KIND), "drop")
+        moves.append({"id": key, "ms": int(members[0][0][0]), "at": at, "kind": kind,
+                      "week": max(0, week_of(datetime.fromisoformat(at).date(), week1_start)) if at else 0,
+                      "sides": list(sides.values())})
+    moves.sort(key=lambda m: -m["ms"])
+    return moves
+
+
 def matchup_final(m: dict, games: dict[str, dict] | None = None) -> bool:
     """A League scoreboard matchup's score is final: both sides have a lineup and every starter's
     game is over, by ESPN's game_played (a side's `pending_teams` are the clubs it does not yet

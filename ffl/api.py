@@ -387,6 +387,12 @@ def _tx_team_id(tx_id: str) -> str | None:
     return parts[1] if len(parts) > 2 and parts[1].isdigit() else None
 
 
+@app.get("/transactions")
+def transactions():
+    """The league's adds, drops and trades as moves (an add beside the drop it made room with)."""
+    return _serve("transactions", espn_season.transactions_state)
+
+
 @app.get("/draft")
 def draft_():
     return {**espn_season.draft_recap(), "stale_since": None}

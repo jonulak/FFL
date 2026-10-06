@@ -118,6 +118,12 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   plain list at `/team/<id>` (`GET /team/{id}`, `espn_season.team_state`: that side of the week's box
   scores, grouped like the board, with the club and its rank; live points through `live.overlay_side`).
   Journal rows take the id from the transaction id, not the name column: teams get renamed.
+- **Transactions page** (`/transactions`, `GET /transactions`): `season.group_transactions` (pure) turns
+  `journal/transactions.csv` into moves. A waiver run stamps every claim with one timestamp across teams, so a
+  move is (timestamp, team); a trade is every row of a timestamp holding a TRADE_* row, one side per team.
+  `espn_season.transactions_state` dresses sides with the current club (teams get renamed) and players with
+  pos/NFL team (`tx_player_info`: one `kona_player_info` call per 40 ids, no `limit` in the filter (ESPN 400s on
+  it), D/ST derived from the id). Journal keeps only the decisions log.
 - Every player dict carries `home` (True hosts, False travels, None unknown): espn-api drops the venue,
   so `espn_season.home_by_team` re-reads ESPN's `proTeamSchedules_wl` view, cached per League build,
   and a failed read leaves every venue None rather than failing the page. Headshots and logos are
