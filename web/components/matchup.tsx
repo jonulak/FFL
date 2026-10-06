@@ -170,7 +170,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
       className={`field-half min-w-0 cursor-pointer flex-wrap gap-x-2 gap-y-1 rounded-md border-0 px-1 py-1 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-ring/60 sm:flex-nowrap sm:gap-3 sm:px-1.5 ${opp ? "-mr-1 flex-row-reverse sm:-mr-1.5" : "-ml-1 sm:-ml-1.5"}`}
     >
       <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
-        <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 font-display text-[1rem] font-semibold leading-none tracking-tight sm:flex-wrap sm:gap-x-2 sm:gap-y-0.5 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/60" : ""}`}>
+        <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 font-display text-[1rem] font-semibold leading-none tracking-tight sm:flex-wrap sm:gap-x-2 sm:gap-y-0.5 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/40" : ""}`}>
           <span className="min-w-0 truncate"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
           {hurt && (
             <span title={p.injury_note ?? status} className={`shrink-0 font-bold ${TONE[injuryTone(p.injury)]}`}>
