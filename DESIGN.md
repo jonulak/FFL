@@ -309,6 +309,8 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 - **Trade:** the TRADE muted chip and stamp, then the two clubs (40px marks) facing each other across a 28px round swap mark (lucide ArrowLeftRight on ink 10%), each over RECEIVES and what it received; the right half mirrored to the right edge, its caption still reading `POS · TEAM`. A week of trades alone drops the column header.
 - A player ESPN gives no club stands on a plain ink-10% tile (portrait, else a lucide UserRound), never on a guessed club colour. Empty filter: one muted sentence.
 
+- **In the season modal:** under PAST SEASONS, a TRANSACTIONS section (the modal's own section heading, the count as its note) lists his moves this season, newest first: a 32px `ClubLogo`, the team name in condensed 600 at 1.0625rem (a `DialogClose` rendered as the team link, so it closes onto that roster), the other half of the pair in caption beneath (`for Michael Mayer`, `from My Njigbas for DeVonta Smith`), and at the right the kind as a muted chip over `Sep 18 · Wk 2`. Fetched with the log on the same tap and drawn only once the log is in; a player with no moves has no section.
+
 ### Stock surfaces (Journal, Draft)
 - shadcn Table, Tabs, Card (muted footer), Input, Textarea, Dialog, Skeleton as shipped; pill badges `secondary`/`outline`/`destructive` for injury tone; `text-xl font-semibold` Geist titles. These predate the board and are to be converted to it, not extended.
 

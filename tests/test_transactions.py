@@ -68,6 +68,34 @@ def test_a_malformed_id_is_skipped_not_fatal():
     assert S.group_transactions([{"id": "junk", "date": "2026-09-16T03:05", "player": "x"}], INFO, W1) == []
 
 
+def _moves():
+    rows = [row(7, 2, "TRADE_SENT", 101, "Drake London"), row(7, 1, "TRADE_RECEIVED", 101, "Drake London"),
+            row(7, 1, "TRADE_SENT", 102, "DeVonta Smith"), row(7, 2, "TRADE_RECEIVED", 102, "DeVonta Smith"),
+            row(5, 6, "WAIVER ADDED", 101, "Drake London", when="2026-09-10T03:05"),
+            row(5, 6, "DROPPED", 103, "Cam Little", when="2026-09-10T03:05"),
+            row(6, 6, "DROPPED", 101, "Drake London", when="2026-09-12T03:05"),
+            row(6, 6, "FA ADDED", 104, "Jonah Coleman", when="2026-09-12T03:05"),
+            row(8, 4, "DROPPED", 105, "Carson Wentz")]
+    return S.group_transactions(rows, INFO, W1)
+
+
+def test_player_history_reads_each_move_from_his_side():
+    got = S.player_transactions(_moves(), 101)
+    assert [(h["kind"], h["team_id"], h["with"]) for h in got] == [
+        ("traded", 1, ["DeVonta Smith"]),  # received by team 1, for what team 2 received
+        ("dropped", 6, ["Jonah Coleman"]),  # cut to make room for
+        ("waiver", 6, ["Cam Little"]),  # claimed in place of
+    ]
+    assert got[0]["from"] == {"team_id": 2, "team": "Team 2"}
+    assert got[1]["from"] is None and got[1]["week"] == 1
+
+
+def test_player_history_lone_drop_and_none():
+    (h,) = S.player_transactions(_moves(), 105)
+    assert h["kind"] == "dropped" and h["with"] == []
+    assert S.player_transactions(_moves(), 999) == []
+
+
 def test_player_info_reads_kona_and_derives_a_dst(monkeypatch):
     from ffl import espn_season as E
     seen = {}

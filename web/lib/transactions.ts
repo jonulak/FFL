@@ -1,4 +1,4 @@
-import type { TxMove, TxPlayer, TxSide } from "./api";
+import type { PlayerTx, TxMove, TxPlayer, TxSide } from "./api";
 
 export type TxFilter = "all" | "waiver" | "free_agent" | "trade";
 
@@ -43,6 +43,29 @@ export function weekLabel(week: number, current: number): string {
 export function pairs(side: Pick<TxSide, "added" | "dropped">): { added: TxPlayer | null; dropped: TxPlayer | null }[] {
   const n = Math.max(side.added.length, side.dropped.length);
   return Array.from({ length: n }, (_, i) => ({ added: side.added[i] ?? null, dropped: side.dropped[i] ?? null }));
+}
+
+export const HISTORY_LABEL: Record<PlayerTx["kind"], string> = {
+  waiver: "Waiver claim",
+  free_agent: "Free agent",
+  drop: "Dropped",
+  dropped: "Dropped",
+  trade: "Traded",
+  traded: "Traded",
+};
+
+// The other half of a move, as the caption under it: who was cut for him, who he was cut for, or
+// what went the other way in a trade and from whom. Null when there was no other half.
+export function historyDetail(h: PlayerTx): string | null {
+  const names = h.with.join(", ");
+  if (h.kind === "traded") return [h.from && `from ${h.from.team.trim()}`, names && `for ${names}`].filter(Boolean).join(" ");
+  return names ? `for ${names}` : null;
+}
+
+// "Sep 16" off the log's local stamp: the season modal's history row keeps to the date.
+export function shortDate(at: string): string {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? at : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 // "Tue, Sep 16 · 3:05 AM" off the log's local stamp (the box's zone, which is the reader's).

@@ -242,6 +242,15 @@ def test_transactions_are_served_through_the_cache(client, monkeypatch):
     assert len(calls) == 1
 
 
+def test_player_transactions_filter_the_cached_moves(client, monkeypatch):
+    side = {"team_id": 6, "team": "T6", "abbrev": "T", "logo": "", "added": [{"player_id": 101, "name": "A"}], "dropped": []}
+    move = {"id": "5-6", "ms": 5, "at": "2026-09-10T03:05", "kind": "waiver", "week": 1, "sides": [side]}
+    monkeypatch.setattr(api.espn_season, "transactions_state",
+                        lambda: {"me": 7, "current_week": 5, "moves": [move], "teams": []})
+    assert [h["kind"] for h in client.get("/player/101/transactions").json()["history"]] == ["waiver"]
+    assert client.get("/player/999/transactions").json()["history"] == []
+
+
 def test_team_overlays_live_points(client, monkeypatch):
     monkeypatch.setattr(api.live.STATE, "points", {1: 14.5})
     monkeypatch.setattr(api.live.STATE, "week", 3)

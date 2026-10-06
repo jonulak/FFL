@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { TxMove, TxPlayer } from "./api";
-import { byWeek, filterMoves, pairs, stamp, weekLabel } from "./transactions";
+import type { PlayerTx, TxMove, TxPlayer } from "./api";
+import { byWeek, filterMoves, historyDetail, pairs, stamp, weekLabel } from "./transactions";
 
 const p = (id: number): TxPlayer => ({ player_id: id, name: `P${id}`, pos: "WR", team: "ATL" });
 const side = (team_id: number, added: TxPlayer[] = [], dropped: TxPlayer[] = []) =>
@@ -41,6 +41,21 @@ describe("pairs", () => {
   it("leaves the missing half empty", () => {
     expect(pairs({ added: [], dropped: [p(2)] })).toEqual([{ added: null, dropped: p(2) }]);
     expect(pairs({ added: [p(1), p(3)], dropped: [p(2)] })[1]).toEqual({ added: p(3), dropped: null });
+  });
+});
+
+describe("historyDetail", () => {
+  const h = (kind: PlayerTx["kind"], withs: string[], from: PlayerTx["from"] = null): PlayerTx =>
+    ({ id: "x", at: "2026-09-16T03:05", week: 2, kind, team_id: 1, team: "T1", abbrev: "", logo: "", with: withs, from });
+  it("names the other half of the pair", () => {
+    expect(historyDetail(h("waiver", ["Cam Little"]))).toBe("for Cam Little");
+    expect(historyDetail(h("dropped", ["Jonah Coleman", "Evan McPherson"]))).toBe("for Jonah Coleman, Evan McPherson");
+  });
+  it("reads a trade from the partner", () => {
+    expect(historyDetail(h("traded", ["DeVonta Smith"], { team_id: 2, team: "My Njigbas " }))).toBe("from My Njigbas for DeVonta Smith");
+  });
+  it("says nothing for a lone move", () => {
+    expect(historyDetail(h("dropped", []))).toBeNull();
   });
 });
 

@@ -1,20 +1,26 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { clientGet } from "@/app/api-client";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { OppRank, PlayerLog, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
+import type { OppRank, PlayerLog, PlayerTx, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
 import { ordinal, pts } from "@/lib/format";
-import { columns, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
+import { columns, NAME_LINK, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
 import { volumeText } from "@/lib/box";
+import { teamHref } from "@/lib/team-link";
+import { clubLogoSrc } from "@/lib/teams";
+import { HISTORY_LABEL, historyDetail, shortDate } from "@/lib/transactions";
 import { BoxTable } from "./box-table";
+import { ClubLogo } from "./club-logo";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
 import { TeamLogo } from "./player-media";
 import { StaleBadge } from "./stale-badge";
@@ -32,7 +38,13 @@ const Open = createContext<(p: PlayerSeed) => void>(() => {});
 const HOLD_MS = 180;
 
 export type LogFetch = { promise: Promise<PlayerLog>; log?: PlayerLog };
-type Shown = { seed: PlayerSeed; fetch: LogFetch };
+type Shown = { seed: PlayerSeed; fetch: LogFetch; history: Promise<PlayerTx[]> };
+
+// His moves this season, asked for with the log so they land together (the API answers from its
+// cached /transactions payload). A failure is no history: the section is left out.
+function fetchHistory(id: number): Promise<PlayerTx[]> {
+  return clientGet<{ history: PlayerTx[] }>(`/player/${id}/transactions`).then((d) => d.history, () => []);
+}
 
 // A tap's request for the log, with `log` set as soon as it lands.
 export function fetchLog(id: number): LogFetch {
@@ -55,9 +67,10 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
   const show = useCallback((p: PlayerSeed) => {
     const tap = ++latest.current;
     const fetch = fetchLog(p.player_id);
+    const history = fetchHistory(p.player_id);
     void holdFor(fetch).then(() => {
       if (tap !== latest.current) return; // a later tap took over
-      setShown({ seed: p, fetch });
+      setShown({ seed: p, fetch, history });
       setOpen(true);
     });
   }, []);
@@ -66,7 +79,7 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
       {children}
       <Dialog open={open && shown != null} onOpenChange={setOpen}>
         <DialogContent className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
-          {shown && <Body key={shown.seed.player_id} seed={shown.seed} fetch={shown.fetch} />}
+          {shown && <Body key={shown.seed.player_id} seed={shown.seed} fetch={shown.fetch} history={shown.history} />}
         </DialogContent>
       </Dialog>
     </Open.Provider>
@@ -108,16 +121,61 @@ export function useLog(id: number, fetch: LogFetch) {
   return { load, retry };
 }
 
-function Body({ seed, fetch }: { seed: PlayerSeed; fetch: LogFetch }) {
+function Body({ seed, fetch, history }: { seed: PlayerSeed; fetch: LogFetch; history: Promise<PlayerTx[]> }) {
   const { load, retry } = useLog(seed.player_id, fetch);
+  const [moves, setMoves] = useState<PlayerTx[]>([]);
+  useEffect(() => {
+    let current = true;
+    void history.then((h) => current && setMoves(h));
+    return () => { current = false; };
+  }, [history]);
   return (
     <>
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined}
         rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
       <div className="overflow-y-auto overscroll-contain">
         <LogBody load={load} retry={retry} className="px-4 pt-4 pb-5" />
+        {/* under the seasons, once they are in: above the skeleton it would be pushed down by the log */}
+        {load.state === "ready" && moves.length > 0 && <History moves={moves} />}
       </div>
     </>
+  );
+}
+
+// His moves this season, newest first: the fantasy team (its mark and name, which closes the
+// modal onto that team's roster), what the move was in a muted chip, the date and week, and the
+// other half of the pair beneath. A player with no moves has no section.
+function History({ moves }: { moves: PlayerTx[] }) {
+  return (
+    <section aria-labelledby="season-moves" className="log-in space-y-1.5 px-4 pt-2 pb-5">
+      <Heading id="season-moves" title="Transactions" note={String(moves.length)} />
+      <ul className="divide-y divide-foreground/10">
+        {moves.map((h) => {
+          const href = teamHref(h.team_id);
+          const detail = historyDetail(h);
+          const name = <span className="truncate">{h.team.trim()}</span>;
+          return (
+            <li key={`${h.id}-${h.team_id}`} className="flex items-center gap-3 py-2.5">
+              <ClubLogo src={clubLogoSrc(h)} abbrev={h.abbrev || h.team} size={32} className="shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="flex min-w-0 items-center font-display text-[1.0625rem] font-semibold leading-tight tracking-tight">
+                  {href
+                    ? <DialogClose nativeButton={false} render={<Link href={href} />} className={`min-w-0 truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${NAME_LINK}`}>{name}</DialogClose>
+                    : name}
+                </p>
+                {detail && <p className="mt-0.5 truncate text-xs leading-4 text-muted-foreground">{detail}</p>}
+              </div>
+              <div className="shrink-0 text-right">
+                <Badge variant="muted" shape="chip">{HISTORY_LABEL[h.kind]}</Badge>
+                <p className="mt-1 text-xs leading-4 tabular-nums text-muted-foreground">
+                  {shortDate(h.at)} · {h.week > 0 ? `Wk ${h.week}` : "Pre"}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

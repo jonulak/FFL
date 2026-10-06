@@ -393,6 +393,14 @@ def transactions():
     return _serve("transactions", espn_season.transactions_state)
 
 
+@app.get("/player/{player_id}/transactions")
+def player_transactions(player_id: int):
+    """One player's moves this season (the season modal's Transactions section), off the cached
+    /transactions payload: no ESPN call of its own."""
+    data = _serve("transactions", espn_season.transactions_state)
+    return {"history": season.player_transactions(data["moves"], player_id), "stale_since": data["stale_since"]}
+
+
 @app.get("/draft")
 def draft_():
     return {**espn_season.draft_recap(), "stale_since": None}

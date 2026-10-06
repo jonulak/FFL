@@ -470,6 +470,31 @@ def group_transactions(rows: list[dict], info: dict[int, dict], week1_start: dat
     return moves
 
 
+def player_transactions(moves: list[dict], player_id: int) -> list[dict]:
+    """One player's moves (group_transactions' output, newest first), each read from the side he
+    was on: `kind` is the move's for an add, "traded" for a trade's receiving side, "dropped" for a
+    cut; `with` is the other half of the pair (who was cut for him, who he was cut for, what went
+    the other way in a trade) and `from` the trade partner."""
+    out = []
+    for m in moves:
+        for s in m["sides"]:
+            added = any(p["player_id"] == player_id for p in s["added"])
+            if not added and not any(p["player_id"] == player_id for p in s["dropped"]):
+                continue
+            partner = next((o for o in m["sides"] if o is not s), None) if m["kind"] == "trade" else None
+            if not added:
+                kind, others = "dropped", s["added"]
+            elif partner is not None:
+                kind, others = "traded", partner["added"]
+            else:
+                kind, others = m["kind"], s["dropped"]
+            out.append({"id": m["id"], "at": m["at"], "week": m["week"], "kind": kind,
+                        **{k: s.get(k) for k in ("team_id", "team", "abbrev", "logo")},
+                        "with": [p["name"] for p in others],
+                        "from": {"team_id": partner["team_id"], "team": partner["team"]} if kind == "traded" else None})
+    return out
+
+
 def matchup_final(m: dict, games: dict[str, dict] | None = None) -> bool:
     """A League scoreboard matchup's score is final: both sides have a lineup and every starter's
     game is over, by ESPN's game_played (a side's `pending_teams` are the clubs it does not yet
