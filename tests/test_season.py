@@ -515,6 +515,13 @@ def test_all_final_is_decided_by_the_score():
     assert season.win_prob(done(95), done(95), season.SIGMA_FALLBACK) == 0.5
 
 
+def test_a_final_tie_is_a_tie_whatever_the_float_noise():
+    # 10.1 + 20.2 sums to 30.299999999999997, under a single 30.3
+    a = [wp_player(actual=10.1, game={"status": "post"}), wp_player(actual=20.2, game={"status": "post"})]
+    b = [wp_player(actual=30.3, game={"status": "post"})]
+    assert season.win_prob(a, b, season.SIGMA_FALLBACK) == 0.5
+
+
 def test_out_and_bye_starters_add_nothing():
     assert season.side_outlook([wp_player(injury="OUT"), wp_player(bye=True)], season.SIGMA_FALLBACK) == (0.0, 0.0)
 

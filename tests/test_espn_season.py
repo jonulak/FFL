@@ -678,6 +678,30 @@ def test_week_state_carries_the_odds_of_its_game(monkeypatch):
     assert abs(odds["me"] + odds["opp"] - 1) < 0.002
 
 
+def test_league_state_survives_sleeper_down(monkeypatch):
+    """The scoreboard did not need Sleeper before the odds; an outage falls back to ESPN's numbers."""
+    club = dict(team_abbrev="X", logo_url="", wins=1, losses=0, ties=0, points_for=1.0, points_against=1.0)
+    mine = SimpleNamespace(team_id=7, team_name="Mine", **club)
+    them = SimpleNamespace(team_id=2, team_name="Them", **club)
+    boxes = [as_box(p) for p in season_roster()]
+    match = SimpleNamespace(home_team=mine, home_lineup=boxes, away_team=them, away_lineup=boxes[:3],
+                            home_score=0.0, away_score=0.0, home_projected=0.0, away_projected=0.0)
+    lg = SimpleNamespace(current_week=1, standings=lambda: [mine, them], box_scores=lambda wk: [match],
+                         scoreboard=lambda wk: [])
+    monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "load", lambda: {**TWO_QB, "reg_season_weeks": 14, "playoff_teams": 6})
+
+    def down(week, settings):
+        raise requests.HTTPError("503")
+    monkeypatch.setattr(espn_season, "_sleeper_for", down)
+    _fallback_sigma(monkeypatch)
+    row = espn_season.league_state(1)["scoreboard"][0]
+    qb_a = next(s for s in row["home"]["starters"] if s["player_id"] == 1)
+    assert qb_a["proj"] == 20, "ESPN's own projection stands"
+    assert row["win_prob"] is not None
+
+
 def test_league_state_carries_starters_merged_proj_and_odds(monkeypatch):
     from ffl import season
     club = dict(team_abbrev="X", logo_url="", wins=1, losses=0, ties=0, points_for=1.0, points_against=1.0)

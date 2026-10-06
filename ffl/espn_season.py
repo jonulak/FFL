@@ -1077,7 +1077,11 @@ def league_state(week: int | None = None) -> dict:
             starters = [bp for bp in (getattr(m, f"{side}_lineup", None) or [])
                         if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]
             if starters and sl is None:
-                sl = _sleeper_for(week, settings)
+                # the scoreboard stood without Sleeper before the odds: an outage leaves ESPN's numbers
+                try:
+                    sl = _sleeper_for(week, settings)
+                except Exception:  # noqa: BLE001
+                    sl = {}
             players = merge_weekly([flatten_box_player(bp) for bp in starters], sl) if starters else []
             row[side] = {**_club(t), "score": round(score, 1),
                          "proj": (round(sum(S.playable_proj(p) for p in players), 1) if players

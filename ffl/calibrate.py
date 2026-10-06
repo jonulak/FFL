@@ -168,7 +168,7 @@ def _winprob() -> None:
         return [{**p, "actual": 0.0, "game_played": 0} for p in side]
 
     def result(a: list[dict], b: list[dict]) -> float:
-        d = sum(p["actual"] for p in a) - sum(p["actual"] for p in b)
+        d = round(sum(p["actual"] for p in a) - sum(p["actual"] for p in b), 2)
         return 1.0 if d > 0 else 0.0 if d < 0 else 0.5
 
     scored = [(S.win_prob(pregame(a), pregame(b), sigma), result(a, b)) for a, b in games]

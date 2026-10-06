@@ -93,6 +93,8 @@ def win_prob(a: list[dict], b: list[dict], sigma: dict[str, float]) -> float:
     ma, va = side_outlook(a, sigma)
     mb, vb = side_outlook(b, sigma)
     if va + vb <= 0:
+        # the score as the board shows it, so float noise in the sums never splits a tie
+        ma, mb = round(ma, 2), round(mb, 2)
         return 1.0 if ma > mb else 0.0 if ma < mb else 0.5
     return 0.5 * (1 + math.erf((ma - mb) / math.sqrt(2 * (va + vb))))
 
