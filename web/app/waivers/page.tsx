@@ -44,7 +44,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
     </div>
   );
   return (
-    <div className={`space-y-5 ${claims ? "max-lg:pb-20" : ""}`}>
+    <div className={`space-y-5 ${claims ? "max-lg:pb-28" : ""}`}>
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
           Waivers

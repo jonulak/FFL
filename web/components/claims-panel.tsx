@@ -21,7 +21,8 @@ import {
 } from "@/lib/claims";
 import { pts, signed } from "@/lib/format";
 import { useClaims } from "./claims-context";
-import { ClaimsSubmit } from "./claims-submit";
+import { ClaimName } from "./claim-name";
+import { ClaimsSubmit, PHONE_ACTION, PHONE_INSET } from "./claims-submit";
 import { Clock } from "./local-time";
 
 const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
@@ -63,8 +64,8 @@ function Remove({ label, onClick, disabled }: { label: string; onClick: () => vo
 }
 
 // One sortable line: grip, rank, name with its tags, the number, remove.
-function Line({ id, rank, name, tags, value, onRemove, removeLabel, disabled, tone = "" }: {
-  id: string; rank: ReactNode; name: string; tags?: ReactNode; value: ReactNode; onRemove: () => void; removeLabel: string; disabled: boolean; tone?: string;
+function Line({ id, pid, rank, name, tags, value, onRemove, removeLabel, disabled, tone = "" }: {
+  id: string; pid: number; rank: ReactNode; name: string; tags?: ReactNode; value: ReactNode; onRemove: () => void; removeLabel: string; disabled: boolean; tone?: string;
 }) {
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id, disabled });
   return (
@@ -73,7 +74,7 @@ function Line({ id, rank, name, tags, value, onRemove, removeLabel, disabled, to
       <Grip label={`Move ${name}`} handleRef={setActivatorNodeRef} attributes={attributes} listeners={listeners} disabled={disabled} />
       <span className="text-right font-display text-sm font-semibold tabular-nums text-muted-foreground">{rank}</span>
       <span className="flex min-w-0 items-center gap-1.5">
-        <span className={`truncate font-medium ${tone}`}>{name}</span>
+        <ClaimName id={pid} className={`font-medium ${tone}`} />
         {tags}
       </span>
       <span className="text-right text-xs tabular-nums text-foreground/70">{value}</span>
@@ -142,7 +143,7 @@ function GroupCard({ g, gi, roster, usedCuts }: { g: ClaimGroup; gi: number; ros
     const pl = player(t.id);
     const tag = statusTag(pl);
     return (
-      <Line key={t.id} id={`t${t.id}`} rank={rank} name={name(t.id)} disabled={submitting}
+      <Line key={t.id} id={`t${t.id}`} pid={t.id} rank={rank} name={name(t.id)} disabled={submitting}
         tags={t.now
           ? <Badge variant="default" shape="chip" className="h-4 px-1 text-[0.6875rem]" title="a free agent: added the moment you submit, ahead of the claims">now</Badge>
           : tag && <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{tag}</span>}
@@ -199,7 +200,7 @@ function GroupCard({ g, gi, roster, usedCuts }: { g: ClaimGroup; gi: number; ros
                 const pl = player(c);
                 const block = pl ? cutBlock(pl, hasFA) : null;
                 return (
-                  <Line key={c} id={`c${c}`} rank={g.open + i + 1} name={name(c)} disabled={submitting} tone="text-out"
+                  <Line key={c} id={`c${c}`} pid={c} rank={g.open + i + 1} name={name(c)} disabled={submitting} tone="text-out"
                     tags={block && <span className="text-xs text-destructive">{block}</span>}
                     value={pl?.ros_adj != null ? `ROS ${pts(pl.ros_adj)}` : null}
                     onRemove={() => setGroups(removeFrom(groups, gi, "cuts", c))} removeLabel={`Remove ${name(c)} from the cuts`} />
@@ -242,7 +243,7 @@ function SubmitState() {
 
 // The panel's body, shared by the docked column and the phone's sheet. `heading` is the title
 // element each host needs (an h2, or the sheet's labelled title).
-function PanelBody({ heading, onReview }: { heading: (text: string) => ReactNode; onReview: () => void }) {
+function PanelBody({ heading, onReview, sheet = false }: { heading: (text: string) => ReactNode; onReview: () => void; sheet?: boolean }) {
   const { data, groups, setGroups, player, status, dirty, saving, error, submitting } = useClaims();
   const sensors = useDragSensors();
   const dndId = useId();
@@ -285,12 +286,17 @@ function PanelBody({ heading, onReview }: { heading: (text: string) => ReactNode
           </ol>
         </SortableContext>
       </DndContext>
-      <div className="flex flex-wrap items-center gap-2 pt-1">
-        <Button variant="ghost" size="sm" disabled={submitting} onClick={() => setGroups(newGroup(groups))}>
+      {/* In the sheet the actions stay pinned to its foot, thumb-height, above the home indicator;
+          docked beside the table they follow the last group at desk size. */}
+      <div className={sheet
+        ? `sticky bottom-0 -mx-4 mt-4 flex items-center gap-3 border-t border-foreground/10 bg-popover px-4 pt-3 ${PHONE_INSET}`
+        : "flex flex-wrap items-center gap-2 pt-1"}>
+        <Button variant={sheet ? "outline" : "ghost"} size={sheet ? "default" : "sm"} disabled={submitting}
+          className={sheet ? PHONE_ACTION : undefined} onClick={() => setGroups(newGroup(groups))}>
           <Plus aria-hidden />New group
         </Button>
         {groups.length > 0 && (
-          <Button className="ml-auto" disabled={blocked} onClick={onReview}>
+          <Button className={sheet ? `flex-1 ${PHONE_ACTION}` : "ml-auto"} disabled={blocked} onClick={onReview}>
             Review {moves} move{moves === 1 ? "" : "s"}
           </Button>
         )}
@@ -312,8 +318,8 @@ export function ClaimsPanel() {
       <aside aria-label="Claims" className="hidden lg:sticky lg:top-16 lg:block lg:max-h-[calc(100dvh-5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pb-4">
         <PanelBody heading={(t) => <h2 className={LABEL}>{t}</h2>} onReview={openReview} />
       </aside>
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-foreground/10 bg-card/95 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-16px_rgb(0_0_0_/_0.5)] lg:hidden">
-        <Button variant="ghost" className="h-10 w-full justify-between px-2" onClick={() => setSheet(true)}>
+      <div className={`fixed inset-x-0 bottom-0 z-20 border-t border-foreground/10 bg-card/95 px-4 pt-2 shadow-[0_-8px_24px_-16px_rgb(0_0_0_/_0.5)] lg:hidden ${PHONE_INSET}`}>
+        <Button variant="ghost" className="h-12 w-full justify-between px-3" onClick={() => setSheet(true)}>
           <span className="font-display text-base font-semibold uppercase tracking-[0.1em]">
             Claims
             <span className="text-muted-foreground"> · {groups.length ? `${groups.length} group${groups.length > 1 ? "s" : ""} · ${n} move${n === 1 ? "" : "s"}` : "none yet"}</span>
@@ -322,9 +328,10 @@ export function ClaimsPanel() {
         </Button>
       </div>
       <Sheet open={sheet} onOpenChange={setSheet}>
-        <SheetContent side="bottom" className="max-h-[85dvh] gap-0 overflow-y-auto overscroll-contain rounded-t-xl px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {/* no bottom padding here: the pinned action bar carries the inset */}
+        <SheetContent side="bottom" className="max-h-[85dvh] gap-0 overflow-y-auto overscroll-contain rounded-t-xl px-4 pt-4 pb-0">
           <SheetDescription className="sr-only">The week&apos;s claim groups: drag the handles to reorder, then review and send.</SheetDescription>
-          <PanelBody heading={(t) => <SheetTitle className={LABEL}>{t}</SheetTitle>} onReview={openReview} />
+          <PanelBody sheet heading={(t) => <SheetTitle className={LABEL}>{t}</SheetTitle>} onReview={openReview} />
         </SheetContent>
       </Sheet>
       <ClaimsSubmit open={review} onOpenChange={setReview} />

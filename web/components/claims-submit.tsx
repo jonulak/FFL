@@ -9,19 +9,27 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import type { Claim, SubmitResult } from "@/lib/api";
 import { atMost, processDay, submitSummary, type SubmitFailure } from "@/lib/claims";
+import { ClaimName } from "./claim-name";
 import { SubmitError, useClaims } from "./claims-context";
 
 const SUB = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
+// Phone action bars sit on the screen's bottom edge. The layout sets no viewport-fit=cover, so in
+// the in-app browser env(safe-area-inset-bottom) reads 0 and a max() with it alone left the
+// buttons in the home-indicator gesture zone: a fixed floor clears it, the inset adds to it when real.
+export const PHONE_INSET = "pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))]";
+// A phone action: a full thumb's height, not the 32px desk button.
+export const PHONE_ACTION = "max-lg:h-12 max-lg:px-5 max-lg:text-base";
+
 // "+ Addison  − Shaheed" (or "open spot"): one move as the dialog lists it.
-function MoveLine({ m, name, n }: { m: Pick<Claim, "add" | "drop">; name: (id: number) => string; n?: number }) {
+function MoveLine({ m, n }: { m: Pick<Claim, "add" | "drop">; n?: number }) {
   return (
     <li className="grid grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)] items-baseline gap-x-2 border-t border-foreground/8 py-1 first:border-t-0">
       <span className="text-right font-display font-semibold tabular-nums text-muted-foreground">{n ?? ""}</span>
-      <span className="truncate font-medium">+ {name(m.add)}</span>
+      <span className="truncate font-medium">+ <ClaimName id={m.add} /></span>
       {m.drop == null
         ? <span className="truncate text-muted-foreground">open spot</span>
-        : <span className="truncate text-out">− {name(m.drop)}</span>}
+        : <span className="truncate text-out">− <ClaimName id={m.drop} /></span>}
     </li>
   );
 }
@@ -79,7 +87,7 @@ function Outcome({ r, verdict, name }: { r: SubmitResult; verdict: { ok: boolean
           <>
             <p className="pt-1 text-muted-foreground">ESPN&apos;s list, in its order:</p>
             {r.pending.length
-              ? <ol>{r.pending.map((c, i) => <MoveLine key={c.id} m={c} name={name} n={i + 1} />)}</ol>
+              ? <ol>{r.pending.map((c, i) => <MoveLine key={c.id} m={c} n={i + 1} />)}</ol>
               : <p className="text-muted-foreground">nothing pending</p>}
           </>
         )}
@@ -159,7 +167,7 @@ function Body({ onClose }: { onClose: () => void }) {
         {!result && data.now.length > 0 && (
           <section className="space-y-1.5">
             <h3 className={SUB}>Add now · instant, can&apos;t be undone</h3>
-            <ol>{data.now.map((m) => <MoveLine key={m.add} m={m} name={name} />)}</ol>
+            <ol>{data.now.map((m) => <MoveLine key={m.add} m={m} />)}</ol>
             <p className="text-xs leading-relaxed text-muted-foreground">
               These happen the moment you press Send; if one is taken, his cut moves down to the claims.
             </p>
@@ -186,7 +194,7 @@ function Body({ onClose }: { onClose: () => void }) {
               </div>
             )}
             {data.claims.length
-              ? <ol>{data.claims.map((m, i) => <MoveLine key={`${m.add}:${m.drop}`} m={m} name={name} n={i + 1} />)}</ol>
+              ? <ol>{data.claims.map((m, i) => <MoveLine key={`${m.add}:${m.drop}`} m={m} n={i + 1} />)}</ol>
               : <p className="text-muted-foreground">No claims: every target is a free agent.</p>}
             {atMost(groups, pos) && <p className="text-xs text-muted-foreground">{atMost(groups, pos)}.</p>}
           </section>
@@ -194,16 +202,17 @@ function Body({ onClose }: { onClose: () => void }) {
         {result && verdict && <Outcome r={result} verdict={verdict} name={name} />}
         {fault && <Failure f={fault} name={name} />}
       </div>
-      <DialogFooter className="gap-2 max-sm:rounded-none max-sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {result && <Button variant={resend ? "outline" : "default"} onClick={onClose}>Done</Button>}
+      {/* PHONE_INSET, written out: Tailwind only generates a variant it can read in the source */}
+      <DialogFooter className="gap-2 max-sm:rounded-none max-sm:gap-3 max-sm:px-5 max-sm:pt-3 max-sm:pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))]">
+        {result && <Button variant={resend ? "outline" : "default"} onClick={onClose} className={PHONE_ACTION}>Done</Button>}
         {resend && (
-          <Button onClick={reviewAgain} disabled={loading} className="min-w-24">
+          <Button onClick={reviewAgain} disabled={loading} className={`min-w-24 ${PHONE_ACTION}`}>
             {loading && <LoaderCircle aria-hidden className="animate-spin" />}
             Review again
           </Button>
         )}
         {!result && (
-          <Button onClick={send} disabled={submitting || loading} className="min-w-24">
+          <Button onClick={send} disabled={submitting || loading} className={`min-w-24 ${PHONE_ACTION}`}>
             {(submitting || loading) && <LoaderCircle aria-hidden className="animate-spin" />}
             {submitting ? "Sending…" : loading ? "Checking ESPN…" : "Send"}
           </Button>
