@@ -8,12 +8,18 @@ weeks are in:
 
     uv run python -m ffl.calibrate            # every snapshot, K in 1..12 and the model alone
     uv run python -m ffl.calibrate 2 4 8      # the Ks to try
+    uv run python -m ffl.calibrate winprob    # the win meter's σ per position, and its Brier
 
-Everything but `main` is pure; `actuals_since` is the one ESPN call (player cards, in batches).
+The win meter (season.win_prob) is checked the same way: `winprob` fits the spread of points
+around the projection per position from every league starter-week so far into
+`data/calibration/sigma.json`, and scores the pregame odds of the games already played.
+
+Everything but `main` is pure; `actuals_since` and `starter_weeks` are the ESPN calls.
 """
 from __future__ import annotations
 
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -23,6 +29,7 @@ from .config import DATA
 CAL_DIR = DATA / "calibration"
 DEFAULT_KS = [1, 2, 3, 4, 6, 8, 12, 1000]  # 1000 is the model alone, near enough
 SIGMA_FILE = CAL_DIR / "sigma.json"
+MIN_ROWS = 10  # starter-weeks a position needs before its fitted σ replaces the fallback
 
 
 def load_sigma(path: Path = SIGMA_FILE) -> tuple[dict[str, float], str]:
@@ -103,7 +110,76 @@ def actuals_since(lg, ids: list[int], from_week: int, to_week: int) -> dict[int,
     return out
 
 
+def fit_sigma(rows: list[dict]) -> dict:
+    """The spread of points around the projection by position, over starter-weeks that had one;
+    a position with fewer than MIN_ROWS keeps the fallback σ."""
+    misses: dict[str, list[float]] = {}
+    for r in rows:
+        if r["proj"] > 0:
+            misses.setdefault(r["pos"], []).append(r["pts"] - r["proj"])
+    keep = {pos: d for pos, d in misses.items() if len(d) >= MIN_ROWS}
+    return {"sigma": {pos: round(statistics.stdev(d), 2) for pos, d in keep.items()},
+            "n": {pos: len(d) for pos, d in keep.items()}}
+
+
+def brier(games: list[tuple[float, float]]) -> float | None:
+    """Mean squared miss of (probability, outcome) pairs; 0.25 is a coin flip."""
+    return round(sum((p - o) ** 2 for p, o in games) / len(games), 4) if games else None
+
+
+def write_sigma(path: Path, fit: dict, weeks: list[int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({**fit, "weeks": weeks}, indent=2))
+
+
+def starter_weeks(lg, settings: dict, weeks: list[int]) -> tuple[list[dict], list[tuple[list[dict], list[dict]]]]:
+    """Every league starter of the given weeks as {pos, pts, proj} (proj the board's ESPN+Sleeper
+    mean, zero when he could not play), and each game's two starting lineups."""
+    from .espn_season import _sleeper_for, box_scores, flatten_box_player, merge_weekly
+    rows, games = [], []
+    for w in weeks:
+        sl = _sleeper_for(w, settings)
+        for m in box_scores(lg, w):
+            sides = []
+            for lineup in (m.away_lineup, m.home_lineup):
+                starters = [bp for bp in lineup or [] if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]
+                players = merge_weekly([flatten_box_player(bp) for bp in starters], sl)
+                rows += [{"pos": p["pos"], "pts": p["actual"], "proj": S.playable_proj(p)} for p in players]
+                sides.append(players)
+            if len(sides) == 2 and all(sides):
+                games.append((sides[0], sides[1]))
+    return rows, games
+
+
+def _winprob() -> None:
+    from .espn_season import fresh_league
+    from .settings import load
+    lg = fresh_league()
+    weeks = list(range(1, lg.current_week))
+    rows, games = starter_weeks(lg, load(), weeks)
+    fit = fit_sigma(rows)
+    write_sigma(SIGMA_FILE, fit, weeks)
+    sigma, _ = load_sigma()
+    print(f"weeks {weeks[0]}..{weeks[-1]}:" if weeks else "no weeks played yet")
+    for pos in sorted(fit["sigma"]):
+        print(f"  {pos:<4} σ {fit['sigma'][pos]:>5}  over {fit['n'][pos]} starter-weeks")
+
+    def pregame(side: list[dict]) -> list[dict]:  # every starter's whole game still ahead
+        return [{**p, "actual": 0.0, "game_played": 0} for p in side]
+
+    def result(a: list[dict], b: list[dict]) -> float:
+        d = sum(p["actual"] for p in a) - sum(p["actual"] for p in b)
+        return 1.0 if d > 0 else 0.0 if d < 0 else 0.5
+
+    scored = [(S.win_prob(pregame(a), pregame(b), sigma), result(a, b)) for a, b in games]
+    print(f"Brier {brier(scored)} over {len(scored)} games (coin flip 0.25; in-sample, so optimistic)")
+    print(f"wrote {SIGMA_FILE}")
+
+
 def main(argv: list[str]) -> None:
+    if argv[:1] == ["winprob"]:
+        _winprob()
+        return
     from .espn_season import fresh_league
     ks = [float(a) for a in argv] or DEFAULT_KS
     snaps = load_snapshots()

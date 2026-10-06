@@ -61,6 +61,30 @@ def test_load_sigma_overlays_the_fit_on_the_fallback(tmp_path):
     assert source == "calibrated" and sigma["QB"] == 9.1 and sigma["TE"] == season.SIGMA_FALLBACK["TE"]
 
 
+def test_fit_sigma_by_position_skips_thin_and_zero_proj_rows():
+    rows = [{"pos": "QB", "pts": 20 + d, "proj": 20} for d in (-6, 6) * 10]
+    rows += [{"pos": "K", "pts": 9, "proj": 8}] * 3                                # under MIN_ROWS
+    rows += [{"pos": "QB", "pts": 30, "proj": 0}]                                  # no projection
+    fit = calibrate.fit_sigma(rows)
+    assert fit["n"] == {"QB": 20}
+    assert abs(fit["sigma"]["QB"] - 6.16) < 0.01   # sample sd of ±6 over 20 rows
+    assert "K" not in fit["sigma"]
+
+
+def test_brier():
+    assert calibrate.brier([(1.0, 1), (0.0, 0)]) == 0.0
+    assert calibrate.brier([(0.5, 1), (0.5, 0)]) == 0.25
+    assert calibrate.brier([]) is None
+
+
+def test_write_sigma_round_trips_through_load_sigma(tmp_path):
+    f = tmp_path / "cal" / "sigma.json"
+    calibrate.write_sigma(f, {"sigma": {"WR": 8.2}, "n": {"WR": 120}}, [1, 2, 3])
+    sigma, source = calibrate.load_sigma(f)
+    assert source == "calibrated" and sigma["WR"] == 8.2
+    assert json.loads(f.read_text())["weeks"] == [1, 2, 3]
+
+
 def test_load_sigma_survives_a_corrupt_file(tmp_path):
     f = tmp_path / "sigma.json"
     f.write_text("{not json")
