@@ -23,8 +23,8 @@ POS = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
 SUMMARY = {
     "QB": [("C/A", "1", "0"), ("YDS", "3"), ("TD", "4"), ("INT", "20")],
     "RB": [("CAR", "23"), ("YDS", "24"), ("TD", "25")],
-    "WR": [("REC", "53"), ("YDS", "42"), ("TD", "43")],
-    "TE": [("REC", "53"), ("YDS", "42"), ("TD", "43")],
+    "WR": [("REC/TGT", "53", "58"), ("YDS", "42"), ("TD", "43")],
+    "TE": [("REC/TGT", "53", "58"), ("YDS", "42"), ("TD", "43")],
     "K": [("FG", "83", "84"), ("XP", "86", "87")],
     "D/ST": [("SCK", "99"), ("INT", "95"), ("PA", "120")],
 }
@@ -89,11 +89,12 @@ def _entry(week: int, row: dict, club: str | None, game: tuple | None, pos: str,
     away, home = (game[1], game[2]) if game else (None, None)
     opp = (home if club == away else away) if club and club in (away, home) else None
     return {"week": week, "opp": opp, "home": (club == home) if opp else None, "status": status,
-            "pts": round(sum(b["points"] for b in box), 2), "summary": summary(pos, stats), "box": box}
+            "pts": round(sum(b["points"] for b in box), 2), "summary": summary(pos, stats), "box": box,
+            "volume": live.volume(pos, stats)}
 
 
 def _blank(week: int, status: str) -> dict:
-    return {"week": week, "opp": None, "home": None, "status": status, "pts": None, "summary": [], "box": []}
+    return {"week": week, "opp": None, "home": None, "status": status, "pts": None, "summary": [], "box": [], "volume": None}
 
 
 def season_log(rows: list[dict], season: int, pos: str, scoring: list[dict], games: dict, byes: dict,

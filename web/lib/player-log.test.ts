@@ -3,7 +3,7 @@ import type { SeasonLog, WeekLog } from "./api";
 import { columns, headerInjury, ptsText, seasonPts, weekLabel } from "./player-log";
 
 const wk = (week: number, summary: [string, string][] = [], status: WeekLog["status"] = "played", pts: number | null = null): WeekLog =>
-  ({ week, opp: null, home: null, status, pts, summary, box: [] });
+  ({ week, opp: null, home: null, status, pts, summary, box: [], volume: null });
 const totals = { games: 0, pts: 0, ppg: 0, summary: [] as [string, string][], box: [] };
 
 describe("player-log", () => {

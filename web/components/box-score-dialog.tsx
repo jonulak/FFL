@@ -2,7 +2,7 @@
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import type { Player } from "@/lib/api";
-import { boxSum } from "@/lib/box";
+import { boxSum, volumeText } from "@/lib/box";
 import { pts } from "@/lib/format";
 import { seasonRank } from "@/lib/player-log";
 import { BoxTable } from "./box-table";
@@ -30,6 +30,8 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
   const { load, retry } = useLog(p.player_id, log);
   const box = p.box ?? [];
   const off = box.length > 0 && Math.abs(boxSum(box) - p.actual) >= 0.05;
+  // only once his game is on: before kickoff an empty row still reads "0 targets"
+  const vol = box.length > 0 || p.game ? volumeText(p.volume) : undefined;
   return (
     <>
       <PlayerHeader p={p} rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
@@ -44,6 +46,7 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
             <BoxTable box={box} />
           )}
           <p className="pt-1.5 text-xs tabular-nums text-muted-foreground">
+            {vol && <><span className="text-foreground/80">{vol}</span> <span aria-hidden>·</span> </>}
             proj {pts(p.proj)}
             {p.proj_sleeper != null && <> <span aria-hidden>·</span> ESPN {pts(p.proj_espn)}, Sleeper {pts(p.proj_sleeper)}</>}
             {off && <> <span aria-hidden>·</span> ESPN posts {pts(p.actual)}</>}

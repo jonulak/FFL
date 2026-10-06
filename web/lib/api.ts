@@ -28,6 +28,7 @@ export type Player = {
   field?: Field; // his unit is on the field (live.field): the offense with the ball, a D/ST without it
   stat_line?: string; // his box-score line, once a stat that scores has happened (live.stat_line)
   box?: BoxItem[]; // the line items behind his points (live.box_score); Matchup payload only
+  volume?: Volume; // his targets / carries / pass attempts this week, beside the box (live.volume)
   form?: Form | null; // his last three games (STRATEGY.md "Recent form"); Roster cards and Waiver rows
 };
 // season.recent_form: the last three games he played, facts beside `add`, never inside it.
@@ -46,6 +47,9 @@ export type Form = {
 // One scoring stat of his game: the count, the league's rate and the points it earned. A band
 // row (points or yards allowed) is a flat award; its count is the total it was read off.
 export type BoxItem = { stat_id: number; label: string; count: number; rate: number; flat: boolean; points: number };
+// live.volume: the usage behind a game's points, which scores nothing itself — a WR's or TE's
+// targets, an RB's carries, a QB's pass attempts. None for a K or a D/ST.
+export type Volume = { count: number; label: string };
 // ffl/player_card.py: one player's game log, this season first. `summary` is the collapsed row's
 // columns ([label, value], the position's own stat group); `box` the week's scoring breakdown.
 // A bye or a missed game has no points and an empty box; `live` is the feed's week in progress.
@@ -54,7 +58,7 @@ export type BoxItem = { stat_id: number; label: string; count: number; rate: num
 export type OppRank = { rank: number; of: number; allowed: number };
 export type WeekLog = {
   week: number; opp: string | null; home: boolean | null; status: "played" | "bye" | "out" | "live" | "upcoming";
-  pts: number | null; summary: [string, string][]; box: BoxItem[];
+  pts: number | null; summary: [string, string][]; box: BoxItem[]; volume: Volume | null;
   opp_rank?: OppRank | null; // this season's games, played or ahead
   pos_rank?: number | null; // his rank at his position that week: this season's weeks before the current one
   // a game still to play: Sleeper's projection, averaged with ESPN's for the current week

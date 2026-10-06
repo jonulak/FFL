@@ -178,6 +178,19 @@ def test_overlay_falls_back_to_espns_stat_row_and_drops_it():
     fed = live.overlay_players([p], {7: 9.0}, stats={7: {"53": 5.0}}, scoring=SCORING)[0]
     assert fed["box"][0]["count"] == 5.0, "the feed's row wins while it has him"
     assert "box" not in live.overlay_players([p], {})[0], "no scoring table, no breakdown"
+    assert out["volume"] == {"count": 0, "label": "targets"}, "the stat row carries his volume too"
+    assert fed["volume"] == {"count": 0, "label": "targets"}
+    assert "volume" not in live.overlay_players([{**player(7), "pos": "WR"}], {})[0], "no row, no volume"
+
+
+def test_volume_is_the_positions_usage_count():
+    assert live.volume("WR", {"53": 4.0, "58": 9.0}) == {"count": 9, "label": "targets"}
+    assert live.volume("TE", {"58": 1.0}) == {"count": 1, "label": "target"}
+    assert live.volume("RB", {"23": 18.0}) == {"count": 18, "label": "carries"}
+    assert live.volume("RB", {"23": 1.0}) == {"count": 1, "label": "carry"}
+    assert live.volume("QB", {"0": 34.0, "1": 22.0}) == {"count": 34, "label": "pass attempts"}
+    assert live.volume("QB", {}) == {"count": 0, "label": "pass attempts"}
+    assert live.volume("K", {"83": 1.0}) is None and live.volume("D/ST", {}) is None
 
 
 def test_state_keeps_game_states_but_a_clock_tick_alone_does_not_bump_the_version():

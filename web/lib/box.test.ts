@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxSum, count, points, rule } from "./box";
+import { boxSum, count, points, rule, volumeText } from "./box";
 
 const item = (rate: number, flat: boolean, pts: number) => ({ stat_id: 1, label: "", count: 1, rate, flat, points: pts });
 
@@ -18,5 +18,11 @@ describe("box", () => {
   it("sums to the hundredth without float drift", () => {
     expect(boxSum([item(1, false, 0.1), item(1, false, 0.2)])).toBe(0.3);
     expect(boxSum([])).toBe(0);
+  });
+  it("reads his volume as a count and its noun, nothing without one", () => {
+    expect(volumeText({ count: 9, label: "targets" })).toBe("9 targets");
+    expect(volumeText({ count: 0, label: "carries" })).toBe("0 carries");
+    expect(volumeText(null)).toBeUndefined();
+    expect(volumeText(undefined)).toBeUndefined();
   });
 });

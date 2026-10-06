@@ -115,6 +115,21 @@ RECEIVING = [("42", "yds"), ("43", "TD"), ("44", "2PT")]
 DEFENCE = [("99", "sk"), ("95", "INT"), ("96", "FR"), ("98", "SFTY")]
 DEFENCE_TD = ("101", "102", "103", "104", "93")  # return and blocked-kick touchdowns
 
+# A week's volume, the usage behind the points that scores nothing itself: (stat id, one, many).
+# ESPN's 0 pass attempts, 23 rushing attempts, 58 receiving targets.
+VOLUME = {"QB": ("0", "pass attempt", "pass attempts"), "RB": ("23", "carry", "carries"),
+          "WR": ("58", "target", "targets"), "TE": ("58", "target", "targets")}
+
+
+def volume(pos: str, stats: dict) -> dict | None:
+    """His usage count off the raw stat row ({"count": 9, "label": "targets"}); None for a
+    position without one (K, D/ST). A row without the stat counts 0: he played and drew none."""
+    if pos not in VOLUME:
+        return None
+    sid, one, many = VOLUME[pos]
+    n = int(float(stats.get(sid) or 0))
+    return {"count": n, "label": one if n == 1 else many}
+
 
 def stat_line(pos: str, stats: dict) -> str | None:
     """A box-score line from the raw stat row, by position — the stats the league scores,
@@ -227,6 +242,8 @@ def overlay_players(players: list[dict], points: dict[int, float], games: dict[s
             p["stat_line"] = line
         if row and scoring:
             p["box"] = box_score(row, scoring)
+        if row and (v := volume(p.get("pos", ""), row)):
+            p["volume"] = v
         out.append(p)
     return out
 

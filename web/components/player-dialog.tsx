@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { OppRank, PlayerLog, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
 import { ordinal, pts } from "@/lib/format";
 import { columns, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
+import { volumeText } from "@/lib/box";
 import { BoxTable } from "./box-table";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
 import { TeamLogo } from "./player-media";
@@ -421,6 +422,7 @@ function WeekRows({ w, span, i, fold, ranked, pos = "" }: { w: WeekLog; span: nu
               <CollapsibleContent className={PANEL}>
                 <div className="my-2 rounded-md bg-foreground/[0.035] px-3 pt-2 pb-2.5">
                   {w.box.length > 0 ? <BoxTable box={w.box} /> : <p className="py-1 text-xs text-muted-foreground">Nothing that scores.</p>}
+                  {w.volume && <p className="pt-1.5 text-xs tabular-nums text-muted-foreground">{volumeText(w.volume)}</p>}
                 </div>
               </CollapsibleContent>
             </Collapsible>
