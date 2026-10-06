@@ -269,15 +269,13 @@ function Toggle({ open, label }: { open: boolean; label: string }) {
 // that defence has held his position and his projection in the points column, and the bye where
 // it falls. A bye still to come belongs ahead, so the rule falls at the first game to play or the
 // first week past the current one, whichever comes first. Every game this season carries the
-// opponent's rank; the caption under the table says what Rk and Proj are.
+// opponent's rank. No legend under the table: he reads the columns without one.
 function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
   const cols = columns(s);
   const span = cols.length + 5;
   const split = s.weeks.findIndex((w) => w.status === "upcoming" || w.week > week);
   const done = split < 0 ? s.weeks : s.weeks.slice(0, split);
   const ahead = split < 0 ? [] : s.weeks.slice(split);
-  const of = s.weeks.find((w) => w.opp_rank)?.opp_rank?.of;
-  const finishes = s.weeks.some((w) => w.pos_rank != null);
   return (
     <>
       <SeasonTable cols={cols} ranked>
@@ -294,13 +292,6 @@ function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
           ? <AheadRow key={w.week} w={w} pos={pos} cols={cols.length} i={done.length + i + 2} />
           : <WeekRows key={w.week} w={w} span={span} i={done.length + i + 2} />)}
       </SeasonTable>
-      {(of != null || finishes) && (
-        <p className="log-in pt-1 text-xs leading-4 text-muted-foreground" style={{ "--i": Math.min(s.weeks.length, 10) + 1 } as React.CSSProperties}>
-          {finishes && `Under the points, his finish among ${pos}s that week. `}
-          {of != null && <>Rk is ESPN&apos;s rank of the opponent against {pos}s this season: 1 allowed the fewest points, {of} the most.</>}
-          {of != null && ahead.some((w) => w.status === "upcoming") && " Proj is Sleeper's weekly projection, averaged with ESPN's for this week."}
-        </p>
-      )}
     </>
   );
 }
