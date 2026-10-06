@@ -159,6 +159,14 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   The caption is the newest play *naming the player* (`plays.PlayCache`, fed from every game's lastPlay,
   drive plays and scoringPlays), never simply the game's last play: stats arrive one to three frames after
   the play text, by which time lastPlay is often the next play. `match: "last"` marks the fallback (D/ST).
+- **Win probability** (`season.win_prob`, pure; STRATEGY.md "Lineup": context, never an input to the call):
+  each side's starters as posted points plus projection × the game left (`season.game_left`: the feed's quarter
+  and clock, else ESPN's game_played; a starter with points and no clock carries the rest of his projection),
+  variance σ_pos² × left, P = Φ(margin/σ). σ per position from `data/calibration/sigma.json`
+  (`uv run python -m ffl.calibrate winprob`, which prints the pregame Brier too; `calibrate.load_sigma`), else
+  `season.SIGMA_FALLBACK`. The Week payload's `win_prob` and each League row's (over the side's `starters`, the
+  board's merged players, whose sum is now the tile's `proj`) are re-priced by `live.overlay_week`/`overlay_league`
+  on every push. UI: `web/components/win-meter.tsx` on Base UI's Meter.
 - **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (STRATEGY.md "Lineup"), pure;
   `ffl/outlook.py` writes labelled bullets under each card (Injury, Usage, Depth, Team, Take; each cites
   dated, linked sources; never projections) by running `claude -p` (Opus, WebSearch + WebFetch) from a

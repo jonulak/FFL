@@ -12,7 +12,8 @@ export function WinMeter({ p, team, size, final = false }: { p: number; team: st
   const track = (
     <Meter.Track className={`relative w-full overflow-hidden bg-foreground/12 ${size === "bug" ? "h-1.5 rounded-full" : "h-[3px]"}`}>
       <Meter.Indicator className="h-full bg-foreground transition-[width] duration-[600ms] ease-[var(--ease-arrive)] motion-reduce:transition-none" />
-      <span aria-hidden className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-foreground/40" />
+      {/* even, as a notch cut in the bar: it reads over the ink fill and the faint remainder alike */}
+      <span aria-hidden className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-card" />
     </Meter.Track>
   );
   if (size === "tile") {

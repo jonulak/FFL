@@ -22,6 +22,7 @@ import { PlayFeedStrip } from "./play-feed";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 import { TeamLink } from "./team-link";
+import { WinMeter } from "./win-meter";
 
 // The board's grid, shared by every line so the slot column runs in one spine from the header to
 // the footer: my half, the slot, the opponent's half.
@@ -79,15 +80,30 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
   );
 }
 
+// The whole game is over: both sides have started and neither has a starter left to play.
+function boardFinal(data: Week, now: number) {
+  return [data.me, data.opp].every((s) => {
+    if (!s) return false;
+    const { started, left } = sideState(s, now);
+    return started && left === 0;
+  });
+}
+
 function Scorebug({ data, now }: { data: Week; now: number }) {
   return (
     <Card className={BOARD_CARD}>
-      <CardContent className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] grid-rows-[auto_auto_auto] gap-x-3 py-4 sm:gap-x-6 sm:py-5">
+      <CardContent className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] grid-rows-[auto_auto_auto_auto] gap-x-3 py-4 sm:gap-x-6 sm:py-5">
         <Total side={data.me} now={now} end="me" />
         <span aria-hidden className="row-span-3 self-center font-display text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-base">vs</span>
         {data.opp
           ? <Total side={data.opp} now={now} end="opp" />
           : <p className="row-span-3 self-center text-right text-sm text-muted-foreground">No opponent this week</p>}
+        {/* the odds under both totals, my share from the left; context beside the call, never the call */}
+        {data.opp && data.win_prob && (
+          <div className="col-span-3 mt-4 border-t border-foreground/10 pt-3 sm:mt-5 sm:pt-4">
+            <WinMeter p={data.win_prob.me} team={data.me.team} size="bug" final={boardFinal(data, now)} />
+          </div>
+        )}
       </CardContent>
     </Card>
   );
