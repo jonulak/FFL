@@ -23,7 +23,7 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
     <Card className={BOARD_CARD}>
       <CardContent className="px-0 sm:px-0">
         <Table>
-          <TableHeader>
+          <TableHeader className="bg-foreground/[0.04]">
             <TableRow className="border-foreground/10 hover:bg-transparent">
               <TableHead className={`${LABEL} w-10 pl-3 text-right sm:pl-4`}>#</TableHead>
               <TableHead className={LABEL}>Team</TableHead>

@@ -375,7 +375,8 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
   const grid = opp ? HALF_GRID : SOLO_GRID;
   return (
     <Card className={BOARD_CARD} aria-label="Lineups">
-      <CardHeader className={`${grid} items-baseline pt-3 sm:pt-3.5`}>
+      {/* a label strip over the slot rows: the board's header band (DESIGN.md, Header band) */}
+      <CardHeader className={`${grid} items-baseline bg-foreground/[0.04] py-3 sm:py-3.5`}>
         <div className="flex min-w-0 items-baseline gap-x-2.5">
           <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">
             {data.mine !== false ? "My lineup" : <TeamName side={me} />}
