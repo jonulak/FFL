@@ -56,10 +56,14 @@ export type WeekLog = {
   week: number; opp: string | null; home: boolean | null; status: "played" | "bye" | "out" | "live" | "upcoming";
   pts: number | null; summary: [string, string][]; box: BoxItem[];
   opp_rank?: OppRank | null; // this season's games, played or ahead
+  pos_rank?: number | null; // his rank at his position that week: this season's weeks before the current one
   // a game still to play: Sleeper's projection, averaged with ESPN's for the current week
   proj?: number | null; proj_espn?: number | null; proj_sleeper?: number | null;
 };
-export type SeasonTotals = { games: number; pts: number; ppg: number; summary: [string, string][]; box: BoxItem[] };
+export type SeasonTotals = {
+  games: number; pts: number; ppg: number; summary: [string, string][]; box: BoxItem[];
+  pos_rank?: number | null; // this season's only: his rank at his position by points to date
+};
 // `totals` is null for a season he has yet to finish a game in: the live feed opened it (his first
 // game is in progress), or it holds only the weeks ahead.
 export type SeasonLog = { season: number; weeks: WeekLog[]; totals: SeasonTotals | null };

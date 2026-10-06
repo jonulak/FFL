@@ -194,11 +194,12 @@ function Seasons({ log }: { log: PlayerLog }) {
   const now = log.seasons.find((s) => s.season === log.season);
   const past = log.seasons.filter((s) => s.season < log.season && s.totals);
   const played = seasonPts(now?.weeks ?? []);
+  const rank = now?.totals?.pos_rank;
   return (
     <div className="space-y-7">
       <section aria-labelledby="season-now" className="log-in space-y-1.5">
         <Heading id="season-now" title={String(log.season)} stale={log.stale_since}
-          note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts` : undefined} />
+          note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts${rank != null ? ` · ${log.pos}${rank}` : ""}` : undefined} />
         {now && now.weeks.length > 0
           ? <Weeks s={now} pos={log.pos} week={log.current_week} />
           : <p className="py-1 text-sm text-muted-foreground">No games yet.</p>}
@@ -275,6 +276,7 @@ function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
   const done = split < 0 ? s.weeks : s.weeks.slice(0, split);
   const ahead = split < 0 ? [] : s.weeks.slice(split);
   const of = s.weeks.find((w) => w.opp_rank)?.opp_rank?.of;
+  const finishes = s.weeks.some((w) => w.pos_rank != null);
   return (
     <>
       <SeasonTable cols={cols} ranked>
@@ -291,10 +293,11 @@ function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
           ? <AheadRow key={w.week} w={w} pos={pos} cols={cols.length} i={done.length + i + 2} />
           : <WeekRows key={w.week} w={w} span={span} i={done.length + i + 2} />)}
       </SeasonTable>
-      {of != null && (
+      {(of != null || finishes) && (
         <p className="log-in pt-1 text-xs leading-4 text-muted-foreground" style={{ "--i": Math.min(s.weeks.length, 10) + 1 } as React.CSSProperties}>
-          Rk is ESPN&apos;s rank of the opponent against {pos}s this season: 1 allowed the fewest points, {of} the most.
-          {ahead.some((w) => w.status === "upcoming") && " Proj is Sleeper's weekly projection, averaged with ESPN's for this week."}
+          {finishes && `Under the points, his finish among ${pos}s that week; beside the season's points, his rank to date. `}
+          {of != null && <>Rk is ESPN&apos;s rank of the opponent against {pos}s this season: 1 allowed the fewest points, {of} the most.</>}
+          {of != null && ahead.some((w) => w.status === "upcoming") && " Proj is Sleeper's weekly projection, averaged with ESPN's for this week."}
         </p>
       )}
     </>
@@ -394,7 +397,17 @@ function WeekRows({ w, span, i, fold, ranked, pos = "" }: { w: WeekLog; span: nu
         <TableCell className={CELL}><Fold on={folds}><Opponent w={w} /></Fold></TableCell>
         {ranked && <TableCell className={`${CELL} text-right`}><Fold on={folds}><Rank r={w.opp_rank} pos={pos} /></Fold></TableCell>}
         {w.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right`}><Fold on={folds}>{v}</Fold></TableCell>)}
-        <TableCell className={`${CELL} text-right font-display text-lg font-bold leading-none tracking-tight`}><Fold on={folds}>{ptsText(w.pts)}</Fold></TableCell>
+        <TableCell className={`${CELL} text-right`}>
+          <Fold on={folds}>
+            <span className="block font-display text-lg font-bold leading-none tracking-tight">{ptsText(w.pts)}</span>
+            {w.pos_rank != null && (
+              <span className="mt-0.5 block text-[0.6875rem] leading-none text-muted-foreground">
+                <span aria-hidden>{pos}{w.pos_rank}</span>
+                <span className="sr-only">{ordinal(w.pos_rank)} among {pos}s that week</span>
+              </span>
+            )}
+          </Fold>
+        </TableCell>
         <TableCell className="py-2 pr-0 pl-1">
           <Fold on={folds}>
             <Toggle open={open} label={`Week ${w.week}${w.status === "live" ? " (live)" : ""}${w.opp ? `, ${w.home ? "vs" : "at"} ${w.opp}` : ""}: ${ptsText(w.pts)} points, breakdown`} />

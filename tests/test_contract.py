@@ -139,6 +139,8 @@ def test_player_card_io(monkeypatch):
     monkeypatch.setattr(espn_season, "_schedule_doc", down)
     monkeypatch.setattr(espn_season, "past_schedule", down)
     monkeypatch.setattr(espn_season, "opponent_ranks", dict)  # its own test below
+    asked = []
+    monkeypatch.setattr(espn_season, "position_ranks", lambda pos: asked.append(pos) or {"season": {3918298: 5}, "weeks": {}})
     sleeper_weeks = []
 
     def sleeper_for(week, settings):
@@ -162,6 +164,7 @@ def test_player_card_io(monkeypatch):
     assert sorted(past) == [2023, 2024]
     assert [s["season"] for s in log["seasons"]] == [2026, 2025, 2024]
     assert sorted(sleeper_weeks) == list(range(4, 19))
+    assert asked == ["QB"] and log["seasons"][0]["totals"]["pos_rank"] == 5
 
 
 def test_opponent_ranks_io(monkeypatch):
@@ -181,3 +184,26 @@ def test_opponent_ranks_io(monkeypatch):
     assert calls == ["kona_player_info"]
     espn_season._RANKS[0] = 0  # expired
     assert espn_season.opponent_ranks() == want and len(calls) == 2
+
+
+def test_position_ranks_io(monkeypatch):
+    """One kona_player_info list of the position's slot with every week's rows, cached per
+    position; once expired, a failed read serves the last good ranks."""
+    calls = []
+    doc = {"players": [{"player": {"id": 7, "defaultPositionId": 3, "stats": [
+        {"seasonId": espn_season.SEASON, "statSourceId": 0, "statSplitTypeId": 1, "scoringPeriodId": 1,
+         "appliedTotal": 12.0, "stats": {"210": 1}}]}}]}
+
+    def fake_get(view, extend="", headers=None, **params):
+        calls.append((view, json.loads(headers["x-fantasy-filter"])["players"]))
+        if len(calls) > 1:
+            raise RuntimeError("down")
+        return doc
+    monkeypatch.setattr(espn_season, "raw_league_get", fake_get)
+    monkeypatch.setattr(espn_season, "_POS_RANKS", {})
+    want = {"season": {7: 1}, "weeks": {1: {7: 1}}}
+    assert espn_season.position_ranks("WR") == want and espn_season.position_ranks("WR") == want
+    view, filt = calls[0]
+    assert len(calls) == 1 and view == "kona_player_info" and filt["filterSlotIds"]["value"] == [4]
+    espn_season._POS_RANKS["WR"] = (0, want)  # expired
+    assert espn_season.position_ranks("WR") == want and len(calls) == 2

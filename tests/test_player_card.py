@@ -201,3 +201,39 @@ def test_with_live_keeps_the_week_ahead_opponent():
     out = pc.with_live(log, 4, {"0": 10, "1": 7, "3": 80}, SCORING, {"status": "in"})
     w4, w5 = out["seasons"][0]["weeks"]
     assert (w4["status"], w4["opp"], w4["home"], w4["opp_rank"]["rank"], w5["status"]) == ("live", "KC", True, 2, "bye")
+
+
+def _listed(pid, pos_id, weeks):
+    return {"player": {"id": pid, "defaultPositionId": pos_id, "stats": [
+        {"seasonId": 2026, "statSourceId": 0, "statSplitTypeId": 1, "scoringPeriodId": wk,
+         "appliedTotal": pts, "stats": {"210": 1} if pts is not None else {}} for wk, pts in weeks.items()]}}
+
+
+def test_parse_pos_ranks():
+    """Season rank by points to date, each week's among those who played it; a tie shares the
+    higher rank, a game sat out (no stat 210) is not ranked, another position is left out."""
+    doc = {"players": [_listed(1, 3, {1: 20.0, 2: 5.0}), _listed(2, 3, {1: 20.0, 2: 10.0}),
+                       _listed(3, 3, {1: 32.0, 2: None}), _listed(4, 2, {1: 99.0})]}
+    r = pc.parse_pos_ranks(doc, "WR", 2026)
+    assert r["season"] == {3: 1, 2: 2, 1: 3}
+    assert r["weeks"] == {1: {3: 1, 1: 2, 2: 2}, 2: {2: 1, 1: 2}}
+    tied = pc.parse_pos_ranks({"players": [_listed(1, 3, {1: 10.0}), _listed(2, 3, {1: 10.0}), _listed(3, 3, {1: 4.0})]}, "WR", 2026)
+    assert tied["season"] == {1: 1, 2: 1, 3: 3}
+    assert pc.parse_pos_ranks({}, "WR", 2026) == {"season": {}, "weeks": {}}
+
+
+def test_player_log_pos_ranks():
+    """His rank on the season's totals and on every week played before the current one; the
+    current week, still being played, carries none."""
+    allen = player(3918298)
+    played = [r["scoringPeriodId"] for r in pc._game_rows(allen["stats"], 2026)]
+    pos_ranks = {"season": {3918298: 4}, "weeks": {wk: {3918298: wk} for wk in played}}
+    current = max(played)
+    card = {"players": [{"player": allen}]}
+    now = pc.player_log(card, SCORING, {2026: SCHED25}, current, 2026, now=0, pos_ranks=pos_ranks)["seasons"][0]
+    assert now["totals"]["pos_rank"] == 4
+    by_week = {w["week"]: w for w in now["weeks"]}
+    assert all(by_week[wk]["pos_rank"] == wk for wk in played if wk < current)
+    assert "pos_rank" not in by_week[current]
+    bare = pc.player_log(card, SCORING, {2026: SCHED25}, current, 2026, now=0)
+    assert bare["seasons"][0]["totals"]["pos_rank"] is None

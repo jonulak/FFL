@@ -736,6 +736,33 @@ def opponent_ranks() -> dict[str, dict[str, dict]]:
         return _RANKS[1] if _RANKS else {}
     _RANKS[:] = [time.time() + CACHE_S, ranks]
     return ranks
+
+
+POS_SLOT = {"QB": 0, "RB": 2, "WR": 4, "TE": 6, "D/ST": 16, "K": 17}
+_POS_RANKS: dict[str, tuple[float, dict]] = {}  # pos -> (expires_at, player_card.parse_pos_ranks)
+
+
+def position_ranks(pos: str) -> dict:
+    """Every player's season and weekly rank at `pos` (player_card.parse_pos_ranks), off one
+    kona_player_info list of the position's top 400 by season points with their weekly rows
+    (about 1.5 s and 3 MB for WR). Cached for CACHE_S; a failed read serves the last good, or none."""
+    hit = _POS_RANKS.get(pos)
+    if hit and hit[0] > time.time():
+        return hit[1]
+    from . import player_card as card_log  # player_card imports this module
+
+    weeks = [f"01{SEASON}{w}" for w in range(1, S.NFL_WEEKS + 1)]
+    filt = {"players": {"filterSlotIds": {"value": [POS_SLOT[pos]]}, "limit": 400,
+                        "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": weeks},
+                        "sortAppliedStatTotal": {"sortAsc": False, "sortPriority": 1, "value": f"00{SEASON}"}}}
+    try:
+        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)})
+        ranks = card_log.parse_pos_ranks(doc, pos, SEASON)
+    except Exception as e:  # noqa: BLE001 — the ranks are context; the log stands without them
+        print(f"{pos} position ranks unavailable: {e}")
+        return hit[1] if hit else {}
+    _POS_RANKS[pos] = (time.time() + CACHE_S, ranks)
+    return ranks
 _PAST_STATS: dict[tuple[int, int], list[dict]] = {}  # (season, player) -> his stat rows; a past season never changes
 
 
@@ -770,30 +797,35 @@ def player_card(player_id: int) -> dict:
     if not card.get("players"):
         raise LookupError(f"ESPN has no player {player_id}")
     earlier = range(SEASON - 2, SEASON - HISTORY - 1, -1)
+    p = card["players"][0]["player"]
+    pos = card_log.POS.get(p.get("defaultPositionId"))
     reads = {("sched", SEASON): lambda: _schedule_doc(lg), ("ranks", SEASON): opponent_ranks}
+    if pos in POS_SLOT:
+        reads[("pos_ranks", SEASON)] = lambda: position_ranks(pos)
     reads |= {("sched", yr): (lambda yr=yr: past_schedule(yr)) for yr in range(SEASON - 1, SEASON - HISTORY - 1, -1)}
     reads |= {("stats", yr): (lambda yr=yr: past_stats(yr, player_id)) for yr in earlier}
     settings = load()
     reads |= {("sleeper", wk): (lambda wk=wk: _sleeper_for(wk, settings)) for wk in range(lg.current_week, S.NFL_WEEKS + 1)}
     with ThreadPoolExecutor(max_workers=len(reads)) as pool:
         futures = {k: pool.submit(fn) for k, fn in reads.items()}
-    schedules, rows, ranks, sleeper = {}, [], {}, {}
+    schedules, rows, ranks, sleeper, pos_ranks = {}, [], {}, {}, {}
     for (kind, yr), f in futures.items():
         try:
             if kind == "sched":
                 schedules[yr] = f.result()
             elif kind == "ranks":
                 ranks = f.result()
+            elif kind == "pos_ranks":
+                pos_ranks = f.result()
             elif kind == "sleeper":
                 sleeper[yr] = f.result()  # yr is the week here
             else:
                 rows += f.result()
         except Exception as e:  # noqa: BLE001 — an earlier season or the opponents are not worth the log
             print(f"{kind} {yr} unavailable for player {player_id}: {e}")
-    p = card["players"][0]["player"]
     card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
     return card_log.player_log(card, settings["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks,
-                               sleeper=sleeper)
+                               sleeper=sleeper, pos_ranks=pos_ranks)
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:

@@ -3,6 +3,7 @@ stats scored with the league's table (live.box_score, so a week reads exactly li
 breakdown), the week's opponent off that season's pro schedule, and the season's totals. This
 season's games still to play follow the log with their projections, and every game this season,
 played or ahead, carries the opponent's rank against his position (ESPN's positionAgainstOpponent).
+His own rank at the position rides on this season's totals and each finished week (parse_pos_ranks).
 Pure: the fetch is espn_season.player_card's."""
 from __future__ import annotations
 
@@ -143,6 +144,30 @@ def parse_ranks(doc: dict) -> dict[str, dict[str, dict]]:
     return out
 
 
+def parse_pos_ranks(doc: dict, pos: str, season: int) -> dict:
+    """Every player's rank at `pos` from a kona_player_info list of the position (espn_season.
+    position_ranks): {"season": {player id: rank}, "weeks": {week: {player id: rank}}}, by ESPN's
+    league-scored points (appliedTotal), the season's to date and each week's. Only a game he
+    played counts (stat 210, as _game_rows); a tie shares the higher rank, as ESPN's own does."""
+    totals: dict[int, float] = {}
+    weeks: dict[int, dict[int, float]] = {}
+    for e in doc.get("players") or []:
+        p = e.get("player") or {}
+        if POS.get(p.get("defaultPositionId")) != pos:
+            continue
+        for r in _game_rows(p.get("stats") or [], season):
+            pts = float(r.get("appliedTotal") or 0)
+            weeks.setdefault(r["scoringPeriodId"], {})[p["id"]] = pts
+            totals[p["id"]] = totals.get(p["id"], 0.0) + pts
+
+    def rank(by: dict[int, float]) -> dict[int, int]:
+        first: dict[float, int] = {}
+        for i, v in enumerate(sorted(by.values(), reverse=True), 1):
+            first.setdefault(v, i)
+        return {pid: first[v] for pid, v in by.items()}
+    return {"season": rank(totals), "weeks": {wk: rank(by) for wk, by in weeks.items()}}
+
+
 # A game is still to play until four hours after its kickoff (season.ros_week's rule). Past that,
 # a week with no row is one ESPN has not written yet, and stays out of the log as it always has.
 GAME_S = 4 * 3600
@@ -197,16 +222,26 @@ def schedule_ahead(sched: dict, club: str | None, after: int, ranks: dict[str, d
     return out
 
 
+def _ranked(w: dict, by_opp: dict, by_week: dict, pid: int, current_week: int) -> dict:
+    if w["opp"]:
+        w = {**w, "opp_rank": by_opp.get(w["opp"])}
+    if w["status"] == "played" and w["week"] < current_week:
+        w = {**w, "pos_rank": by_week.get(w["week"], {}).get(pid)}
+    return w
+
+
 def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], current_week: int, season: int,
                history: int = 1, ranks: dict[str, dict[str, dict]] | None = None, now: float | None = None,
-               sleeper: dict[int, dict[tuple[str, str], float]] | None = None) -> dict:
+               sleeper: dict[int, dict[tuple[str, str], float]] | None = None, pos_ranks: dict | None = None) -> dict:
     """The modal's payload from a kona_playercard response: this season through the current
     week and its games still to play (schedule_ahead), then `history` past seasons whole, newest
     first; a season with neither a game played nor one ahead is left out. The rows may come from
     several calls (earlier seasons are fetched apart): each season reads only its own.
     This season's games played carry the opponent's rank too: it is this season's to date, so
     it reads how that defence has held up since, not what it was the day he played it. Past
-    seasons have no ranks (ESPN keeps only the current season's)."""
+    seasons have no ranks (ESPN keeps only the current season's). `pos_ranks` (parse_pos_ranks, his
+    position's) ranks him at it: this season's totals, and each week played before the current one
+    (a week still being played has no settled rank)."""
     p = card["players"][0]["player"]
     pos, team = POS.get(p.get("defaultPositionId"), "?"), PRO_TEAM_MAP.get(p.get("proTeamId"))
     seasons = []
@@ -218,7 +253,9 @@ def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], curr
         if yr == season:
             by_opp = (ranks or {}).get(pos, {})
             if s:
-                s = {**s, "weeks": [{**w, "opp_rank": by_opp.get(w["opp"])} if w["opp"] else w for w in s["weeks"]]}
+                at = pos_ranks or {}
+                s = {**s, "weeks": [_ranked(w, by_opp, at.get("weeks", {}), p["id"], current_week) for w in s["weeks"]],
+                     "totals": {**s["totals"], "pos_rank": at.get("season", {}).get(p["id"])}}
             # the current week is in the log once played (or his bye); otherwise it is still ahead
             logged = max((w["week"] for w in s["weeks"]), default=0) if s else 0
             ahead = schedule_ahead(sched, team, max(logged, current_week - 1), by_opp,
@@ -248,7 +285,8 @@ def with_live(log: dict, week: int, stats: dict, scoring: list[dict], game: dict
                    status="live" if (game or {}).get("status") == "in" else "played")
     if old:
         entry["opp"], entry["home"] = old["opp"], old["home"]
-        if "opp_rank" in old:
-            entry["opp_rank"] = old["opp_rank"]
+        for k in ("opp_rank", "pos_rank"):
+            if k in old:
+                entry[k] = old[k]
     cur["weeks"] = sorted([w for w in cur["weeks"] if w["week"] != week] + [entry], key=lambda w: w["week"])
     return {**log, "seasons": [cur, *rest]}
