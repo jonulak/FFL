@@ -90,6 +90,18 @@ def test_player_history_reads_each_move_from_his_side():
     assert got[1]["from"] is None and got[1]["week"] == 1
 
 
+def test_player_history_pairs_a_multi_claim_line_for_line():
+    """Three claims and four cuts in one waiver run: each reads only its own pair, as the page lines them up."""
+    rows = [row(9, 7, "WAIVER ADDED", 201, "Evan McPherson"), row(9, 7, "DROPPED", 301, "Cam Little"),
+            row(9, 7, "WAIVER ADDED", 202, "Vikings D/ST"), row(9, 7, "DROPPED", 302, "Ravens D/ST"),
+            row(9, 7, "WAIVER ADDED", 203, "Denzel Boston"), row(9, 7, "DROPPED", 303, "Brian Thomas Jr."),
+            row(9, 7, "DROPPED", 304, "Kenny Gainwell")]
+    moves = S.group_transactions(rows, INFO, W1)
+    assert S.player_transactions(moves, 202)[0]["with"] == ["Ravens D/ST"]
+    assert S.player_transactions(moves, 302)[0]["with"] == ["Vikings D/ST"]
+    assert S.player_transactions(moves, 304)[0]["with"] == [], "the fourth cut had no claim beside it"
+
+
 def test_player_history_lone_drop_and_none():
     (h,) = S.player_transactions(_moves(), 105)
     assert h["kind"] == "dropped" and h["with"] == []

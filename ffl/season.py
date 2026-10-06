@@ -473,8 +473,15 @@ def group_transactions(rows: list[dict], info: dict[int, dict], week1_start: dat
 def player_transactions(moves: list[dict], player_id: int) -> list[dict]:
     """One player's moves (group_transactions' output, newest first), each read from the side he
     was on: `kind` is the move's for an add, "traded" for a trade's receiving side, "dropped" for a
-    cut; `with` is the other half of the pair (who was cut for him, who he was cut for, what went
-    the other way in a trade) and `from` the trade partner."""
+    cut; `with` is the other half of his pair (who was cut for him, who he was cut for, what went
+    the other way in a trade) and `from` the trade partner. ESPN keeps no link between a claim and
+    its cut, so a move of several pairs line for line in listed order, as the Transactions page
+    does (web/lib/transactions.ts `pairs`): the second claim reads the second cut, a cut past the
+    last claim reads nobody."""
+    def pair(mine: list[dict], theirs: list[dict]) -> list[dict]:
+        i = next(i for i, p in enumerate(mine) if p["player_id"] == player_id)
+        return theirs[i:i + 1]
+
     out = []
     for m in moves:
         for s in m["sides"]:
@@ -482,12 +489,12 @@ def player_transactions(moves: list[dict], player_id: int) -> list[dict]:
             if not added and not any(p["player_id"] == player_id for p in s["dropped"]):
                 continue
             partner = next((o for o in m["sides"] if o is not s), None) if m["kind"] == "trade" else None
-            if not added:
-                kind, others = "dropped", s["added"]
-            elif partner is not None:
-                kind, others = "traded", partner["added"]
+            if partner is not None and added:
+                kind, others = "traded", partner["added"]  # a trade is one deal: everything that went the other way
+            elif not added:
+                kind, others = "dropped", pair(s["dropped"], s["added"])
             else:
-                kind, others = m["kind"], s["dropped"]
+                kind, others = m["kind"], pair(s["added"], s["dropped"])
             out.append({"id": m["id"], "at": m["at"], "week": m["week"], "kind": kind,
                         **{k: s.get(k) for k in ("team_id", "team", "abbrev", "logo")},
                         "with": [p["name"] for p in others],
