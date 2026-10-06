@@ -153,7 +153,34 @@ export type Waivers = {
   week: number; ros_week: number; week_over: boolean; pos: string | null; q: string | null; rows: WaiverRow[]; roster: RosterRow[];
   ros_source: "sources" | "season"; stale_since: string | null;
 };
-// A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
+// GET/POST /claims: the week's "get K of N" claim groups (journal/waivers/week-<n>.json). A group gets
+// as many of its targets (best first) as it has rows under "make room": its cuts, first to go first,
+// plus `open` empty roster spots (only one group may use open spots, and it uses all of them).
+// A Claim is one move (the Python "Move"): an instant free-agent add (`now`) or a waiver claim.
+export type ClaimGroup = { targets: number[]; cuts: number[]; open: number };
+export type Claim = { group: number; add: number; drop: number | null };
+export type ClaimErr = { group: number; player_id: number | null; reason: string };
+// ESPN's pending claims; from_app marks the ones the last submit from here sent.
+export type PendingClaim = { id: string; add: number; drop: number | null; from_app: boolean };
+export type ClaimSubmit = { at: string; now: Claim[]; claims: Claim[]; ids: string[] };
+export type PoolStatus = "FREEAGENT" | "WAIVERS";
+// Every id in the groups plus every roster player; droppable/locked are null for a free agent.
+export type ClaimPlayer = {
+  name: string; pos: string; team: string; add: number | null; ros_adj: number | null; slot: string | null;
+  status: PoolStatus | null; waiver_date: number | null; droppable: boolean | null; locked: boolean | null;
+};
+export type Claims = {
+  week: number; groups: ClaimGroup[]; now: Claim[]; claims: Claim[]; errors: ClaimErr[]; open_spots: number;
+  status: Record<string, PoolStatus>; pending: PendingClaim[]; pending_error: string | null; last_submit: ClaimSubmit | null;
+  edited_since_submit: boolean; players: Record<string, ClaimPlayer>;
+};
+// POST /claims/submit. readback_failed: ESPN's list could not be read after sending, so `pending`
+// is empty for that reason, not because ESPN holds nothing.
+export type SubmitResult = {
+  now: Claim[]; now_failed: (Claim & { error: string })[]; sent: (Claim & { id: string })[];
+  pending: { id: string; add: number; drop: number | null }[]; match: boolean; error: string | null; readback_failed: boolean;
+};
+// A fantasy team as the League page shows it;`logo` is the owner's ESPN upload ("" when none).
 export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
 export type Standing = Club & { rank: number; points_for: number; points_against: number; streak: string; me: boolean };
 // starter_ids is what the API re-sums a side from while the live feed runs, starter_teams what it marks

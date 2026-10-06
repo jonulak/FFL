@@ -5,6 +5,14 @@ import { apiErrorMessage } from "@/lib/api-error";
 // Same ceiling as lib/api.ts, redeclared so the client bundle does not pull in the server module.
 const API_TIMEOUT_MS = 20_000;
 
+// A refused POST: the message is apiErrorMessage's readable line; `status` and `body` are kept for
+// callers that branch on them (the claims submit: 409 running, 422 reasons, 502 login expired).
+export class ClientError extends Error {
+  constructor(public status: number, message: string, public body: unknown) {
+    super(message);
+  }
+}
+
 // Browser-side calls go through Next's /api rewrite, never to :8300 directly.
 export async function clientGet<T>(path: string): Promise<T> {
   const r = await fetch(`/api${path}`, { cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
@@ -26,7 +34,7 @@ export async function clientPost<T>(path: string, body: unknown = {}, timeoutMs 
     try {
       parsed = await r.json();
     } catch {}
-    throw new Error(apiErrorMessage(r.status, r.statusText, parsed));
+    throw new ClientError(r.status, apiErrorMessage(r.status, r.statusText, parsed), parsed);
   }
   return (await r.json()) as T;
 }

@@ -3,7 +3,9 @@ import { PosTabs } from "@/components/pos-tabs";
 import { StaleBadge } from "@/components/stale-badge";
 import { WaiverSearch } from "@/components/waiver-search";
 import { WaiverTable } from "@/components/waiver-table";
-import { apiGet, type Waivers } from "@/lib/api";
+import { ClaimsProvider, type TabPlayer } from "@/components/claims-context";
+import { ClaimsPanel } from "@/components/claims-panel";
+import { apiGet, type Claims, type Waivers } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
@@ -13,14 +15,36 @@ export const dynamic = "force-dynamic";
 export default async function Page({ searchParams }: { searchParams: Promise<{ pos?: string; q?: string }> }) {
   const { pos = "RB", q: raw = "" } = await searchParams;
   const q = raw.trim();
-  let data: Waivers;
-  try {
-    data = await apiGet<Waivers>(`/waivers?pos=${encodeURIComponent(pos)}${q ? `&q=${encodeURIComponent(q)}` : ""}`);
-  } catch (e) {
-    return <ErrorCard {...errorFields(e)} />;
-  }
+  // the claim plan loads beside the pool; its failure leaves the table without the panel, never the page
+  const [pool, plan] = await Promise.allSettled([
+    apiGet<Waivers>(`/waivers?pos=${encodeURIComponent(pos)}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
+    apiGet<Claims>("/claims"),
+  ]);
+  if (pool.status === "rejected") return <ErrorCard {...errorFields(pool.reason)} />;
+  const data = pool.value;
+  const claims = plan.status === "fulfilled" ? plan.value : null;
+  const claimsFault = plan.status === "rejected" ? errorFields(plan.reason) : null;
+  const tab: TabPlayer[] = data.rows.map((r) => ({
+    player_id: r.player_id, name: r.name, pos: r.pos, team: r.team, add: r.add, ros_adj: r.ros_adj, status: r.status, waiver_date: r.waiver_date,
+  }));
+  const table = (
+    <div className="min-w-0 space-y-3">
+      {/* phone: the field over the tabs, full width; from `sm` it closes the tab strip's line,
+          one hairline under both */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 sm:border-b sm:border-foreground/12">
+        <div className="min-w-0 flex-1 sm:order-first"><PosTabs active={q ? null : pos} base="/waivers" /></div>
+        <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} pos={pos} /></div>
+      </div>
+      {q && data.rows.length > 0 && (
+        <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" aria-live="polite">
+          {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every position, by add
+        </p>
+      )}
+      <WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} />
+    </div>
+  );
   return (
-    <div className="space-y-5">
+    <div className={`space-y-5 ${claims ? "max-lg:pb-20" : ""}`}>
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
           Waivers
@@ -51,21 +75,20 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
           answered, so every ROS here is a draft-day season projection scaled by the weeks left.
         </p>
       )}
-      <div className="space-y-3">
-        {/* phone: the field over the tabs, full width; from `sm` it closes the tab strip's line */}
-        {/* phone: the field over the tabs, full width; from `sm` it closes the tab strip's line,
-            one hairline under both */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 sm:border-b sm:border-foreground/12">
-          <div className="min-w-0 flex-1 sm:order-first"><PosTabs active={q ? null : pos} base="/waivers" /></div>
-          <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} pos={pos} /></div>
-        </div>
-        {q && data.rows.length > 0 && (
-          <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" aria-live="polite">
-            {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every position, by add
-          </p>
-        )}
-        <WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} />
-      </div>
+      {claimsFault && (
+        <p className="max-w-[72ch] text-xs leading-relaxed text-destructive">
+          The claims plan didn&apos;t load ({claimsFault.source} · {claimsFault.message}), so the claim tools are off. The pool below is current.
+        </p>
+      )}
+      {/* the table, with the week's claim groups docked to its right from `lg` (a bottom sheet below) */}
+      {claims ? (
+        <ClaimsProvider initial={claims} players={tab}>
+          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
+            {table}
+            <ClaimsPanel />
+          </div>
+        </ClaimsProvider>
+      ) : table}
     </div>
   );
 }

@@ -14,6 +14,8 @@ import { NAME_LINK } from "@/lib/player-log";
 import { PlayerTrigger } from "./player-dialog";
 import { TeamLogo, TeamPanel } from "./player-media";
 import { WaiverOutlookButton } from "./waiver-outlook";
+import { ClaimControl } from "./claim-control";
+import { statusTag } from "@/lib/claims";
 
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
@@ -29,16 +31,16 @@ const SIDE = "text-right font-display text-lg font-medium tabular-nums tracking-
 const GROUP_START = "border-l border-foreground/10 pl-4";
 // The table scrolls inside a panel no taller than the viewport under the nav, both ways, so the
 // two header rows can pin to its top and the tile and name to its left while the numerals
-// scroll; from `xl` the row fits the page and the panel is the page again, the headers pinned
+// scroll; once it `fits` (an xl screen with a 62.5rem column: globals.css) the panel is the page again, the headers pinned
 // under the 48px nav instead. Pinned cells carry the card's own background. Their layers stay
 // under the nav's z-10, or a pinned name would paint over the nav as the page scrolls under it:
 // body pins at 1, headers at 2, the corner cells that pin both ways at 3.
-const PANEL = "max-h-[calc(100dvh-3rem)] overflow-auto overscroll-x-contain xl:max-h-none xl:overflow-visible";
-const PIN_TOP_1 = "sticky top-0 z-[2] bg-card xl:top-12";
-const PIN_TOP_2 = "sticky top-7 z-[2] bg-card xl:top-[4.75rem]";
+const PANEL = "max-h-[calc(100dvh-3rem)] overflow-auto overscroll-x-contain fits:max-h-none fits:overflow-visible";
+const PIN_TOP_1 = "sticky top-0 z-[2] bg-card fits:top-12";
+const PIN_TOP_2 = "sticky top-7 z-[2] bg-card fits:top-[4.75rem]";
 const PIN_CORNER = "z-[3]";
 const PIN_TILE = "sticky left-0 z-[1] bg-card";
-const PIN_NAME = "sticky left-[4.75rem] z-[1] bg-card sm:left-[5.5rem] max-xl:border-r max-xl:border-foreground/10";
+const PIN_NAME = "sticky left-[4.75rem] z-[1] bg-card sm:left-[5.5rem] cramped:border-r cramped:border-foreground/10";
 // The two ROS sources disagreeing by this much over the rest of the season is worth a look — the
 // weekly column's 3-point rule (CLOSE_SPREAD), scaled to the weeks left, rounded to a whole number.
 const ROS_CLOSE = 20;
@@ -137,7 +139,7 @@ function NameCell({ r, week, mine = false, chip, tail }: { r: WaiverRow | Roster
   const hurt = !HEALTHY.has(r.injury);
   const idle = r.bye || injuryTone(r.injury) === "bad";
   return (
-    <TableCell className={`py-2 whitespace-normal max-sm:w-[9.5rem] max-sm:min-w-[9.5rem] sm:max-xl:w-[11rem] sm:max-xl:min-w-[11rem] xl:w-full xl:max-w-0 ${PIN_NAME} ${mine ? "pl-5" : ""}`}>
+    <TableCell className={`py-2 whitespace-normal max-sm:w-[9.5rem] max-sm:min-w-[9.5rem] sm:cramped:w-[11rem] sm:cramped:min-w-[11rem] fits:w-full fits:max-w-0 ${PIN_NAME} ${mine ? "pl-5" : ""}`}>
       <p className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight ${idle ? "text-foreground/70" : ""}`}>
         <PlayerTrigger p={r} className={`truncate rounded-sm ${NAME_LINK}`}>{r.name}</PlayerTrigger>
         {chip}
@@ -171,6 +173,20 @@ function NameCell({ r, week, mine = false, chip, tail }: { r: WaiverRow | Roster
         </p>
       )}
     </TableCell>
+  );
+}
+
+// ESPN's pool status beside the name: FA is added the moment the claims are submitted, so it reads
+// at full ink; W·Wed (on waivers, clears Wednesday) steps back. Nothing when the read failed.
+function PoolTag({ r }: { r: WaiverRow }) {
+  const tag = statusTag(r);
+  if (!tag) return null;
+  const fa = r.status === "FREEAGENT";
+  return (
+    <span title={fa ? "free agent: added instantly on Submit" : "on waivers: a claim, processed when his waiver period ends"}
+      className={`font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] ${fa ? "text-foreground" : "text-muted-foreground"}`}>
+      {tag}
+    </span>
   );
 }
 
@@ -229,6 +245,7 @@ function CompareRow({ fa, mine, week, cols }: { fa: WaiverRow; mine: RosterRow; 
         title={`${fa.name}'s adjusted rest-of-season projection minus ${mine.name}'s`}>
         {signed(gap)}
       </TableCell>
+      <TableCell />
       <NumberCells r={mine} cols={cols} />
     </TableRow>
   );
@@ -261,17 +278,21 @@ function Row({ r, week, cols, roster, open, onToggle }: {
             </PlayerTrigger>
           </div>
         </TableCell>
-        <NameCell r={r} week={week} chip={r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta)}</Badge>}
-          tail={<WaiverOutlookButton r={r} />} />
+        <NameCell r={r} week={week} chip={<>
+          {r.would_start && <Badge variant="start" shape="chip">start {signed(r.week_delta)}</Badge>}
+          <PoolTag r={r} />
+        </>} tail={<><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} sep className="sm:hidden" /></>} />
         <TableCell className={`text-right font-display text-[1.5rem] font-bold tabular-nums tracking-tight ${r.add > 0 ? "" : "text-foreground/70"}`}>
           {signed(r.add)}
         </TableCell>
+        {/* the claim column from `sm`; on a phone it collapses to nothing and the control rides the caption line */}
+        <TableCell className="max-sm:p-0 sm:px-2"><ClaimControl id={r.player_id} name={r.name} className="max-sm:hidden" /></TableCell>
         <NumberCells r={r} cols={cols} />
       </TableRow>
       {open && mine.map((m) => <CompareRow key={m.player_id} fa={r} mine={m} week={week} cols={cols} />)}
       {open && mine.length === 0 && (
         <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
-          <TableCell colSpan={8 + cols.length} className="py-2 pl-6 text-xs text-muted-foreground sm:pl-7">nobody at {r.pos} on my roster</TableCell>
+          <TableCell colSpan={9 + cols.length} className="py-2 pl-6 text-xs text-muted-foreground sm:pl-7">nobody at {r.pos} on my roster</TableCell>
         </TableRow>
       )}
     </>
@@ -309,23 +330,24 @@ export function WaiverTable({ rows, roster, week, pos, q }: { rows: WaiverRow[];
     <SortHead key={id} id={id} sort={sort} onSort={onSort} className={className} title={title}>{label}</SortHead>
   );
   // the card clips its corners with overflow-hidden, which would also stop the headers pinning
-  // to the page from `xl`; there the card lets them out and the header row rounds its own
+  // to the page once it fits; there the card lets them out and the header row rounds its own
   // top corners instead
   return (
-    <Card className="rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] xl:overflow-visible">
+    <div className="@container/table"><Card className="rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] fits:overflow-visible">
       <CardContent className="px-0 sm:px-0">
         <Table containerClassName={PANEL}>
           <TableHeader>
             <TableRow className="border-0 hover:bg-transparent">
               <TableHead colSpan={2} className={`h-7 rounded-tl-lg border-0 ${PIN_TOP_1} ${PIN_TILE} ${PIN_CORNER}`} />
-              <TableHead colSpan={2} className={`h-7 border-0 ${PIN_TOP_1}`} />
+              <TableHead colSpan={3} className={`h-7 border-0 ${PIN_TOP_1}`} />
               <TableHead colSpan={4} className={`h-7 ${GROUP} ${PIN_TOP_1}`}>Rest of season</TableHead>
               <TableHead colSpan={cols.length} className={`h-7 rounded-tr-lg ${GROUP} ${PIN_TOP_1}`} title="his last three games played, within the last five weeks; only the snap-weighted L3 reaches add, through the adjusted ROS">Last 3 games</TableHead>
             </TableRow>
             <TableRow className="border-foreground/10 hover:bg-transparent">
               <TableHead className={`h-9 pl-3 sm:pl-4 ${PIN_TOP_2} ${PIN_TILE} ${PIN_CORNER}`}><span className="sr-only">Team</span></TableHead>
-              {head("name", `${PIN_TOP_2} ${PIN_NAME} ${PIN_CORNER} max-xl:border-r-0`, "Player")}
+              {head("name", `${PIN_TOP_2} ${PIN_NAME} ${PIN_CORNER} cramped:border-r-0`, "Player")}
               {head("add", `text-right ${PIN_TOP_2}`, "add", "projected points gained this season by adding him")}
+              <TableHead className={`h-9 max-sm:p-0 sm:px-2 ${PIN_TOP_2}`}><span className={`${LABEL} max-sm:sr-only`}>claim</span></TableHead>
               {head("wk", `text-right ${PIN_TOP_2}`, "wk", "this week's projection")}
               {head("ros", `text-right ${GROUP_START} ${PIN_TOP_2}`, "ROS", "usage-adjusted rest of season: the models' rate shrunk toward his last games by wt (the prior worth 4 games); what add and the deltas run on")}
               {head("model", `text-right ${PIN_TOP_2}`, "model", "Sleeper's remaining weeks and CBS's rest-of-season projection, averaged; the gap between them beneath")}
@@ -341,6 +363,6 @@ export function WaiverTable({ rows, roster, week, pos, q }: { rows: WaiverRow[];
           </TableBody>
         </Table>
       </CardContent>
-    </Card>
+    </Card></div>
   );
 }
