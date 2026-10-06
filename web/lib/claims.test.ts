@@ -101,11 +101,23 @@ describe("empty groups and the process day", () => {
 
 describe("submit summary", () => {
   const sent = [{ group: 0, add: 1, drop: 2, id: "a" }, { group: 0, add: 3, drop: 2, id: "b" }];
-  it("all held", () => expect(submitSummary({ sent, pending: sent, match: true, readback_failed: false })).toEqual({ ok: true, text: "ESPN holds all 2, in this order" }));
-  it("short", () => expect(submitSummary({ sent, pending: sent.slice(0, 1), match: false, readback_failed: false })).toEqual({ ok: false, text: "ESPN holds 1 of 2" }));
+  const ok = { error: null, readback_failed: false };
+  it("all held", () => expect(submitSummary({ ...ok, sent, pending: sent, match: true }, 2)).toEqual({ ok: true, text: "ESPN holds all 2, in this order" }));
+  it("short", () => expect(submitSummary({ ...ok, sent, pending: sent.slice(0, 1), match: false }, 2)).toEqual({ ok: false, text: "ESPN holds 1 of 2" }));
   it("same set, wrong order", () =>
-    expect(submitSummary({ sent, pending: [sent[1], sent[0]], match: false, readback_failed: false })).toEqual({ ok: false, text: "ESPN holds all 2, in a different order" }));
+    expect(submitSummary({ ...ok, sent, pending: [sent[1], sent[0]], match: false }, 2)).toEqual({ ok: false, text: "ESPN holds all 2, in a different order" }));
   it("read-back failed is not zero", () =>
-    expect(submitSummary({ sent, pending: [], match: false, readback_failed: true })).toEqual({ ok: false, text: "Sent 2, but couldn't read ESPN back" }));
-  it("nothing to send", () => expect(submitSummary({ sent: [], pending: [], match: true, readback_failed: false })).toEqual({ ok: true, text: "No claims to send" }));
+    expect(submitSummary({ ...ok, sent, pending: [], match: false, readback_failed: true }, 2)).toEqual({ ok: false, text: "Sent 2, but couldn't read ESPN back" }));
+  it("nothing to send comes from the plan, not from sent", () =>
+    expect(submitSummary({ ...ok, sent: [], pending: [], match: true }, 0)).toEqual({ ok: true, text: "No claims to send" }));
+  it("a failed first write is never ok", () => {
+    const s = submitSummary({ sent: [], pending: [], match: false, error: "x", readback_failed: false }, 0);
+    expect(s.ok).toBe(false);
+    expect(submitSummary({ sent: [], pending: [], match: false, error: "x", readback_failed: false }, 2))
+      .toEqual({ ok: false, text: "Nothing was sent: ESPN holds 0 of 2" });
+  });
+  it("match with an error is not ok", () => expect(submitSummary({ ...ok, sent, pending: sent, match: true, error: "x" }, 2).ok).toBe(false));
+  it("kept outside claims ahead of ours", () =>
+    expect(submitSummary({ ...ok, sent, pending: [{ id: "o", add: 9, drop: 1 }, ...sent], match: true }, 2, 1)).toEqual({
+      ok: true, text: "ESPN holds all 2 of yours, in this order · plus 1 filed on ESPN directly, ahead of these" }));
 });

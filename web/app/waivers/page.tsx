@@ -83,7 +83,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
       {/* the table, with the week's claim groups docked to its right from `lg` (a bottom sheet below) */}
       {claims ? (
         <ClaimsProvider initial={claims} players={tab}>
-          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
+          <div data-claims-dock className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
             {table}
             <ClaimsPanel />
           </div>

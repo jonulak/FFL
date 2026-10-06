@@ -26,7 +26,10 @@ import { Clock } from "./local-time";
 
 const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 const SUB = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-foreground/55";
-const ROW = "grid grid-cols-[1.5rem_1.25rem_minmax(0,1fr)_auto_1.75rem] items-center gap-x-1.5 border-t border-foreground/8 py-1";
+const ROW = "grid grid-cols-[1.5rem_1.25rem_minmax(0,1fr)_auto_1.75rem] items-center gap-x-1.5 border-t border-foreground/8 py-1 pointer-coarse:py-2.5";
+// On a touch screen the 24px grips and remove buttons keep their look but take a 44px hit area
+// (an ::after 10px out on every side); the rows grow to 44px there so neighbours never overlap.
+const HIT = "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5";
 
 // Mouse drags start after 4px of travel; a touch drag after a 150 ms hold, so a swipe on the
 // sheet still scrolls it. The keyboard moves a focused handle with the arrows (space to lift).
@@ -45,7 +48,7 @@ function Grip({ label, handleRef, attributes, listeners, disabled }: {
 }) {
   return (
     <button type="button" ref={handleRef} {...attributes} {...listeners} disabled={disabled} aria-label={label}
-      className="flex size-6 cursor-grab touch-none items-center justify-center rounded-sm text-foreground/40 hover:text-foreground focus-visible:outline-2 active:cursor-grabbing disabled:cursor-default disabled:opacity-40">
+      className={`${HIT} flex size-6 cursor-grab touch-none items-center justify-center rounded-sm text-foreground/40 hover:text-foreground focus-visible:outline-2 active:cursor-grabbing disabled:cursor-default disabled:opacity-40`}>
       <GripVertical aria-hidden className="size-4" />
     </button>
   );
@@ -53,7 +56,7 @@ function Grip({ label, handleRef, attributes, listeners, disabled }: {
 
 function Remove({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
   return (
-    <Button variant="ghost" size="icon-xs" aria-label={label} onClick={onClick} disabled={disabled} className="text-foreground/50 hover:text-foreground">
+    <Button variant="ghost" size="icon-xs" aria-label={label} onClick={onClick} disabled={disabled} className={`${HIT} text-foreground/50 hover:text-foreground`}>
       <X aria-hidden />
     </Button>
   );
@@ -161,7 +164,7 @@ function GroupCard({ g, gi, roster, usedCuts }: { g: ClaimGroup; gi: number; ros
             <Badge variant="close" shape="chip" className="ml-auto">get {Math.min(capacity(g), g.targets.length)} of {g.targets.length}</Badge>
           )}
           <Button variant="ghost" size="icon-xs" aria-label={`Delete group ${gi + 1}`} disabled={submitting}
-            onClick={() => setGroups(removeGroup(groups, gi))} className={`text-foreground/45 hover:text-destructive ${g.targets.length ? "" : "ml-auto"}`}>
+            onClick={() => setGroups(removeGroup(groups, gi))} className={`${HIT} text-foreground/45 hover:text-destructive ${g.targets.length ? "" : "ml-auto"}`}>
             <Trash2 aria-hidden />
           </Button>
         </div>

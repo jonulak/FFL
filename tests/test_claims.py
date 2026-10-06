@@ -197,7 +197,17 @@ def test_run_submit_replaces_app_claims_keeps_outside():
     w = FakeW([{"id": "old", "add": 9, "drop": 1}, {"id": "mine", "add": 8, "drop": 2}])
     r = C.run_submit(G, {}, w.pending_claims(), {"mine"}, False, w)
     assert [c["id"] for c in r["pending"]] == ["old", "n1", "n2"] and r["error"] is None
-    assert r["match"] is False   # an outside claim still runs ahead of ours
+    assert r["match"] is True   # the outside claim was kept on purpose: ours are all there, in order
+
+
+def test_run_submit_kept_outside_does_not_hide_a_wrong_list():
+    class Swapped(FakeW):  # ESPN holds ours in the wrong order, behind a kept outside claim
+        def pending_claims(self):
+            p = [dict(c) for c in self.p]
+            return [p[0], *reversed(p[1:])] if len(p) > 2 else p
+    w = Swapped([{"id": "old", "add": 9, "drop": 1}])
+    r = C.run_submit(G, {}, w.pending_claims(), set(), False, w)
+    assert r["error"] is None and r["match"] is False
 
 
 def test_run_submit_replace_outside_matches():

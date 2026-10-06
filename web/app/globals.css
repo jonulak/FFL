@@ -17,8 +17,10 @@
 }
 
 /* The Waivers table lays out in full (pinned to the page, no sideways scroll) only on an `xl`
-   screen whose table column is still 62.5rem wide: beside the docked claims panel it is not, and
-   it keeps the scrolling panel. `cramped` is the complement. The column is the `table` container. */
+   screen whose table column is at least 62.5rem wide (the page's own width). Beside the docked claims
+   panel it is narrower even with the page widened to 86rem (layout.tsx), so the table keeps its
+   scrolling panel there, ROS through Δ pool in view at 1440 and the last-3 columns behind the scroll.
+   `cramped` is the complement. The column is the `table` container. */
 @custom-variant fits {
   @media (width >= 80rem) {
     @container table (width >= 62.5rem) {

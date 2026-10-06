@@ -203,8 +203,11 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
     except Exception as e:  # noqa: BLE001 — the writes landed; the caller must still journal them
         after, readback_failed = [], True
         error = error or f"read-back failed: {e}"
+    # outside claims (filed on ESPN, not by this app) kept on purpose run ahead of ours: match ours, in order, without them
+    kept_outside = set() if replace_outside else {c["id"] for c in pending if c["id"] not in last_ids}
+    ours = [c for c in after if c["id"] not in kept_outside]
     return {"now": now, "now_failed": now_failed, "sent": sent, "pending": after,
-            "match": error is None and matches(claims, after), "error": error, "readback_failed": readback_failed}
+            "match": error is None and matches(claims, ours), "error": error, "readback_failed": readback_failed}
 
 
 def consume(groups, now):

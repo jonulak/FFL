@@ -132,13 +132,22 @@ export function cutBlock(p: ClaimPlayer, groupHasFA: boolean): string | null {
   return null;
 }
 
-// The Submit dialog's claims verdict. A failed read-back says so: it is not "ESPN holds 0".
-export function submitSummary(r: Pick<SubmitResult, "sent" | "pending" | "match" | "readback_failed">): { ok: boolean; text: string } {
+// The Submit dialog's claims verdict. `planned` is the claim count frozen when Send was pressed;
+// `keptOutside` the claims filed on ESPN directly that were kept (they run ahead of ours). Never ok
+// unless the server matched with no error and a read-back; a failed read-back says so, not "holds 0".
+export function submitSummary(
+  r: Pick<SubmitResult, "sent" | "pending" | "match" | "error" | "readback_failed">, planned: number, keptOutside = 0,
+): { ok: boolean; text: string } {
   const n = r.sent.length;
-  if (!n) return { ok: true, text: "No claims to send" };
+  if (r.match && !r.error && !r.readback_failed) {
+    if (!planned) return { ok: true, text: "No claims to send" };
+    return keptOutside
+      ? { ok: true, text: `ESPN holds all ${n} of yours, in this order · plus ${keptOutside} filed on ESPN directly, ahead of these` }
+      : { ok: true, text: `ESPN holds all ${n}, in this order` };
+  }
   if (r.readback_failed) return { ok: false, text: `Sent ${n}, but couldn't read ESPN back` };
-  if (r.match) return { ok: true, text: `ESPN holds all ${n}, in this order` };
   const held = new Set(r.pending.map((p) => p.id));
   const k = r.sent.filter((c) => held.has(c.id)).length;
-  return { ok: false, text: k === n ? `ESPN holds all ${n}, in a different order` : `ESPN holds ${k} of ${n}` };
+  if (!n) return { ok: false, text: planned ? `Nothing was sent: ESPN holds 0 of ${planned}` : "Nothing was sent" };
+  return { ok: false, text: k === n && n === planned ? `ESPN holds all ${n}, in a different order` : `ESPN holds ${k} of ${planned}` };
 }

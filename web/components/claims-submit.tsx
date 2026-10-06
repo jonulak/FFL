@@ -2,7 +2,7 @@
 
 import { Check, LoaderCircle, TriangleAlert, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -55,8 +55,7 @@ function Failure({ f, name }: { f: SubmitFailure; name: (id: number) => string }
 }
 
 // What came back: the instant adds made and refused, then the claims ESPN holds against what was sent.
-function Outcome({ r, name }: { r: SubmitResult; name: (id: number) => string }) {
-  const verdict = submitSummary(r);
+function Outcome({ r, verdict, name }: { r: SubmitResult; verdict: { ok: boolean; text: string }; name: (id: number) => string }) {
   return (
     <div className="space-y-3" aria-live="polite">
       {(r.now.length > 0 || r.now_failed.length > 0) && (
@@ -84,15 +83,17 @@ function Outcome({ r, name }: { r: SubmitResult; name: (id: number) => string })
           </>
         )}
         {r.readback_failed && (
-          <p className="text-muted-foreground">Check the claims on ESPN&apos;s site, or send again: a resend cancels what this app sent before.</p>
+          <p className="text-muted-foreground">Check the claims on ESPN&apos;s site, or review and send again: a resend cancels what this app sent before.</p>
         )}
       </section>
     </div>
   );
 }
 
+type Frozen = { title: string; planned: number; outside: Set<string> };
+
 function Body({ onClose }: { onClose: () => void }) {
-  const { data, groups, player, status, submit, submitting } = useClaims();
+  const { data, groups, player, status, submit, submitting, refresh } = useClaims();
   const router = useRouter();
   const [replaceOutside, setReplaceOutside] = useState(false);
   const [result, setResult] = useState<SubmitResult | null>(null);
@@ -106,12 +107,18 @@ function Body({ onClose }: { onClose: () => void }) {
     ? `Add ${data.now.length} now, send ${data.claims.length} claim${data.claims.length === 1 ? "" : "s"}`
     : `Send ${data.claims.length} claim${data.claims.length === 1 ? "" : "s"} to ESPN`;
 
-  // the title names what was sent: the plan refreshes after a send (landed adds leave it), and
-  // the dialog must not retitle the result it is showing
-  const [sentTitle, setSentTitle] = useState<string | null>(null);
+  // The plan as it stood when Send was pressed: the title, the claim count the verdict is judged
+  // against, and the outside claims kept. The plan refreshes after a send (landed adds leave it),
+  // and the result must be read against what was sent, not against the refreshed plan.
+  const [frozen, setFrozen] = useState<Frozen | null>(null);
+  // Statuses move (the Wednesday run turns waivers into free agents): re-read the plan on open so
+  // the "Add now" list is what the server will run. Send waits for it.
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { void refresh().finally(() => setLoading(false)); }, [refresh]);
+
   const send = async () => {
     setFault(null);
-    setSentTitle(title);
+    setFrozen({ title, planned: data.claims.length, outside: replaceOutside ? new Set() : new Set(outside.map((c) => c.id)) });
     try {
       const r = await submit(replaceOutside);
       setResult(r);
@@ -120,13 +127,22 @@ function Body({ onClose }: { onClose: () => void }) {
       setFault(e instanceof SubmitError ? e.failure : { kind: "other", error: e instanceof Error ? e.message : String(e) });
     }
   };
+  // No one-click resend: back to the review, over the refreshed plan (its "Add now" included).
+  const reviewAgain = async () => {
+    setLoading(true);
+    await refresh();
+    setResult(null);
+    setFault(null);
+    setFrozen(null);
+    setLoading(false);
+  };
 
-  const sendLabel = result ? "Send again" : "Send";
-  const resend = result && !submitSummary(result).ok;
+  const verdict = result && frozen ? submitSummary(result, frozen.planned, result.pending.filter((c) => frozen.outside.has(c.id)).length) : null;
+  const resend = verdict && !verdict.ok;
   return (
     <>
       <DialogHeader className="pr-8">
-        <DialogTitle className="font-display text-2xl font-bold leading-tight tracking-tight">{(result || submitting) && sentTitle ? sentTitle : title}</DialogTitle>
+        <DialogTitle className="font-display text-2xl font-bold leading-tight tracking-tight">{(result || submitting) && frozen ? frozen.title : title}</DialogTitle>
         <DialogDescription className="sr-only">Review the moves, then send them to ESPN.</DialogDescription>
       </DialogHeader>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain">
@@ -165,15 +181,21 @@ function Body({ onClose }: { onClose: () => void }) {
             {atMost(groups, pos) && <p className="text-xs text-muted-foreground">{atMost(groups, pos)}.</p>}
           </section>
         )}
-        {result && <Outcome r={result} name={name} />}
+        {result && verdict && <Outcome r={result} verdict={verdict} name={name} />}
         {fault && <Failure f={fault} name={name} />}
       </div>
       <DialogFooter className="gap-2 max-sm:rounded-none max-sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
         {result && <Button variant={resend ? "outline" : "default"} onClick={onClose}>Done</Button>}
-        {(!result || resend) && (
-          <Button onClick={send} disabled={submitting} className="min-w-24">
-            {submitting && <LoaderCircle aria-hidden className="animate-spin" />}
-            {submitting ? "Sending…" : sendLabel}
+        {resend && (
+          <Button onClick={reviewAgain} disabled={loading} className="min-w-24">
+            {loading && <LoaderCircle aria-hidden className="animate-spin" />}
+            Review again
+          </Button>
+        )}
+        {!result && (
+          <Button onClick={send} disabled={submitting || loading} className="min-w-24">
+            {(submitting || loading) && <LoaderCircle aria-hidden className="animate-spin" />}
+            {submitting ? "Sending…" : loading ? "Checking ESPN…" : "Send"}
           </Button>
         )}
       </DialogFooter>
