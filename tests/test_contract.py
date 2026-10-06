@@ -30,9 +30,13 @@ WAIVER_EXTRA = {"ros_proj", "ros_adj", "week_proj", "delta_roster", "delta_pool"
 # web/lib/api.ts: type League["standings"][number]
 STANDINGS_ROW = {"rank", "team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "points_for", "points_against",
                  "streak", "me"}
-SCORE_SIDE = {"team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me", "starter_ids", "starter_teams", "pending_teams"}
+SCORE_SIDE = {"team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me", "starter_ids",
+              "starter_teams", "pending_teams", "starters"}
+# web/lib/api.ts: type ScoreStarter
+SCORE_STARTER = {"player_id", "pos", "team", "proj", "actual", "game_played", "bye", "injury"}
+SCORE_ROW = {"home", "away", "live", "final", "win_prob"}
 # web/lib/api.ts: type Week / type League top level (stale_since is added by the API's cache)
-WEEK = {"week", "live", "mine", "me", "opp"}
+WEEK = {"week", "live", "mine", "me", "opp", "win_prob"}
 LEAGUE = {"week", "current_week", "weeks", "playoff_teams", "live", "standings", "scoreboard"}
 
 
@@ -84,11 +88,36 @@ def test_standings_row_keys(monkeypatch):
     assert set(st["standings"][0]) == STANDINGS_ROW
     assert st["standings"][0]["streak"] == "W2" and st["standings"][1]["streak"] == "L1"
     assert len(st["scoreboard"]) == 1  # the bye slot is dropped
-    assert set(st["scoreboard"][0]) == {"home", "away", "live", "final"} and st["scoreboard"][0]["live"] is False
+    assert set(st["scoreboard"][0]) == SCORE_ROW and st["scoreboard"][0]["live"] is False
     assert set(st["scoreboard"][0]["home"]) == SCORE_SIDE and st["scoreboard"][0]["home"]["me"] is True
-    assert st["scoreboard"][0]["away"]["proj"] == 101.0
+    # a box score without lineups keeps ESPN's side projection and has no odds to give
+    assert st["scoreboard"][0]["away"]["proj"] == 101.0 and st["scoreboard"][0]["win_prob"] is None
+    assert ahead_has_no_odds(espn_season.league_state(5))
     ahead = espn_season.league_state(5)  # beyond current_week: schedule pairings, projection 0
     assert ahead["scoreboard"][0]["home"]["abbrev"] == "THEM" and ahead["scoreboard"][0]["home"]["proj"] == 0
+
+
+def ahead_has_no_odds(st) -> bool:
+    return all(m["win_prob"] is None and m["home"]["starters"] == [] for m in st["scoreboard"])
+
+
+def test_score_starter_keys(monkeypatch):
+    team = SimpleNamespace(team_id=7, team_name="Mine", team_abbrev="M", logo_url="", wins=0, losses=0, ties=0,
+                           points_for=0.0, points_against=0.0)
+    them = SimpleNamespace(team_id=3, team_name="Them", team_abbrev="T", logo_url="", wins=0, losses=0, ties=0,
+                           points_for=0.0, points_against=0.0)
+    lineup = [SimpleNamespace(**{**vars(bp()), "slot_position": "QB"})]
+    match = SimpleNamespace(home_team=team, away_team=them, home_score=0.0, away_score=0.0, home_lineup=lineup,
+                            away_lineup=lineup, home_projected=0.0, away_projected=0.0)
+    lg = SimpleNamespace(current_week=1, standings=lambda: [team, them], box_scores=lambda wk: [match],
+                         scoreboard=lambda wk: [])
+    monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "load", lambda: {"reg_season_weeks": 14, "playoff_teams": 6})
+    monkeypatch.setattr(espn_season, "_sleeper_for", lambda week, settings: {})
+    row = espn_season.league_state(1)["scoreboard"][0]
+    assert set(row["home"]["starters"][0]) == SCORE_STARTER
+    assert set(row["win_prob"]) == {"away", "home"}
 
 
 def test_week_state_top_level_keys(monkeypatch):

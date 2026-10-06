@@ -273,3 +273,54 @@ def test_a_change_of_possession_bumps_the_version_but_the_clock_does_not():
     assert st.version == v
     st.update({}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:10", "ball": "NE", "red_zone": True}})
     assert st.version == v + 1
+
+
+# --- win probability on the overlay ------------------------------------------------------------
+
+def wp(pid, pos="WR", proj=10.0, actual=0.0, team="KC"):
+    return {"player_id": pid, "name": f"p{pid}", "slot": pos, "pos": pos, "team": team, "proj": proj,
+            "actual": actual, "game_played": 0, "bye": False, "injury": "ACTIVE"}
+
+
+def test_overlay_week_moves_win_prob_with_live_points():
+    payload = {"week": 5, "me": {"lineup": [wp(1)], "bench": [], "ir": [], "actual_total": 0.0},
+               "opp": {"lineup": [wp(2, team="BUF")], "bench": [], "ir": [], "actual_total": 0.0},
+               "win_prob": {"me": 0.5, "opp": 0.5, "sigma_source": "fallback"}}
+    games = {"KC": {"status": "in", "quarter": 4, "clock": "1:00"}, "BUF": {"status": "in", "quarter": 4, "clock": "1:00"}}
+    out = live.overlay_week(payload, {1: 25.0, 2: 3.0}, games)
+    assert out["win_prob"]["me"] > 0.99 and out["win_prob"]["sigma_source"] == "fallback"
+    assert abs(out["win_prob"]["me"] + out["win_prob"]["opp"] - 1) < 0.002
+    assert payload["win_prob"]["me"] == 0.5, "input untouched"
+
+
+def test_overlay_week_reads_the_sigma_it_is_given():
+    payload = {"week": 5, "me": {"lineup": [wp(1, proj=14.0)], "bench": [], "ir": [], "actual_total": 0.0},
+               "opp": {"lineup": [wp(2, proj=10.0, team="BUF")], "bench": [], "ir": [], "actual_total": 0.0},
+               "win_prob": {"me": 0.5, "opp": 0.5, "sigma_source": "calibrated"}}
+    tight = live.overlay_week(payload, {}, sigma={"WR": 1.0})["win_prob"]["me"]
+    loose = live.overlay_week(payload, {}, sigma={"WR": 20.0})["win_prob"]["me"]
+    assert tight > 0.99 > loose > 0.5
+
+
+def test_overlay_week_leaves_a_solo_week_without_odds():
+    payload = {"week": 5, "me": {"lineup": [wp(1)], "bench": [], "ir": [], "actual_total": 0.0}, "opp": None, "win_prob": None}
+    assert live.overlay_week(payload, {1: 5.0})["win_prob"] is None
+
+
+def _tile_side(pid, team):
+    return {"team_id": pid, "score": 0.0, "proj": 10.0, "me": False, "starter_ids": [pid],
+            "starter_teams": [team], "pending_teams": [team], "starters": [wp(pid, team=team)]}
+
+
+def test_overlay_league_recomputes_from_starters():
+    payload = {"week": 5, "scoreboard": [{"away": _tile_side(1, "KC"), "home": _tile_side(2, "BUF"), "live": False,
+                                          "final": False, "win_prob": {"away": 0.5, "home": 0.5}}]}
+    games = {"KC": {"status": "post"}, "BUF": {"status": "post"}}
+    out = live.overlay_league(payload, {1: 12.0, 2: 9.0}, games)
+    assert out["scoreboard"][0]["win_prob"] == {"away": 1.0, "home": 0.0}
+
+
+def test_overlay_league_keeps_a_schedule_week_without_odds():
+    empty = {"starter_ids": [], "starter_teams": [], "pending_teams": [], "starters": [], "score": 0, "proj": 0}
+    row = {"away": dict(empty), "home": dict(empty), "live": False, "final": False, "win_prob": None}
+    assert live.overlay_league({"week": 9, "scoreboard": [row]}, {})["scoreboard"][0]["win_prob"] is None

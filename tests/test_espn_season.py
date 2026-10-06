@@ -660,3 +660,43 @@ def test_team_state_lists_a_team_without_a_game_from_its_roster(monkeypatch):
     side = espn_season.team_state(9, week=15, sleeper={}, season={}, injuries={})["side"]
     assert [p["player_id"] for p in side["lineup"]] == [qb["player_id"]]
     assert [p["player_id"] for p in side["bench"]] == [rb["player_id"]]
+
+
+def _fallback_sigma(monkeypatch):
+    from ffl import season
+    monkeypatch.setattr(espn_season.calibrate, "load_sigma", lambda: (season.SIGMA_FALLBACK, "fallback"))
+
+
+def test_week_state_carries_the_odds_of_its_game(monkeypatch):
+    monkeypatch.setattr(espn_season, "league", _two_games)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    _fallback_sigma(monkeypatch)
+    odds = espn_season.week_state(week=1, sleeper={}, season={}, injuries={})["win_prob"]
+    assert odds["sigma_source"] == "fallback"
+    assert odds["me"] > 0.9, "a full lineup against three players"
+    assert abs(odds["me"] + odds["opp"] - 1) < 0.002
+
+
+def test_league_state_carries_starters_merged_proj_and_odds(monkeypatch):
+    from ffl import season
+    club = dict(team_abbrev="X", logo_url="", wins=1, losses=0, ties=0, points_for=1.0, points_against=1.0)
+    mine = SimpleNamespace(team_id=7, team_name="Mine", **club)
+    them = SimpleNamespace(team_id=2, team_name="Them", **club)
+    boxes = [as_box(p) for p in season_roster()]
+    match = SimpleNamespace(home_team=mine, home_lineup=boxes, away_team=them, away_lineup=boxes[:3],
+                            home_score=0.0, away_score=0.0, home_projected=999.0, away_projected=999.0)
+    lg = SimpleNamespace(current_week=1, standings=lambda: [mine, them], box_scores=lambda wk: [match],
+                         scoreboard=lambda wk: [])
+    monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "load", lambda: {**TWO_QB, "reg_season_weeks": 14, "playoff_teams": 6})
+    monkeypatch.setattr(espn_season, "_sleeper_for", lambda week, settings: {("qb a", "QB"): 30.0})
+    _fallback_sigma(monkeypatch)
+    row = espn_season.league_state(1)["scoreboard"][0]
+    starters = [p for p in season_roster() if p["slot"] not in season.BENCH_SLOTS]
+    assert {s["player_id"] for s in row["home"]["starters"]} == {p["player_id"] for p in starters}
+    qb_a = next(s for s in row["home"]["starters"] if s["player_id"] == 1)
+    assert qb_a["proj"] == 25.0, "the board's ESPN+Sleeper mean, not ESPN's alone"
+    assert row["home"]["proj"] == round(sum(p["proj"] for p in starters) + 5.0, 1), "not ESPN's side projection"
+    assert row["win_prob"]["home"] > 0.9 and abs(row["win_prob"]["home"] + row["win_prob"]["away"] - 1) < 0.002

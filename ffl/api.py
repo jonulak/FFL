@@ -20,7 +20,7 @@ from typing import Callable, Literal
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
-from . import cbs, espn_season, live, outlook, player_card, season
+from . import calibrate, cbs, espn_season, live, outlook, player_card, season
 from . import plays as plays_mod
 from .journal import sync_results, sync_transactions
 from .settings import load
@@ -210,6 +210,11 @@ def _scoring() -> list[dict] | None:
         return None
 
 
+def _sigma() -> dict:
+    """The win meter's spread per position (the fallback table when calibrate has not fitted one)."""
+    return calibrate.load_sigma()[0]
+
+
 FEED_ROWS = 5
 
 
@@ -228,7 +233,8 @@ def _plays(data: dict, limit: int | None = None) -> list[dict]:
 
 def _week_payload(data: dict) -> dict:
     """A board with the live points laid on and its feed riding along, so one live tick refreshes both."""
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring()),
+    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]),
+                                _scoring(), _sigma()),
             "plays": _plays(data, FEED_ROWS)}
 
 
@@ -336,7 +342,7 @@ def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] | None = None, q: 
 @app.get("/league")
 def league_(week: int | None = None):
     data = _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week))
-    return live.overlay_league(data, _live_points(data["week"]), _live_games(data["week"]))
+    return live.overlay_league(data, _live_points(data["week"]), _live_games(data["week"]), _sigma())
 
 
 LOGO_TTL = 24 * 3600.0

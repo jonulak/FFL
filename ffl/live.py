@@ -248,12 +248,22 @@ def overlay_players(players: list[dict], points: dict[int, float], games: dict[s
     return out
 
 
+def _odds(a: list[dict], b: list[dict], sigma: dict | None) -> float:
+    return round(S.win_prob(a, b, sigma or S.SIGMA_FALLBACK), 3)
+
+
 def overlay_week(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None,
-                 stats: dict[int, dict] | None = None, scoring: list[dict] | None = None) -> dict:
+                 stats: dict[int, dict] | None = None, scoring: list[dict] | None = None,
+                 sigma: dict | None = None) -> dict:
+    """Both sides overlaid, and the board's `win_prob` re-priced off their live points and clocks
+    (`sigma`, the calibrated spread per position; the fallback table when None)."""
     out = dict(payload)
     for key in ("me", "opp"):
         if payload.get(key):
             out[key] = overlay_side(payload[key], points, games, stats, scoring)
+    if payload.get("win_prob") and out.get("opp"):
+        p = _odds(out["me"]["lineup"], out["opp"]["lineup"], sigma)
+        out["win_prob"] = {**payload["win_prob"], "me": p, "opp": round(1 - p, 3)}
     return out
 
 
@@ -270,10 +280,24 @@ def overlay_roster(payload: dict, points: dict[int, float], games: dict[str, dic
     return {**payload, "cards": overlay_players(payload.get("cards", []), points, games, stats, scoring)}
 
 
-def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None) -> dict:
+def _live_starters(side: dict, points: dict[int, float], games: dict[str, dict]) -> list[dict]:
+    """A tile's starters with the feed's points and, once his game is on, its state."""
+    out = []
+    for s in side.get("starters") or []:
+        s = {**s, "actual": points.get(s["player_id"], s["actual"])}
+        g = games.get(s.get("team"))
+        if g and g.get("status") in ("in", "post"):
+            s["game"] = g
+        out.append(s)
+    return out
+
+
+def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dict] | None = None,
+                   sigma: dict | None = None) -> dict:
     """Each scoreboard side re-summed over its `starter_ids` when any of them has live points, and
     each matchup `live` while a starter on either side has his game in progress — not merely
-    while some game in the league is on."""
+    while some game in the league is on. A matchup with odds has them re-priced off its
+    `starters`' live points and clocks."""
     board = []
     for m in payload.get("scoreboard", []):
         row = dict(m)
@@ -285,6 +309,9 @@ def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dic
         row["live"] = any((games or {}).get(t, {}).get("status") == "in"
                           for key in ("home", "away") for t in m[key].get("starter_teams") or [])
         row["final"] = S.matchup_final(m, games)
+        if m.get("win_prob"):
+            p = _odds(_live_starters(m["away"], points, games or {}), _live_starters(m["home"], points, games or {}), sigma)
+            row["win_prob"] = {"away": p, "home": round(1 - p, 3)}
         board.append(row)
     return {**payload, "scoreboard": board}
 

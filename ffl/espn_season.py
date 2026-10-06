@@ -864,8 +864,14 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
         sides = [s for s in sides if hasattr(s[0], "team_id")]
         built = [build_side(t, _side_players(lineup, settings, sl, seas, inj, w1, home), settings)
                  for t, lineup in sides]
+        # the left side's odds of winning (season.win_prob); the live overlay recomputes them
+        odds = None
+        if len(built) > 1:
+            sigma, source = calibrate.load_sigma()
+            p = S.win_prob(built[0]["lineup"], built[1]["lineup"], sigma)
+            odds = {"me": round(p, 3), "opp": round(1 - p, 3), "sigma_source": source}
         return {"week": week, "live": S.is_live(), "mine": mine, "me": built[0],
-                "opp": built[1] if len(built) > 1 else None}
+                "opp": built[1] if len(built) > 1 else None, "win_prob": odds}
     if team != me:
         raise LookupError(f"no matchup for team {team} in week {week}")
     raise RuntimeError(f"no matchup for team {me} in week {week}")
@@ -1036,6 +1042,10 @@ def _streak(t) -> str:
     return f"{(getattr(t, 'streak_type', '') or '')[:1]}{n}" if n else ""
 
 
+# What a League tile keeps of each starter: enough for live.overlay_league to re-price the odds.
+SCORE_STARTER = ("player_id", "pos", "team", "proj", "actual", "game_played", "bye", "injury")
+
+
 def league_state(week: int | None = None) -> dict:
     lg = fresh_league()
     settings = load()
@@ -1045,10 +1055,12 @@ def league_state(week: int | None = None) -> dict:
     standings = [{"rank": i, **_club(t), "points_for": round(t.points_for, 1),
                   "points_against": round(t.points_against, 1), "streak": _streak(t), "me": t.team_id == me}
                  for i, t in enumerate(lg.standings(), 1)]
-    # Box scores rather than the lighter mMatchupScore view: they carry each side's projected
-    # total, which is the number to show before points post. espn_api clamps box_scores to the
+    # Box scores rather than the lighter mMatchupScore view: they carry each side's lineup, whose
+    # starters the tile's projection and odds are built from. espn_api clamps box_scores to the
     # current week, so a future week takes its pairings from the schedule view, projection 0.
     board = []
+    sl: dict | None = None  # the week's Sleeper projections, read once the first lineup needs them
+    sigma, _ = calibrate.load_sigma()
     for m in (box_scores(lg, week) if week <= current else lg.scoreboard(week)):
         if not (hasattr(m.home_team, "team_id") and hasattr(m.away_team, "team_id")):
             continue  # a bye slot in a playoff round
@@ -1056,19 +1068,31 @@ def league_state(week: int | None = None) -> dict:
         # starter_teams mark the tile live only while one of those starters' games is on, and
         # pending_teams are the clubs whose game ESPN does not yet call played (game_played, three
         # hours after kickoff; a bye counts as played), which the overlay clears at the feed's
-        # whistle. A schedule-view pairing (future week) carries no lineup, so all are empty there.
+        # whistle. `starters` are the same players as the board merges them (ESPN+Sleeper), so the
+        # side's projection is the board's and the overlay can re-price the odds as games run; a
+        # box score without lineups keeps ESPN's side projection. A schedule-view pairing (future
+        # week) carries no lineup, so all are empty there.
         row = {}
         for side, t, score in (("home", m.home_team, m.home_score), ("away", m.away_team, m.away_score)):
             starters = [bp for bp in (getattr(m, f"{side}_lineup", None) or [])
                         if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]
+            if starters and sl is None:
+                sl = _sleeper_for(week, settings)
+            players = merge_weekly([flatten_box_player(bp) for bp in starters], sl) if starters else []
             row[side] = {**_club(t), "score": round(score, 1),
-                         "proj": round(float(getattr(m, f"{side}_projected", 0) or 0), 1),
+                         "proj": (round(sum(S.playable_proj(p) for p in players), 1) if players
+                                  else round(float(getattr(m, f"{side}_projected", 0) or 0), 1)),
                          "me": t.team_id == me,
                          "starter_ids": [bp.playerId for bp in starters],
                          "starter_teams": sorted({bp.proTeam for bp in starters if getattr(bp, "proTeam", None)}),
                          "pending_teams": sorted({bp.proTeam for bp in starters if getattr(bp, "proTeam", None)
-                                                  and int(getattr(bp, "game_played", 100) or 0) < 100})}
-        board.append({**row, "live": False, "final": S.matchup_final(row)})
+                                                  and int(getattr(bp, "game_played", 100) or 0) < 100}),
+                         "starters": [{k: p[k] for k in SCORE_STARTER} for p in players]}
+        odds = None
+        if row["away"]["starters"] and row["home"]["starters"]:
+            p = S.win_prob(row["away"]["starters"], row["home"]["starters"], sigma)
+            odds = {"away": round(p, 3), "home": round(1 - p, 3)}
+        board.append({**row, "live": False, "final": S.matchup_final(row), "win_prob": odds})
     return {"week": week, "current_week": current, "weeks": settings["reg_season_weeks"],
             "playoff_teams": settings["playoff_teams"], "live": S.is_live() and week == current,
             "standings": standings, "scoreboard": board}

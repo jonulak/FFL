@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { League } from "./api";
 import { boardHref, matchupHref, parseMatchupParams, parseTeam, playsHref } from "./matchup-link";
 
-const side = (team_id: number) => ({ team_id, team: `T${team_id}`, abbrev: "", logo: "", wins: 0, losses: 0, ties: 0, score: 0, proj: 0, me: false, starter_ids: [], starter_teams: [], pending_teams: [] });
+const side = (team_id: number) => ({ team_id, team: `T${team_id}`, abbrev: "", logo: "", wins: 0, losses: 0, ties: 0, score: 0, proj: 0, me: false, starter_ids: [], starter_teams: [], pending_teams: [], starters: [] });
 const m: League["scoreboard"][number] = { away: side(3), home: side(4), live: false, final: false };
 
 describe("matchupHref", () => {

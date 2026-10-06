@@ -124,7 +124,10 @@ export type Plays = {
 };
 // `me` is the left side of the board, `opp` the right: I stand left of my own game (`mine`); any other
 // game (a League scoreboard tile) reads away then home.
-export type Week = { week: number; live: boolean; mine: boolean; me: Side; opp: Side | null; plays: Play[]; stale_since: string | null };
+// win_prob is the left side's odds (and the right's) off season.win_prob, re-priced by the live
+// overlay; null with no opponent, and absent from a payload cached before it existed.
+export type WinProb = { me: number; opp: number; sigma_source: "calibrated" | "fallback" };
+export type Week = { week: number; live: boolean; mine: boolean; me: Side; opp: Side | null; win_prob?: WinProb | null; plays: Play[]; stale_since: string | null };
 // ros_proj is the model mean (resolved: the season formula when no source has him); ros_adj the
 // usage-adjusted number `add` and the deltas run on (STRATEGY.md "Usage-adjusted ROS").
 export type WaiverRow = Player & {
@@ -152,11 +155,14 @@ export type Standing = Club & { rank: number; points_for: number; points_against
 // starter_ids is what the API re-sums a side from while the live feed runs, starter_teams what it marks
 // a matchup live from (one of them in a game in progress), pending_teams the games ESPN does not yet call
 // played (the API sets `final` once none is left, sooner on the feed's whistle); all empty for a future week.
-export type ScoreSide = Club & { score: number; proj: number; me: boolean; starter_ids: number[]; starter_teams: string[]; pending_teams: string[] };
+// `starters` are those players as the board merges them (ESPN+Sleeper): `proj` is their sum, and the
+// overlay re-prices the matchup's `win_prob` (null for a future week) off them as games run.
+export type ScoreStarter = { player_id: number; pos: string; team: string; proj: number; actual: number; game_played: number; bye: boolean; injury: string };
+export type ScoreSide = Club & { score: number; proj: number; me: boolean; starter_ids: number[]; starter_teams: string[]; pending_teams: string[]; starters: ScoreStarter[] };
 export type League = {
   week: number; current_week: number; weeks: number; playoff_teams: number; live: boolean;
   standings: Standing[];
-  scoreboard: { home: ScoreSide; away: ScoreSide; live: boolean; final: boolean }[];
+  scoreboard: { home: ScoreSide; away: ScoreSide; live: boolean; final: boolean; win_prob?: { away: number; home: number } | null }[];
   stale_since: string | null;
 };
 // GET /team/{id}: any team's roster for the week (the team page), its club with the standings
