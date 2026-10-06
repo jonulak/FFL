@@ -143,12 +143,16 @@ export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Loa
     void fetch.history.then((h) => current && setMoves(h));
     return () => { current = false; };
   }, [fetch]);
+  // under the seasons, once they are in: above the skeleton it would be pushed down by the log
+  const history = load.state === "ready" && moves.length > 0;
+  // Both inside the grow: the moves land with the log, and outside it their height arrived in one
+  // frame, enough to snap the Matchup breakdown (its week already above) to the dialog's cap.
+  const grow = useGrow(`${load.state}${history ? "+moves" : ""}`);
   return (
-    <>
+    <div ref={grow} className="overflow-hidden">
       <LogBody load={load} retry={retry} className={className} />
-      {/* under the seasons, once they are in: above the skeleton it would be pushed down by the log */}
-      {load.state === "ready" && moves.length > 0 && <History moves={moves} />}
-    </>
+      {history && <History moves={moves} />}
+    </div>
   );
 }
 
@@ -190,12 +194,10 @@ function History({ moves }: { moves: PlayerTx[] }) {
   );
 }
 
-// The log in its states: the skeleton, the error with its retry, the seasons. Its height follows
-// a change of state (useGrow).
+// The log in its states: the skeleton, the error with its retry, the seasons.
 function LogBody({ load, retry, className = "" }: { load: Load; retry: () => void; className?: string }) {
-  const grow = useGrow(load.state);
   return (
-    <div ref={grow} className={`overflow-hidden ${className}`}>
+    <div className={className}>
       {load.state === "loading" && <Loading />}
       {load.state === "error" && (
         <div className="log-in py-2">
@@ -217,15 +219,18 @@ const GROW_EASE = "cubic-bezier(0.65, 0, 0.35, 1)";
 // The body's height follows the content through a change of state (skeleton to log, log to
 // error, retry): measured before and after the swap and animated between, so the dialog grows
 // from where it stood instead of snapping taller around its centre. Rows opening inside the log
-// change no state and keep their own animation (a week's panel, a past season's fold).
-function useGrow(state: Load["state"]) {
+// change no state and keep their own animation (a week's panel, a past season's fold). A change
+// that lands mid-grow (the moves just after the log) carries on from the height on screen.
+function useGrow(state: string) {
   const ref = useRef<HTMLDivElement>(null);
   const last = useRef(0);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const running = el.getAnimations();
+    const from = running.length ? el.offsetHeight : last.current;
+    running.forEach((a) => a.cancel());
     const to = el.offsetHeight;
-    const from = last.current;
     last.current = to;
     if (!from || from === to || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: GROW_MS, easing: GROW_EASE });
