@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { FIELD, fieldOf } from "./field";
+import { FIELD, fieldOf, inGameOf } from "./field";
+
+describe("inGameOf", () => {
+  it("marks every player whose game is on, off the field unless the overlay puts him on it", () => {
+    expect(inGameOf({ game: { status: "in" } })).toBe("off");
+    expect(inGameOf({ field: "on", game: { status: "in" } })).toBe("on");
+    expect(inGameOf({ field: "red_zone", game: { status: "in" } })).toBe("red_zone");
+  });
+  it("is nothing before kickoff or after the final", () => {
+    expect(inGameOf({})).toBeNull();
+    expect(inGameOf({ field: "on", game: { status: "post" } })).toBeNull();
+  });
+  it("says off the field to a screen reader too", () => {
+    expect(FIELD.off.sr).toContain("off the field");
+  });
+});
 
 describe("fieldOf", () => {
   it("is the overlay's mark while the game is on", () => {

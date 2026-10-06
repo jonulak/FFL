@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
 import { BOARD_CARD, HEALTHY, isIdle, LABEL, SLOT_LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, pts, shortName, signed } from "@/lib/format";
-import { FIELD, fieldOf } from "@/lib/field";
+import { FIELD, fieldOf, inGameOf } from "@/lib/field";
 import { gameOn, gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { playsHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
@@ -150,7 +150,8 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
   const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
   const on = gamePhase(p, now) !== "pending";
-  const field = fieldOf(p);
+  // the wash: ink while his game is on, orange with his unit on the field, red in the red zone
+  const field = inGameOf(p);
   // The phone half: the short name (`B. Purdy`) with a one-letter status chip, then the game on
   // one line, `[SF] vs [DEN] Sun 4:25 PM` or `24 [PIT] @ 27 [CLE] Final`, and once he has played
   // the lead stat group (passing for a QB, rushing for a RB, receiving for a WR) as the footer,

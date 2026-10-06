@@ -296,6 +296,9 @@
   transition: background-color 700ms var(--ease-arrive);
 }
 .field-half[data-end="opp"] { --field-wash: to left; }
+/* In the game, off the field: the same wash in ink, so a half warms from ink to orange to red as
+   his unit takes the field and nears the end zone, and the halves still waiting stay bare. */
+.field-half[data-field="off"]::before { background-color: color-mix(in oklab, var(--foreground) 7%, transparent); }
 .field-half[data-field="on"]::before { background-color: color-mix(in oklab, var(--onfield) 24%, transparent); }
 .field-half[data-field="red_zone"]::before { background-color: color-mix(in oklab, var(--redzone) 24%, transparent); }
 
