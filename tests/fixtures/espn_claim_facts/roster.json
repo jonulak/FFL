@@ -1,0 +1,227 @@
+{
+  "teams": [
+    {
+      "id": 7,
+      "roster": {
+        "entries": [
+          {
+            "playerId": 4426515,
+            "lineupSlotId": 23,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4426515,
+                "fullName": "Puka Nacua",
+                "droppable": false
+              }
+            }
+          },
+          {
+            "playerId": 4040715,
+            "lineupSlotId": 20,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4040715,
+                "fullName": "Jalen Hurts",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 3043078,
+            "lineupSlotId": 2,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 3043078,
+                "fullName": "Derrick Henry",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4361741,
+            "lineupSlotId": 0,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4361741,
+                "fullName": "Brock Purdy",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4430737,
+            "lineupSlotId": 2,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4430737,
+                "fullName": "Kyren Williams",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4567750,
+            "lineupSlotId": 20,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4567750,
+                "fullName": "Emeka Egbuka",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4239993,
+            "lineupSlotId": 4,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4239993,
+                "fullName": "Tee Higgins",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4035538,
+            "lineupSlotId": 23,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4035538,
+                "fullName": "David Montgomery",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4430027,
+            "lineupSlotId": 6,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4430027,
+                "fullName": "Sam LaPorta",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4685720,
+            "lineupSlotId": 0,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4685720,
+                "fullName": "Bryce Young",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4608686,
+            "lineupSlotId": 20,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4608686,
+                "fullName": "Kyle Monangai",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4880281,
+            "lineupSlotId": 21,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4880281,
+                "fullName": "Jordyn Tyson",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4688813,
+            "lineupSlotId": 4,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4688813,
+                "fullName": "Josh Downs",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4832800,
+            "lineupSlotId": 20,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4832800,
+                "fullName": "Denzel Boston",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": -16016,
+            "lineupSlotId": 16,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": -16016,
+                "fullName": "Vikings D/ST",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4360234,
+            "lineupSlotId": 17,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4360234,
+                "fullName": "Evan McPherson",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 4428850,
+            "lineupSlotId": 20,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 4428850,
+                "fullName": "Dontayvion Wicks",
+                "droppable": true
+              }
+            }
+          },
+          {
+            "playerId": 2576925,
+            "lineupSlotId": 20,
+            "playerPoolEntry": {
+              "lineupLocked": false,
+              "player": {
+                "id": 2576925,
+                "fullName": "Darren Waller",
+                "droppable": true
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -12,3 +12,11 @@ def _calibration_in_tmp(monkeypatch, tmp_path):
     into data/calibration."""
     from ffl import calibrate
     monkeypatch.setattr(calibrate, "CAL_DIR", tmp_path / "calibration")
+
+
+@pytest.fixture(autouse=True)
+def _no_claim_fact_reads(monkeypatch):
+    """free_agent_pool reads waiver status and roster flags from ESPN; a test build never makes the call
+    (a test that wants the facts patches pool_status / roster_flags, or raw_league_get itself)."""
+    from ffl import espn_season
+    monkeypatch.setattr(espn_season, "raw_league_get", lambda *a, **k: {})

@@ -925,6 +925,40 @@ def team_state(team_id: int, week: int | None = None, sleeper: dict | None = Non
             "club": {**_club(t), "rank": rank}, "side": build_side(t, built, settings)}
 
 
+def parse_pool_status(doc: dict) -> dict[int, dict]:
+    """kona_player_info players -> {id: {status, waiver_date}}. status is FREEAGENT (added instantly),
+    WAIVERS (a claim) or ONTEAM; waiver_date is the ms epoch his waiver period ends, when ESPN says."""
+    return {int(p["id"]): {"status": p.get("status"), "waiver_date": p.get("waiverProcessDate")}
+            for p in doc.get("players", [])}
+
+
+def parse_roster_flags(doc: dict, team_id: int) -> dict[int, dict]:
+    """mRoster -> {id: {droppable, locked}} for one team. ESPN marks an undroppable player
+    (droppable false) and one whose game has started (lineupLocked); anything unsaid is droppable/unlocked."""
+    team = next((t for t in doc.get("teams", []) if t["id"] == team_id), None)
+    out = {}
+    for e in (team or {}).get("roster", {}).get("entries", []):
+        pe = e.get("playerPoolEntry") or {}
+        out[int(e["playerId"])] = {"droppable": (pe.get("player") or {}).get("droppable") is not False,
+                                   "locked": bool(pe.get("lineupLocked"))}
+    return out
+
+
+STATUS_LIMIT = 1000
+
+
+def pool_status() -> dict[int, dict]:
+    # filterStatus, not filterIds: ESPN 400s on "limit" beside filterIds (tx_player_info), and D/ST ids are negative.
+    # This is the query the 2026-10-06 probe ran (limit 400 answered); it covers every pool row (60 per position).
+    flt = {"players": {"filterStatus": {"value": ["FREEAGENT", "WAIVERS"]}, "limit": STATUS_LIMIT,
+                       "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}}
+    return parse_pool_status(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(flt)}))
+
+
+def roster_flags(lg) -> dict[int, dict]:
+    return parse_roster_flags(raw_league_get("mRoster"), my_team_id(lg))
+
+
 def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None,
                     season: dict | None = None, injuries: dict | None = None,
                     snaps: dict | None = None) -> dict:
@@ -975,8 +1009,28 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
         calibrate.write_snapshot(calibrate.CAL_DIR, rw, calibrate.snapshot_rows(out, rw))
     except OSError as e:
         print(f"calibration snapshot not written: {e}")
+    roster = S.roster_rows(my_players, rw)
+    # claim facts (ffl/claims.py): a failed read leaves the defaults, so nothing is ever added instantly
+    # by mistake (unknown status counts as WAIVERS) and ESPN is left to refuse an undroppable cut
+    try:
+        status = pool_status()
+    except Exception as e:
+        print(f"waiver status not read: {e}")
+        status = {}
+    try:
+        flags = roster_flags(lg)
+    except Exception as e:
+        print(f"roster flags not read: {e}")
+        flags = {}
+    for rows in out.values():
+        for r in rows:
+            s = status.get(r["player_id"]) or {}
+            r["status"], r["waiver_date"] = s.get("status"), s.get("waiver_date")
+    for r in roster:
+        f = flags.get(r["player_id"]) or {}
+        r["droppable"], r["locked"] = f.get("droppable", True), f.get("locked", False)
     return {"week": week, "ros_week": rw, "week_over": week_over, "positions": out,
-            "roster": S.roster_rows(my_players, rw), "ros_source": ros_source(seas)}
+            "roster": roster, "ros_source": ros_source(seas)}
 
 
 def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]]:

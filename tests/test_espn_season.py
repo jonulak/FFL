@@ -724,3 +724,76 @@ def test_league_state_carries_starters_merged_proj_and_odds(monkeypatch):
     assert qb_a["proj"] == 25.0, "the board's ESPN+Sleeper mean, not ESPN's alone"
     assert row["home"]["proj"] == round(sum(p["proj"] for p in starters) + 5.0, 1), "not ESPN's side projection"
     assert row["win_prob"]["home"] > 0.9 and abs(row["win_prob"]["home"] + row["win_prob"]["away"] - 1) < 0.002
+
+
+FX = Path(__file__).parent / "fixtures" / "espn_claim_facts"
+
+
+def test_parse_pool_status():
+    doc = json.loads((FX / "pool_status.json").read_text())
+    st = espn_season.parse_pool_status(doc)
+    assert st and all(v["status"] in {"FREEAGENT", "WAIVERS", "ONTEAM"} for v in st.values())
+    assert all(isinstance(k, int) for k in st)
+    assert any(k < 0 for k in st), "a D/ST id is negative"
+
+
+def test_parse_pool_status_handles_missing_date():
+    st = espn_season.parse_pool_status({"players": [{"id": -16020, "status": "FREEAGENT"}]})
+    assert st == {-16020: {"status": "FREEAGENT", "waiver_date": None}}
+
+
+def test_parse_roster_flags():
+    doc = json.loads((FX / "roster.json").read_text())
+    team_id = doc["teams"][0]["id"]
+    f = espn_season.parse_roster_flags(doc, team_id)
+    assert f and all(set(v) == {"droppable", "locked"} for v in f.values())
+    assert [v["droppable"] for v in f.values()].count(False) == 1, "Puka Nacua is the one undroppable player"
+
+
+def test_parse_roster_flags_undroppable():
+    doc = {"teams": [{"id": 7, "roster": {"entries": [
+        {"playerId": 1, "playerPoolEntry": {"lineupLocked": True, "player": {"droppable": False}}}]}}]}
+    assert espn_season.parse_roster_flags(doc, 7) == {1: {"droppable": False, "locked": True}}
+
+
+def test_pool_status_asks_by_status(monkeypatch):
+    seen = {}
+
+    def fake(view, headers=None, **k):
+        seen.update(view=view, flt=json.loads(headers["x-fantasy-filter"]))
+        return {"players": []}
+    monkeypatch.setattr(espn_season, "raw_league_get", fake)
+    assert espn_season.pool_status() == {}
+    assert seen["view"] == "kona_player_info" and "filterIds" not in seen["flt"]["players"]
+
+
+def _pool_with_facts(monkeypatch, status, flags):
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "pool_status", status)
+    monkeypatch.setattr(espn_season, "roster_flags", flags)
+    return espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+
+
+def test_free_agent_pool_rows_carry_claim_facts(monkeypatch):
+    first = season_roster()[0]["player_id"]
+    out = _pool_with_facts(monkeypatch, lambda: {1001: {"status": "FREEAGENT", "waiver_date": 5}},
+                           lambda lg: {first: {"droppable": False, "locked": True}})
+    rows = [r for rs in out["positions"].values() for r in rs]
+    assert all(set(r) >= {"status", "waiver_date"} for r in rows)
+    assert {r["status"] for r in rows} <= {"FREEAGENT", None}
+    mine = {r["player_id"]: r for r in out["roster"]}
+    assert mine[first]["droppable"] is False and mine[first]["locked"] is True
+    assert all(set(r) >= {"droppable", "locked"} for r in out["roster"])
+
+
+def test_free_agent_pool_rows_carry_defaults_when_the_reads_raise(monkeypatch):
+    def boom(*a):
+        raise requests.ConnectionError("espn down")
+    out = _pool_with_facts(monkeypatch, boom, boom)
+    rows = [r for rs in out["positions"].values() for r in rs]
+    assert rows and all(r["status"] is None and r["waiver_date"] is None for r in rows), "unknown counts as WAIVERS"
+    assert out["roster"] and all(r["droppable"] is True and r["locked"] is False for r in out["roster"])

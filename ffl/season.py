@@ -350,7 +350,9 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
         week_delta = 0.0 if week_over else round(lineup_total(with_him) - cur_total, 1)
         would_start = week_delta > 0
         ros_delta = min(d_roster, d_pool)
-        rows.append({**fa, "ros_proj": ros_proj(fa, week), "ros_adj": ros, "week_proj": playable_proj(fa),
+        # status/waiver_date are ESPN's claim facts, filled in by espn_season; unknown counts as WAIVERS
+        rows.append({**fa, "status": None, "waiver_date": None,
+                     "ros_proj": ros_proj(fa, week), "ros_adj": ros, "week_proj": playable_proj(fa),
                      "delta_roster": d_roster, "delta_pool": d_pool, "would_start": would_start,
                      "week_delta": week_delta if would_start else 0.0,
                      "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"), week,
@@ -455,7 +457,8 @@ def roster_rows(my_roster: list[dict], week: int) -> list[dict]:
     """My players as the Waivers page compares a free agent against them: the same rest-of-season
     and week figures a waiver row carries (`ros_proj` resolved, `week_proj` playable), ordered by
     ROS. IR players stay in: a drop is a drop."""
-    rows = [{**p, "ros_proj": ros_proj(p, week), "ros_adj": ros_adj(p, week), "week_proj": playable_proj(p)}
+    rows = [{**p, "droppable": True, "locked": False,  # ESPN's flags, filled in by espn_season
+             "ros_proj": ros_proj(p, week), "ros_adj": ros_adj(p, week), "week_proj": playable_proj(p)}
             for p in my_roster]
     return sorted(rows, key=lambda r: -r["ros_adj"])
 

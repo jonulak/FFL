@@ -134,6 +134,9 @@ export type WaiverRow = Player & {
   ros_proj: number; ros_adj: number; week_proj: number; delta_roster: number; delta_pool: number;
   would_start: boolean; week_delta: number; add: number;
   has_outlook: boolean;  // bullets written for him this week, from the Waivers dialog
+  // ESPN's waiver status: FREEAGENT is added instantly, WAIVERS is a claim; null when the read failed
+  // (counts as WAIVERS). waiver_date: ms epoch his waiver period ends.
+  status: "FREEAGENT" | "WAIVERS" | null; waiver_date: number | null;
 };
 // One free agent's outlook (GET /waivers/outlook/{id}): written on a click, a minute or two of
 // Opus with web search, so `running` is polled. `error` is the last failed write's reason.
@@ -142,7 +145,8 @@ export type WaiverOutlook = {
 };
 // One of my players as the Waivers table compares a free agent against him: the same ROS and
 // week figures, by adjusted ROS best first (season.roster_rows).
-export type RosterRow = Player & { ros_proj: number; ros_adj: number; week_proj: number };
+// droppable: false is ESPN's undroppable flag; locked: his game has started (no cut, for an instant add).
+export type RosterRow = Player & { ros_proj: number; ros_adj: number; week_proj: number; droppable: boolean; locked: boolean };
 // ros_source "season": no source had anyone, every ROS is a scaled draft-day season total.
 // ros_week: the week ROS starts from; week_over: this week's games are all played (no week term).
 export type Waivers = {

@@ -1,0 +1,48 @@
+{
+  "players": [
+    {
+      "id": 4686361,
+      "status": "WAIVERS",
+      "waiverProcessDate": 1791356400000,
+      "onTeamId": 0,
+      "player": {
+        "id": 4686361,
+        "fullName": "Cam Little",
+        "droppable": true
+      }
+    },
+    {
+      "id": 4035687,
+      "status": "WAIVERS",
+      "waiverProcessDate": 1791356400000,
+      "onTeamId": 0,
+      "player": {
+        "id": 4035687,
+        "fullName": "Michael Pittman Jr.",
+        "droppable": true
+      }
+    },
+    {
+      "id": 4574716,
+      "status": "WAIVERS",
+      "waiverProcessDate": 1791356400000,
+      "onTeamId": 0,
+      "player": {
+        "id": 4574716,
+        "fullName": "Harrison Mevis",
+        "droppable": true
+      }
+    },
+    {
+      "id": -16017,
+      "status": "WAIVERS",
+      "waiverProcessDate": 1791356400000,
+      "onTeamId": 0,
+      "player": {
+        "id": -16017,
+        "fullName": "Patriots D/ST",
+        "droppable": true
+      }
+    }
+  ]
+}
