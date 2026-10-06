@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { favourite, fill, finalP, outcome, pct } from "./win-prob";
+import { fill, finalP, outcome, pct } from "./win-prob";
 
 describe("the bar", () => {
   it("fills from the centre toward the favourite by the margin over even", () => {
@@ -32,9 +32,5 @@ describe("win probability", () => {
     expect(outcome(1)).toBe("W");
     expect(outcome(0)).toBe("L");
     expect(outcome(0.5)).toBe("T");
-  });
-  it("names the favourite", () => {
-    expect(favourite({ abbrev: "JON", p: 0.29 }, { abbrev: "DAN", p: 0.71 })).toBe("DAN 71%");
-    expect(favourite({ abbrev: "JON", p: 0.502 }, { abbrev: "DAN", p: 0.498 })).toBe("50–50");
   });
 });

@@ -25,12 +25,3 @@ export function finalP(left: number, right: number): number {
   const d = Math.round((left - right) * 100);
   return d > 0 ? 1 : d < 0 ? 0 : 0.5;
 }
-
-type Odds = { abbrev: string; p: number };
-
-// The side the odds favour with its share; a matchup the rounding calls even says so.
-export function favourite(a: Odds, b: Odds): string {
-  if (Math.round(a.p * 100) === Math.round(b.p * 100)) return "50–50";
-  const f = a.p > b.p ? a : b;
-  return `${f.abbrev} ${pct(f.p)}`;
-}

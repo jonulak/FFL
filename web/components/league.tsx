@@ -8,7 +8,7 @@ import { BOARD_CARD, LABEL } from "@/lib/board";
 import { pts, record } from "@/lib/format";
 import { matchupHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
-import { favourite, finalP } from "@/lib/win-prob";
+import { finalP } from "@/lib/win-prob";
 import { ClubLogo } from "./club-logo";
 import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
@@ -112,14 +112,13 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
   // winner; before that the model's odds, and none for a week with no lineups yet
   const odds = final ? finalP(m.away.score, m.home.score) : m.win_prob?.away ?? null;
   const card = (
-    <Card className={`${BOARD_CARD} ${m.home.me || m.away.me ? "ring-foreground/30" : ""} ${href ? "transition-[box-shadow,background-color] group-hover/tile:bg-foreground/[0.025] group-hover/tile:ring-foreground/35 group-focus-visible/tile:ring-2 group-focus-visible/tile:ring-ring/60" : ""}`}>
+    <Card className={`${BOARD_CARD} relative ${m.home.me || m.away.me ? "ring-foreground/30" : ""} ${href ? "transition-[box-shadow,background-color] group-hover/tile:bg-foreground/[0.025] group-hover/tile:ring-foreground/35 group-focus-visible/tile:ring-2 group-focus-visible/tile:ring-ring/60" : ""}`}>
       <CardHeader className="flex flex-row items-center justify-between gap-3 pt-2.5 sm:pt-3">
         <span className={`${LABEL} flex items-center gap-2`}>
           {final ? <span className="text-foreground">Final</span> : live ? <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge> : projected ? "Matchup" : "Upcoming"}
         </span>
         <span className={`${LABEL} flex items-center gap-1`}>
           {on ? "pts" : projected ? "proj" : ""}
-          {!final && odds != null && <><span aria-hidden>·</span><span className="text-foreground/80">{favourite({ abbrev: m.away.abbrev, p: odds }, { abbrev: m.home.abbrev, p: 1 - odds })}</span></>}
           {href && <ChevronRight aria-hidden className="-mr-1 size-4 text-foreground/40 transition-[color,translate] group-hover/tile:translate-x-0.5 group-hover/tile:text-foreground/80" />}
         </span>
       </CardHeader>
@@ -129,8 +128,8 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
           <ScoreRow side={m.home} on={on} trailing={lead > 0} final={final} won={final && lead < 0} />
         </ul>
       </CardContent>
-      {/* the odds along the card's foot, away (the top row) at the left end; solid to the winner once final */}
-      {odds != null && <div className="-mt-(--card-spacing)"><WinMeter p={odds} teams={[m.away.team, m.home.team]} size="tile" final={final} /></div>}
+      {/* the odds down the card's left edge, away (the top row) at the top; solid to the winner once final */}
+      {odds != null && <WinMeter p={odds} teams={[m.away.team, m.home.team]} size="tile" final={final} />}
     </Card>
   );
   if (!href) return card;

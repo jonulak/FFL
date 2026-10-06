@@ -25,9 +25,15 @@ export function WinMeter({ p, teams, size, final = false }: { p: number; teams: 
     </Meter.Track>
   );
   if (size === "tile") {
+    // Down the card's left edge, the away side (the top row) at the top: the same fill from even,
+    // turned on its side, and no numbers. The card it sits in is the positioning parent.
     return (
-      <Meter.Root value={Math.round(share * 100)} aria-label={label} className="block">
-        {track}
+      <Meter.Root value={Math.round(share * 100)} aria-label={label} className="absolute inset-y-0 left-0 w-1.5">
+        <Meter.Track className="relative h-full w-full overflow-hidden bg-foreground/12">
+          <span aria-hidden style={{ top: `${from}%`, height: `${width}%` }}
+            className="absolute inset-x-0 bg-foreground transition-[top,height] duration-[600ms] ease-[var(--ease-arrive)] motion-reduce:transition-none" />
+          <span aria-hidden className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-foreground/45" />
+        </Meter.Track>
       </Meter.Root>
     );
   }
