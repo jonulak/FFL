@@ -838,6 +838,20 @@ def _boxes_by_team(lg, week: int) -> dict[int, list]:
     return out
 
 
+def _owners(lg, week: int) -> dict[int, dict]:
+    """player_id -> the fantasy team rostering him this week, off the same box_scores fetch:
+    the Players page's owner chip. A team without a name or abbreviation leaves it None."""
+    out: dict[int, dict] = {}
+    for m in box_scores(lg, week):
+        for t, lineup in ((m.home_team, m.home_lineup), (m.away_team, m.away_lineup)):
+            if hasattr(t, "team_id"):
+                club = {"team_id": t.team_id, "name": getattr(t, "team_name", None) or None,
+                        "abbrev": getattr(t, "team_abbrev", None) or None}
+                for bp in lineup:
+                    out[bp.playerId] = club
+    return out
+
+
 def week_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
                injuries: dict | None = None, team: int | None = None) -> dict:
     """The matchup board for `team`'s game (mine by default). `me` is the left side and `opp`
@@ -962,6 +976,9 @@ def roster_flags(lg) -> dict[int, dict]:
 def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None,
                     season: dict | None = None, injuries: dict | None = None,
                     snaps: dict | None = None) -> dict:
+    """The Players page's pool: `positions` holds the free agents ranked for a claim (claims, the
+    waiver outlook and the calibration snapshot read it, so it never carries a rostered man);
+    `rostered` holds every rostered player priced the same way, tagged with his owner."""
     lg = fresh_league()
     settings = load()
     week = week or lg.current_week
@@ -988,7 +1005,7 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
     my_players = enrich([flatten_box_player(bp) for bp in boxes[me]], roster_games)
     # every rostered player carries his form too: the replacement line runs on the adjusted ROS
     rostered = enrich([flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], roster_games)
-    out = {}
+    out, frees_by_pos = {}, {}
     positions = ["QB", "RB", "WR", "TE", "D/ST", "K"]
     # one ESPN call of ~0.6 s per position and form week (the pool is the same set each week,
     # sorted by ownership; only the stats change): all in flight together, not one after another
@@ -1004,6 +1021,9 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
         for f in frees:
             f["slot"] = "FA"
         out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, rw, week_over=week_over)
+        for r in out[pos]:
+            r["owner"], r["mine"] = None, False
+        frees_by_pos[pos] = frees
     # what the blend read this ROS week, kept for ffl.calibrate; never a reason for the page to fail
     try:
         calibrate.write_snapshot(calibrate.CAL_DIR, rw, calibrate.snapshot_rows(out, rw))
@@ -1029,7 +1049,20 @@ def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | Non
     for r in roster:
         f = flags.get(r["player_id"]) or {}
         r["droppable"], r["locked"] = f.get("droppable", True), f.get("locked", False)
-    return {"week": week, "ros_week": rw, "week_over": week_over, "positions": out,
+    # the Players page: every rostered player, priced as a free agent would be (worth to me);
+    # my own carry no worth, measuring a man against my weakest being circular
+    owners = _owners(lg, week)
+    rostered_out: dict[str, list[dict]] = {}
+    for pos in positions:
+        rows = S.waiver_deltas([p for p in rostered if p["pos"] == pos], my_players,
+                               rostered + frees_by_pos[pos], settings, rw, week_over=week_over)
+        for r in rows:
+            r["owner"] = owners.get(r["player_id"])
+            r["mine"] = bool(r["owner"]) and r["owner"]["team_id"] == me
+            if r["mine"]:
+                r.update(add=None, delta_roster=None, delta_pool=None, week_delta=None, would_start=None)
+        rostered_out[pos] = rows
+    return {"week": week, "ros_week": rw, "week_over": week_over, "positions": out, "rostered": rostered_out,
             "roster": roster, "ros_source": ros_source(seas)}
 
 

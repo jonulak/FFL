@@ -524,6 +524,30 @@ def _matchup():
                            away_lineup=[as_box(season_roster()[0])])
 
 
+def test_free_agent_pool_carries_every_rostered_player_with_owner_and_worth_to_me(monkeypatch):
+    calls = {"box": 0, "fa": []}
+    m = _matchup()
+    m.away_team = SimpleNamespace(team_id=2, team_name="Them", team_abbrev="THM")
+    m.away_lineup = [as_box({**season_roster()[3], "player_id": 500, "name": "Their RB"})]
+    lg = _stub_league(m, calls)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    pool = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    rb = {r["player_id"]: r for r in pool["rostered"]["RB"]}
+    them = rb[500]
+    assert them["owner"] == {"team_id": 2, "name": "Them", "abbrev": "THM"} and them["mine"] is False
+    assert isinstance(them["add"], float) and isinstance(them["delta_roster"], float), "worth to me, as a free agent's"
+    mine = rb[4]  # season_roster()[3], RB A
+    assert mine["mine"] is True and mine["owner"]["team_id"] == 7
+    assert mine["owner"]["abbrev"] is None, "the stub team has no team_abbrev: None, not ''"
+    assert all(mine[k] is None for k in ("add", "delta_roster", "delta_pool", "week_delta", "would_start"))
+    frees = [r for rows in pool["positions"].values() for r in rows]
+    assert all(r["owner"] is None and r["mine"] is False for r in frees)
+    assert 500 not in {r["player_id"] for r in frees}, "positions stays free agents only"
+    assert calls["box"] == 1, "owners come off the same box_scores fetch"
+
+
 def test_builders_share_one_box_scores_fetch(monkeypatch):
     """Every page rebuilds within the same minute or two; the 0.7 s box_scores call is made once."""
     calls = {"box": 0, "fa": []}
