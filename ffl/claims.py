@@ -164,3 +164,40 @@ def decision_entry(groups, names, day, status):
     outcome = "- **Outcome (fill in later):**"
 
     return "\n".join([header, decision, reasoning, outcome, ""])
+
+
+def matches(claims, pending):
+    """Same (add, drop) sequence in the same order: ESPN runs claims by priority, so order is part of the plan."""
+    return [(c["add"], c["drop"]) for c in claims] == [(c["add"], c["drop"]) for c in pending]
+
+
+def run_submit(groups, status, pending, last_ids, replace_outside, writer):
+    """Free agents first (instant, rank order, each on the group's next row; a refused add leaves its row for the next),
+    then clear and repost the whole claim list over the rows left, so a retry after any failure is the same call. Stops
+    the claims at the first failed write and still reads ESPN back: the page shows what ESPN holds, never what we hoped."""
+    now, now_failed, used = [], [], {}
+    for gi, g in enumerate(groups):
+        r, n = rooms(g), 0
+        for t in free_targets(g, status):
+            if n >= len(r):
+                break
+            try:
+                writer.add_free_agent(t, r[n])
+                now.append({"group": gi, "add": t, "drop": r[n]})
+                n += 1
+            except Exception as e:  # noqa: BLE001 — taken or refused: his row goes to the next target
+                now_failed.append({"group": gi, "add": t, "drop": r[n], "error": str(e)})
+        used[gi] = n
+    claims = expand(groups, status, used)
+    sent, error = [], None
+    try:
+        for c in pending:
+            if c["id"] in last_ids or replace_outside:
+                writer.cancel_claim(c["id"])
+        for c in claims:
+            sent.append({**c, "id": writer.submit_claim(c["add"], c["drop"])})
+    except Exception as e:  # noqa: BLE001 — reported in the result, with the read-back
+        error = str(e)
+    after = writer.pending_claims()
+    return {"now": now, "now_failed": now_failed, "sent": sent, "pending": after,
+            "match": error is None and matches(claims, after), "error": error}

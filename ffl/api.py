@@ -5,23 +5,30 @@
 Loopback only; Next.js on :3300 proxies /api/* here. Stale payloads are kept past the TTL and
 served, flagged, when a source is down — never a blank page on Sunday.
 
-Only three endpoints write anything: POST /refresh runs the journal sync, POST /outlook/refresh starts a background run that writes
-data/outlook/week-<n>.json, and POST /waivers/outlook/{id} writes one free agent's into
-data/outlook/waivers-week-<n>.json. Every GET is read-only.
+Only these endpoints write anything: POST /refresh runs the journal sync, POST /outlook/refresh starts a background run that writes
+data/outlook/week-<n>.json, POST /waivers/outlook/{id} writes one free agent's into data/outlook/waivers-week-<n>.json,
+POST /claims saves the week's claim plan to journal/waivers/week-<n>.json (never touches ESPN), and POST /claims/submit is
+the one route that writes to ESPN (instant free-agent adds + waiver claims, through ffl/espn_write.py) and journals it.
+Every GET is read-only.
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel
 
-from . import calibrate, cbs, espn_season, live, outlook, player_card, season
+from . import calibrate, cbs, espn_season, espn_write, live, outlook, player_card, season
+from . import claims as claims_mod
 from . import plays as plays_mod
+from .config import JOURNAL
 from .journal import sync_results, sync_transactions
 from .settings import load
 
@@ -170,6 +177,137 @@ def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None) -> dict:
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+# --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
+
+CLAIMS_DIR = JOURNAL / "waivers"
+DECISIONS = JOURNAL / "DECISIONS.md"
+_SUBMIT = threading.Lock()  # one submit at a time: it cancels and reposts ESPN's whole claim list
+
+
+class GroupIn(BaseModel):
+    targets: list[int]
+    cuts: list[int]
+    open: int = 0
+
+
+class PlanIn(BaseModel):
+    groups: list[GroupIn]
+
+
+class SubmitIn(BaseModel):
+    replace_outside: bool = False
+
+
+def _roster_size() -> int:
+    return int(load()["roster_size"])
+
+
+def _plan_path(week):
+    return CLAIMS_DIR / f"week-{week}.json"
+
+
+def _load_plan(week):
+    p = _plan_path(week)
+    return json.loads(p.read_text()) if p.exists() else {"week": week, "groups": [], "submits": []}
+
+
+def _save_plan(plan):
+    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    _plan_path(plan["week"]).write_text(json.dumps(plan, indent=1) + "\n")
+
+
+def _pool_rows(data):
+    return {r["player_id"]: r for rows in data["positions"].values() for r in rows}
+
+
+def _status(data):
+    return {i: r.get("status") for i, r in _pool_rows(data).items() if r.get("status")}
+
+
+def _players(groups, data):
+    rows, roster = _pool_rows(data), {r["player_id"]: r for r in data.get("roster", [])}
+    want = {i for g in groups for i in g["targets"] + g["cuts"]} | set(roster)
+    keys = ("name", "pos", "team", "add", "ros_adj", "slot", "status", "waiver_date", "droppable", "locked")
+    return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
+
+
+def _claims_payload(plan, data):
+    roster, status = data.get("roster", []), _status(data)
+    last = plan["submits"][-1] if plan["submits"] else None
+    ids = set(last["ids"]) if last else set()
+    now, expansion = claims_mod.plan_now(plan["groups"], status), claims_mod.expand(plan["groups"], status)
+    try:
+        pending, perr = espn_write.pending_claims(), None
+    except espn_write.WriteError as e:
+        pending, perr = [], ("ESPN login expired, refresh .env" if e.expired else str(e))
+    key = lambda ms: [(m["add"], m["drop"]) for m in ms]  # noqa: E731
+    return {"week": plan["week"], "groups": plan["groups"], "now": now, "claims": expansion,
+            "errors": claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status),
+            "open_spots": claims_mod.open_spots(roster, _roster_size()),
+            "status": {str(i): s for i, s in status.items()},
+            "pending": [{**c, "from_app": c["id"] in ids} for c in pending], "pending_error": perr,
+            "last_submit": last,
+            # claims only: instant adds already happened, and the plan's free agents are on the roster after a refresh
+            "edited_since_submit": bool(last) and key(last["claims"]) != key(expansion),
+            "players": _players(plan["groups"], data)}
+
+
+@app.get("/claims")
+def claims_get():
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    return _claims_payload(_load_plan(data["week"]), data)
+
+
+@app.post("/claims")
+def claims_save(body: PlanIn):
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    plan = {**_load_plan(data["week"]), "groups": [g.model_dump() for g in body.groups]}
+    _save_plan(plan)
+    return _claims_payload(plan, data)
+
+
+@app.post("/claims/submit")
+def claims_submit(body: SubmitIn):
+    if not _SUBMIT.acquire(blocking=False):
+        raise HTTPException(409, "a submit is already running")
+    try:
+        data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+        plan, roster = _load_plan(data["week"]), data.get("roster", [])
+        # fresh statuses: the pool is cached, and the Wednesday run turns WAIVERS into FREEAGENT
+        try:
+            status = {i: v["status"] for i, v in espn_season.pool_status().items() if v.get("status")}
+        except Exception:  # noqa: BLE001 — cached statuses; unknown counts as WAIVERS
+            status = _status(data)
+        errs = claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status)
+        if errs:
+            raise HTTPException(422, {"errors": errs})
+        try:
+            pending = espn_write.pending_claims()
+        except espn_write.WriteError as e:
+            raise HTTPException(502, {"source": "espn", "error": "ESPN login expired, refresh .env" if e.expired else str(e)})
+        last = plan["submits"][-1] if plan["submits"] else None
+        wk = data["week"]  # ESPN's current scoring period, which is what its write bodies want
+        w = SimpleNamespace(pending_claims=espn_write.pending_claims,
+                            cancel_claim=lambda i: espn_write.cancel_claim(i, wk),
+                            submit_claim=lambda a, d: espn_write.submit_claim(a, d, wk),
+                            add_free_agent=lambda a, d: espn_write.add_free_agent(a, d, wk))
+        res = claims_mod.run_submit(plan["groups"], status, pending, set(last["ids"]) if last else set(), body.replace_outside, w)
+        strip = lambda m: {k: m[k] for k in ("group", "add", "drop")}  # noqa: E731
+        # a failed run still records the ids that did land, so the next submit cancels them
+        plan["submits"].append({"at": datetime.now().isoformat(timespec="seconds"), "now": [strip(m) for m in res["now"]],
+                                "claims": [strip(c) for c in res["sent"]], "ids": [c["id"] for c in res["sent"]]})
+        _save_plan(plan)
+        if res["now"] or res["sent"]:
+            names = {i: r["name"] for i, r in _pool_rows(data).items()} | {r["player_id"]: r["name"] for r in roster}
+            with DECISIONS.open("a") as f:
+                f.write("\n" + claims_mod.decision_entry(plan["groups"], names, datetime.now().strftime("%Y-%m-%d"), status))
+        if res["now"]:
+            cache.expire_all()  # the roster changed: the pages must not show the dropped player
+        return res
+    finally:
+        _SUBMIT.release()
 
 
 def _live_for(week: int | None) -> bool:

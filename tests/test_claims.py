@@ -165,3 +165,68 @@ def test_decision_entry():
     assert e.startswith("## 2026-10-06 — Waiver claims (from the app)")
     assert "get 2 of 3: Addison, Mims (FA, added now), Doubs; cut Shaheed, Lockett" in e
     assert "**Reasoning:** (add by hand)" in e
+
+
+class FakeW:
+    def __init__(self, pending, fail_claim_on=None, taken=()):
+        self.p, self.fail_on, self.n, self.taken, self.adds = list(pending), fail_claim_on, 0, set(taken), []
+
+    def add_free_agent(self, add, drop):
+        if add in self.taken:
+            raise RuntimeError(f"ESPN 409: {add} taken")
+        self.adds.append((add, drop))
+
+    def pending_claims(self):
+        return [dict(c) for c in self.p]
+
+    def cancel_claim(self, i):
+        self.p = [c for c in self.p if c["id"] != i]
+
+    def submit_claim(self, add, drop):
+        self.n += 1
+        if self.n == self.fail_on:
+            raise RuntimeError("ESPN 500: boom")
+        self.p.append({"id": f"n{self.n}", "add": add, "drop": drop})
+        return f"n{self.n}"
+
+
+G = [{"targets": [101, 102], "cuts": [1], "open": 0}]       # waivers only: claims (101,1), (102,1)
+
+
+def test_run_submit_replaces_app_claims_keeps_outside():
+    w = FakeW([{"id": "old", "add": 9, "drop": 1}, {"id": "mine", "add": 8, "drop": 2}])
+    r = C.run_submit(G, {}, w.pending_claims(), {"mine"}, False, w)
+    assert [c["id"] for c in r["pending"]] == ["old", "n1", "n2"] and r["error"] is None
+    assert r["match"] is False   # an outside claim still runs ahead of ours
+
+
+def test_run_submit_replace_outside_matches():
+    w = FakeW([{"id": "old", "add": 9, "drop": 1}])
+    r = C.run_submit(G, {}, w.pending_claims(), set(), True, w)
+    assert r["match"] and [c["add"] for c in r["pending"]] == [101, 102]
+
+
+def test_run_submit_partial_failure_reads_back():
+    w = FakeW([], fail_claim_on=2)
+    r = C.run_submit(G, {}, [], set(), True, w)
+    assert not r["match"] and "boom" in r["error"] and [c["add"] for c in r["pending"]] == [101]
+
+
+def test_submit_order_mismatch():
+    cl = [{"group": 0, "add": 101, "drop": 1}, {"group": 0, "add": 102, "drop": 1}]
+    assert not C.matches(cl, [{"id": "a", "add": 102, "drop": 1}, {"id": "b", "add": 101, "drop": 1}])
+
+
+def test_run_submit_free_agent_now_then_claims():
+    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    w = FakeW([])
+    r = C.run_submit(g, {102: "FREEAGENT"}, [], set(), False, w)
+    assert w.adds == [(102, 1)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 2), (103, 2)] and r["match"]
+
+
+def test_run_submit_taken_free_agent_frees_its_row():
+    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    w = FakeW([], taken={102})
+    r = C.run_submit(g, {102: "FREEAGENT"}, [], set(), False, w)
+    assert r["now"] == [] and r["now_failed"][0]["add"] == 102 and "taken" in r["now_failed"][0]["error"]
+    assert [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 1), (101, 2), (103, 1), (103, 2)]

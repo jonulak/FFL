@@ -237,3 +237,22 @@ def test_position_ranks_io(monkeypatch):
     assert len(calls) == 1 and view == "kona_player_info" and filt["filterSlotIds"]["value"] == [4]
     espn_season._POS_RANKS["WR"] = (0, want)  # expired
     assert espn_season.position_ranks("WR") == want and len(calls) == 2
+
+
+# web/lib/api.ts: type Claims (GET/POST /claims; the web type lands with the claims UI)
+CLAIMS = {"week", "groups", "now", "claims", "errors", "open_spots", "status", "pending", "pending_error",
+          "last_submit", "edited_since_submit", "players"}
+
+
+def test_claims_keys(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from ffl import api
+
+    roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
+    pool = {"WR": [{"player_id": 101, "name": "Addison", "status": "WAIVERS"}]}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
+    monkeypatch.setattr(api, "CLAIMS_DIR", tmp_path / "waivers")
+    monkeypatch.setattr(api, "_roster_size", lambda: 17)
+    api.cache.clear()
+    assert set(TestClient(api.app).get("/claims").json()) == CLAIMS

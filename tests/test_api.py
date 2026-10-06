@@ -440,3 +440,107 @@ def test_waivers_search_spans_every_position(client, monkeypatch):
     assert [r["player_id"] for r in client.get("/waivers?q=ten&pos=RB").json()["rows"]] == [9], "q ignores pos"
     assert client.get("/waivers").status_code == 422, "no pos and no query is still an error"
     assert client.get("/waivers?q=%20&pos=RB").json()["pos"] == "RB", "a blank query is no query"
+
+
+@pytest.fixture
+def claims_env(client, monkeypatch, tmp_path):
+    roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
+    pool = {"WR": [{"player_id": 101, "name": "Addison", "status": "WAIVERS"}, {"player_id": 102, "name": "Mims", "status": "WAIVERS"}],
+            "D/ST": [{"player_id": -16020, "name": "Vikings D/ST", "status": "WAIVERS"}]}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
+    # reads the current pool dict on every call, so a test can flip a status between load and Submit
+    monkeypatch.setattr(api.espn_season, "pool_status", lambda: {r["player_id"]: {"status": r["status"], "waiver_date": None} for rows in pool.values() for r in rows})
+    monkeypatch.setattr(api, "CLAIMS_DIR", tmp_path / "waivers")
+    monkeypatch.setattr(api, "DECISIONS", tmp_path / "DECISIONS.md")
+    monkeypatch.setattr(api, "_roster_size", lambda: 17)
+    api.espn_write._FAKE.clear()
+    api.espn_write._FAKE_ADDS.clear()
+    api.espn_write._FAIL_ADDS.clear()
+    api.cache.clear()
+    client.pool = pool
+    return client
+
+
+def test_claims_empty_week(claims_env):
+    r = claims_env.get("/claims").json()
+    assert r["week"] == 6 and r["groups"] == [] and r["open_spots"] == 1 and r["last_submit"] is None
+
+
+def test_plan_roundtrip_dst(claims_env):
+    g = {"targets": [-16020, 101], "cuts": [1], "open": 1}
+    r = claims_env.post("/claims", json={"groups": [g]}).json()
+    assert r["groups"] == [g] and r["errors"] == [] and r["claims"][0] == {"group": 0, "add": -16020, "drop": None}
+    assert claims_env.get("/claims").json()["groups"] == [g]
+
+
+def test_submit_happy_path_and_decision(claims_env):
+    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 1}]})
+    r = claims_env.post("/claims/submit", json={"replace_outside": False}).json()
+    assert r["match"] and len(r["sent"]) == 4 and r["now"] == []
+    g = claims_env.get("/claims").json()
+    assert g["edited_since_submit"] is False and all(p["from_app"] for p in g["pending"])
+    assert "Waiver claims (from the app)" in api.DECISIONS.read_text()
+
+
+def test_submit_free_agent_is_instant(claims_env):
+    claims_env.pool["WR"][1]["status"] = "FREEAGENT"          # Mims cleared waivers
+    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
+    r = claims_env.post("/claims/submit", json={"replace_outside": False}).json()
+    assert r["now"] == [{"group": 0, "add": 102, "drop": 1}] and [(c["add"], c["drop"]) for c in r["sent"]] == [(101, 2)]
+    assert api.espn_write._FAKE_ADDS == [{"add": 102, "drop": 1}]
+
+
+def test_submit_uses_fresh_status(claims_env):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    claims_env.get("/claims")                                  # pool cached with 101 on WAIVERS
+    claims_env.pool["WR"][0]["status"] = "FREEAGENT"           # the Wednesday run cleared him
+    r = claims_env.post("/claims/submit", json={"replace_outside": False}).json()
+    assert r["now"] == [{"group": 0, "add": 101, "drop": 1}] and r["sent"] == []
+
+
+def test_submit_rejects_invalid(claims_env):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [555], "open": 0}]})
+    r = claims_env.post("/claims/submit", json={"replace_outside": False})
+    assert r.status_code == 422 and "not on your roster" in str(r.json())
+
+
+def test_submit_rejects_undroppable(claims_env, monkeypatch):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [3], "open": 0}]})
+    api.cache.clear()
+    pool_fn = api.espn_season.free_agent_pool
+
+    def with_undroppable(week=None):
+        d = pool_fn(week)
+        d["roster"] = [{**p, "droppable": p["player_id"] != 3} for p in d["roster"]]
+        return d
+
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", with_undroppable)
+    r = claims_env.post("/claims/submit", json={"replace_outside": False})
+    assert r.status_code == 422 and "undroppable" in str(r.json())
+
+
+def test_submit_expired_login(claims_env, monkeypatch):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+
+    def boom():
+        raise api.espn_write.WriteError(401, "expired")
+
+    monkeypatch.setattr(api.espn_write, "pending_claims", boom)
+    r = claims_env.post("/claims/submit", json={"replace_outside": False})
+    assert r.status_code == 502 and "login expired" in r.json()["detail"]["error"]
+
+
+def test_new_week_starts_empty(claims_env, monkeypatch):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    claims_env.post("/claims/submit", json={"replace_outside": False})
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 7, "roster": [], "positions": {}})
+    api.cache.clear()
+    r = claims_env.get("/claims").json()
+    assert r["week"] == 7 and r["groups"] == [] and r["last_submit"] is None
+
+
+def test_edit_after_submit_flags(claims_env):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    claims_env.post("/claims/submit", json={"replace_outside": False})
+    claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [1], "open": 0}]})
+    assert claims_env.get("/claims").json()["edited_since_submit"] is True
