@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Player } from "./api";
-import { gamePhase, sideTotals, toPlay } from "./game";
+import { gameOn, gamePhase, sideTotals, toPlay } from "./game";
 
 const T0 = Date.parse("2026-09-13T17:00:00Z"); // Sunday 1 PM ET
 const p = (over: Partial<Player>): Player => ({
@@ -63,5 +63,16 @@ describe("sideTotals", () => {
   it("is all projection before kickoff and all points once final", () => {
     expect(sideTotals([p({ proj: 10 })], idle, T0 - 1)).toEqual({ scored: 0, toCome: 10, estimate: 10 });
     expect(sideTotals([p({ proj: 10, game_played: 100, actual: 12 })], idle, T0)).toEqual({ scored: 12, toCome: 0, estimate: 12 });
+  });
+});
+
+describe("gameOn", () => {
+  const g = (status: "in" | "post") => ({ status, quarter: 2, clock: "5:00", score: {} });
+  it("is on while a starter's game is in progress", () => {
+    expect(gameOn([p({}), p({ game: g("in") })])).toBe(true);
+  });
+  it("is off before kickoff and after the final, whatever else is on", () => {
+    expect(gameOn([p({}), p({ game: g("post") })])).toBe(false);
+    expect(gameOn([])).toBe(false);
   });
 });

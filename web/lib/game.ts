@@ -33,3 +33,9 @@ export function sideTotals(lineup: Player[], idle: (p: Player) => boolean, now: 
   const r = (n: number) => Math.round(n * 10) / 10;
   return { scored: r(scored), toCome: r(toCome), estimate: r(scored + toCome) };
 }
+
+// A board is live while one of its starters' games is in progress (the overlay's `game`, off
+// the feed), not merely while some game in the league is on. The same rule marks a League tile.
+export function gameOn(lineup: Pick<Player, "game">[]): boolean {
+  return lineup.some((p) => p.game?.status === "in");
+}

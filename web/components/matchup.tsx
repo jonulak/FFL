@@ -11,7 +11,7 @@ import type { Player, Side, Week } from "@/lib/api";
 import { BOARD_CARD, HEALTHY, isIdle, LABEL, SLOT_LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, pts, shortName, signed } from "@/lib/format";
 import { FIELD, fieldOf } from "@/lib/field";
-import { gamePhase, sideTotals, toPlay } from "@/lib/game";
+import { gameOn, gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { playsHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
@@ -433,7 +433,7 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
           Matchup
           <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
         </h1>
-        {data.live && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
+        {gameOn([...data.me.lineup, ...(data.opp?.lineup ?? [])]) && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
         <StaleBadge since={data.stale_since} />
       </div>
       <Scorebug data={data} now={now} />

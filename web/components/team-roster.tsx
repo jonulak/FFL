@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import type { Player, TeamRoster } from "@/lib/api";
 import { BOARD_CARD, HEALTHY, isIdle, LABEL, SLOT_LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, ordinal, pts, record } from "@/lib/format";
-import { gamePhase, sideTotals } from "@/lib/game";
+import { gameOn, gamePhase, sideTotals } from "@/lib/game";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { GameLine } from "./local-time";
@@ -138,7 +138,7 @@ export function TeamRosterView({ initial, path }: { initial: TeamRoster; path: s
             <span aria-hidden>·</span>
             <span>Week {week}</span>
             {data.mine && <Badge variant="muted" shape="chip">me</Badge>}
-            {data.live && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
+            {gameOn(data.side.lineup) && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
             <StaleBadge since={data.stale_since} />
           </p>
         </div>
