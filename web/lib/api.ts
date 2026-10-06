@@ -108,9 +108,10 @@ export type Play = {
   match?: "player" | "defence" | "last"; // "player": a play naming him; "defence": a D/ST's play, read off its moved stats; "last": the game's last play, possibly the next one
 };
 // One game's whole week (GET /plays, `?team=` for any game but mine); `me`/`opp` as on its board.
+// `live` keeps the page on the feed all game window; `game_on` is the badge: a starter in this game is playing.
 export type PlaysSide = { team_id: number; team: string; abbrev: string };
 export type Plays = {
-  week: number | null; live: boolean; mine: boolean; me: PlaysSide | null; opp: PlaysSide | null;
+  week: number | null; live: boolean; game_on: boolean; mine: boolean; me: PlaysSide | null; opp: PlaysSide | null;
   plays: Play[]; stale_since: string | null;
 };
 // `me` is the left side of the board, `opp` the right: I stand left of my own game (`mine`); any other

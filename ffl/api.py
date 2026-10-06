@@ -272,6 +272,7 @@ def plays_(team: int | None = None):
     data = _board(None, None) if team is None else _board(runner.week if runner and runner.week else None, team)
     club = lambda s: {k: s.get(k) for k in ("team_id", "team", "abbrev")} if s else None  # noqa: E731
     return {"week": data["week"], "live": season.is_live(), "mine": data.get("mine", True),
+            "game_on": live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"])),
             "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data),
             "stale_since": data.get("stale_since")}
 

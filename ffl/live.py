@@ -271,6 +271,14 @@ def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dic
     return {**payload, "scoreboard": board}
 
 
+def game_on(sides: list[dict | None], games: dict[str, dict] | None) -> bool:
+    """Whether a board's game is live: a starter on either side (each `lineup` of player dicts with
+    a pro `team`) has his game in progress. The rule a League tile is marked by, for the /plays page,
+    which carries no lineups of its own."""
+    return any((games or {}).get(p.get("team"), {}).get("status") == "in"
+               for s in sides if s for p in s.get("lineup") or [])
+
+
 # ---- the runner -------------------------------------------------------------------------------
 
 def idle_for(doc: dict, now: datetime | None = None) -> float | None:

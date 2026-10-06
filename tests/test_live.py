@@ -56,6 +56,15 @@ def test_overlay_league_marks_only_matchups_with_a_starter_in_a_game_on():
     assert [m["live"] for m in out] == [True, False, False], "a game on elsewhere does not make a tile live"
 
 
+def test_game_on_reads_both_sides_lineups_against_the_games_in_progress():
+    me = {"lineup": [{"team": "KC"}, {"team": "DAL"}]}
+    opp = {"lineup": [{"team": "BUF"}]}
+    games = {"MIA": {"status": "in"}, "DAL": {"status": "post"}, "BUF": {"status": "in"}}
+    assert live.game_on([me, opp], games) is True
+    assert live.game_on([me, None], games) is False, "a game on elsewhere, or a final, is not this board's"
+    assert live.game_on([me, opp], {}) is False
+
+
 def test_idle_stays_connected_during_a_game():
     doc = copy.deepcopy(FIX)
     doc["events"][0]["status"] = "in"
