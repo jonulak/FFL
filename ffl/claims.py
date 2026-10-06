@@ -198,6 +198,8 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
                 now_failed.append({"group": gi, "add": t, "drop": r[n], "error": str(e)})
         used[gi] = n
     claims = expand(groups, status, used)
+    # outside claims (filed on ESPN, not by this app) kept on purpose run ahead of ours
+    kept_outside = [] if replace_outside else [c["id"] for c in pending if c["id"] not in last_ids]
     sent, error = [], None
     try:
         for c in pending:
@@ -205,6 +207,9 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
                 writer.cancel_claim(c["id"])
         for c in claims:
             sent.append({**c, "id": writer.submit_claim(c["add"], c["drop"])})
+        # ESPN does not number a claim the API posts: number them all, outside ones first, ours in plan order
+        if sent:
+            writer.reorder_claims(kept_outside + [c["id"] for c in sent])
     except Exception as e:  # noqa: BLE001 — reported in the result, with the read-back
         error = str(e)
     try:
@@ -212,11 +217,12 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
     except Exception as e:  # noqa: BLE001 — the writes landed; the caller must still journal them
         after, readback_failed = [], True
         error = error or f"read-back failed: {e}"
-    # outside claims (filed on ESPN, not by this app) kept on purpose run ahead of ours: match ours, in order, without them
-    kept_outside = set() if replace_outside else {c["id"] for c in pending if c["id"] not in last_ids}
-    ours = [c for c in after if c["id"] not in kept_outside]
+    # match ours, in order, without the kept outside claims; a claim ESPN read back unnumbered (priority None) means the
+    # order is unknown, so it is never a match
+    ours = [c for c in after if c["id"] not in set(kept_outside)]
+    numbered = all(c.get("priority", 0) is not None for c in after)
     return {"now": now, "now_failed": now_failed, "sent": sent, "pending": after,
-            "match": error is None and matches(claims, ours), "error": error, "readback_failed": readback_failed}
+            "match": error is None and numbered and matches(claims, ours), "error": error, "readback_failed": readback_failed}
 
 
 def consume(groups, now):

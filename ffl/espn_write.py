@@ -4,8 +4,10 @@ ESPN's write API is undocumented; the shapes are what its own web app sent (spik
 tests/fixtures/espn_write). FFL_WRITES=0 swaps ESPN for an in-memory store so dev and tests exercise
 the whole flow without a request.
 
-There is no reorder call: a claim is appended at the end of the priority order, so submitting in the
-order wanted (clearing and reposting if it must change) is the order ESPN processes them in.
+Priority is ESPN's `subOrder`, and only a read that includes the mTeam view carries it: a bare
+mPendingTransactions read returns every claim with subOrder null, in newest-first array order
+(2026-10-06: three claims the app sent read back reversed). So a submit ends by numbering the claims
+explicitly with ESPN's reorder call, the one its page sends when a claim is dragged.
 """
 from __future__ import annotations
 
@@ -68,22 +70,30 @@ def add_body(add: int, drop: int | None, week: int, team_id: int, member_id: str
 
 
 def parse_pending(doc: dict, team_id: int) -> list[dict]:
+    """My pending claims in priority order. `priority` is ESPN's subOrder, None when the read did not carry it
+    (the order is then unknown, and an unnumbered claim sorts after the numbered ones)."""
     rows = [t for t in doc.get("pendingTransactions", []) if t.get("teamId") == team_id
             and t.get("type") == "WAIVER" and t.get("status") == "PENDING"]
     # subOrder is the priority; the array order is not.
-    rows.sort(key=lambda t: t.get("subOrder") or 0)
+    rows.sort(key=lambda t: (t.get("subOrder") is None, t.get("subOrder") or 0))
     out = []
     for t in rows:
         add = next((i["playerId"] for i in t.get("items") or [] if i.get("type") == "ADD"), None)
         if add is None:  # malformed (no ADD item): not a claim this app can match, so skip it
             continue
         drop = next((i["playerId"] for i in t["items"] if i.get("type") == "DROP"), None)
-        out.append({"id": str(t["id"]), "add": int(add), "drop": None if drop is None else int(drop)})
+        out.append({"id": str(t["id"]), "add": int(add), "drop": None if drop is None else int(drop),
+                    "priority": t.get("subOrder")})
     return out
 
 
-def _post(body: dict) -> dict:
-    r = requests.post(WRITE_URL, json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
+def reorder_body(ids: list[str]) -> list[dict]:
+    """ESPN's reorder call: every pending claim's id with its new priority, 1 first."""
+    return [{"id": i, "subOrder": n} for n, i in enumerate(ids, 1)]
+
+
+def _post(body: dict | list, url: str = WRITE_URL) -> dict | list:
+    r = requests.post(url, json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
     if r.status_code >= 400:
         raise WriteError(r.status_code, r.text[:500])
     return r.json()
@@ -93,9 +103,10 @@ def pending_state() -> tuple[list[dict], int | None]:
     """My pending waiver claims in ESPN's processing order, and ESPN's current scoring period (the week its write
     bodies want), from one mPendingTransactions read. The period is None when the document has none."""
     if not _writes():
-        return [dict(c) for c in _FAKE], _FAKE_PERIOD
+        return [{**c, "priority": n} for n, c in enumerate(_FAKE, 1)], _FAKE_PERIOD
     try:
-        doc = config.raw_league_get("mPendingTransactions")
+        # mTeam is what makes ESPN include subOrder (the priority) on each pending claim
+        doc = config.raw_league_get(["mPendingTransactions", "mTeam"])
     except Exception as e:  # espn-api raises its own types for 401/403
         raise WriteError(getattr(getattr(e, "response", None), "status_code", 0) or 401, str(e))
     period = doc.get("scoringPeriodId")
@@ -115,6 +126,16 @@ def submit_claim(add: int, drop: int | None, week: int) -> str:
         return cid
     res = _post(submit_body(add, drop, week, _team_id(), config.SWID))
     return str(res["id"])
+
+
+def reorder_claims(ids: list[str]) -> None:
+    """Number my pending claims 1..n in this order (every pending id, outside claims included)."""
+    if not _writes():
+        rank = {i: n for n, i in enumerate(ids)}
+        _FAKE.sort(key=lambda c: rank.get(c["id"], len(rank)))
+        return
+    team = _team_id()
+    _post(reorder_body(ids), url=WRITE_URL.replace("/transactions/", f"/teams/{team}/pendingTransactions"))
 
 
 def cancel_claim(claim_id: str, week: int) -> None:

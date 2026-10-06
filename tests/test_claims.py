@@ -193,6 +193,11 @@ class FakeW:
     def cancel_claim(self, i):
         self.p = [c for c in self.p if c["id"] != i]
 
+    def reorder_claims(self, ids):
+        self.reordered = list(ids)
+        rank = {i: n for n, i in enumerate(ids)}
+        self.p.sort(key=lambda c: rank.get(c["id"], len(rank)))
+
     def submit_claim(self, add, drop):
         self.n += 1
         if self.n == self.fail_on:
@@ -287,3 +292,19 @@ def test_consume_open_spot_row_and_empty_group_dropped():
 def test_consume_dst_negative_ids():
     g = [{"targets": [-16020, 101], "cuts": [-16021], "open": 1}]
     assert C.consume(g, [{"group": 0, "add": -16020, "drop": -16021}]) == [{"targets": [101], "cuts": [], "open": 1}]
+
+
+def test_run_submit_numbers_the_claims_outside_first():
+    w = FakeW([{"id": "old", "add": 9, "drop": 1}])
+    r = C.run_submit(G, {}, w.pending_claims(), set(), False, w)
+    assert w.reordered == ["old", "n1", "n2"] and r["match"]
+
+
+def test_unnumbered_read_back_is_never_a_match():
+    class Unnumbered(FakeW):
+        def pending_claims(self):
+            return [{**c, "priority": None} for c in self.p]
+
+    w = Unnumbered([])
+    r = C.run_submit(G, {}, [], set(), False, w)
+    assert [c["add"] for c in r["pending"]] == [101, 102] and r["match"] is False

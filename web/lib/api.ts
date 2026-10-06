@@ -161,7 +161,7 @@ export type ClaimGroup = { targets: number[]; cuts: number[]; open: number };
 export type Claim = { group: number; add: number; drop: number | null };
 export type ClaimErr = { group: number; player_id: number | null; reason: string };
 // ESPN's pending claims; from_app marks the ones the last submit from here sent.
-export type PendingClaim = { id: string; add: number; drop: number | null; from_app: boolean };
+export type PendingClaim = { id: string; add: number; drop: number | null; priority: number | null; from_app: boolean };
 // match: ESPN held what was sent, in order, at the read-back (absent on records from before it was kept).
 export type ClaimSubmit = { at: string; now: Claim[]; claims: Claim[]; ids: string[]; match?: boolean };
 export type PoolStatus = "FREEAGENT" | "WAIVERS";
@@ -180,7 +180,7 @@ export type Claims = {
 // is empty for that reason, not because ESPN holds nothing.
 export type SubmitResult = {
   now: Claim[]; now_failed: (Claim & { error: string })[]; sent: (Claim & { id: string })[];
-  pending: { id: string; add: number; drop: number | null }[]; match: boolean; error: string | null; readback_failed: boolean;
+  pending: { id: string; add: number; drop: number | null; priority?: number | null }[]; match: boolean; error: string | null; readback_failed: boolean;
 };
 // A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
 export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };

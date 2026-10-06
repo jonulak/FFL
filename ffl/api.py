@@ -277,7 +277,9 @@ def _claims_payload(plan, data, status=None):
         pending, perr = [], ("ESPN login expired, refresh .env" if e.expired else str(e))
     key = lambda ms: [(m["add"], m["drop"]) for m in ms]  # noqa: E731
     # ESPN holds the plan's claims, in order, once the claims filed on ESPN directly (kept outside) are set aside
-    on_espn = bool(last) and perr is None and claims_mod.matches(expansion, [c for c in pending if c["id"] in ids])
+    # and only when ESPN numbered them: an unnumbered claim (priority None) means its order is unknown
+    on_espn = (bool(last) and perr is None and all(c.get("priority", 0) is not None for c in pending)
+               and claims_mod.matches(expansion, [c for c in pending if c["id"] in ids]))
     return {"week": plan["week"], "groups": plan["groups"], "now": now, "claims": expansion,
             "errors": claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status,
                                           _instant_adds()),
@@ -339,7 +341,8 @@ def claims_submit(body: SubmitIn):
         w = SimpleNamespace(pending_claims=espn_write.pending_claims,
                             cancel_claim=lambda i: espn_write.cancel_claim(i, wk),
                             submit_claim=lambda a, d: espn_write.submit_claim(a, d, wk),
-                            add_free_agent=lambda a, d: espn_write.add_free_agent(a, d, wk))
+                            add_free_agent=lambda a, d: espn_write.add_free_agent(a, d, wk),
+                            reorder_claims=espn_write.reorder_claims)
         res = claims_mod.run_submit(plan["groups"], status, pending, set(last["ids"]) if last else set(), body.replace_outside, w)
         strip = lambda m: {k: m[k] for k in ("group", "add", "drop")}  # noqa: E731
         # ids = what ESPN still holds of ours (sent now, or kept from the last submit when a cancel failed), so the

@@ -37,7 +37,7 @@ def test_parse_pending_reads_the_fixture_in_sub_order():
     # the fixture's array order is the reverse of priority
     assert doc["pendingTransactions"][0]["subOrder"] == 2
     claims = W.parse_pending(doc, team_id=fx("submit_request.json")["teamId"])
-    assert len(claims) == 2 and all(set(c) == {"id", "add", "drop"} for c in claims)
+    assert len(claims) == 2 and all(set(c) == {"id", "add", "drop", "priority"} for c in claims)
     assert all(isinstance(c["add"], int) for c in claims)
     assert [c["add"] for c in claims] == [15683, 3049899]
     assert claims[0]["id"] == fx("submit_response.json")["id"]
@@ -64,7 +64,7 @@ def test_writes_off_is_a_fake_store(monkeypatch):
     b = W.submit_claim(102, None, 6)
     assert [c["add"] for c in W.pending_claims()] == [101, 102]
     W.cancel_claim(a, 6)
-    assert W.pending_claims() == [{"id": b, "add": 102, "drop": None}]
+    assert W.pending_claims() == [{"id": b, "add": 102, "drop": None, "priority": 1}]
 
 
 def test_add_body_is_a_freeagent_transaction():
@@ -137,7 +137,7 @@ def test_parse_pending_skips_a_row_without_an_add():
          "items": [{"playerId": 1, "type": "DROP"}]},
         {"id": "good", "teamId": 7, "type": "WAIVER", "status": "PENDING", "subOrder": 2,
          "items": [{"playerId": 101, "type": "ADD"}, {"playerId": 2, "type": "DROP"}]}]}
-    assert W.parse_pending(doc, 7) == [{"id": "good", "add": 101, "drop": 2}]
+    assert W.parse_pending(doc, 7) == [{"id": "good", "add": 101, "drop": 2, "priority": 2}]
 
 
 def test_pending_state_reads_the_scoring_period(monkeypatch):
@@ -175,3 +175,63 @@ def test_add_free_agent_200_but_pending_is_a_write_error(monkeypatch):
 def test_add_free_agent_executed_is_landed(monkeypatch):
     _live_add(monkeypatch, {"id": "x", "status": "EXECUTED"})
     W.add_free_agent(101, 1, 5)
+
+
+def test_reorder_body_matches_what_espn_sent():
+    sent = fx("reorder_request.json")
+    assert W.reorder_body([r["id"] for r in sent]) == sent
+
+
+def test_parse_pending_without_sub_order_reads_unnumbered():
+    # a bare mPendingTransactions read: subOrder null, newest first (2026-10-06)
+    doc = {"pendingTransactions": [
+        {"id": "b", "teamId": 7, "type": "WAIVER", "status": "PENDING", "subOrder": None,
+         "items": [{"playerId": 102, "type": "ADD"}]},
+        {"id": "a", "teamId": 7, "type": "WAIVER", "status": "PENDING", "subOrder": 1,
+         "items": [{"playerId": 101, "type": "ADD"}]}]}
+    assert [(c["id"], c["priority"]) for c in W.parse_pending(doc, 7)] == [("a", 1), ("b", None)]
+
+
+def test_pending_read_asks_for_the_team_view(monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "1")
+    seen = {}
+
+    def fake(view, **k):
+        seen["view"] = view
+        return {"pendingTransactions": []}
+
+    monkeypatch.setattr(W.config, "raw_league_get", fake)
+    monkeypatch.setattr(W, "_team_id", lambda: 7)
+    W.pending_state()
+    assert "mTeam" in seen["view"]  # without it ESPN leaves subOrder null
+
+
+def test_reorder_posts_to_the_team_pending_url(monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "1")
+    monkeypatch.setattr(W, "_team_id", lambda: 7)
+    calls = []
+
+    class R:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return []
+
+    def post(url, json, **k):
+        calls.append((url, json))
+        return R()
+
+    monkeypatch.setattr(W.requests, "post", post)
+    W.reorder_claims(["x", "y"])
+    assert calls[0][0].endswith("/teams/7/pendingTransactions")
+    assert calls[0][1] == [{"id": "x", "subOrder": 1}, {"id": "y", "subOrder": 2}]
+
+
+def test_fake_reorder_sets_the_order(monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "0")
+    W._FAKE.clear()
+    a = W.submit_claim(101, 1, 6)
+    b = W.submit_claim(102, 1, 6)
+    W.reorder_claims([b, a])
+    assert [(c["id"], c["priority"]) for c in W.pending_claims()] == [(b, 1), (a, 2)]
