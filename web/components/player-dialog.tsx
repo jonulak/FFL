@@ -73,11 +73,16 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
 }
 
 // The tap target: a row's tile and name, never the whole row, so the row's own controls (the
-// compare chevron, the outlook button, Rewrite) keep their clicks.
-export function PlayerTrigger({ p, className = "", children }: { p: PlayerSeed; className?: string; children: React.ReactNode }) {
+// compare chevron, the outlook button, Rewrite) keep their clicks. `pick` lets a matchup view open
+// its own breakdown instead (the Matchup strip's plays); it answers false for a player it does not
+// hold, and the season modal opens as anywhere else.
+export function PlayerTrigger({ p, pick, className = "", children }: {
+  p: PlayerSeed; pick?: (id: number) => boolean; className?: string; children: React.ReactNode;
+}) {
   const show = useContext(Open);
   return (
-    <button type="button" onClick={() => show(p)} aria-label={`${p.name}: game log`}
+    <button type="button" onClick={() => { if (!pick?.(p.player_id)) show(p); }}
+      aria-label={`${p.name}: ${pick ? "scoring breakdown" : "game log"}`}
       className={`cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${className}`}>
       {children}
     </button>

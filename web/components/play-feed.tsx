@@ -19,7 +19,7 @@ import { TeamPanel } from "./player-media";
 // left edge, the opponent's from the right, so the side is read from the column before the name.
 // `compact` is the Matchup strip's one-line form: name and play on a single truncated line, the
 // game clock and the delta at the inner end, no running total (that is the /plays page's job).
-export function PlayFeed({ plays, empty = "No plays yet.", compact = false }: { plays: Play[]; empty?: string; compact?: boolean }) {
+export function PlayFeed({ plays, empty = "No plays yet.", compact = false, pick }: { plays: Play[]; empty?: string; compact?: boolean; pick?: Pick }) {
   const rows = useLedger(plays);
   if (rows.length === 0) {
     return <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>;
@@ -43,7 +43,7 @@ export function PlayFeed({ plays, empty = "No plays yet.", compact = false }: { 
           data-gain={p.delta > 0 || undefined} style={state === "still" ? undefined : { "--i": state === "enter" ? fresh++ : gone++ } as React.CSSProperties}>
           <div className="play-clip">
             {state === "leave" && sep}
-            <Row p={p} />
+            <Row p={p} pick={pick} />
             {state !== "leave" && i < last && sep}
           </div>
         </div>
@@ -88,12 +88,14 @@ function useLedger(plays: Play[]): Ledger {
 
 const UNIT = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
-// A play row opens the player's season modal from its tile and name, with what the row knows.
+// A play row opens the player's season modal from its tile and name, with what the row knows; a
+// matchup view's strip opens its breakdown instead (`pick`, PlayerTrigger).
+type Pick = (id: number) => boolean;
 const seed = (p: Play) => ({ player_id: p.player_id, name: p.name, pos: p.pos, team: p.team });
 
 // A row is mirrored, not merely aligned, for the opponent: the Item is reversed so tile and
 // numeral swap ends and the two sides read as two teams facing each other across the same ledger.
-function PlayRow({ p }: { p: Play }) {
+function PlayRow({ p }: { p: Play; pick?: Pick }) {
   const mine = p.side === "me";
   const loss = p.delta < 0;
   return (
@@ -106,7 +108,7 @@ function PlayRow({ p }: { p: Play }) {
         </ItemMedia>
         <ItemContent className={`min-w-0 gap-0 ${mine ? "" : "items-end text-right"}`}>
           <ItemTitle className={`line-clamp-none flex! max-w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 ${mine ? "" : "flex-row-reverse"}`}>
-            <PlayerTrigger p={seed(p)} className={`truncate rounded-sm font-display text-[1.125rem] font-semibold leading-none tracking-tight ${NAME_LINK}`}>{p.name}</PlayerTrigger>
+            <PlayerTrigger p={seed(p)} className={`-mb-[0.2em] truncate rounded-sm pb-[0.2em] font-display text-[1.125rem] font-semibold leading-none tracking-tight ${NAME_LINK}`}>{p.name}</PlayerTrigger>
             <span className="text-xs font-normal text-muted-foreground">
               <span className="font-semibold text-foreground/80">{p.pos}</span> <span aria-hidden>·</span> {p.team}
             </span>
@@ -132,19 +134,22 @@ function PlayRow({ p }: { p: Play }) {
 // The strip's row: one line. The tile is a small square of club colour, the name leads, and the
 // quarter and clock and the delta close the line at the spine. The play text itself belongs to
 // the /plays page, with the stamp and the running total; the strip says who moved, when and by
-// how much, and the full text is the row's title.
-function CompactRow({ p }: { p: Play }) {
+// how much, and the full text is the row's title. A truncated name at leading-none clips its
+// descenders, so its box is padded below and the margin pulls the line back (both rows' names).
+function CompactRow({ p, pick }: { p: Play; pick?: Pick }) {
   const mine = p.side === "me";
   const loss = p.delta < 0;
   return (
     <div className={`play-row flex py-1.5 ${mine ? "justify-start" : "justify-end"}`}>
       <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`} title={p.text ?? undefined}>
         <ItemMedia className="size-7 overflow-hidden rounded-sm *:w-full">
-          <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
+          <PlayerTrigger p={seed(p)} pick={pick} className="block size-full">
+            <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
+          </PlayerTrigger>
         </ItemMedia>
         <ItemContent className={`min-w-0 gap-0 ${mine ? "" : "items-end text-right"}`}>
-          <ItemTitle className={`line-clamp-none block w-full max-w-full truncate font-display text-[1.125rem] font-semibold leading-none tracking-tight ${mine ? "" : "text-right"}`}>
-            {p.name}
+          <ItemTitle className={`line-clamp-none block w-full max-w-full -mb-[0.2em] truncate pb-[0.2em] font-display text-[1.125rem] font-semibold leading-none tracking-tight ${mine ? "" : "text-right"}`}>
+            <PlayerTrigger p={seed(p)} pick={pick} className={`rounded-sm ${NAME_LINK}`}>{p.name}</PlayerTrigger>
           </ItemTitle>
         </ItemContent>
         <ItemActions className={`gap-2.5 whitespace-nowrap tabular-nums ${mine ? "" : "flex-row-reverse"}`}>
@@ -165,8 +170,8 @@ function CompactRow({ p }: { p: Play }) {
 
 // The board card the feed sits in: a section heading with the hairline running out to the
 // right and, at the end of the line, either the way to the whole week or the row count.
-export function PlayFeedCard({ plays, title, count, link, empty, compact }: {
-  plays: Play[]; title: string; count?: number; link?: { href: string; label: string }; empty?: string; compact?: boolean;
+export function PlayFeedCard({ plays, title, count, link, empty, compact, pick }: {
+  plays: Play[]; title: string; count?: number; link?: { href: string; label: string }; empty?: string; compact?: boolean; pick?: Pick;
 }) {
   return (
     <Card className="rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]" aria-label={title}>
@@ -181,14 +186,15 @@ export function PlayFeedCard({ plays, title, count, link, empty, compact }: {
         )}
       </CardHeader>
       <CardContent className={compact ? "-mt-2 pb-1" : "-mt-1 pb-1"}>
-        <PlayFeed plays={plays} empty={empty} compact={compact} />
+        <PlayFeed plays={plays} empty={empty} compact={compact} pick={pick} />
       </CardContent>
     </Card>
   );
 }
 
 // The strip on every Matchup board: the latest few rows, one line each, and the way to that
-// game's whole day (`href`, lib/matchup-link.ts playsHref).
-export function PlayFeedStrip({ plays, href }: { plays: Play[]; href: string }) {
-  return <PlayFeedCard plays={plays} title="Latest plays" link={{ href, label: "All plays" }} compact />;
+// game's whole day (`href`, lib/matchup-link.ts playsHref). A row's tile and name open the
+// board's own breakdown through `pick` (PlayerTrigger), as a tap on the board does.
+export function PlayFeedStrip({ plays, href, pick }: { plays: Play[]; href: string; pick?: Pick }) {
+  return <PlayFeedCard plays={plays} title="Latest plays" link={{ href, label: "All plays" }} compact pick={pick} />;
 }

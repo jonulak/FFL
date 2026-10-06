@@ -410,6 +410,13 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
       setOpen(true);
     });
   };
+  // A play in the strip opens the same breakdown when its player is on this board (every play is
+  // a starter's, but a lineup can change under a stale row); otherwise the season modal opens.
+  const pickById = (id: number) => {
+    const p = [...roster(data.me), ...roster(data.opp)].find((q) => q.player_id === id);
+    if (p) onPick(p);
+    return p != null;
+  };
   return (
     <div className="space-y-5">
       {back && (
@@ -431,7 +438,7 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
       </div>
       <Scorebug data={data} now={now} />
       {/* The feed only earns its place once something has happened; before kickoff it stays out of the way. */}
-      {data.plays.length > 0 && <PlayFeedStrip plays={data.plays} href={playsHref(data.mine !== false, data.me.team_id)} />}
+      {data.plays.length > 0 && <PlayFeedStrip plays={data.plays} href={playsHref(data.mine !== false, data.me.team_id)} pick={pickById} />}
       <Board data={data} now={now} onPick={onPick} />
       <BoxScoreDialog p={player} week={data.week} log={picked?.log ?? null} open={open && player != null} onOpenChange={setOpen} />
     </div>
