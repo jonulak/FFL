@@ -198,6 +198,25 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
             sent.append({**c, "id": writer.submit_claim(c["add"], c["drop"])})
     except Exception as e:  # noqa: BLE001 — reported in the result, with the read-back
         error = str(e)
-    after = writer.pending_claims()
+    try:
+        after, readback_failed = writer.pending_claims(), False
+    except Exception as e:  # noqa: BLE001 — the writes landed; the caller must still journal them
+        after, readback_failed = [], True
+        error = error or f"read-back failed: {e}"
     return {"now": now, "now_failed": now_failed, "sent": sent, "pending": after,
-            "match": error is None and matches(claims, after), "error": error}
+            "match": error is None and matches(claims, after), "error": error, "readback_failed": readback_failed}
+
+
+def consume(groups, now):
+    """The plan minus what instant adds already did: a landed target and its row leave their group (a no-drop row is an
+    open spot), and a group with no targets left is dropped. `now` indexes the groups as submitted."""
+    out = [{**g, "targets": list(g["targets"]), "cuts": list(g["cuts"])} for g in groups]
+    for m in now:
+        g = out[m["group"]]
+        if m["add"] in g["targets"]:
+            g["targets"].remove(m["add"])
+        if m["drop"] is None:
+            g["open"] = max(0, g["open"] - 1)
+        elif m["drop"] in g["cuts"]:
+            g["cuts"].remove(m["drop"])
+    return [g for g in out if g["targets"]]

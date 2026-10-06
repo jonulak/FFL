@@ -262,10 +262,16 @@ def claims_get():
 
 @app.post("/claims")
 def claims_save(body: PlanIn):
-    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-    plan = {**_load_plan(data["week"]), "groups": [g.model_dump() for g in body.groups]}
-    _save_plan(plan)
-    return _claims_payload(plan, data)
+    # a save during a submit would overwrite its record (or be overwritten by it)
+    if not _SUBMIT.acquire(blocking=False):
+        raise HTTPException(409, "a submit is running")
+    try:
+        data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+        plan = {**_load_plan(data["week"]), "groups": [g.model_dump() for g in body.groups]}
+        _save_plan(plan)
+        return _claims_payload(plan, data)
+    finally:
+        _SUBMIT.release()
 
 
 @app.post("/claims/submit")
@@ -295,14 +301,22 @@ def claims_submit(body: SubmitIn):
                             add_free_agent=lambda a, d: espn_write.add_free_agent(a, d, wk))
         res = claims_mod.run_submit(plan["groups"], status, pending, set(last["ids"]) if last else set(), body.replace_outside, w)
         strip = lambda m: {k: m[k] for k in ("group", "add", "drop")}  # noqa: E731
-        # a failed run still records the ids that did land, so the next submit cancels them
+        # ids = what ESPN still holds of ours (sent now, or kept from the last submit when a cancel failed), so the
+        # next submit cancels them; with no read-back, assume sent + last
+        sent_ids, last_ids = [c["id"] for c in res["sent"]], list(last["ids"]) if last else []
+        if res["readback_failed"]:
+            ids = list(dict.fromkeys(sent_ids + last_ids))
+        else:
+            ids = [c["id"] for c in res["pending"] if c["id"] in sent_ids or c["id"] in last_ids]
         plan["submits"].append({"at": datetime.now().isoformat(timespec="seconds"), "now": [strip(m) for m in res["now"]],
-                                "claims": [strip(c) for c in res["sent"]], "ids": [c["id"] for c in res["sent"]]})
+                                "claims": [strip(c) for c in res["sent"]], "ids": ids})
+        submitted = plan["groups"]
+        plan["groups"] = claims_mod.consume(submitted, res["now"])  # landed adds are on the roster now
         _save_plan(plan)
         if res["now"] or res["sent"]:
             names = {i: r["name"] for i, r in _pool_rows(data).items()} | {r["player_id"]: r["name"] for r in roster}
             with DECISIONS.open("a") as f:
-                f.write("\n" + claims_mod.decision_entry(plan["groups"], names, datetime.now().strftime("%Y-%m-%d"), status))
+                f.write("\n" + claims_mod.decision_entry(submitted, names, datetime.now().strftime("%Y-%m-%d"), status))
         if res["now"]:
             cache.expire_all()  # the roster changed: the pages must not show the dropped player
         return res

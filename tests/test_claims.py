@@ -230,3 +230,39 @@ def test_run_submit_taken_free_agent_frees_its_row():
     r = C.run_submit(g, {102: "FREEAGENT"}, [], set(), False, w)
     assert r["now"] == [] and r["now_failed"][0]["add"] == 102 and "taken" in r["now_failed"][0]["error"]
     assert [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 1), (101, 2), (103, 1), (103, 2)]
+
+
+def test_run_submit_readback_failure_keeps_the_record():
+    class W(FakeW):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.reads = 0
+
+        def pending_claims(self):
+            self.reads += 1
+            if self.reads >= 2:
+                raise RuntimeError("ESPN 503: down")
+            return super().pending_claims()
+
+    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    w = W([])
+    r = C.run_submit(g, {102: "FREEAGENT"}, w.pending_claims(), set(), False, w)
+    assert r["error"] and "read-back" in r["error"] and r["match"] is False and r["pending"] == []
+    assert r["readback_failed"] and len(r["now"]) == 1 and len(r["sent"]) == 2
+
+
+def test_consume_free_agent_row():
+    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    assert C.consume(g, [{"group": 0, "add": 102, "drop": 1}]) == [{"targets": [101, 103], "cuts": [2], "open": 0}]
+    assert g[0]["cuts"] == [1, 2]   # input untouched
+
+
+def test_consume_open_spot_row_and_empty_group_dropped():
+    g = [{"targets": [101], "cuts": [], "open": 1}, {"targets": [102, 103], "cuts": [1], "open": 0}]
+    out = C.consume(g, [{"group": 0, "add": 101, "drop": None}])
+    assert out == [{"targets": [102, 103], "cuts": [1], "open": 0}]
+
+
+def test_consume_dst_negative_ids():
+    g = [{"targets": [-16020, 101], "cuts": [-16021], "open": 1}]
+    assert C.consume(g, [{"group": 0, "add": -16020, "drop": -16021}]) == [{"targets": [101], "cuts": [], "open": 1}]
