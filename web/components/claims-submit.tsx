@@ -8,8 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import type { Claim, SubmitResult } from "@/lib/api";
-import { atMost, processDay, submitSummary } from "@/lib/claims";
-import { SubmitError, useClaims, type SubmitFailure } from "./claims-context";
+import { atMost, processDay, submitSummary, type SubmitFailure } from "@/lib/claims";
+import { SubmitError, useClaims } from "./claims-context";
 
 const SUB = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
@@ -41,6 +41,7 @@ function Failure({ f, name }: { f: SubmitFailure; name: (id: number) => string }
     <div role="alert" className="space-y-1 rounded-md bg-destructive/10 px-3 py-2 text-destructive">
       {f.kind === "running" && <p>A submit is already running. Wait for it, then look at what ESPN holds before sending again.</p>}
       {f.kind === "espn" && <p>ESPN refused: {f.error}. Nothing was sent.</p>}
+      {f.kind === "changed" && <p>Nothing was sent: {f.error}. The list below is what ESPN says now.</p>}
       {f.kind === "other" && <p>{f.error}</p>}
       {f.kind === "invalid" && (
         <>
@@ -112,25 +113,34 @@ function Body({ onClose }: { onClose: () => void }) {
   // and the result must be read against what was sent, not against the refreshed plan.
   const [frozen, setFrozen] = useState<Frozen | null>(null);
   // Statuses move (the Wednesday run turns waivers into free agents): re-read the plan on open so
-  // the "Add now" list is what the server will run. Send waits for it.
+  // the "Add now" list is what the server will run (Send passes it, and the server refuses a
+  // different one). Send waits for it.
   const [loading, setLoading] = useState(true);
-  useEffect(() => { void refresh().finally(() => setLoading(false)); }, [refresh]);
+  useEffect(() => { void refresh(true).finally(() => setLoading(false)); }, [refresh]);
 
   const send = async () => {
     setFault(null);
     setFrozen({ title, planned: data.claims.length, outside: replaceOutside ? new Set() : new Set(outside.map((c) => c.id)) });
     try {
-      const r = await submit(replaceOutside);
+      const r = await submit(replaceOutside, data.now);
       setResult(r);
       if (r.now.length) router.refresh(); // the roster changed: the table's comparisons and the pool
     } catch (e) {
-      setFault(e instanceof SubmitError ? e.failure : { kind: "other", error: e instanceof Error ? e.message : String(e) });
+      const f: SubmitFailure = e instanceof SubmitError ? e.failure : { kind: "other", error: e instanceof Error ? e.message : String(e) };
+      setFault(f);
+      if (f.kind === "changed") {
+        // statuses or ESPN's week moved since this review: back to it, re-read, with the reason showing
+        setFrozen(null);
+        setLoading(true);
+        await refresh(true);
+        setLoading(false);
+      }
     }
   };
   // No one-click resend: back to the review, over the refreshed plan (its "Add now" included).
   const reviewAgain = async () => {
     setLoading(true);
-    await refresh();
+    await refresh(true);
     setResult(null);
     setFault(null);
     setFrozen(null);

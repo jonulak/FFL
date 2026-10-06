@@ -151,3 +151,23 @@ export function submitSummary(
   if (!n) return { ok: false, text: planned ? `Nothing was sent: ESPN holds 0 of ${planned}` : "Nothing was sent" };
   return { ok: false, text: k === n && n === planned ? `ESPN holds all ${n}, in a different order` : `ESPN holds ${k} of ${planned}` };
 }
+
+// A submit the API refused, sorted for the dialog: 409 one is running, or (an object detail) the
+// statuses or ESPN's week moved since the review; 422 the plan's reasons, 502 ESPN's login,
+// anything else the readable line. `status` is null for a failure that never reached the API.
+export type SubmitFailure =
+  | { kind: "running" }
+  | { kind: "changed"; error: string }
+  | { kind: "invalid"; errors: { group: number; player_id: number | null; reason: string }[] }
+  | { kind: "espn"; error: string }
+  | { kind: "other"; error: string };
+
+export function submitFailure(status: number | null, body: unknown, message: string): SubmitFailure {
+  const detail = (body as { detail?: unknown } | null)?.detail as { errors?: unknown; error?: string } | string | undefined;
+  if (status === 409)
+    return detail && typeof detail === "object" && detail.error ? { kind: "changed", error: detail.error } : { kind: "running" };
+  if (status === 422 && detail && typeof detail === "object" && Array.isArray(detail.errors))
+    return { kind: "invalid", errors: detail.errors as Extract<SubmitFailure, { kind: "invalid" }>["errors"] };
+  if (status === 502) return { kind: "espn", error: (typeof detail === "object" && detail?.error) || message };
+  return { kind: "other", error: message };
+}

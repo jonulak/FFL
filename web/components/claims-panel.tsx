@@ -230,12 +230,13 @@ function GroupCard({ g, gi, roster, usedCuts }: { g: ClaimGroup; gi: number; ros
 }
 
 // Where the plan stands against ESPN: its claim list unreadable, never sent, changed since the
-// last send, or on ESPN as sent.
+// last send, ESPN's list no longer the plan's claims (on_espn: checked against ESPN, not the record), or on ESPN.
 function SubmitState() {
   const { data } = useClaims();
   if (data.pending_error) return <Badge variant="destructive" className="max-w-full truncate" title={data.pending_error}>ESPN: {data.pending_error}</Badge>;
   if (!data.last_submit) return <Badge variant="muted">not sent</Badge>;
   if (data.edited_since_submit) return <Badge variant="warn">edited since submit</Badge>;
+  if (!data.on_espn) return <Badge variant="warn">differs from ESPN</Badge>;
   return <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />on ESPN · sent <Clock iso={data.last_submit.at} /></Badge>;
 }
 

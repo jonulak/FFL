@@ -2,18 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ClientError, clientGet, clientPost } from "@/app/api-client";
-import type { ClaimGroup, ClaimPlayer, Claims, PoolStatus, SubmitResult, WaiverRow } from "@/lib/api";
+import type { Claim, ClaimGroup, ClaimPlayer, Claims, PoolStatus, SubmitResult, WaiverRow } from "@/lib/api";
+import { submitFailure, type SubmitFailure } from "@/lib/claims";
+
+export type { SubmitFailure };
 
 // The tab's rows as the panel needs them, so a target added from this tab has a name before the save returns.
 export type TabPlayer = Pick<WaiverRow, "player_id" | "name" | "pos" | "team" | "add" | "ros_adj" | "status" | "waiver_date">;
-
-// A submit the API refused, sorted for the dialog: 409 one is running, 422 the plan's reasons,
-// 502 ESPN's login, anything else the readable line.
-export type SubmitFailure =
-  | { kind: "running" }
-  | { kind: "invalid"; errors: { group: number; player_id: number | null; reason: string }[] }
-  | { kind: "espn"; error: string }
-  | { kind: "other"; error: string };
 
 type Ctx = {
   data: Claims;
@@ -26,8 +21,10 @@ type Ctx = {
   saving: boolean;
   error: string | null;
   submitting: boolean;
-  submit: (replaceOutside: boolean) => Promise<SubmitResult>;
-  refresh: () => Promise<void>;
+  // expectNow: the "Add now" list the dialog showed; the server refuses (409) when its fresh read differs
+  submit: (replaceOutside: boolean, expectNow: Claim[]) => Promise<SubmitResult>;
+  // fresh: statuses re-read from ESPN (the Submit dialog), not the cached pool's
+  refresh: (fresh?: boolean) => Promise<void>;
 };
 
 const Context = createContext<Ctx | null>(null);
@@ -39,16 +36,8 @@ const SUBMIT_MS = 60_000;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-function failure(e: unknown): SubmitFailure {
-  if (e instanceof ClientError) {
-    const detail = (e.body as { detail?: unknown } | null)?.detail as { errors?: unknown; error?: string } | string | undefined;
-    if (e.status === 409) return { kind: "running" };
-    if (e.status === 422 && detail && typeof detail === "object" && Array.isArray(detail.errors))
-      return { kind: "invalid", errors: detail.errors as Extract<SubmitFailure, { kind: "invalid" }>["errors"] };
-    if (e.status === 502) return { kind: "espn", error: (typeof detail === "object" && detail?.error) || e.message };
-  }
-  return { kind: "other", error: message(e) };
-}
+const failure = (e: unknown): SubmitFailure =>
+  e instanceof ClientError ? submitFailure(e.status, e.body, e.message) : submitFailure(null, null, message(e));
 
 export class SubmitError extends Error {
   constructor(public failure: SubmitFailure) {
@@ -132,9 +121,9 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
     timer.current = setTimeout(() => void save(g), DEBOUNCE_MS);
   }, [save]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (fresh = false) => {
     try {
-      const next = await clientGet<Claims>("/claims");
+      const next = await clientGet<Claims>(fresh ? "/claims?fresh=1" : "/claims");
       setData(next);
       if (!deferred.current) {
         setLocal(next.groups);
@@ -146,7 +135,7 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
     }
   }, []);
 
-  const submit = useCallback(async (replaceOutside: boolean): Promise<SubmitResult> => {
+  const submit = useCallback(async (replaceOutside: boolean, expectNow: Claim[]): Promise<SubmitResult> => {
     // the submit reads the saved plan: save the latest edits first
     clearTimeout(timer.current);
     if ((dirty || deferred.current) && !(await save(latest.current)))
@@ -154,7 +143,8 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      return await clientPost<SubmitResult>("/claims/submit", { replace_outside: replaceOutside }, SUBMIT_MS);
+      const expect_now = expectNow.map(({ group, add, drop }) => ({ group, add, drop }));
+      return await clientPost<SubmitResult>("/claims/submit", { replace_outside: replaceOutside, expect_now }, SUBMIT_MS);
     } catch (e) {
       throw new SubmitError(failure(e));
     } finally {

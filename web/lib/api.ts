@@ -162,7 +162,8 @@ export type Claim = { group: number; add: number; drop: number | null };
 export type ClaimErr = { group: number; player_id: number | null; reason: string };
 // ESPN's pending claims; from_app marks the ones the last submit from here sent.
 export type PendingClaim = { id: string; add: number; drop: number | null; from_app: boolean };
-export type ClaimSubmit = { at: string; now: Claim[]; claims: Claim[]; ids: string[] };
+// match: ESPN held what was sent, in order, at the read-back (absent on records from before it was kept).
+export type ClaimSubmit = { at: string; now: Claim[]; claims: Claim[]; ids: string[]; match?: boolean };
 export type PoolStatus = "FREEAGENT" | "WAIVERS";
 // Every id in the groups plus every roster player; droppable/locked are null for a free agent.
 export type ClaimPlayer = {
@@ -172,7 +173,8 @@ export type ClaimPlayer = {
 export type Claims = {
   week: number; groups: ClaimGroup[]; now: Claim[]; claims: Claim[]; errors: ClaimErr[]; open_spots: number;
   status: Record<string, PoolStatus>; pending: PendingClaim[]; pending_error: string | null; last_submit: ClaimSubmit | null;
-  edited_since_submit: boolean; players: Record<string, ClaimPlayer>;
+  // on_espn: ESPN's pending list, less the claims filed there directly, is this plan's claims in order (false unsent)
+  edited_since_submit: boolean; on_espn: boolean; players: Record<string, ClaimPlayer>;
 };
 // POST /claims/submit. readback_failed: ESPN's list could not be read after sending, so `pending`
 // is empty for that reason, not because ESPN holds nothing.
@@ -180,7 +182,7 @@ export type SubmitResult = {
   now: Claim[]; now_failed: (Claim & { error: string })[]; sent: (Claim & { id: string })[];
   pending: { id: string; add: number; drop: number | null }[]; match: boolean; error: string | null; readback_failed: boolean;
 };
-// A fantasy team as the League page shows it;`logo` is the owner's ESPN upload ("" when none).
+// A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
 export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
 export type Standing = Club & { rank: number; points_for: number; points_against: number; streak: string; me: boolean };
 // starter_ids is what the API re-sums a side from while the live feed runs, starter_teams what it marks

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addTarget, atMost, capacity, cutBlock, displayTargets, groupHasFA, groupPos, move, moveGroup, removeFrom, reorderTargets,
-  addCut, processDay, rowTag, setOpen, statusTag, submitSummary,
+  addCut, processDay, rowTag, setOpen, statusTag, submitFailure, submitSummary,
 } from "./claims";
 import type { ClaimGroup, ClaimPlayer } from "./api";
 
@@ -120,4 +120,21 @@ describe("submit summary", () => {
   it("kept outside claims ahead of ours", () =>
     expect(submitSummary({ ...ok, sent, pending: [{ id: "o", add: 9, drop: 1 }, ...sent], match: true }, 2, 1)).toEqual({
       ok: true, text: "ESPN holds all 2 of yours, in this order · plus 1 filed on ESPN directly, ahead of these" }));
+});
+
+describe("submitFailure", () => {
+  it("a 409 with a string detail is a submit already running", () =>
+    expect(submitFailure(409, { detail: "a submit is already running" }, "x")).toEqual({ kind: "running" }));
+  it("a 409 with an error object is a change since the review", () => {
+    expect(submitFailure(409, { detail: { error: "statuses changed — review again", now: [] } }, "x"))
+      .toEqual({ kind: "changed", error: "statuses changed — review again" });
+    expect(submitFailure(409, { detail: { error: "ESPN's week changed — reload" } }, "x"))
+      .toEqual({ kind: "changed", error: "ESPN's week changed — reload" });
+  });
+  it("422 reasons, 502 ESPN, anything else the message", () => {
+    const errors = [{ group: 0, player_id: 5, reason: "already on your roster" }];
+    expect(submitFailure(422, { detail: { errors } }, "x")).toEqual({ kind: "invalid", errors });
+    expect(submitFailure(502, { detail: { source: "espn", error: "ESPN login expired" } }, "x")).toEqual({ kind: "espn", error: "ESPN login expired" });
+    expect(submitFailure(null, null, "timed out")).toEqual({ kind: "other", error: "timed out" });
+  });
 });
