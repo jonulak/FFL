@@ -174,11 +174,11 @@ def test_502_when_nothing_cached(client, monkeypatch):
     assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
 
 
-def test_waivers_requires_known_pos(client):
-    r = client.get("/waivers?pos=RB")
+def test_players_requires_known_pos(client):
+    r = client.get("/players?pos=RB")
     assert r.status_code == 200 and r.json()["ros_source"] == "season", "the stub carries no ROS sources"
     assert r.json()["ros_week"] == 3 and r.json()["week_over"] is False, "a pool without the fields reads as ESPN's week"
-    assert client.get("/waivers?pos=XX").status_code == 422
+    assert client.get("/players?pos=XX").status_code == 422
 
 
 def test_health(client):
@@ -295,7 +295,7 @@ def test_waiver_outlook_is_written_on_a_post_and_read_on_a_get(client, monkeypat
     gate = threading.Event()
     take = {"label": "Take", "text": "A stash.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
     monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), [take])[1])
-    assert client.get("/waivers?pos=RB").json()["rows"][0]["has_outlook"] is False
+    assert client.get("/players?pos=RB").json()["rows"][0]["has_outlook"] is False
     assert client.get("/waivers/outlook/7").json() == {"bullets": None, "at": None, "stale": False, "running": False, "error": None}
     assert client.post("/waivers/outlook/7").status_code == 202
     assert client.post("/waivers/outlook/7").status_code == 409
@@ -306,7 +306,7 @@ def test_waiver_outlook_is_written_on_a_post_and_read_on_a_get(client, monkeypat
             break
         time.sleep(0.05)
     assert client.get("/waivers/outlook/7").json()["bullets"] == [take]
-    assert client.get("/waivers?pos=RB").json()["rows"][0]["has_outlook"] is True
+    assert client.get("/players?pos=RB").json()["rows"][0]["has_outlook"] is True
 
 
 def test_waiver_outlook_for_a_player_off_the_wire_is_404(client, monkeypatch):
@@ -428,19 +428,19 @@ def test_player_live_week(client, monkeypatch):
     assert [(w["week"], w["status"], w["pts"]) for w in weeks] == [(4, "live", 3.2)]
 
 
-def test_waivers_search_spans_every_position(client, monkeypatch):
+def test_players_search_spans_every_position(client, monkeypatch):
     rb = _fa_pool(monkeypatch)
     wr = {**rb, "player_id": 8, "name": "Bo Nix", "pos": "WR", "team": "DEN", "add": 12.0}
     qb = {**rb, "player_id": 9, "name": "Cam Ward", "pos": "QB", "team": "TEN", "add": 3.0}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
                         lambda week=None: {"week": 3, "positions": {"RB": [rb], "WR": [wr], "QB": [qb]}})
     api.cache.clear()
-    body = client.get("/waivers?q=b").json()
+    body = client.get("/players?q=b").json()
     assert [r["player_id"] for r in body["rows"]] == [8, 7], "every pool, by add, best first"
     assert body["pos"] is None and body["q"] == "b" and all("has_outlook" in r for r in body["rows"])
-    assert [r["player_id"] for r in client.get("/waivers?q=ten&pos=RB").json()["rows"]] == [9], "q ignores pos"
-    assert client.get("/waivers").status_code == 422, "no pos and no query is still an error"
-    assert client.get("/waivers?q=%20&pos=RB").json()["pos"] == "RB", "a blank query is no query"
+    assert [r["player_id"] for r in client.get("/players?q=ten&pos=RB").json()["rows"]] == [9], "q ignores pos"
+    assert client.get("/players").status_code == 422, "no pos and no query is still an error"
+    assert client.get("/players?q=%20&pos=RB").json()["pos"] == "RB", "a blank query is no query"
 
 
 @pytest.fixture
@@ -573,7 +573,7 @@ def test_landed_add_rebuilds_the_pool_before_returning(claims_env, monkeypatch):
     before = calls["n"]
     claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert calls["n"] == before + 1                            # rebuilt inline, not left to a background thread
-    ids = {p["player_id"] for p in claims_env.get("/waivers?pos=WR").json()["roster"]}
+    ids = {p["player_id"] for p in claims_env.get("/players?pos=WR").json()["roster"]}
     assert 102 in ids and 1 not in ids
     assert calls["n"] == before + 1                            # served fresh: no rebuild behind the GET
 
@@ -723,3 +723,56 @@ def test_save_plan_is_atomic(claims_env, monkeypatch):
     with pytest.raises(OSError):
         api._save_plan({**json.loads(good), "groups": []})
     assert path.read_text() == good and [p.name for p in api.CLAIMS_DIR.iterdir()] == ["week-6.json"]
+
+
+def _league_pool(monkeypatch, positions_rb=None):
+    base = {"pos": "RB", "bye": False, "injury": "ACTIVE", "opponent": "BUF", "kickoff": None,
+            "return_week": None, "injury_note": None}
+    fa = {**base, "player_id": 7, "name": "B", "team": "MIA", "add": 9.0, "owner": None, "mine": False}
+    theirs = {**base, "player_id": 20, "name": "Bijan Robinson", "team": "ATL", "add": 14.0, "mine": False,
+              "owner": {"team_id": 2, "name": "Them", "abbrev": "THM"}}
+    mine = {**base, "player_id": 30, "name": "Kenny Gainwell", "team": "TB", "add": None, "delta_roster": None,
+            "delta_pool": None, "mine": True, "owner": {"team_id": 7, "name": "Mine", "abbrev": "ME"}}
+    pool = {"week": 3, "positions": {"RB": positions_rb if positions_rb is not None else [fa], "WR": []},
+            "rostered": {"RB": [theirs, mine], "WR": []}}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: pool)
+    monkeypatch.setattr(api.outlook, "_WRITING", {})
+    api.cache.clear()
+    return pool
+
+
+def test_players_free_agents_by_default_everyone_with_fa_0(client, monkeypatch):
+    _league_pool(monkeypatch)
+    body = client.get("/players?pos=RB").json()
+    assert body["fa"] is True and [r["player_id"] for r in body["rows"]] == [7]
+    body = client.get("/players?pos=RB&fa=0").json()
+    assert [r["player_id"] for r in body["rows"]] == [20, 7, 30], "add desc, my own (None) last"
+    assert body["rows"][0]["owner"]["abbrev"] == "THM" and body["rows"][1]["owner"] is None
+    assert all(r["has_outlook"] is False for r in body["rows"] if r["owner"])
+    assert client.get("/players?pos=RB&fa=maybe").status_code == 422, "yes/no/1/0 parse; anything else is a 422"
+
+
+def test_players_search_spans_everyone_whatever_the_toggle(client, monkeypatch):
+    _league_pool(monkeypatch)
+    assert [r["player_id"] for r in client.get("/players?q=robinson&fa=1").json()["rows"]] == [20]
+    me = client.get("/players?q=gainwell").json()["rows"]
+    assert [(r["player_id"], r["mine"], r["add"]) for r in me] == [(30, True, None)]
+
+
+def test_players_one_row_when_espn_lists_a_rostered_player_as_free(client, monkeypatch):
+    dup = {"player_id": 20, "name": "Bijan Robinson", "pos": "RB", "team": "ATL", "add": 40.0, "owner": None, "mine": False}
+    _league_pool(monkeypatch, positions_rb=[dup])
+    rows = client.get("/players?pos=RB&fa=0").json()["rows"]
+    assert [r["player_id"] for r in rows].count(20) == 1 and rows[0]["owner"]["team_id"] == 2
+
+
+def test_players_pool_cached_before_rostered_existed(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "free_agent_pool",
+                        lambda week=None: {"week": 3, "positions": {"RB": [{"player_id": 7, "name": "B", "pos": "RB", "team": "MIA", "add": 1.0}]}})
+    api.cache.clear()
+    assert [r["player_id"] for r in client.get("/players?pos=RB&fa=0").json()["rows"]] == [7]
+
+
+def test_claims_never_see_a_rostered_player(monkeypatch):
+    pool = _league_pool(monkeypatch)
+    assert set(api._pool_rows(pool)) == {7}

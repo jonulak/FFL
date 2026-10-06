@@ -602,3 +602,14 @@ def name_matches(p: dict, q: str) -> bool:
     if not q:
         return False
     return q in _fold(p.get("name") or "") or q.upper() == (p.get("team") or "").upper()
+
+
+def rank_players(rows: list[dict]) -> list[dict]:
+    """The Players table's order: one row per player, a rostered row over a free-agent one for the
+    same man (ESPN can list a just-added player as free for a moment), then add best first with
+    the rows that have none (my own players) last."""
+    by_id: dict[int, dict] = {}
+    for r in rows:
+        if r["player_id"] not in by_id or r.get("owner"):
+            by_id[r["player_id"]] = r
+    return sorted(by_id.values(), key=lambda r: (r.get("add") is None, -(r.get("add") or 0)))

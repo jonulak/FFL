@@ -548,3 +548,12 @@ def test_missing_position_sigma_falls_back():
     assert var == season.SIGMA_FALLBACK["K"] ** 2
     _, var = season.side_outlook([wp_player("LB", 8.0)], {})
     assert var == season.SIGMA_DEFAULT ** 2
+
+
+def test_rank_players_one_row_per_player_rostered_wins_add_desc_none_last():
+    fa = {"player_id": 1, "add": 5.0, "owner": None}
+    stale_fa = {"player_id": 2, "add": 30.0, "owner": None}
+    theirs = {"player_id": 2, "add": 9.0, "owner": {"team_id": 2}}
+    mine = {"player_id": 3, "add": None, "owner": {"team_id": 7}}
+    out = season.rank_players([mine, fa, stale_fa, theirs])
+    assert [(r["player_id"], r["add"]) for r in out] == [(2, 9.0), (1, 5.0), (3, None)]

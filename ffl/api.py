@@ -515,23 +515,26 @@ def live_status():
     return live.STATE.snapshot()
 
 
-@app.get("/waivers")
-def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] | None = None, q: str | None = None):
-    # a search spans every position's pool and ignores `pos`; without one, the position is required
+@app.get("/players")
+def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] | None = None, q: str | None = None, fa: bool = True):
+    # free agents at a position by default; fa=0 adds every rostered player there. A search spans
+    # every position and both halves whatever `fa` says: a lookup must not miss a rostered man.
     q = (q or "").strip() or None
     if q is None and pos is None:
         raise HTTPException(422, "pos or q is required")
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    rostered = data.get("rostered", {})  # absent from a pool cached before it existed
     # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
     written = outlook.written(data["week"])
     if q:
         pos = None
-        found = [r for rows in data["positions"].values() for r in rows if season.name_matches(r, q)]
-        found.sort(key=lambda r: -r["add"])
+        found = [r for half in (data["positions"], rostered) for rows in half.values() for r in rows
+                 if season.name_matches(r, q)]
     else:
-        found = data["positions"].get(pos, [])
-    rows = [{**r, "has_outlook": r["player_id"] in written} for r in found]
-    return {"week": data["week"], "pos": pos, "q": q, "rows": rows,
+        found = data["positions"].get(pos, []) + ([] if fa else rostered.get(pos, []))
+    rows = [{"owner": None, "mine": False, **r, "has_outlook": not r.get("owner") and r["player_id"] in written}
+            for r in season.rank_players(found)]
+    return {"week": data["week"], "pos": pos, "q": q, "fa": fa, "rows": rows,
             "roster": data.get("roster", []),  # my players, for the row's comparison dropdown
             # the week ROS starts from, and whether this week's games are all played (no week term)
             "ros_week": data.get("ros_week", data["week"]), "week_over": data.get("week_over", False),
