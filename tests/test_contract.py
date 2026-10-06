@@ -30,7 +30,7 @@ WAIVER_EXTRA = {"ros_proj", "ros_adj", "week_proj", "delta_roster", "delta_pool"
 # web/lib/api.ts: type League["standings"][number]
 STANDINGS_ROW = {"rank", "team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "points_for", "points_against",
                  "streak", "me"}
-SCORE_SIDE = {"team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me", "starter_ids", "starter_teams"}
+SCORE_SIDE = {"team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me", "starter_ids", "starter_teams", "pending_teams"}
 # web/lib/api.ts: type Week / type League top level (stale_since is added by the API's cache)
 WEEK = {"week", "live", "mine", "me", "opp"}
 LEAGUE = {"week", "current_week", "weeks", "playoff_teams", "live", "standings", "scoreboard"}
@@ -84,7 +84,7 @@ def test_standings_row_keys(monkeypatch):
     assert set(st["standings"][0]) == STANDINGS_ROW
     assert st["standings"][0]["streak"] == "W2" and st["standings"][1]["streak"] == "L1"
     assert len(st["scoreboard"]) == 1  # the bye slot is dropped
-    assert set(st["scoreboard"][0]) == {"home", "away", "live"} and st["scoreboard"][0]["live"] is False
+    assert set(st["scoreboard"][0]) == {"home", "away", "live", "final"} and st["scoreboard"][0]["live"] is False
     assert set(st["scoreboard"][0]["home"]) == SCORE_SIDE and st["scoreboard"][0]["home"]["me"] is True
     assert st["scoreboard"][0]["away"]["proj"] == 101.0
     ahead = espn_season.league_state(5)  # beyond current_week: schedule pairings, projection 0

@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Triangle } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -67,8 +67,10 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
 }
 
 // One side of a scorebug row: mark, name and record left, the number right. Once points post
-// the trailing side steps back to 60% ink so the leader reads first.
-function ScoreRow({ side, on, trailing }: { side: ScoreSide; on: boolean; trailing: boolean }) {
+// the trailing side steps back to 60% ink so the leader reads first. In a final game the winner's
+// score carries a solid caret pointing at it, the way a broadcast scoreboard closes a result; the
+// loser keeps the caret's column empty so the two scores stay aligned.
+function ScoreRow({ side, on, trailing, final, won }: { side: ScoreSide; on: boolean; trailing: boolean; final: boolean; won: boolean }) {
   return (
     <li className={`flex items-center gap-2.5 py-2 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
       <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={36} className={trailing ? "opacity-70" : ""} />
@@ -86,6 +88,11 @@ function ScoreRow({ side, on, trailing }: { side: ScoreSide; on: boolean; traili
         </p>
         {on && side.proj > 0 && <p className="mt-0.5 text-xs text-muted-foreground">proj {pts(side.proj)}</p>}
       </div>
+      {final && (
+        <span className="-ml-1 flex w-2.5 shrink-0 self-start pt-[0.4375rem] sm:-ml-1.5">
+          {won && <><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></>}
+        </span>
+      )}
     </li>
   );
 }
@@ -103,7 +110,7 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
     <Card className={`${BOARD_CARD} ${m.home.me || m.away.me ? "ring-foreground/30" : ""} ${href ? "transition-[box-shadow,background-color] group-hover/tile:bg-foreground/[0.025] group-hover/tile:ring-foreground/35 group-focus-visible/tile:ring-2 group-focus-visible/tile:ring-ring/60" : ""}`}>
       <CardHeader className="flex flex-row items-center justify-between gap-3 pt-2.5 sm:pt-3">
         <span className={`${LABEL} flex items-center gap-2`}>
-          {final ? "Final" : live ? <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge> : projected ? "Matchup" : "Upcoming"}
+          {final ? <span className="text-foreground">Final</span> : live ? <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge> : projected ? "Matchup" : "Upcoming"}
         </span>
         <span className={`${LABEL} flex items-center gap-1`}>
           {on ? "pts" : projected ? "proj" : ""}
@@ -112,8 +119,8 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
       </CardHeader>
       <CardContent className="-mt-2 pb-1">
         <ul className="divide-y divide-foreground/10">
-          <ScoreRow side={m.away} on={on} trailing={lead < 0} />
-          <ScoreRow side={m.home} on={on} trailing={lead > 0} />
+          <ScoreRow side={m.away} on={on} trailing={lead < 0} final={final} won={final && lead > 0} />
+          <ScoreRow side={m.home} on={on} trailing={lead > 0} final={final} won={final && lead < 0} />
         </ul>
       </CardContent>
     </Card>
@@ -148,7 +155,7 @@ export function LeagueView({ data }: { data: League }) {
           ? <p className="text-sm text-muted-foreground">No matchups scheduled for week {data.week}.</p>
           : (
             <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-              {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final} href={matchupHref(m, data.week, data.current_week)} />)}
+              {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final || m.final} href={matchupHref(m, data.week, data.current_week)} />)}
             </div>
           )}
       </section>

@@ -454,3 +454,13 @@ def test_roster_rows_carry_the_adjusted_ros_and_sort_by_it():
     a = next(r for r in rows if r["name"] == "RB A")
     assert a["ros_adj"] == season.ros_adj(mine[3], 3) and a["ros_proj"] == 100.0
     assert [r["ros_adj"] for r in rows] == sorted((r["ros_adj"] for r in rows), reverse=True)
+
+
+def test_a_matchup_is_final_once_every_starters_game_is_over():
+    side = lambda pending: {"starter_ids": [1], "pending_teams": pending}  # noqa: E731
+    m = {"home": side([]), "away": side(["ATL", "NO"])}
+    assert season.matchup_final({"home": side([]), "away": side([])}), "ESPN calls every game played"
+    assert not season.matchup_final(m), "two games still to finish"
+    assert not season.matchup_final(m, {"ATL": {"status": "post"}, "NO": {"status": "in"}})
+    assert season.matchup_final(m, {"ATL": {"status": "post"}, "NO": {"status": "post"}}), "the feed's whistle, before ESPN"
+    assert not season.matchup_final({"home": {"starter_ids": []}, "away": {"starter_ids": []}}), "a future week"

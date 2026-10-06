@@ -419,6 +419,16 @@ def append_decision(path: Path, title: str, decision: str, reasoning: str, alter
     return path.read_text()
 
 
+def matchup_final(m: dict, games: dict[str, dict] | None = None) -> bool:
+    """A League scoreboard matchup's score is final: both sides have a lineup and every starter's
+    game is over, by ESPN's game_played (a side's `pending_teams` are the clubs it does not yet
+    call played) or, sooner, by the live feed's whistle (`games`, team -> status "post")."""
+    sides = (m["home"], m["away"])
+    if not all(s.get("starter_ids") for s in sides):
+        return False  # a future week's pairing: no lineups, nothing played
+    return all((games or {}).get(t, {}).get("status") == "post" for s in sides for t in s.get("pending_teams") or [])
+
+
 def is_live(now: datetime | None = None) -> bool:
     """Games are on: Thursday 8 PM ET through Monday night (2 AM Tuesday)."""
     ny = ZoneInfo("America/New_York")

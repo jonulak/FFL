@@ -267,6 +267,7 @@ def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dic
                 row[key] = {**side, "score": round(sum(points.get(i, 0.0) for i in ids), 1)}
         row["live"] = any((games or {}).get(t, {}).get("status") == "in"
                           for key in ("home", "away") for t in m[key].get("starter_teams") or [])
+        row["final"] = S.matchup_final(m, games)
         board.append(row)
     return {**payload, "scoreboard": board}
 

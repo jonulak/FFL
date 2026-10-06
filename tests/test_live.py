@@ -41,7 +41,7 @@ def test_overlay_league_resums_a_side_from_its_starters():
 
 def test_overlay_league_without_starter_ids_is_a_no_op():
     board = [{"home": {"team_id": 1, "score": 7.0}, "away": {"team_id": 2, "score": 3.0}}]
-    assert live.overlay_league({"scoreboard": board}, {1: 10.0})["scoreboard"] == [{**board[0], "live": False}]
+    assert live.overlay_league({"scoreboard": board}, {1: 10.0})["scoreboard"] == [{**board[0], "live": False, "final": False}]
 
 
 def test_overlay_league_marks_only_matchups_with_a_starter_in_a_game_on():

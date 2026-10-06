@@ -142,12 +142,13 @@ export type Waivers = {
 export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
 export type Standing = Club & { rank: number; points_for: number; points_against: number; streak: string; me: boolean };
 // starter_ids is what the API re-sums a side from while the live feed runs, starter_teams what it marks
-// a matchup live from (one of them in a game in progress); both empty for a future week.
-export type ScoreSide = Club & { score: number; proj: number; me: boolean; starter_ids: number[]; starter_teams: string[] };
+// a matchup live from (one of them in a game in progress), pending_teams the games ESPN does not yet call
+// played (the API sets `final` once none is left, sooner on the feed's whistle); all empty for a future week.
+export type ScoreSide = Club & { score: number; proj: number; me: boolean; starter_ids: number[]; starter_teams: string[]; pending_teams: string[] };
 export type League = {
   week: number; current_week: number; weeks: number; playoff_teams: number; live: boolean;
   standings: Standing[];
-  scoreboard: { home: ScoreSide; away: ScoreSide; live: boolean }[];
+  scoreboard: { home: ScoreSide; away: ScoreSide; live: boolean; final: boolean }[];
   stale_since: string | null;
 };
 // GET /team/{id}: any team's roster for the week (the team page), its club with the standings

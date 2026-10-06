@@ -1020,9 +1020,11 @@ def league_state(week: int | None = None) -> dict:
     for m in (box_scores(lg, week) if week <= current else lg.scoreboard(week)):
         if not (hasattr(m.home_team, "team_id") and hasattr(m.away_team, "team_id")):
             continue  # a bye slot in a playoff round
-        # starter_ids lets the live overlay re-sum a side from the feed's per-player points, and
-        # starter_teams mark the tile live only while one of those starters' games is on; a
-        # schedule-view pairing (future week) carries no lineup, so both lists are empty there.
+        # starter_ids lets the live overlay re-sum a side from the feed's per-player points,
+        # starter_teams mark the tile live only while one of those starters' games is on, and
+        # pending_teams are the clubs whose game ESPN does not yet call played (game_played, three
+        # hours after kickoff; a bye counts as played), which the overlay clears at the feed's
+        # whistle. A schedule-view pairing (future week) carries no lineup, so all are empty there.
         row = {}
         for side, t, score in (("home", m.home_team, m.home_score), ("away", m.away_team, m.away_score)):
             starters = [bp for bp in (getattr(m, f"{side}_lineup", None) or [])
@@ -1031,8 +1033,10 @@ def league_state(week: int | None = None) -> dict:
                          "proj": round(float(getattr(m, f"{side}_projected", 0) or 0), 1),
                          "me": t.team_id == me,
                          "starter_ids": [bp.playerId for bp in starters],
-                         "starter_teams": sorted({bp.proTeam for bp in starters if getattr(bp, "proTeam", None)})}
-        board.append({**row, "live": False})
+                         "starter_teams": sorted({bp.proTeam for bp in starters if getattr(bp, "proTeam", None)}),
+                         "pending_teams": sorted({bp.proTeam for bp in starters if getattr(bp, "proTeam", None)
+                                                  and int(getattr(bp, "game_played", 100) or 0) < 100})}
+        board.append({**row, "live": False, "final": S.matchup_final(row)})
     return {"week": week, "current_week": current, "weeks": settings["reg_season_weeks"],
             "playoff_teams": settings["playoff_teams"], "live": S.is_live() and week == current,
             "standings": standings, "scoreboard": board}
