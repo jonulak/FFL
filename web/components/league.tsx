@@ -75,7 +75,7 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
 // `odds` (the away side's) and `half` draw this row's half of the card's win meter at the edge.
 function ScoreRow({ side, on, trailing, final, won, odds, half }: { side: ScoreSide; on: boolean; trailing: boolean; final: boolean; won: boolean; odds: number | null; half: "top" | "bottom" }) {
   return (
-    <li className={`relative flex items-center gap-2.5 py-2 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
+    <li className={`relative flex items-center gap-2.5 py-2.5 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
       {odds != null && <OddsHalf p={odds} half={half} />}
       <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={36} className={trailing ? "opacity-70" : ""} />
       <div className="min-w-0 flex-1">
@@ -115,7 +115,7 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
   const odds = final ? finalP(m.away.score, m.home.score) : m.win_prob?.away ?? null;
   const card = (
     <Card className={`${BOARD_CARD} ${m.home.me || m.away.me ? "ring-foreground/30" : ""} ${href ? "transition-[box-shadow,background-color] group-hover/tile:bg-foreground/[0.025] group-hover/tile:ring-foreground/35 group-focus-visible/tile:ring-2 group-focus-visible/tile:ring-ring/60" : ""}`}>
-      <CardHeader className="flex flex-row items-center justify-between gap-3 pt-2.5 sm:pt-3">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 bg-foreground/[0.04] py-2.5 sm:py-3">
         <span className={`${LABEL} flex items-center gap-2`}>
           {final ? <span className="text-foreground">Final</span> : live ? <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge> : projected ? "Matchup" : "Upcoming"}
         </span>
@@ -124,7 +124,7 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
           {href && <ChevronRight aria-hidden className="-mr-1 size-4 text-foreground/40 transition-[color,translate] group-hover/tile:translate-x-0.5 group-hover/tile:text-foreground/80" />}
         </span>
       </CardHeader>
-      <CardContent className="-mt-2 pb-1">
+      <CardContent className="-mt-(--card-spacing)">
         <ul className="divide-y divide-foreground/10">
           <ScoreRow side={m.away} on={on} trailing={lead < 0} final={final} won={final && lead > 0} odds={odds} half="top" />
           <ScoreRow side={m.home} on={on} trailing={lead > 0} final={final} won={final && lead < 0} odds={odds} half="bottom" />
