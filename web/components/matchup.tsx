@@ -12,6 +12,7 @@ import { BOARD_CARD, HEALTHY, isIdle, LABEL, SLOT_LABEL, STATUS_SHORT, TONE } fr
 import { injuryTone, pts, shortName, signed } from "@/lib/format";
 import { FIELD, fieldOf, inGameOf } from "@/lib/field";
 import { gameOn, gamePhase, sideTotals, toPlay } from "@/lib/game";
+import { finalP } from "@/lib/win-prob";
 import { playsHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
@@ -90,6 +91,9 @@ function boardFinal(data: Week, now: number) {
 }
 
 function Scorebug({ data, now }: { data: Week; now: number }) {
+  const over = boardFinal(data, now);
+  // a final is read off the two scores as shown; before that, the model's odds
+  const odds = data.opp && over ? finalP(data.me.actual_total, data.opp.actual_total) : data.win_prob?.me;
   return (
     <Card className={BOARD_CARD}>
       <CardContent className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] grid-rows-[auto_auto_auto_auto] gap-x-3 py-4 sm:gap-x-6 sm:py-5">
@@ -99,9 +103,9 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
           ? <Total side={data.opp} now={now} end="opp" />
           : <p className="row-span-3 self-center text-right text-sm text-muted-foreground">No opponent this week</p>}
         {/* the odds under both totals, my share from the left; context beside the call, never the call */}
-        {data.opp && data.win_prob && (
+        {data.opp && odds != null && (
           <div className="col-span-3 mt-4 border-t border-foreground/10 pt-3 sm:mt-5 sm:pt-4">
-            <WinMeter p={data.win_prob.me} team={data.me.team} size="bug" final={boardFinal(data, now)} />
+            <WinMeter p={odds} teams={[data.me.team, data.opp.team]} size="bug" final={over} />
           </div>
         )}
       </CardContent>
