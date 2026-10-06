@@ -1,4 +1,4 @@
-import type { SeasonLog, WeekLog } from "./api";
+import type { PlayerLog, SeasonLog, WeekLog } from "./api";
 import { injuryLabel, pts } from "./format";
 
 // The season modal's column headings: the position's stat group, read off the first week that has
@@ -28,3 +28,9 @@ export function headerInjury(status: string, returnWeek: number | null, week?: n
 // A name that opens the season modal: plain type at rest, underlined under a pointer. Here, not in
 // the client module, so server components (the play feed, the Draft page) can read the string.
 export const NAME_LINK = "decoration-foreground/35 decoration-1 underline-offset-[0.2em] hover:underline";
+
+// His rank at his position on this season's points to date, for the modal header; undefined until
+// the log lands or when ESPN has no list for the position.
+export function seasonRank(log: PlayerLog): number | undefined {
+  return log.seasons.find((s) => s.season === log.season)?.totals?.pos_rank ?? undefined;
+}

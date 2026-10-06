@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { OppRank, PlayerLog, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
 import { ordinal, pts } from "@/lib/format";
-import { columns, ptsText, seasonPts, weekLabel } from "@/lib/player-log";
+import { columns, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
 import { BoxTable } from "./box-table";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
 import { TeamLogo } from "./player-media";
@@ -111,7 +111,8 @@ function Body({ seed, fetch }: { seed: PlayerSeed; fetch: LogFetch }) {
   const { load, retry } = useLog(seed.player_id, fetch);
   return (
     <>
-      <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined} />
+      <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined}
+        rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
       <div className="overflow-y-auto overscroll-contain">
         <LogBody load={load} retry={retry} className="px-4 pt-4 pb-5" />
       </div>
@@ -194,12 +195,11 @@ function Seasons({ log }: { log: PlayerLog }) {
   const now = log.seasons.find((s) => s.season === log.season);
   const past = log.seasons.filter((s) => s.season < log.season && s.totals);
   const played = seasonPts(now?.weeks ?? []);
-  const rank = now?.totals?.pos_rank;
   return (
     <div className="space-y-7">
       <section aria-labelledby="season-now" className="log-in space-y-1.5">
         <Heading id="season-now" title={String(log.season)} stale={log.stale_since}
-          note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts${rank != null ? ` · ${log.pos}${rank}` : ""}` : undefined} />
+          note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts` : undefined} />
         {now && now.weeks.length > 0
           ? <Weeks s={now} pos={log.pos} week={log.current_week} />
           : <p className="py-1 text-sm text-muted-foreground">No games yet.</p>}
@@ -295,7 +295,7 @@ function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
       </SeasonTable>
       {(of != null || finishes) && (
         <p className="log-in pt-1 text-xs leading-4 text-muted-foreground" style={{ "--i": Math.min(s.weeks.length, 10) + 1 } as React.CSSProperties}>
-          {finishes && `Under the points, his finish among ${pos}s that week; beside the season's points, his rank to date. `}
+          {finishes && `Under the points, his finish among ${pos}s that week. `}
           {of != null && <>Rk is ESPN&apos;s rank of the opponent against {pos}s this season: 1 allowed the fewest points, {of} the most.</>}
           {of != null && ahead.some((w) => w.status === "upcoming") && " Proj is Sleeper's weekly projection, averaged with ESPN's for this week."}
         </p>

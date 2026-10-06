@@ -25,7 +25,7 @@ const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 // the name set on a caption scrim at the foot (white type on any club's colour, the Steelers'
 // gold included), and beneath the band, on the dialog's own surface, this week's game.
 // The dialog's close button sits on the band: the DialogContent carries BAND_CLOSE.
-export function PlayerHeader({ p, week }: { p: PlayerSeed; week?: number }) {
+export function PlayerHeader({ p, week, rank }: { p: PlayerSeed; week?: number; rank?: number }) {
   const t = team(p.team);
   const src = headshotUrl(p.player_id);
   const [portrait, setPortrait] = useState(src !== null);  const hurt = p.injury != null && !HEALTHY.has(p.injury);
@@ -60,7 +60,10 @@ export function PlayerHeader({ p, week }: { p: PlayerSeed; week?: number }) {
             {p.name}
           </DialogTitle>
           <DialogDescription render={<div />} className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-white/85">
-            <span className="font-semibold text-white">{p.pos}</span>
+            {/* his season rank leads the position: "#3 QB", not "QB3", which reads as third string */}
+            <span className="font-semibold text-white" title={rank != null ? `#${rank} ${p.pos} by points this season` : undefined}>
+              {rank != null && `#${rank} `}{p.pos}{rank != null && <span className="sr-only"> by points this season</span>}
+            </span>
             <span aria-hidden>·</span>
             <span>{t.name || p.team}</span>
             {hurt && (

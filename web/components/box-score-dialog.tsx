@@ -4,6 +4,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import type { Player } from "@/lib/api";
 import { boxSum } from "@/lib/box";
 import { pts } from "@/lib/format";
+import { seasonRank } from "@/lib/player-log";
 import { BoxTable } from "./box-table";
 import { BAND_CLOSE, PlayerHeader } from "./player-header";
 import { Heading, LogBody, useLog, type LogFetch } from "./player-dialog";
@@ -31,7 +32,7 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
   const off = box.length > 0 && Math.abs(boxSum(box) - p.actual) >= 0.05;
   return (
     <>
-      <PlayerHeader p={p} />
+      <PlayerHeader p={p} rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
       <div className="overflow-y-auto overscroll-contain">
         <section aria-labelledby="box-week" className="space-y-1.5 px-4 pt-4">
           <Heading id="box-week" title={`Week ${week}`} note={box.length > 0 ? `${pts(p.actual)} pts` : undefined} />
