@@ -14,10 +14,13 @@ Every GET is read-only.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, Literal
 
@@ -196,8 +199,21 @@ class PlanIn(BaseModel):
     groups: list[GroupIn]
 
 
+class MoveIn(BaseModel):
+    group: int
+    add: int
+    drop: int | None = None
+
+
 class SubmitIn(BaseModel):
     replace_outside: bool = False
+    # the "Add now" list the dialog showed: Submit refuses (409) when the fresh statuses would add anything else
+    expect_now: list[MoveIn] = []
+
+
+def _instant_adds() -> bool:
+    # Read at call time: off until ffl-ut0.7 verifies the FREEAGENT write shape (anything but "1" is off).
+    return os.environ.get("FFL_INSTANT_ADDS") == "1"
 
 
 def _roster_size() -> int:
@@ -214,8 +230,16 @@ def _load_plan(week):
 
 
 def _save_plan(plan):
+    # atomic: a tmp file in the same dir, then os.replace, so a crash mid-write never leaves half a plan
     CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
-    _plan_path(plan["week"]).write_text(json.dumps(plan, indent=1) + "\n")
+    fd, tmp = tempfile.mkstemp(dir=CLAIMS_DIR, prefix=".week-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(plan, indent=1) + "\n")
+        os.replace(tmp, _plan_path(plan["week"]))
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _pool_rows(data):
@@ -226,6 +250,15 @@ def _status(data):
     return {i: r.get("status") for i, r in _pool_rows(data).items() if r.get("status")}
 
 
+def _fresh_status(data):
+    """ESPN's statuses now (the pool is cached, and the Wednesday run turns WAIVERS into FREEAGENT); the cached
+    ones when the read fails, where unknown counts as WAIVERS."""
+    try:
+        return {i: v["status"] for i, v in espn_season.pool_status().items() if v.get("status")}
+    except Exception:  # noqa: BLE001
+        return _status(data)
+
+
 def _players(groups, data):
     rows, roster = _pool_rows(data), {r["player_id"]: r for r in data.get("roster", [])}
     want = {i for g in groups for i in g["targets"] + g["cuts"]} | set(roster)
@@ -233,8 +266,8 @@ def _players(groups, data):
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
 
 
-def _claims_payload(plan, data):
-    roster, status = data.get("roster", []), _status(data)
+def _claims_payload(plan, data, status=None):
+    roster, status = data.get("roster", []), _status(data) if status is None else status
     last = plan["submits"][-1] if plan["submits"] else None
     ids = set(last["ids"]) if last else set()
     now, expansion = claims_mod.plan_now(plan["groups"], status), claims_mod.expand(plan["groups"], status)
@@ -243,21 +276,26 @@ def _claims_payload(plan, data):
     except espn_write.WriteError as e:
         pending, perr = [], ("ESPN login expired, refresh .env" if e.expired else str(e))
     key = lambda ms: [(m["add"], m["drop"]) for m in ms]  # noqa: E731
+    # ESPN holds the plan's claims, in order, once the claims filed on ESPN directly (kept outside) are set aside
+    on_espn = bool(last) and perr is None and claims_mod.matches(expansion, [c for c in pending if c["id"] in ids])
     return {"week": plan["week"], "groups": plan["groups"], "now": now, "claims": expansion,
-            "errors": claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status),
+            "errors": claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status,
+                                          _instant_adds()),
             "open_spots": claims_mod.open_spots(roster, _roster_size()),
             "status": {str(i): s for i, s in status.items()},
             "pending": [{**c, "from_app": c["id"] in ids} for c in pending], "pending_error": perr,
             "last_submit": last,
             # claims only: instant adds already happened, and the plan's free agents are on the roster after a refresh
             "edited_since_submit": bool(last) and key(last["claims"]) != key(expansion),
+            "on_espn": on_espn,
             "players": _players(plan["groups"], data)}
 
 
 @app.get("/claims")
-def claims_get():
+def claims_get(fresh: bool = False):
+    # fresh=1 (the Submit dialog on open): statuses re-read from ESPN, so "Add now" is what Submit will run
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-    return _claims_payload(_load_plan(data["week"]), data)
+    return _claims_payload(_load_plan(data["week"]), data, _fresh_status(data) if fresh else None)
 
 
 @app.post("/claims")
@@ -281,20 +319,23 @@ def claims_submit(body: SubmitIn):
     try:
         data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
         plan, roster = _load_plan(data["week"]), data.get("roster", [])
-        # fresh statuses: the pool is cached, and the Wednesday run turns WAIVERS into FREEAGENT
-        try:
-            status = {i: v["status"] for i, v in espn_season.pool_status().items() if v.get("status")}
-        except Exception:  # noqa: BLE001 — cached statuses; unknown counts as WAIVERS
-            status = _status(data)
-        errs = claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status)
+        status = _fresh_status(data)
+        # the dialog showed an "Add now" list from its own read: instant adds can't be undone, so any other is a 409
+        now = claims_mod.plan_now(plan["groups"], status)
+        if now != [m.model_dump() for m in body.expect_now]:
+            raise HTTPException(409, {"error": "statuses changed — review again", "now": now})
+        errs = claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status, _instant_adds())
         if errs:
             raise HTTPException(422, {"errors": errs})
         try:
-            pending = espn_write.pending_claims()
+            pending, period = espn_write.pending_state()
         except espn_write.WriteError as e:
             raise HTTPException(502, {"source": "espn", "error": "ESPN login expired, refresh .env" if e.expired else str(e)})
+        # ESPN's current scoring period, which is what its write bodies want; the plan's week is the cached pool's
+        if period is not None and period != data["week"]:
+            raise HTTPException(409, {"error": "ESPN's week changed — reload"})
         last = plan["submits"][-1] if plan["submits"] else None
-        wk = data["week"]  # ESPN's current scoring period, which is what its write bodies want
+        wk = data["week"] if period is None else period
         w = SimpleNamespace(pending_claims=espn_write.pending_claims,
                             cancel_claim=lambda i: espn_write.cancel_claim(i, wk),
                             submit_claim=lambda a, d: espn_write.submit_claim(a, d, wk),
@@ -309,7 +350,7 @@ def claims_submit(body: SubmitIn):
         else:
             ids = [c["id"] for c in res["pending"] if c["id"] in sent_ids or c["id"] in last_ids]
         plan["submits"].append({"at": datetime.now().isoformat(timespec="seconds"), "now": [strip(m) for m in res["now"]],
-                                "claims": [strip(c) for c in res["sent"]], "ids": ids})
+                                "claims": [strip(c) for c in res["sent"]], "ids": ids, "match": res["match"]})
         submitted = plan["groups"]
         plan["groups"] = claims_mod.consume(submitted, res["now"])  # landed adds are on the roster now
         _save_plan(plan)
@@ -318,7 +359,10 @@ def claims_submit(body: SubmitIn):
             with DECISIONS.open("a") as f:
                 f.write("\n" + claims_mod.decision_entry(submitted, names, datetime.now().strftime("%Y-%m-%d"), status))
         if res["now"]:
-            cache.expire_all()  # the roster changed: the pages must not show the dropped player
+            # the roster changed: as POST /refresh does, rebuild inline so the next page shows the add, not the dropped player
+            espn_season._BOXES.clear()
+            cache.expire_all()
+            cache.rebuild_expired()
         return res
     finally:
         _SUBMIT.release()

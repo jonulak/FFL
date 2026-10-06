@@ -25,6 +25,7 @@ TIMEOUT = 15
 _FAKE: list[dict] = []
 _FAKE_ADDS: list[dict] = []
 _FAIL_ADDS: set[int] = set()  # dev/tests under FFL_WRITES=0: ids whose instant add "was taken"
+_FAKE_PERIOD: int | None = None  # dev/tests under FFL_WRITES=0: ESPN's scoring period; None means "the plan week"
 _IDS = itertools.count(1)
 
 
@@ -73,8 +74,10 @@ def parse_pending(doc: dict, team_id: int) -> list[dict]:
     rows.sort(key=lambda t: t.get("subOrder") or 0)
     out = []
     for t in rows:
-        add = next(i["playerId"] for i in t["items"] if i["type"] == "ADD")
-        drop = next((i["playerId"] for i in t["items"] if i["type"] == "DROP"), None)
+        add = next((i["playerId"] for i in t.get("items") or [] if i.get("type") == "ADD"), None)
+        if add is None:  # malformed (no ADD item): not a claim this app can match, so skip it
+            continue
+        drop = next((i["playerId"] for i in t["items"] if i.get("type") == "DROP"), None)
         out.append({"id": str(t["id"]), "add": int(add), "drop": None if drop is None else int(drop)})
     return out
 
@@ -86,15 +89,22 @@ def _post(body: dict) -> dict:
     return r.json()
 
 
-def pending_claims() -> list[dict]:
-    """My pending waiver claims in ESPN's processing order."""
+def pending_state() -> tuple[list[dict], int | None]:
+    """My pending waiver claims in ESPN's processing order, and ESPN's current scoring period (the week its write
+    bodies want), from one mPendingTransactions read. The period is None when the document has none."""
     if not _writes():
-        return [dict(c) for c in _FAKE]
+        return [dict(c) for c in _FAKE], _FAKE_PERIOD
     try:
         doc = config.raw_league_get("mPendingTransactions")
     except Exception as e:  # espn-api raises its own types for 401/403
         raise WriteError(getattr(getattr(e, "response", None), "status_code", 0) or 401, str(e))
-    return parse_pending(doc, _team_id())
+    period = doc.get("scoringPeriodId")
+    return parse_pending(doc, _team_id()), None if period is None else int(period)
+
+
+def pending_claims() -> list[dict]:
+    """My pending waiver claims in ESPN's processing order."""
+    return pending_state()[0]
 
 
 def submit_claim(add: int, drop: int | None, week: int) -> str:
@@ -121,4 +131,8 @@ def add_free_agent(add: int, drop: int | None, week: int) -> None:
             raise WriteError(409, f"player {add} is no longer a free agent")
         _FAKE_ADDS.append({"add": add, "drop": drop})
         return
-    _post(add_body(add, drop, week, _team_id(), config.SWID))
+    res = _post(add_body(add, drop, week, _team_id(), config.SWID))
+    # A 200 is not a landed add: only "EXECUTED" is (a guess, like add_body; ffl-ut0.7 pins the real shape and value).
+    if not isinstance(res, dict) or res.get("status") != "EXECUTED":
+        status = res.get("status") if isinstance(res, dict) else None
+        raise WriteError(200, f"instant add not executed (status {status!r})")

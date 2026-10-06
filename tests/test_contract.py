@@ -241,7 +241,7 @@ def test_position_ranks_io(monkeypatch):
 
 # web/lib/api.ts: type Claims (GET/POST /claims; the web type lands with the claims UI)
 CLAIMS = {"week", "groups", "now", "claims", "errors", "open_spots", "status", "pending", "pending_error",
-          "last_submit", "edited_since_submit", "players"}
+          "last_submit", "edited_since_submit", "on_espn", "players"}
 
 
 def test_claims_keys(monkeypatch, tmp_path):

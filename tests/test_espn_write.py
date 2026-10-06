@@ -129,3 +129,49 @@ def test_pending_claims_wraps_read_errors(monkeypatch):
     with pytest.raises(W.WriteError) as e:
         W.pending_claims()
     assert e.value.status == 401
+
+
+def test_parse_pending_skips_a_row_without_an_add():
+    doc = {"pendingTransactions": [
+        {"id": "bad", "teamId": 7, "type": "WAIVER", "status": "PENDING", "subOrder": 1,
+         "items": [{"playerId": 1, "type": "DROP"}]},
+        {"id": "good", "teamId": 7, "type": "WAIVER", "status": "PENDING", "subOrder": 2,
+         "items": [{"playerId": 101, "type": "ADD"}, {"playerId": 2, "type": "DROP"}]}]}
+    assert W.parse_pending(doc, 7) == [{"id": "good", "add": 101, "drop": 2}]
+
+
+def test_pending_state_reads_the_scoring_period(monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "1")
+    monkeypatch.setattr(W.config, "raw_league_get", lambda view: {"scoringPeriodId": 5, "pendingTransactions": []})
+    monkeypatch.setattr(W, "_team_id", lambda: 7)
+    assert W.pending_state() == ([], 5)
+
+
+def test_pending_state_writes_off_returns_the_fake_period(monkeypatch):
+    monkeypatch.setattr(W, "_FAKE_PERIOD", 9)
+    assert W.pending_state()[1] == 9
+
+
+def _live_add(monkeypatch, body):
+    monkeypatch.setenv("FFL_WRITES", "1")
+
+    class R:
+        status_code = 200
+
+        def json(self):
+            return body
+
+    monkeypatch.setattr(W.requests, "post", lambda *a, **k: R())
+    monkeypatch.setattr(W, "_team_id", lambda: 7)
+
+
+def test_add_free_agent_200_but_pending_is_a_write_error(monkeypatch):
+    _live_add(monkeypatch, {"id": "x", "status": "PENDING"})
+    with pytest.raises(W.WriteError) as e:
+        W.add_free_agent(101, 1, 5)
+    assert "PENDING" in str(e.value)
+
+
+def test_add_free_agent_executed_is_landed(monkeypatch):
+    _live_add(monkeypatch, {"id": "x", "status": "EXECUTED"})
+    W.add_free_agent(101, 1, 5)

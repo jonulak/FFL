@@ -103,8 +103,8 @@ def test_two_groups_independent_caps():
     assert [c["add"] for c in simulate(C.expand(gs, {}), set(), [1, 2], 0)] == [101, 201]
 
 
-def errs(gs, roster=ROSTER, pool=frozenset({101, 102, 103, 201, -16020}), size=17, status=None):
-    return [e["reason"] for e in C.validate(gs, roster, set(pool), size, status or {})]
+def errs(gs, roster=ROSTER, pool=frozenset({101, 102, 103, 201, -16020}), size=17, status=None, instant_adds=True):
+    return [e["reason"] for e in C.validate(gs, roster, set(pool), size, status or {}, instant_adds)]
 
 
 def test_valid_plan_has_no_errors():
@@ -135,6 +135,17 @@ def test_locked_cut_only_matters_for_instant_adds():
 
 def test_target_not_in_pool():
     assert any("not in the free-agent pool" in r for r in errs([{"targets": [777], "cuts": [1], "open": 0}]))
+
+
+def test_target_already_on_roster():
+    assert "already on your roster" in errs([{"targets": [5], "cuts": [1], "open": 0}])
+
+
+def test_instant_adds_off_rejects_every_free_agent_target():
+    g = [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]
+    off = errs(g, status={101: FA}, instant_adds=False)
+    assert off == [C.INSTANT_OFF] and "ffl-ut0.7" in off[0]       # 101 only: 102 is a waiver claim
+    assert errs(g, status={101: FA}) == []                         # on: the same plan is fine
 
 
 def test_duplicate_target():

@@ -71,8 +71,13 @@ def expand(groups, status, used=None):
     return out
 
 
-def validate(groups, roster, pool_ids, roster_size, status):
-    """Check the plan for errors. Returns list of dicts: {"group": int, "player_id": int|None, "reason": str}."""
+INSTANT_OFF = "instant adds are off until verified (ffl-ut0.7)"
+
+
+def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True):
+    """Check the plan for errors. Returns list of dicts: {"group": int, "player_id": int|None, "reason": str}.
+
+    instant_adds False (FFL_INSTANT_ADDS off): every free-agent target is an error, since Submit would add him."""
     errs = []
 
     def err(gi, pid, reason):
@@ -106,8 +111,12 @@ def validate(groups, roster, pool_ids, roster_size, status):
             if t in targets:
                 err(gi, t, f"already a target in group {targets[t] + 1}")
             targets.setdefault(t, gi)
-            if t not in pool_ids and t not in by_id:
+            if t in by_id:
+                err(gi, t, "already on your roster")
+            elif t not in pool_ids:
                 err(gi, t, "not in the free-agent pool (added by another team?)")
+            if not instant_adds and status.get(t) == FREE:
+                err(gi, t, INSTANT_OFF)
 
         # Cut validation.
         for c in g["cuts"]:
