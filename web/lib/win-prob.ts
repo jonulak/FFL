@@ -19,6 +19,14 @@ export function fill(p: number): { left: number; width: number; end: "left" | "r
   return p >= 0.5 ? { left: 50 - width, width, end: "left" } : { left: 50, width, end: "right" };
 }
 
+// The same fill split at the centre for a stripe drawn in two halves (a League card's two rows, so
+// the centre sits on the divider between them): how much of `half`, 0..1, is filled from the
+// divider out. Only the favourite's half fills; `p` is the top (away) side's odds.
+export function halfFill(p: number, half: "top" | "bottom"): number {
+  const { width, end } = fill(p);
+  return (end === "left") === (half === "top") ? width / 50 : 0;
+}
+
 // A finished game's odds off the two scores as the page shows them (to the hundredth, so float
 // noise in a sum never splits a tie): 1 the left side won, 0 it lost, 0.5 a tie.
 export function finalP(left: number, right: number): number {

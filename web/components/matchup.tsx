@@ -105,7 +105,7 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
         {/* the odds under both totals, my share from the left; context beside the call, never the call */}
         {data.opp && odds != null && (
           <div className="col-span-3 mt-4 border-t border-foreground/10 pt-3 sm:mt-5 sm:pt-4">
-            <WinMeter p={odds} teams={[data.me.team, data.opp.team]} size="bug" final={over} />
+            <WinMeter p={odds} teams={[data.me.team, data.opp.team]} final={over} />
           </div>
         )}
       </CardContent>

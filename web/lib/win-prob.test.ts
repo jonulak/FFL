@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fill, finalP, outcome, pct } from "./win-prob";
+import { fill, finalP, halfFill, outcome, pct } from "./win-prob";
 
 describe("the bar", () => {
   it("fills from the centre toward the favourite by the margin over even", () => {
@@ -12,6 +12,13 @@ describe("the bar", () => {
   it("fills the whole half toward the winner of a final", () => {
     expect(fill(1)).toEqual({ left: 0, width: 50, end: "left" });
     expect(fill(0)).toEqual({ left: 50, width: 50, end: "right" });
+  });
+  it("splits the fill into the two rows' halves, the favourite's from the divider out", () => {
+    expect(halfFill(0.71, "top")).toBeCloseTo(0.42);
+    expect(halfFill(0.71, "bottom")).toBe(0);
+    expect(halfFill(0.29, "bottom")).toBeCloseTo(0.42);
+    expect(halfFill(0, "bottom")).toBe(1);
+    expect(halfFill(0.5, "top")).toBe(0);
   });
   it("reads a final off the scores as shown", () => {
     expect(finalP(120.4, 98.1)).toBe(1);
