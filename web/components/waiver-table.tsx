@@ -286,12 +286,19 @@ function Row({ r, week, cols, roster, open, onToggle }: {
 // over the form columns), then the column labels; `add` and `wk` stand under no heading, they
 // are the row's own numbers. Both header rows pin to the top and the tile and name to the
 // left while the table scrolls.
-export function WaiverTable({ rows, roster, week, pos }: { rows: WaiverRow[]; roster: RosterRow[]; week: number; pos: string }) {
+export function WaiverTable({ rows, roster, week, pos, q }: { rows: WaiverRow[]; roster: RosterRow[]; week: number; pos: string; q?: string | null }) {
   const [sort, setSort] = useState<Sort>({ key: "add", dir: "desc" });
   const [open, setOpen] = useState<Set<number>>(new Set());
   const toggle = (id: number) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   if (rows.length === 0) {
-    return <p className="py-6 text-sm text-muted-foreground">ESPN lists no free agents at {pos} right now.</p>;
+    // the pool is ESPN's top 60 at each position: a miss is not proof he is rostered
+    return (
+      <p className="max-w-[60ch] py-6 text-sm text-muted-foreground">
+        {q
+          ? <>No free agent matching <span className="font-medium text-foreground">&ldquo;{q}&rdquo;</span> in ESPN&apos;s top 60 at any position. He may be rostered, or deeper in the pool.</>
+          : <>ESPN lists no free agents at {pos} right now.</>}
+      </p>
+    );
   }
   // only the form columns this position has: a kicker never has snaps or targets, a defence
   // no opportunity, and before the week's snaps land nobody has a snap share yet

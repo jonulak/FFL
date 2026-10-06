@@ -331,12 +331,22 @@ def live_status():
 
 
 @app.get("/waivers")
-def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] = Query(...)):
+def waivers(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] | None = None, q: str | None = None):
+    # a search spans every position's pool and ignores `pos`; without one, the position is required
+    q = (q or "").strip() or None
+    if q is None and pos is None:
+        raise HTTPException(422, "pos or q is required")
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
     # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
     written = outlook.written(data["week"])
-    rows = [{**r, "has_outlook": r["player_id"] in written} for r in data["positions"].get(pos, [])]
-    return {"week": data["week"], "pos": pos, "rows": rows,
+    if q:
+        pos = None
+        found = [r for rows in data["positions"].values() for r in rows if season.name_matches(r, q)]
+        found.sort(key=lambda r: -r["add"])
+    else:
+        found = data["positions"].get(pos, [])
+    rows = [{**r, "has_outlook": r["player_id"] in written} for r in found]
+    return {"week": data["week"], "pos": pos, "q": q, "rows": rows,
             "roster": data.get("roster", []),  # my players, for the row's comparison dropdown
             # the week ROS starts from, and whether this week's games are all played (no week term)
             "ros_week": data.get("ros_week", data["week"]), "week_over": data.get("week_over", False),

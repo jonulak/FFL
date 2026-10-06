@@ -8,10 +8,12 @@ const POS = ["QB", "RB", "WR", "TE", "D/ST", "K"];
 // shadcn Tabs in the line variant, each tab rendered as a Link: the position is server state in
 // `?pos=`, so a tab is a navigation the page re-renders from, and the list is only the chyron
 // strip (condensed caps, the current position in full ink over a bar) — there are no panels.
-export function PosTabs({ active, base }: { active: string; base: string }) {
+// From `sm` the hairline under it belongs to the row it shares with the Waivers search.
+// `active` is null while a search spans every position: no tab is lit.
+export function PosTabs({ active, base }: { active: string | null; base: string }) {
   return (
     <Tabs value={active} aria-label="Position">
-      <TabsList variant="line" className="h-10 w-full justify-start gap-0 overflow-x-auto border-b border-foreground/12 p-0 [scrollbar-width:none]">
+      <TabsList variant="line" className="h-10 w-full justify-start gap-0 overflow-x-auto border-foreground/12 p-0 [scrollbar-width:none] max-sm:border-b">
         {POS.map((p) => (
           <TabsTrigger
             key={p}

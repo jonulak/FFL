@@ -464,3 +464,22 @@ def test_a_matchup_is_final_once_every_starters_game_is_over():
     assert not season.matchup_final(m, {"ATL": {"status": "post"}, "NO": {"status": "in"}})
     assert season.matchup_final(m, {"ATL": {"status": "post"}, "NO": {"status": "post"}}), "the feed's whistle, before ESPN"
     assert not season.matchup_final({"home": {"starter_ids": []}, "away": {"starter_ids": []}}), "a future week"
+
+
+@pytest.mark.parametrize("q,name,team,hit", [
+    ("mcc", "Christian McCaffrey", "SF", True),
+    ("MCCAFF", "Christian McCaffrey", "SF", True),
+    ("jose", "José Ramírez", "SEA", True),
+    ("ramírez", "Jose Ramirez", "SEA", True),
+    ("jr", "Marvin Harrison Jr.", "ARI", True),
+    ("st brown", "Amon-Ra St. Brown", "DET", True),
+    ("ja'marr", "Ja'Marr Chase", "CIN", True),
+    ("jamarr", "Ja'Marr Chase", "CIN", True),
+    ("det", "Jahmyr Gibbs", "DET", True),
+    ("de", "Jahmyr Gibbs", "DET", False),
+    ("lions", "Lions D/ST", "DET", True),
+    ("zz", "Jahmyr Gibbs", "DET", False),
+    ("  ", "Jahmyr Gibbs", "DET", False),
+])
+def test_name_matches(q, name, team, hit):
+    assert season.name_matches({"name": name, "team": team}, q) is hit

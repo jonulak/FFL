@@ -8,6 +8,7 @@ append_decision() appends to journal/DECISIONS.md on disk.
 from __future__ import annotations
 
 import os
+import unicodedata
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -441,3 +442,20 @@ def is_live(now: datetime | None = None) -> bool:
     if wd == 1:
         return h < 2
     return False
+
+
+def _fold(text: str) -> str:
+    """Lower case, accents off, and the punctuation names carry (St. Brown, Ja'Marr, Amon-Ra) out,
+    hyphens to spaces, so what is typed matches however ESPN spells it."""
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    t = t.replace("-", " ")
+    return " ".join("".join(c for c in t if c.isalnum() or c == " ").split())
+
+
+def name_matches(p: dict, q: str) -> bool:
+    """The Waivers search: any part of his name, or his club's abbreviation in full (DET lists the
+    Lions, DE does not). A blank query matches nobody; the caller treats it as no search."""
+    q = _fold(q)
+    if not q:
+        return False
+    return q in _fold(p.get("name") or "") or q.upper() == (p.get("team") or "").upper()

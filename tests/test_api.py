@@ -443,3 +443,18 @@ def test_player_live_week(client, monkeypatch):
     monkeypatch.setattr(api, "_scoring", lambda: [{"stat_id": 3, "label": "Passing yards", "points": 0.04}])
     weeks = client.get("/player/9").json()["seasons"][0]["weeks"]
     assert [(w["week"], w["status"], w["pts"]) for w in weeks] == [(4, "live", 3.2)]
+
+
+def test_waivers_search_spans_every_position(client, monkeypatch):
+    rb = _fa_pool(monkeypatch)
+    wr = {**rb, "player_id": 8, "name": "Bo Nix", "pos": "WR", "team": "DEN", "add": 12.0}
+    qb = {**rb, "player_id": 9, "name": "Cam Ward", "pos": "QB", "team": "TEN", "add": 3.0}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool",
+                        lambda week=None: {"week": 3, "positions": {"RB": [rb], "WR": [wr], "QB": [qb]}})
+    api.cache.clear()
+    body = client.get("/waivers?q=b").json()
+    assert [r["player_id"] for r in body["rows"]] == [8, 7], "every pool, by add, best first"
+    assert body["pos"] is None and body["q"] == "b" and all("has_outlook" in r for r in body["rows"])
+    assert [r["player_id"] for r in client.get("/waivers?q=ten&pos=RB").json()["rows"]] == [9], "q ignores pos"
+    assert client.get("/waivers").status_code == 422, "no pos and no query is still an error"
+    assert client.get("/waivers?q=%20&pos=RB").json()["pos"] == "RB", "a blank query is no query"

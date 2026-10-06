@@ -143,7 +143,7 @@ export type RosterRow = Player & { ros_proj: number; ros_adj: number; week_proj:
 // ros_source "season": no source had anyone, every ROS is a scaled draft-day season total.
 // ros_week: the week ROS starts from; week_over: this week's games are all played (no week term).
 export type Waivers = {
-  week: number; ros_week: number; week_over: boolean; pos: string; rows: WaiverRow[]; roster: RosterRow[];
+  week: number; ros_week: number; week_over: boolean; pos: string | null; q: string | null; rows: WaiverRow[]; roster: RosterRow[];
   ros_source: "sources" | "season"; stale_since: string | null;
 };
 // A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
