@@ -1,0 +1,21 @@
+{
+ "isLeagueManager": false,
+ "teamId": 7,
+ "type": "WAIVER",
+ "memberId": "{SWID}",
+ "scoringPeriodId": 5,
+ "executionType": "EXECUTE",
+ "items": [
+  {
+   "playerId": 15683,
+   "type": "ADD",
+   "toTeamId": 7
+  },
+  {
+   "playerId": 4360234,
+   "type": "DROP",
+   "fromTeamId": 7
+  }
+ ],
+ "bidAmount": null
+}

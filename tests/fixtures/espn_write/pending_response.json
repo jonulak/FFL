@@ -1,0 +1,215 @@
+{
+ "pendingTransactions": [
+  {
+   "bidAmount": 0,
+   "executionType": "EXECUTE",
+   "id": "9d3e64b4-17a5-4d3f-ba6f-c8c2c0c3a048",
+   "isActingAsTeamOwner": false,
+   "isLeagueManager": false,
+   "isPending": true,
+   "items": [
+    {
+     "acquisitionBudget": 0,
+     "fromLineupSlotId": -1,
+     "fromTeamId": 0,
+     "isKeeper": false,
+     "overallPickNumber": 0,
+     "playerId": 3049899,
+     "toLineupSlotId": -1,
+     "toTeamId": 7,
+     "type": "ADD"
+    },
+    {
+     "acquisitionBudget": 0,
+     "fromLineupSlotId": 17,
+     "fromTeamId": 7,
+     "isKeeper": false,
+     "overallPickNumber": 0,
+     "playerId": 4360234,
+     "toLineupSlotId": -1,
+     "toTeamId": 0,
+     "type": "DROP"
+    }
+   ],
+   "memberId": "{SWID}",
+   "processDate": 1791356400000,
+   "proposedDate": 1791299239937,
+   "rating": 0,
+   "scoringPeriodId": 5,
+   "skipTransactionCounters": false,
+   "status": "PENDING",
+   "subOrder": 2,
+   "teamId": 7,
+   "type": "WAIVER"
+  },
+  {
+   "bidAmount": 0,
+   "executionType": "EXECUTE",
+   "id": "ea53c73f-6a1c-4958-9fcf-d71994496da3",
+   "isActingAsTeamOwner": false,
+   "isLeagueManager": false,
+   "isPending": true,
+   "items": [
+    {
+     "acquisitionBudget": 0,
+     "fromLineupSlotId": -1,
+     "fromTeamId": 0,
+     "isKeeper": false,
+     "overallPickNumber": 0,
+     "playerId": 15683,
+     "toLineupSlotId": -1,
+     "toTeamId": 7,
+     "type": "ADD"
+    },
+    {
+     "acquisitionBudget": 0,
+     "fromLineupSlotId": 17,
+     "fromTeamId": 7,
+     "isKeeper": false,
+     "overallPickNumber": 0,
+     "playerId": 4360234,
+     "toLineupSlotId": -1,
+     "toTeamId": 0,
+     "type": "DROP"
+    }
+   ],
+   "memberId": "{SWID}",
+   "processDate": 1791356400000,
+   "proposedDate": 1791299211874,
+   "rating": 0,
+   "scoringPeriodId": 5,
+   "skipTransactionCounters": false,
+   "status": "PENDING",
+   "subOrder": 1,
+   "teamId": 7,
+   "type": "WAIVER"
+  }
+ ],
+ "teams": [
+  {
+   "id": 1,
+   "pendingTransactions": []
+  },
+  {
+   "id": 2,
+   "pendingTransactions": []
+  },
+  {
+   "id": 3,
+   "pendingTransactions": []
+  },
+  {
+   "id": 4,
+   "pendingTransactions": []
+  },
+  {
+   "id": 5,
+   "pendingTransactions": []
+  },
+  {
+   "id": 6,
+   "pendingTransactions": []
+  },
+  {
+   "id": 7,
+   "pendingTransactions": [
+    {
+     "bidAmount": 0,
+     "executionType": "EXECUTE",
+     "id": "9d3e64b4-17a5-4d3f-ba6f-c8c2c0c3a048",
+     "isActingAsTeamOwner": false,
+     "isLeagueManager": false,
+     "isPending": true,
+     "items": [
+      {
+       "acquisitionBudget": 0,
+       "fromLineupSlotId": -1,
+       "fromTeamId": 0,
+       "isKeeper": false,
+       "overallPickNumber": 0,
+       "playerId": 3049899,
+       "toLineupSlotId": -1,
+       "toTeamId": 7,
+       "type": "ADD"
+      },
+      {
+       "acquisitionBudget": 0,
+       "fromLineupSlotId": 17,
+       "fromTeamId": 7,
+       "isKeeper": false,
+       "overallPickNumber": 0,
+       "playerId": 4360234,
+       "toLineupSlotId": -1,
+       "toTeamId": 0,
+       "type": "DROP"
+      }
+     ],
+     "memberId": "{SWID}",
+     "processDate": 1791356400000,
+     "proposedDate": 1791299239937,
+     "rating": 0,
+     "scoringPeriodId": 5,
+     "skipTransactionCounters": false,
+     "status": "PENDING",
+     "subOrder": 2,
+     "teamId": 7,
+     "type": "WAIVER"
+    },
+    {
+     "bidAmount": 0,
+     "executionType": "EXECUTE",
+     "id": "ea53c73f-6a1c-4958-9fcf-d71994496da3",
+     "isActingAsTeamOwner": false,
+     "isLeagueManager": false,
+     "isPending": true,
+     "items": [
+      {
+       "acquisitionBudget": 0,
+       "fromLineupSlotId": -1,
+       "fromTeamId": 0,
+       "isKeeper": false,
+       "overallPickNumber": 0,
+       "playerId": 15683,
+       "toLineupSlotId": -1,
+       "toTeamId": 7,
+       "type": "ADD"
+      },
+      {
+       "acquisitionBudget": 0,
+       "fromLineupSlotId": 17,
+       "fromTeamId": 7,
+       "isKeeper": false,
+       "overallPickNumber": 0,
+       "playerId": 4360234,
+       "toLineupSlotId": -1,
+       "toTeamId": 0,
+       "type": "DROP"
+      }
+     ],
+     "memberId": "{SWID}",
+     "processDate": 1791356400000,
+     "proposedDate": 1791299211874,
+     "rating": 0,
+     "scoringPeriodId": 5,
+     "skipTransactionCounters": false,
+     "status": "PENDING",
+     "subOrder": 1,
+     "teamId": 7,
+     "type": "WAIVER"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "pendingTransactions": []
+  },
+  {
+   "id": 9,
+   "pendingTransactions": []
+  },
+  {
+   "id": 10,
+   "pendingTransactions": []
+  }
+ ]
+}

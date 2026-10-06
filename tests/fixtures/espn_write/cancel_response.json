@@ -1,0 +1,40 @@
+{
+ "bidAmount": 0,
+ "executionType": "CANCEL",
+ "id": "ae3d6c5b-f43c-4721-aac9-f7571d72c12b",
+ "isActingAsTeamOwner": false,
+ "isLeagueManager": false,
+ "isPending": false,
+ "items": [
+  {
+   "fromLineupSlotId": -1,
+   "fromTeamId": 0,
+   "isKeeper": false,
+   "overallPickNumber": 0,
+   "playerId": 3049899,
+   "toLineupSlotId": -1,
+   "toTeamId": 7,
+   "type": "ADD"
+  },
+  {
+   "fromLineupSlotId": 17,
+   "fromTeamId": 7,
+   "isKeeper": false,
+   "overallPickNumber": 0,
+   "playerId": 4360234,
+   "toLineupSlotId": -1,
+   "toTeamId": 0,
+   "type": "DROP"
+  }
+ ],
+ "memberId": "{SWID}",
+ "proposedDate": 1791299288806,
+ "rating": 0,
+ "relatedTransactionId": "9d3e64b4-17a5-4d3f-ba6f-c8c2c0c3a048",
+ "scoringPeriodId": 5,
+ "skipTransactionCounters": false,
+ "status": "CANCELED",
+ "subOrder": 0,
+ "teamId": 7,
+ "type": "WAIVER"
+}

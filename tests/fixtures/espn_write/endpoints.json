@@ -1,0 +1,21 @@
+{
+ "submit_and_cancel": {
+  "method": "POST",
+  "url": "https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/segments/0/leagues/{league}/transactions/"
+ },
+ "reorder": {
+  "method": "POST",
+  "url": "https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/segments/0/leagues/{league}/teams/{team}/pendingTransactions"
+ },
+ "pending_read": {
+  "method": "GET",
+  "view": "mPendingTransactions",
+  "list_key": "pendingTransactions",
+  "order_key": "subOrder (array order is NOT priority order)"
+ },
+ "headers_sent": {
+  "x-fantasy-platform": "espn-fantasy-web",
+  "x-fantasy-source": "kona",
+  "content-type": "application/json"
+ }
+}
