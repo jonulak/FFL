@@ -4,6 +4,8 @@ import pytest
 
 # The API's lifespan starts the live-scoring socket; a test run must never open it.
 os.environ["FFL_LIVE"] = "0"
+# Nothing in a test run may write to ESPN; espn_write swaps in an in-memory store.
+os.environ["FFL_WRITES"] = "0"
 
 
 @pytest.fixture(autouse=True)
