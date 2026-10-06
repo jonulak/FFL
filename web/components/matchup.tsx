@@ -2,7 +2,7 @@
 
 import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemGroup, ItemTitle } from "@/components/ui/item";
@@ -16,6 +16,7 @@ import { playsHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { BoxScoreDialog } from "./box-score-dialog";
+import { fetchLog, holdFor, type LogFetch } from "./player-dialog";
 import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
 import { StaleBadge } from "./stale-badge";
@@ -392,13 +393,22 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
 // his numbers while it is open.
 // `back` is the League scoreboard a game was opened from; my own Matchup page has none.
 export function MatchupView({ data, now, back }: { data: Week; now: number; back?: string }) {
-  const [picked, setPicked] = useState<{ id: number; end: End } | null>(null);
+  const [picked, setPicked] = useState<{ id: number; end: End; log: LogFetch } | null>(null);
   const [open, setOpen] = useState(false);
+  const latest = useRef(0);
   const roster = (s: Side | null) => (s ? [...s.lineup, ...s.bench, ...s.ir] : []);
   const player = picked ? roster(picked.end === "me" ? data.me : data.opp).find((p) => p.player_id === picked.id) ?? null : null;
+  // The dialog carries his season log under the week, so a tap waits for it as the season modal
+  // does (holdFor): opened first, the dialog grew under its own entrance and iOS drew a snap.
   const onPick = (p: Player) => {
-    setPicked({ id: p.player_id, end: roster(data.me).some((q) => q.player_id === p.player_id) ? "me" : "opp" });
-    setOpen(true);
+    const tap = ++latest.current;
+    const end: End = roster(data.me).some((q) => q.player_id === p.player_id) ? "me" : "opp";
+    const log = fetchLog(p.player_id);
+    void holdFor(log).then(() => {
+      if (tap !== latest.current) return; // a later tap took over
+      setPicked({ id: p.player_id, end, log });
+      setOpen(true);
+    });
   };
   return (
     <div className="space-y-5">
@@ -423,7 +433,7 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
       {/* The feed only earns its place once something has happened; before kickoff it stays out of the way. */}
       {data.plays.length > 0 && <PlayFeedStrip plays={data.plays} href={playsHref(data.mine !== false, data.me.team_id)} />}
       <Board data={data} now={now} onPick={onPick} />
-      <BoxScoreDialog p={player} open={open && player != null} onOpenChange={setOpen} />
+      <BoxScoreDialog p={player} week={data.week} log={picked?.log ?? null} open={open && player != null} onOpenChange={setOpen} />
     </div>
   );
 }

@@ -30,8 +30,22 @@ const Open = createContext<(p: PlayerSeed) => void>(() => {});
 // that as a snap from one size to the other. A slower log opens on the skeleton and grows.
 const HOLD_MS = 180;
 
-type Fetch = { promise: Promise<PlayerLog>; log?: PlayerLog };
-type Shown = { seed: PlayerSeed; fetch: Fetch };
+export type LogFetch = { promise: Promise<PlayerLog>; log?: PlayerLog };
+type Shown = { seed: PlayerSeed; fetch: LogFetch };
+
+// A tap's request for the log, with `log` set as soon as it lands.
+export function fetchLog(id: number): LogFetch {
+  const fetch: LogFetch = { promise: clientGet<PlayerLog>(`/player/${id}`) };
+  // registered before any race on it, so `log` is set by the time the race settles
+  fetch.promise.then((log) => { fetch.log = log; }, () => {});
+  return fetch;
+}
+
+// Settles when the log lands or HOLD_MS passes, whichever is first: when to open a dialog that
+// shows it (the Matchup breakdown waits on it the same way).
+export function holdFor(fetch: LogFetch): Promise<void> {
+  return Promise.race([fetch.promise.then(() => {}, () => {}), new Promise<void>((r) => setTimeout(r, HOLD_MS))]);
+}
 
 export function PlayerDialogProvider({ children }: { children: React.ReactNode }) {
   const [shown, setShown] = useState<Shown | null>(null);
@@ -39,11 +53,8 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
   const latest = useRef(0);
   const show = useCallback((p: PlayerSeed) => {
     const tap = ++latest.current;
-    const fetch: Fetch = { promise: clientGet<PlayerLog>(`/player/${p.player_id}`) };
-    // registered before the race below, so `log` is set by the time the race settles
-    fetch.promise.then((log) => { fetch.log = log; }, () => {});
-    const hold = new Promise((r) => setTimeout(r, HOLD_MS));
-    void Promise.race([fetch.promise.catch(() => {}), hold]).then(() => {
+    const fetch = fetchLog(p.player_id);
+    void holdFor(fetch).then(() => {
       if (tap !== latest.current) return; // a later tap took over
       setShown({ seed: p, fetch });
       setOpen(true);
@@ -76,35 +87,48 @@ export function PlayerTrigger({ p, className = "", children }: { p: PlayerSeed; 
 type Load = { state: "loading" } | { state: "ready"; log: PlayerLog } | { state: "error" };
 
 // The log the tap already asked for; a retry asks again.
-function Body({ seed, fetch }: { seed: PlayerSeed; fetch: Fetch }) {
+export function useLog(id: number, fetch: LogFetch) {
   const [load, setLoad] = useState<Load>(() => fetch.log ? { state: "ready", log: fetch.log } : { state: "loading" });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (attempt === 0 && fetch.log) return;
     let current = true;
-    (attempt === 0 ? fetch.promise : clientGet<PlayerLog>(`/player/${seed.player_id}`))
+    (attempt === 0 ? fetch.promise : clientGet<PlayerLog>(`/player/${id}`))
       .then((log) => current && setLoad({ state: "ready", log }))
       .catch(() => current && setLoad({ state: "error" }));
     return () => { current = false; };
-  }, [seed.player_id, fetch, attempt]);
+  }, [id, fetch, attempt]);
   const retry = () => { setLoad({ state: "loading" }); setAttempt((n) => n + 1); };
-  const grow = useGrow(load.state);
+  return { load, retry };
+}
+
+function Body({ seed, fetch }: { seed: PlayerSeed; fetch: LogFetch }) {
+  const { load, retry } = useLog(seed.player_id, fetch);
   return (
     <>
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined} />
       <div className="overflow-y-auto overscroll-contain">
-        <div ref={grow} className="overflow-hidden px-4 pt-4 pb-5">
-          {load.state === "loading" && <Loading />}
-          {load.state === "error" && (
-            <div className="log-in py-2">
-              <p className="text-sm text-muted-foreground">ESPN&apos;s game log didn&apos;t load.</p>
-              <Button size="sm" variant="outline" className="mt-2.5" onClick={retry}>Retry</Button>
-            </div>
-          )}
-          {load.state === "ready" && <Seasons log={load.log} />}
-        </div>
+        <LogBody load={load} retry={retry} className="px-4 pt-4 pb-5" />
       </div>
     </>
+  );
+}
+
+// The log in its states: the skeleton, the error with its retry, the seasons. Its height follows
+// a change of state (useGrow).
+export function LogBody({ load, retry, className = "" }: { load: Load; retry: () => void; className?: string }) {
+  const grow = useGrow(load.state);
+  return (
+    <div ref={grow} className={`overflow-hidden ${className}`}>
+      {load.state === "loading" && <Loading />}
+      {load.state === "error" && (
+        <div className="log-in py-2">
+          <p className="text-sm text-muted-foreground">ESPN&apos;s game log didn&apos;t load.</p>
+          <Button size="sm" variant="outline" className="mt-2.5" onClick={retry}>Retry</Button>
+        </div>
+      )}
+      {load.state === "ready" && <Seasons log={load.log} />}
+    </div>
   );
 }
 
@@ -186,7 +210,7 @@ function Seasons({ log }: { log: PlayerLog }) {
 
 // A section heading as the Roster page sets its groups: the title in the board face, its count
 // beside it, the hairline running out to the right.
-function Heading({ id, title, note, stale }: { id: string; title: string; note?: string; stale?: string | null }) {
+export function Heading({ id, title, note, stale }: { id: string; title: string; note?: string; stale?: string | null }) {
   return (
     <h3 id={id} className="flex items-baseline gap-3">
       <span className="shrink-0 font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</span>
