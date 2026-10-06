@@ -46,7 +46,7 @@ it is the one manager's own instrument.
 - **Data flow:** FastAPI (`ffl/api.py`, 127.0.0.1:8300) serves pure computations from `ffl/season.py`; Next 16 server components fetch it through a `/api/*` rewrite. ESPN is read via authenticated cookies; injuries from ESPN's public feed with a 30-min cache and last-good fallback, so data can be stale and the UI already carries a stale badge.
 - **Outlooks:** the paragraph under each Roster card is written by `claude -p` from a fact sheet, cached per week under a hash of the facts, regenerated hourly by launchd. GETs never generate. Outlook text never changes the call.
 - **Record:** `journal/DECISIONS.md` (every roster decision, reasoning, alternatives), `journal/transactions.csv`, `journal/results/` (weekly.csv, standings.md), `journal/draft/picks.csv`. The UI can append decisions (decision form) and trigger a sync (Refresh).
-- **Pages:** Matchup (default, the head-to-head), Roster, League, Waivers, Journal, Draft.
+- **Pages:** Matchup (default, the head-to-head), Roster, League, Players (every player in the league; a Free agents toggle, on by default, is the waiver view), Journal, Draft.
 
 ## Capabilities and Constraints
 

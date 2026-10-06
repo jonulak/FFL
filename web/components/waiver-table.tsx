@@ -341,11 +341,11 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
   const [open, setOpen] = useState<Set<number>>(new Set());
   const toggle = (id: number) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   if (rows.length === 0) {
-    // every rostered player is in the pool, the free agents only to ESPN's top 60 at each position
+    // every rostered player is in the pool, the free agents only to ESPN's top 150 at each position (espn_season.POOL_SIZE)
     return (
       <p className="max-w-[60ch] py-6 text-sm text-muted-foreground">
         {q
-          ? <>No player matching <span className="font-medium text-foreground">&ldquo;{q}&rdquo;</span>, rostered or among ESPN&apos;s top 60 free agents at each position.</>
+          ? <>No player matching <span className="font-medium text-foreground">&ldquo;{q}&rdquo;</span>, rostered or among ESPN&apos;s top 150 free agents at each position.</>
           : fa ? <>ESPN lists no free agents at {pos} right now.</> : <>Nobody at {pos} right now.</>}
       </p>
     );

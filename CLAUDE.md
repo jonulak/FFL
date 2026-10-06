@@ -74,7 +74,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   Judge it with `ffl.replay` on real logs, not by tuning it until a simulation looks right.
 - Projections: `proj` is the mean of ESPN (`proj_espn`, league-scored by ESPN) and Sleeper (`proj_sleeper`, raw stats rescored
   in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
-- Rest-of-season projections (the Waivers `add` column) are `ffl/espn_season.py::season_lookup(settings, week)`:
+- Rest-of-season projections (the Players page's `add` column) are `ffl/espn_season.py::season_lookup(settings, week)`:
   Sleeper's weekly projections for weeks w..18 summed (`sleeper_ros`, through the per-week `_sleeper_for` cache;
   any failed week drops Sleeper's ROS for that build rather than undercount) averaged with CBS's public
   rest-of-season pages (`ffl/cbs.py`, QB/RB/WR/TE only, rescored, 30-min cache, last-good on failure). Every
@@ -111,6 +111,13 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production
   runs from the main checkout under launchd (`launchd/`), on :3300, exposed tailnet-only via
   `tailscale serve` at https://macbook-pro.tailnet.ts.net:3300. Ports 3000/8000 are other projects'.
+- **Players page** (`/players`, was Waivers; `/waivers` redirects with its query): `GET /players?pos=&q=&fa=`.
+  `espn_season.free_agent_pool` returns `positions` (free agents only, `POOL_SIZE` deep per position: claims,
+  the waiver outlook and the calibration snapshot read it, so it must never carry a rostered player) and
+  `rostered` (every rostered player through the same `waiver_deltas`, "worth to me", tagged `owner`/`mine`;
+  my own rows carry no add or deltas). `fa=1` (default) serves `positions[pos]`, `fa=0` adds `rostered[pos]`,
+  and `q` searches both halves at every position whatever `fa` says; `season.rank_players` keeps one row per
+  player (the rostered one wins) by add, None last. The Free agents toggle is URL state (`fa=0` only).
 - A League scoreboard tile opens that game on the Matchup board at `/league/<week>/<away team id>`
   (`GET /week/{n}?team=`, `week_state(team=)`). The payload's `me`/`opp` are the board's left/right sides:
   I stand left of my own game (`mine: true`), any other game reads away then home. No play feed off my game;
@@ -178,7 +185,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   GETs never generate. `POST /outlook/refresh` starts a locked background run; `launchd/com.jonulak.ffl-outlook`
   curls it at five past every hour. One card is rewritten on a click (the card footer's Rewrite):
   `POST /outlook/{id}` → `outlook.start_one(kind=ROSTER)`, stored with the fact hash so the hourly run skips
-  him; it and the full run refuse each other (409), since the run rewrites the file it loaded. A free agent's outlook is written only on a click (the Waivers row's
+  him; it and the full run refuse each other (409), since the run rewrites the file it loaded. A free agent's outlook is written only on a click (the Players row's
   "outlook" dialog): `POST /waivers/outlook/{id}` runs `outlook.start_one` (same sheet with `free_agent=True`:
   no call, a claim-framed Take; WORKERS in flight at most) into `data/outlook/waivers-week-<n>.json`, apart
   from the Roster file; the dialog polls `GET /waivers/outlook/{id}`. The CLI must be logged in for the launchd user (`claude -p` from a plain

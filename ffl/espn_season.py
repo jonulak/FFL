@@ -973,7 +973,13 @@ def roster_flags(lg) -> dict[int, dict]:
     return parse_roster_flags(raw_league_get("mRoster"), my_team_id(lg))
 
 
-def free_agent_pool(week: int | None = None, size: int = 60, sleeper: dict | None = None,
+# How deep the Players page's free-agent half goes at each position, by ownership. Measured
+# 2026-10-06: the build took 3.1 s at 60, 2.9 s at 100, 2.7 s at 150 (the calls run in parallel and
+# the payload is not the cost). ESPN runs out first at QB (100), D/ST (19) and K (48).
+POOL_SIZE = 150
+
+
+def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sleeper: dict | None = None,
                     season: dict | None = None, injuries: dict | None = None,
                     snaps: dict | None = None) -> dict:
     """The Players page's pool: `positions` holds the free agents ranked for a claim (claims, the
