@@ -443,6 +443,8 @@ def test_a_matchup_is_final_once_every_starters_game_is_over():
     assert not season.matchup_final(m, {"ATL": {"status": "post"}, "NO": {"status": "in"}})
     assert season.matchup_final(m, {"ATL": {"status": "post"}, "NO": {"status": "post"}}), "the feed's whistle, before ESPN"
     assert not season.matchup_final({"home": {"starter_ids": []}, "away": {"starter_ids": []}}), "a future week"
+    late = {"home": {**side([]), "starter_teams": ["NO"]}, "away": side([])}
+    assert not season.matchup_final(late, {"NO": {"status": "in"}}), "ESPN calls it played at three hours; the feed says on"
 
 
 @pytest.mark.parametrize("q,name,team,hit", [

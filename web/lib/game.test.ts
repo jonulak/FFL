@@ -25,6 +25,10 @@ describe("gamePhase", () => {
     expect(gamePhase(p({ game_played: 100 }), T0 - 60_000)).toBe("final");
     expect(gamePhase(p({ game_played: 100, actual: 0 }), T0 + 4 * 3_600_000)).toBe("final");
   });
+  it("stays live while the feed has the game on, though ESPN already calls it played", () => {
+    const game = { status: "in" as const, quarter: 4, clock: "1:13", score: {} };
+    expect(gamePhase(p({ game_played: 100, game }), T0 + 3.2 * 3_600_000)).toBe("live");
+  });
   it("a bye or an unscheduled player stays pending", () => {
     expect(gamePhase(p({ bye: true, kickoff: null }), T0 + 3_600_000)).toBe("pending");
     expect(gamePhase(p({ kickoff: null }), T0 + 3_600_000)).toBe("pending");

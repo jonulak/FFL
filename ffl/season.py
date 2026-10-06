@@ -497,10 +497,15 @@ def draft_entry(picks: list[dict], player_id: int, clubs: dict[int, dict]) -> di
 def matchup_final(m: dict, games: dict[str, dict] | None = None) -> bool:
     """A League scoreboard matchup's score is final: both sides have a lineup and every starter's
     game is over, by ESPN's game_played (a side's `pending_teams` are the clubs it does not yet
-    call played) or, sooner, by the live feed's whistle (`games`, team -> status "post")."""
+    call played) or, sooner, by the live feed's whistle (`games`, team -> status "post"). A game
+    the feed has in progress is never over: ESPN's game_played flips three hours after kickoff,
+    game or no game, and a Monday night game runs past that."""
     sides = (m["home"], m["away"])
     if not all(s.get("starter_ids") for s in sides):
         return False  # a future week's pairing: no lineups, nothing played
+    games = games or {}
+    if any(games.get(t, {}).get("status") == "in" for s in sides for t in s.get("starter_teams") or []):
+        return False
     return all((games or {}).get(t, {}).get("status") == "post" for s in sides for t in s.get("pending_teams") or [])
 
 
