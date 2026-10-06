@@ -52,11 +52,14 @@ export const HISTORY_LABEL: Record<PlayerTx["kind"], string> = {
   dropped: "Dropped",
   trade: "Traded",
   traded: "Traded",
+  draft: "Drafted",
 };
 
-// The other half of a move, as the caption under it: who was cut for him, who he was cut for, or
-// what went the other way in a trade and from whom. Null when there was no other half.
+// The caption under a move: for a draft pick where it fell, else the other half of the move (who
+// was cut for him, who he was cut for, or what went the other way in a trade and from whom).
+// Null when there was no other half.
 export function historyDetail(h: PlayerTx): string | null {
+  if (h.kind === "draft") return h.round != null ? `Round ${h.round} · Pick ${h.pick} · #${h.overall} overall` : null;
   const names = h.with.join(", ");
   if (h.kind === "traded") return [h.from && `from ${h.from.team.trim()}`, names && `for ${names}`].filter(Boolean).join(" ");
   return names ? `for ${names}` : null;
@@ -66,6 +69,12 @@ export function historyDetail(h: PlayerTx): string | null {
 export function shortDate(at: string): string {
   const d = new Date(at);
   return Number.isNaN(d.getTime()) ? at : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// The row's when: "Sep 18 · Wk 2", "Sep 7 · Draft"; a pick from ESPN's draft has no date, "Draft".
+export function historyWhen(h: PlayerTx): string {
+  const when = h.kind === "draft" ? "Draft" : h.week > 0 ? `Wk ${h.week}` : "Pre";
+  return h.at ? `${shortDate(h.at)} · ${when}` : when;
 }
 
 // "Tue, Sep 16 · 3:05 AM" off the log's local stamp (the box's zone, which is the reader's).

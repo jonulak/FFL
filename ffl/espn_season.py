@@ -1136,6 +1136,26 @@ def transactions_state() -> dict:
             "teams": sorted(clubs.values(), key=lambda c: c["team"].lower())}
 
 
+def draft_picks() -> list[dict]:
+    """Every pick of the draft: overall, round, pick in the round, team id and name, player id,
+    and when (the log's stamp). journal/draft/picks.csv is the record; when it is missing, empty
+    or unreadable, ESPN's own draft (League.draft, complete once the draft is done) stands in, in
+    pick order, with no time (ESPN keeps none)."""
+    picks_csv = JOURNAL / "draft" / "picks.csv"
+    try:
+        with picks_csv.open() as f:
+            rows = [{"overall": int(r["overall"]), "round": int(r["round"]), "pick": int(r["pick"]),
+                     "team_id": int(r["team_id"]), "team": r.get("team", ""), "player_id": int(r["player_id"]),
+                     "at": r.get("ts") or None} for r in csv.DictReader(f)]
+        if rows:
+            return rows
+    except (OSError, KeyError, ValueError) as e:
+        print(f"draft log unreadable, reading ESPN's draft: {e}")
+    return [{"overall": i, "round": p.round_num, "pick": p.round_pick, "team_id": p.team.team_id,
+             "team": p.team.team_name, "player_id": p.playerId, "at": None}
+            for i, p in enumerate(fresh_league().draft, 1)]
+
+
 def draft_recap() -> dict:
     picks_csv = JOURNAL / "draft" / "picks.csv"
     recap = JOURNAL / "draft" / "recap.md"

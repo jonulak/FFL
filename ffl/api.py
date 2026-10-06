@@ -398,7 +398,17 @@ def player_transactions(player_id: int):
     """One player's moves this season (the season modal's Transactions section), off the cached
     /transactions payload: no ESPN call of its own."""
     data = _serve("transactions", espn_season.transactions_state)
-    return {"history": season.player_transactions(data["moves"], player_id), "stale_since": data["stale_since"]}
+    history = season.player_transactions(data["moves"], player_id)
+    try:  # the draft row is the oldest; a draft that cannot be read leaves the moves standing
+        picks = cache.get_or_build("draft_picks", lambda: {"picks": espn_season.draft_picks()}, DRAFT_TTL)[0]["picks"]
+        pick = season.draft_entry(picks, player_id, {c["team_id"]: c for c in data.get("teams", [])})
+    except Exception as e:  # noqa: BLE001 — HTTPException from the cache included
+        print(f"draft pick unavailable for {player_id}: {e}")
+        pick = None
+    return {"history": history + ([pick] if pick else []), "stale_since": data["stale_since"]}
+
+
+DRAFT_TTL = 24 * 3600.0  # the draft is over; the record does not move
 
 
 @app.get("/draft")

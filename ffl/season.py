@@ -495,6 +495,19 @@ def player_transactions(moves: list[dict], player_id: int) -> list[dict]:
     return out
 
 
+def draft_entry(picks: list[dict], player_id: int, clubs: dict[int, dict]) -> dict | None:
+    """His draft pick (espn_season.draft_picks) as a history entry, under the drafting team's
+    current name and mark (`clubs`, team id -> club); a team gone keeps the logged name. None
+    when he went undrafted."""
+    p = next((p for p in picks if p["player_id"] == player_id), None)
+    if p is None:
+        return None
+    club = clubs.get(p["team_id"]) or {"team": p.get("team", ""), "abbrev": "", "logo": ""}
+    return {"id": f"draft-{p['overall']}", "at": p.get("at"), "week": 0, "kind": "draft",
+            "team_id": p["team_id"], "team": club["team"], "abbrev": club.get("abbrev", ""), "logo": club.get("logo", ""),
+            "with": [], "from": None, "round": p["round"], "pick": p["pick"], "overall": p["overall"]}
+
+
 def matchup_final(m: dict, games: dict[str, dict] | None = None) -> bool:
     """A League scoreboard matchup's score is final: both sides have a lineup and every starter's
     game is over, by ESPN's game_played (a side's `pending_teams` are the clubs it does not yet

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlayerTx, TxMove, TxPlayer } from "./api";
-import { byWeek, filterMoves, historyDetail, pairs, stamp, weekLabel } from "./transactions";
+import { byWeek, filterMoves, historyDetail, historyWhen, pairs, stamp, weekLabel } from "./transactions";
 
 const p = (id: number): TxPlayer => ({ player_id: id, name: `P${id}`, pos: "WR", team: "ATL" });
 const side = (team_id: number, added: TxPlayer[] = [], dropped: TxPlayer[] = []) =>
@@ -56,6 +56,20 @@ describe("historyDetail", () => {
   });
   it("says nothing for a lone move", () => {
     expect(historyDetail(h("dropped", []))).toBeNull();
+  });
+  it("places a draft pick", () => {
+    expect(historyDetail({ ...h("draft", []), round: 3, pick: 4, overall: 24 })).toBe("Round 3 · Pick 4 · #24 overall");
+  });
+});
+
+describe("historyWhen", () => {
+  const base = { id: "x", team_id: 1, team: "T1", abbrev: "", logo: "", with: [], from: null };
+  it("reads the date and the week", () => {
+    expect(historyWhen({ ...base, at: "2026-09-18T00:53", week: 2, kind: "free_agent" })).toBe("Sep 18 · Wk 2");
+    expect(historyWhen({ ...base, at: "2026-09-07T19:40:00", week: 0, kind: "draft" })).toBe("Sep 7 · Draft");
+  });
+  it("keeps to Draft when ESPN's draft had no time", () => {
+    expect(historyWhen({ ...base, at: null, week: 0, kind: "draft" })).toBe("Draft");
   });
 });
 

@@ -124,6 +124,11 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   `espn_season.transactions_state` dresses sides with the current club (teams get renamed) and players with
   pos/NFL team (`tx_player_info`: one `kona_player_info` call per 40 ids, no `limit` in the filter (ESPN 400s on
   it), D/ST derived from the id). Journal keeps only the decisions log.
+  `GET /player/{id}/transactions` is one player's slice (`season.player_transactions`) plus his draft pick
+  (`season.draft_entry` over `espn_season.draft_picks`: `journal/draft/picks.csv`, or ESPN's `League.draft` when
+  the CSV is missing, empty or unreadable). Both player dialogs render it through `PlayerRecord`
+  (`web/components/player-dialog.tsx`), the shared log + past seasons + transactions block; add a data section
+  there, not to one dialog.
 - Every player dict carries `home` (True hosts, False travels, None unknown): espn-api drops the venue,
   so `espn_season.home_by_team` re-reads ESPN's `proTeamSchedules_wl` view, cached per League build,
   and a failed read leaves every venue None rather than failing the page. Headshots and logos are

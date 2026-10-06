@@ -96,6 +96,60 @@ def test_player_history_lone_drop_and_none():
     assert S.player_transactions(_moves(), 999) == []
 
 
+PICKS = [{"overall": 24, "round": 3, "pick": 4, "team_id": 6, "team": "henry's Imposing Team", "player_id": 101,
+          "at": "2026-09-07T19:40:00"}]
+CLUBS = {6: {"team_id": 6, "team": "Daejon Love Fan Club", "abbrev": "DLFC", "logo": "x.png"}}
+
+
+def test_draft_entry_is_his_pick_under_the_current_club():
+    h = S.draft_entry(PICKS, 101, CLUBS)
+    assert h["kind"] == "draft" and (h["round"], h["pick"], h["overall"]) == (3, 4, 24)
+    assert h["team"] == "Daejon Love Fan Club" and h["logo"] == "x.png", "a renamed team reads its current name"
+    assert h["week"] == 0 and h["with"] == [] and h["from"] is None
+    assert S.draft_entry(PICKS, 999, CLUBS) is None
+
+
+def test_draft_entry_keeps_the_logged_name_for_a_team_gone():
+    assert S.draft_entry(PICKS, 101, {})["team"] == "henry's Imposing Team"
+
+
+def test_draft_picks_read_the_csv(monkeypatch, tmp_path):
+    from ffl import espn_season as E
+    (tmp_path / "draft").mkdir()
+    (tmp_path / "draft" / "picks.csv").write_text(
+        "overall,round,pick,team_id,team,player_id,player,pos,nfl,adp_2qb,board_rank_at_pick,proj,ts\n"
+        "24,3,4,6,henry's Imposing Team,101,Drake London,WR,ATL,20,21,200,2026-09-07T19:40:00\n")
+    monkeypatch.setattr(E, "JOURNAL", tmp_path)
+    monkeypatch.setattr(E, "fresh_league", lambda: (_ for _ in ()).throw(AssertionError("no ESPN call")))
+    assert E.draft_picks() == PICKS
+
+
+def test_draft_picks_fall_back_to_espn_when_the_csv_is_lost(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from ffl import espn_season as E
+    monkeypatch.setattr(E, "JOURNAL", tmp_path)  # no draft/picks.csv here
+    t = SimpleNamespace(team_id=6, team_name="Daejon Love Fan Club")
+    draft = [SimpleNamespace(playerId=7, round_num=1, round_pick=1, team=t),
+             SimpleNamespace(playerId=101, round_num=1, round_pick=2, team=t)]
+    monkeypatch.setattr(E, "fresh_league", lambda: SimpleNamespace(draft=draft))
+    got = E.draft_picks()
+    assert got[1] == {"overall": 2, "round": 1, "pick": 2, "team_id": 6, "team": "Daejon Love Fan Club",
+                      "player_id": 101, "at": None}
+
+
+def test_draft_picks_fall_back_on_an_empty_csv(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from ffl import espn_season as E
+    (tmp_path / "draft").mkdir()
+    (tmp_path / "draft" / "picks.csv").write_text("overall,round,pick,team_id,team,player_id,player\n")
+    monkeypatch.setattr(E, "JOURNAL", tmp_path)
+    t = SimpleNamespace(team_id=6, team_name="T")
+    monkeypatch.setattr(E, "fresh_league", lambda: SimpleNamespace(draft=[SimpleNamespace(playerId=5, round_num=1, round_pick=1, team=t)]))
+    assert [p["player_id"] for p in E.draft_picks()] == [5]
+
+
 def test_player_info_reads_kona_and_derives_a_dst(monkeypatch):
     from ffl import espn_season as E
     seen = {}

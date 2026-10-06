@@ -18,7 +18,7 @@ import { columns, NAME_LINK, ptsText, seasonPts, seasonRank, weekLabel } from "@
 import { volumeText } from "@/lib/box";
 import { teamHref } from "@/lib/team-link";
 import { clubLogoSrc } from "@/lib/teams";
-import { HISTORY_LABEL, historyDetail, shortDate } from "@/lib/transactions";
+import { HISTORY_LABEL, historyDetail, historyWhen } from "@/lib/transactions";
 import { BoxTable } from "./box-table";
 import { ClubLogo } from "./club-logo";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
@@ -37,18 +37,17 @@ const Open = createContext<(p: PlayerSeed) => void>(() => {});
 // that as a snap from one size to the other. A slower log opens on the skeleton and grows.
 const HOLD_MS = 180;
 
-export type LogFetch = { promise: Promise<PlayerLog>; log?: PlayerLog };
-type Shown = { seed: PlayerSeed; fetch: LogFetch; history: Promise<PlayerTx[]> };
+// `history`: his moves (the draft pick included), asked for in the same tap so they land with the
+// log (the API answers from cached payloads). A failure is no history: the section is left out.
+export type LogFetch = { promise: Promise<PlayerLog>; log?: PlayerLog; history: Promise<PlayerTx[]> };
+type Shown = { seed: PlayerSeed; fetch: LogFetch };
 
-// His moves this season, asked for with the log so they land together (the API answers from its
-// cached /transactions payload). A failure is no history: the section is left out.
-function fetchHistory(id: number): Promise<PlayerTx[]> {
-  return clientGet<{ history: PlayerTx[] }>(`/player/${id}/transactions`).then((d) => d.history, () => []);
-}
-
-// A tap's request for the log, with `log` set as soon as it lands.
+// A tap's request for the log and the history, with `log` set as soon as it lands.
 export function fetchLog(id: number): LogFetch {
-  const fetch: LogFetch = { promise: clientGet<PlayerLog>(`/player/${id}`) };
+  const fetch: LogFetch = {
+    promise: clientGet<PlayerLog>(`/player/${id}`),
+    history: clientGet<{ history: PlayerTx[] }>(`/player/${id}/transactions`).then((d) => d.history, () => []),
+  };
   // registered before any race on it, so `log` is set by the time the race settles
   fetch.promise.then((log) => { fetch.log = log; }, () => {});
   return fetch;
@@ -67,10 +66,9 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
   const show = useCallback((p: PlayerSeed) => {
     const tap = ++latest.current;
     const fetch = fetchLog(p.player_id);
-    const history = fetchHistory(p.player_id);
     void holdFor(fetch).then(() => {
       if (tap !== latest.current) return; // a later tap took over
-      setShown({ seed: p, fetch, history });
+      setShown({ seed: p, fetch });
       setOpen(true);
     });
   }, []);
@@ -79,7 +77,7 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
       {children}
       <Dialog open={open && shown != null} onOpenChange={setOpen}>
         <DialogContent className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
-          {shown && <Body key={shown.seed.player_id} seed={shown.seed} fetch={shown.fetch} history={shown.history} />}
+          {shown && <Body key={shown.seed.player_id} seed={shown.seed} fetch={shown.fetch} />}
         </DialogContent>
       </Dialog>
     </Open.Provider>
@@ -121,30 +119,43 @@ export function useLog(id: number, fetch: LogFetch) {
   return { load, retry };
 }
 
-function Body({ seed, fetch, history }: { seed: PlayerSeed; fetch: LogFetch; history: Promise<PlayerTx[]> }) {
+function Body({ seed, fetch }: { seed: PlayerSeed; fetch: LogFetch }) {
   const { load, retry } = useLog(seed.player_id, fetch);
-  const [moves, setMoves] = useState<PlayerTx[]>([]);
-  useEffect(() => {
-    let current = true;
-    void history.then((h) => current && setMoves(h));
-    return () => { current = false; };
-  }, [history]);
   return (
     <>
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined}
         rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
       <div className="overflow-y-auto overscroll-contain">
-        <LogBody load={load} retry={retry} className="px-4 pt-4 pb-5" />
-        {/* under the seasons, once they are in: above the skeleton it would be pushed down by the log */}
-        {load.state === "ready" && moves.length > 0 && <History moves={moves} />}
+        <PlayerRecord load={load} retry={retry} fetch={fetch} className="px-4 pt-4 pb-5" />
       </div>
     </>
   );
 }
 
-// His moves this season, newest first: the fantasy team (its mark and name, which closes the
-// modal onto that team's roster), what the move was in a muted chip, the date and week, and the
-// other half of the pair beneath. A player with no moves has no section.
+// His record, the data both player modals show under their own header (the season modal here,
+// the Matchup breakdown in box-score-dialog.tsx, after its week): this season's weeks, the past
+// seasons, then his transactions. One component so the two cannot drift: a section added here
+// shows in both.
+export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Load; retry: () => void; fetch: LogFetch; className?: string }) {
+  const [moves, setMoves] = useState<PlayerTx[]>([]);
+  useEffect(() => {
+    let current = true;
+    void fetch.history.then((h) => current && setMoves(h));
+    return () => { current = false; };
+  }, [fetch]);
+  return (
+    <>
+      <LogBody load={load} retry={retry} className={className} />
+      {/* under the seasons, once they are in: above the skeleton it would be pushed down by the log */}
+      {load.state === "ready" && moves.length > 0 && <History moves={moves} />}
+    </>
+  );
+}
+
+// His moves this season, newest first, his draft pick last: the fantasy team (its mark and name,
+// which closes the modal onto that team's roster), what the move was in a muted chip, the date and
+// week, and beneath it the other half of the pair, or where the pick fell. Undrafted and never
+// moved: no section.
 function History({ moves }: { moves: PlayerTx[] }) {
   return (
     <section aria-labelledby="season-moves" className="log-in space-y-1.5 px-4 pt-2 pb-5">
@@ -168,7 +179,7 @@ function History({ moves }: { moves: PlayerTx[] }) {
               <div className="shrink-0 text-right">
                 <Badge variant="muted" shape="chip">{HISTORY_LABEL[h.kind]}</Badge>
                 <p className="mt-1 text-xs leading-4 tabular-nums text-muted-foreground">
-                  {shortDate(h.at)} · {h.week > 0 ? `Wk ${h.week}` : "Pre"}
+                  {historyWhen(h)}
                 </p>
               </div>
             </li>
@@ -181,7 +192,7 @@ function History({ moves }: { moves: PlayerTx[] }) {
 
 // The log in its states: the skeleton, the error with its retry, the seasons. Its height follows
 // a change of state (useGrow).
-export function LogBody({ load, retry, className = "" }: { load: Load; retry: () => void; className?: string }) {
+function LogBody({ load, retry, className = "" }: { load: Load; retry: () => void; className?: string }) {
   const grow = useGrow(load.state);
   return (
     <div ref={grow} className={`overflow-hidden ${className}`}>

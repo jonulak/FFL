@@ -173,11 +173,14 @@ export type TxPlayer = { player_id: number; name: string; pos: string | null; te
 export type TxSide = { team_id: number; team: string; abbrev: string; logo: string; added: TxPlayer[]; dropped: TxPlayer[] };
 export type TxMove = { id: string; ms: number; at: string; kind: "waiver" | "free_agent" | "drop" | "trade"; week: number; sides: TxSide[] };
 export type Transactions = { me: number; current_week: number; moves: TxMove[]; teams: Club[]; stale_since: string | null };
-// GET /player/{id}/transactions: his moves read from the side he was on (season.player_transactions).
+// GET /player/{id}/transactions: his moves read from the side he was on (season.player_transactions),
+// newest first, then his draft pick (season.draft_entry) with round, pick in the round and overall.
+// `at` is null on a pick read from ESPN's draft (the backup when journal/draft/picks.csv is lost).
 export type PlayerTx = {
-  id: string; at: string; week: number; kind: TxMove["kind"] | "dropped" | "traded";
+  id: string; at: string | null; week: number; kind: TxMove["kind"] | "dropped" | "traded" | "draft";
   team_id: number; team: string; abbrev: string; logo: string;
   with: string[]; from: { team_id: number; team: string } | null;
+  round?: number; pick?: number; overall?: number;
 };
 export type Draft ={ picks: Record<string, string>[]; recap_md: string; stale_since: null };
 

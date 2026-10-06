@@ -7,7 +7,7 @@ import { pts } from "@/lib/format";
 import { seasonRank } from "@/lib/player-log";
 import { BoxTable } from "./box-table";
 import { BAND_CLOSE, PlayerHeader } from "./player-header";
-import { Heading, LogBody, useLog, type LogFetch } from "./player-dialog";
+import { Heading, PlayerRecord, useLog, type LogFetch } from "./player-dialog";
 
 // One player's points taken apart, in a matchup view: this week first, then his season log (this
 // season's weeks and the games ahead, and the past seasons) as the season modal sets it, under the
@@ -52,7 +52,7 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
             {off && <> <span aria-hidden>·</span> ESPN posts {pts(p.actual)}</>}
           </p>
         </section>
-        <LogBody load={load} retry={retry} className="px-4 pt-7 pb-5" />
+        <PlayerRecord load={load} retry={retry} fetch={log} className="px-4 pt-7 pb-5" />
       </div>
     </>
   );

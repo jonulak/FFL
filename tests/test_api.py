@@ -247,8 +247,21 @@ def test_player_transactions_filter_the_cached_moves(client, monkeypatch):
     move = {"id": "5-6", "ms": 5, "at": "2026-09-10T03:05", "kind": "waiver", "week": 1, "sides": [side]}
     monkeypatch.setattr(api.espn_season, "transactions_state",
                         lambda: {"me": 7, "current_week": 5, "moves": [move], "teams": []})
-    assert [h["kind"] for h in client.get("/player/101/transactions").json()["history"]] == ["waiver"]
+    monkeypatch.setattr(api.espn_season, "draft_picks", lambda: [
+        {"overall": 24, "round": 3, "pick": 4, "team_id": 6, "team": "T6", "player_id": 101, "at": None}])
+    got = client.get("/player/101/transactions").json()["history"]
+    assert [h["kind"] for h in got] == ["waiver", "draft"], "the draft is the oldest entry"
     assert client.get("/player/999/transactions").json()["history"] == []
+
+
+def test_player_transactions_survive_a_failed_draft_read(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "transactions_state", lambda: {"me": 7, "current_week": 5, "moves": [], "teams": []})
+
+    def boom():
+        raise RuntimeError("espn down")
+
+    monkeypatch.setattr(api.espn_season, "draft_picks", boom)
+    assert client.get("/player/101/transactions").json()["history"] == []
 
 
 def test_team_overlays_live_points(client, monkeypatch):
