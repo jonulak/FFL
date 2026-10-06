@@ -48,3 +48,20 @@ def test_score_skips_players_without_a_window_or_without_games_since():
             {"player_id": 2, "pos": "RB", "model": 150.0, "l3": 9.0, "weight": 2.0, "games_left": 15}]
     out = calibrate.score([{"week": 3, "rows": rows}], {1: (30.0, 3), 2: (0.0, 0)}, ks=[4])
     assert out == [{"k": 4, "mae": None, "players": 0}]
+
+
+def test_load_sigma_falls_back_without_a_file(tmp_path):
+    assert calibrate.load_sigma(tmp_path / "nope.json") == (season.SIGMA_FALLBACK, "fallback")
+
+
+def test_load_sigma_overlays_the_fit_on_the_fallback(tmp_path):
+    f = tmp_path / "sigma.json"
+    f.write_text(json.dumps({"sigma": {"QB": 9.1}, "n": {"QB": 80}, "weeks": [1, 2, 3, 4]}))
+    sigma, source = calibrate.load_sigma(f)
+    assert source == "calibrated" and sigma["QB"] == 9.1 and sigma["TE"] == season.SIGMA_FALLBACK["TE"]
+
+
+def test_load_sigma_survives_a_corrupt_file(tmp_path):
+    f = tmp_path / "sigma.json"
+    f.write_text("{not json")
+    assert calibrate.load_sigma(f)[1] == "fallback"

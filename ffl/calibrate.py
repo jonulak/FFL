@@ -22,6 +22,17 @@ from .config import DATA
 
 CAL_DIR = DATA / "calibration"
 DEFAULT_KS = [1, 2, 3, 4, 6, 8, 12, 1000]  # 1000 is the model alone, near enough
+SIGMA_FILE = CAL_DIR / "sigma.json"
+
+
+def load_sigma(path: Path = SIGMA_FILE) -> tuple[dict[str, float], str]:
+    """The win meter's fitted spread per position over the fallback table, and which it is; a
+    missing or unreadable file is the fallback, never an error (the meter still draws)."""
+    try:
+        fit = json.loads(path.read_text())
+        return {**S.SIGMA_FALLBACK, **{k: float(v) for k, v in fit["sigma"].items()}}, "calibrated"
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return dict(S.SIGMA_FALLBACK), "fallback"
 
 
 def snapshot_rows(positions: dict[str, list[dict]], week: int) -> list[dict]:

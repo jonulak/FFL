@@ -6,6 +6,7 @@ UI shows can be reproduced in a test. One deliberate exception: is_live() reads 
 """
 from __future__ import annotations
 
+import math
 import unicodedata
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -36,6 +37,64 @@ def playable_proj(p: dict) -> float:
     if p.get("bye") or p.get("injury") in UNPLAYABLE:
         return 0.0
     return float(p.get("proj") or 0.0)
+
+
+# Win probability: context beside the call, never an input to it. The spread of one full unplayed
+# game by position; ffl.calibrate fits the real ones into data/calibration/sigma.json and these
+# stand in for any position the file lacks.
+SIGMA_FALLBACK = {"QB": 7.5, "RB": 7.0, "WR": 7.0, "TE": 5.5, "K": 4.0, "D/ST": 5.5}
+SIGMA_DEFAULT = 6.0
+
+
+def _clock_minutes(clock) -> float:
+    try:
+        m, s = str(clock).split(":")
+        return int(m) + int(s) / 60
+    except (ValueError, AttributeError):
+        return 0.0
+
+
+def game_left(p: dict) -> float:
+    """The share of his game still to play: off the live feed's quarter and clock while it has his
+    game in progress (overtime counts as none left), else 0 once the feed or ESPN's game_played
+    calls it over, else the whole game. The feed wins over game_played, as in matchup_final."""
+    g = p.get("game") or {}
+    if g.get("status") == "in":
+        q = g.get("quarter")
+        if not q:
+            return 1.0
+        if q > 4:
+            return 0.0
+        return max(0.0, min(1.0, (4 - q + _clock_minutes(g.get("clock")) / 15) / 4))
+    if g.get("status") == "post" or int(p.get("game_played") or 0) >= 100:
+        return 0.0
+    return 1.0
+
+
+def side_outlook(lineup: list[dict], sigma: dict[str, float]) -> tuple[float, float]:
+    """One side's starters as (expected final, variance): posted points plus each playable
+    projection scaled by the game left, each adding its position's spread over that share."""
+    mean = var = 0.0
+    for p in lineup:
+        actual, proj, left = float(p.get("actual") or 0), playable_proj(p), game_left(p)
+        if left == 1.0 and actual > 0 and not p.get("game"):
+            # points posted but no clock to read (the feed is down): what is left of his
+            # projection is still to come, the board's own rule (web/lib/game.ts sideTotals)
+            left = max(0.0, proj - actual) / proj if proj > 0 else 0.0
+        mean += actual + proj * left
+        if proj > 0:
+            sd = sigma.get(p.get("pos"), SIGMA_FALLBACK.get(p.get("pos"), SIGMA_DEFAULT))
+            var += sd * sd * left
+    return mean, var
+
+
+def win_prob(a: list[dict], b: list[dict], sigma: dict[str, float]) -> float:
+    """P(side a outscores side b), the margin read as normal; with nothing left to play, the score."""
+    ma, va = side_outlook(a, sigma)
+    mb, vb = side_outlook(b, sigma)
+    if va + vb <= 0:
+        return 1.0 if ma > mb else 0.0 if ma < mb else 0.5
+    return 0.5 * (1 + math.erf((ma - mb) / math.sqrt(2 * (va + vb))))
 
 
 def _entry(slot: str, p: dict | None) -> dict:

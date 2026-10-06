@@ -464,3 +464,80 @@ def test_a_matchup_is_final_once_every_starters_game_is_over():
 ])
 def test_name_matches(q, name, team, hit):
     assert season.name_matches({"name": name, "team": team}, q) is hit
+
+
+# --- win probability ---------------------------------------------------------------------------
+
+def wp_player(pos="WR", proj=10.0, actual=0.0, game=None, game_played=0, bye=False, injury="ACTIVE"):
+    p = {"pos": pos, "proj": proj, "actual": actual, "game_played": game_played, "bye": bye, "injury": injury}
+    if game is not None:
+        p["game"] = game
+    return p
+
+
+def test_game_left_before_during_and_after():
+    assert season.game_left(wp_player()) == 1.0
+    assert season.game_left(wp_player(game={"status": "pre"})) == 1.0
+    assert season.game_left(wp_player(game={"status": "in", "quarter": 1, "clock": "15:00"})) == 1.0
+    assert season.game_left(wp_player(game={"status": "in", "quarter": 3, "clock": "7:30"})) == 0.375
+    assert season.game_left(wp_player(game={"status": "in", "quarter": 2, "clock": "0:00"})) == 0.5  # half
+    assert season.game_left(wp_player(game={"status": "in", "quarter": 5, "clock": "8:00"})) == 0.0  # OT
+    assert season.game_left(wp_player(game={"status": "post"})) == 0.0
+    assert season.game_left(wp_player(game_played=100)) == 0.0
+
+
+def test_feed_in_progress_beats_espn_game_played():
+    # ESPN flips game_played three hours after kickoff; a Monday game can still be on
+    p = wp_player(game={"status": "in", "quarter": 4, "clock": "3:00"}, game_played=100)
+    assert season.game_left(p) == pytest.approx(0.05)
+
+
+def test_game_left_without_quarter_counts_the_whole_game():
+    assert season.game_left(wp_player(game={"status": "in", "quarter": None, "clock": None})) == 1.0
+
+
+def test_identical_sides_are_a_coin_flip():
+    side = [wp_player("QB", 20), wp_player("WR", 12)]
+    assert season.win_prob(side, [dict(p) for p in side], season.SIGMA_FALLBACK) == 0.5
+
+
+def test_favourite_by_one_sigma():
+    import math
+    a, b = [wp_player("TE", 15.5)], [wp_player("TE", 10.0)]   # margin 5.5, sd sqrt(2)*5.5
+    assert season.win_prob(a, b, season.SIGMA_FALLBACK) == pytest.approx(0.5 * (1 + math.erf(0.5)))
+
+
+def test_all_final_is_decided_by_the_score():
+    def done(pts):
+        return [wp_player(actual=pts, game={"status": "post"})]
+    assert season.win_prob(done(100), done(90), season.SIGMA_FALLBACK) == 1.0
+    assert season.win_prob(done(90), done(100), season.SIGMA_FALLBACK) == 0.0
+    assert season.win_prob(done(95), done(95), season.SIGMA_FALLBACK) == 0.5
+
+
+def test_out_and_bye_starters_add_nothing():
+    assert season.side_outlook([wp_player(injury="OUT"), wp_player(bye=True)], season.SIGMA_FALLBACK) == (0.0, 0.0)
+
+
+def test_a_side_of_nobody_still_gets_finite_odds():
+    p = season.win_prob([wp_player(injury="OUT")], [wp_player("QB", 18)], season.SIGMA_FALLBACK)
+    assert 0.0 < p < 0.5
+
+
+def test_mid_game_counts_posted_points_plus_the_share_left():
+    p = wp_player("RB", proj=16.0, actual=6.0, game={"status": "in", "quarter": 3, "clock": "15:00"})
+    assert season.side_outlook([p], {"RB": 8.0}) == (6.0 + 16.0 * 0.5, 64.0 * 0.5)
+
+
+def test_posted_points_without_a_clock_carry_the_rest_of_the_projection():
+    p = wp_player("RB", proj=16.0, actual=6.0)          # feed down mid-game
+    assert season.side_outlook([p], {"RB": 8.0}) == (16.0, 64.0 * 10 / 16)
+    beat = wp_player("RB", proj=16.0, actual=20.0)     # already past his projection
+    assert season.side_outlook([beat], {"RB": 8.0}) == (20.0, 0.0)
+
+
+def test_missing_position_sigma_falls_back():
+    _, var = season.side_outlook([wp_player("K", 8.0)], {})
+    assert var == season.SIGMA_FALLBACK["K"] ** 2
+    _, var = season.side_outlook([wp_player("LB", 8.0)], {})
+    assert var == season.SIGMA_DEFAULT ** 2
