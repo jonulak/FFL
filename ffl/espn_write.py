@@ -1,4 +1,4 @@
-"""The only code that writes to ESPN: waiver claims on the fantasy write host, with the .env cookies.
+"""The only code that writes to ESPN: waiver claims and lineup moves on the fantasy write host, with the .env cookies.
 
 ESPN's write API is undocumented; the shapes are what its own web app sent (spike ffl-ut0.1,
 tests/fixtures/espn_write). FFL_WRITES=0 swaps ESPN for an in-memory store so dev and tests exercise
@@ -104,6 +104,31 @@ def parse_pending(doc: dict, team_id: int) -> list[dict]:
 def reorder_body(ids: list[str]) -> list[dict]:
     """ESPN's reorder call: every pending claim's id with its new priority, 1 first."""
     return [{"id": i, "subOrder": n} for n, i in enumerate(ids, 1)]
+
+
+# ESPN's lineupSlotId by slot name (espn-api's POSITION_MAP inverted; WR=4 and FLEX=23 seen in the 2026-10-07 capture).
+SLOT_ID = {"QB": 0, "RB": 2, "RB/WR": 3, "WR": 4, "WR/TE": 5, "TE": 6, "OP": 7, "D/ST": 16, "K": 17,
+           "BE": 20, "IR": 21, "RB/WR/TE": 23}
+
+
+def lineup_body(items: list[tuple[int, str, str]], week: int, team_id: int, member_id: str) -> dict:
+    """ESPN's lineup move (captured off its team page, tests/fixtures/espn_write/lineup_request.json): one
+    ROSTER transaction with a LINEUP item for every player whose slot changes."""
+    return {"isLeagueManager": False, "teamId": team_id, "type": "ROSTER", "memberId": member_id,
+            "scoringPeriodId": week, "executionType": "EXECUTE",
+            "items": [{"playerId": p, "type": "LINEUP", "fromLineupSlotId": SLOT_ID[f], "toLineupSlotId": SLOT_ID[t]}
+                      for p, f, t in items]}
+
+
+def move_lineup(items: list[tuple[int, str, str]], week: int) -> None:
+    """Move players between slots in one transaction; raises WriteError unless ESPN executed it."""
+    if not _writes():
+        _FAKE_SLOTS.update({p: t for p, _, t in items})
+        return
+    res = _post(lineup_body(items, week, _team_id(), config.SWID))
+    if not isinstance(res, dict) or res.get("status") != "EXECUTED":
+        status = res.get("status") if isinstance(res, dict) else None
+        raise WriteError(200, f"lineup move not executed (status {status!r})")
 
 
 def _post(body: dict | list, url: str = WRITE_URL) -> dict | list:

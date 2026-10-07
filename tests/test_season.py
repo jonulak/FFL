@@ -584,3 +584,49 @@ def test_empty_slots_lists_each_unfilled_starter_spot():
     ps = [{"player_id": 1, "pos": "RB", "slot": "RB"}, {"player_id": 2, "pos": "WR", "slot": "RB/WR/TE"},
           {"player_id": 3, "pos": "WR", "slot": "BE"}]
     assert season.empty_slots(ps, settings) == ["RB", "RB/WR/TE"]
+
+
+ST = {"starters": {"QB": 2, "RB": 2, "WR": 2, "TE": 1, "RB/WR/TE": 2, "D/ST": 1, "K": 1}}
+R = [{"player_id": 1, "name": "Qb", "pos": "QB", "slot": "QB"},
+     {"player_id": 2, "name": "Flex", "pos": "WR", "slot": "RB/WR/TE"},
+     {"player_id": 3, "name": "Bench", "pos": "RB", "slot": "BE"},
+     {"player_id": 4, "name": "Rb", "pos": "RB", "slot": "RB", "locked": True},
+     {"player_id": 5, "name": "Hurt", "pos": "WR", "slot": "IR"}]
+
+
+def test_lineup_moves_turns_a_swap_into_two_items():
+    items, errs = season.lineup_moves([{"player_id": 3, "to_slot": "RB/WR/TE"}, {"player_id": 2, "to_slot": "BE"}], R, ST)
+    assert errs == [] and items == [(3, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")]
+
+
+def test_lineup_moves_refuses_a_slot_that_does_not_take_him():
+    _, errs = season.lineup_moves([{"player_id": 1, "to_slot": "RB/WR/TE"}], R, ST)
+    assert errs == ["Qb: FLEX does not take a QB"]
+
+
+def test_lineup_moves_refuses_a_locked_player_and_ir():
+    _, errs = season.lineup_moves([{"player_id": 4, "to_slot": "BE"}, {"player_id": 5, "to_slot": "BE"}], R, ST)
+    assert errs == ["Rb: his game has started", "Hurt: IR moves are made in ESPN"]
+
+
+def test_lineup_moves_refuses_an_overfilled_slot():
+    full = R + [{"player_id": 6, "name": "Rb2", "pos": "RB", "slot": "RB"}]
+    _, errs = season.lineup_moves([{"player_id": 3, "to_slot": "RB"}], full, ST)
+    assert errs == ["RB: 3 players for 2 spots"]
+
+
+def test_lineup_moves_leaves_out_a_move_to_where_he_already_is():
+    assert season.lineup_moves([{"player_id": 2, "to_slot": "RB/WR/TE"}], R, ST) == ([], [])
+
+
+def test_lineup_moves_names_a_player_not_on_the_roster():
+    assert season.lineup_moves([{"player_id": 99, "to_slot": "BE"}], R, ST)[1] == ["player 99 is not on the roster"]
+
+
+def test_lineup_entry_records_each_move_with_the_call():
+    cards = [{"player_id": 3, "name": "Bench", "pos": "RB", "call": "START", "gap": 1.4},
+             {"player_id": 2, "name": "Flex", "pos": "WR", "call": "BENCH", "gap": -1.4}]
+    e = season.lineup_entry([(3, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], cards, 5, "2026-10-07")
+    assert e.startswith("## 2026-10-07 — Week 5 lineup: Bench to FLEX, Flex to the bench\n")
+    assert "- **Decision:** Bench (RB) BE → FLEX; Flex (WR) FLEX → BE. Made from the Roster page." in e
+    assert "Bench: call START, gap +1.4" in e and "Flex: call BENCH, gap −1.4" in e

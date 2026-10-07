@@ -1,0 +1,22 @@
+{
+ "isLeagueManager": false,
+ "teamId": 7,
+ "type": "ROSTER",
+ "memberId": "{SWID}",
+ "scoringPeriodId": 5,
+ "executionType": "EXECUTE",
+ "items": [
+  {
+   "playerId": 4426515,
+   "type": "LINEUP",
+   "fromLineupSlotId": 4,
+   "toLineupSlotId": 23
+  },
+  {
+   "playerId": 4239993,
+   "type": "LINEUP",
+   "fromLineupSlotId": 23,
+   "toLineupSlotId": 4
+  }
+ ]
+}

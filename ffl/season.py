@@ -631,3 +631,47 @@ def rank_players(rows: list[dict]) -> list[dict]:
         if r["player_id"] not in by_id or r.get("owner"):
             by_id[r["player_id"]] = r
     return sorted(by_id.values(), key=lambda r: (r.get("add") is None, -(r.get("add") or 0)))
+
+
+def lineup_moves(moves: list[dict], roster: list[dict], settings: dict) -> tuple[list[tuple[int, str, str]], list[str]]:
+    """A requested set of slot moves as ESPN's items (player, from, to), or why not. Refused: a player not on the
+    roster, IR either way (made in ESPN), a locked player (his game has started), a slot this league does not
+    have or that does not take him, and any starter slot left holding more players than it has spots."""
+    by_id = {p["player_id"]: p for p in roster}
+    slots = {p["player_id"]: p.get("slot") for p in roster}
+    items: list[tuple[int, str, str]] = []
+    errs: list[str] = []
+    for m in moves:
+        p, to = by_id.get(m["player_id"]), m["to_slot"]
+        if p is None:
+            errs.append(f"player {m['player_id']} is not on the roster")
+        elif "IR" in (p.get("slot"), to):
+            errs.append(f"{p['name']}: IR moves are made in ESPN")
+        elif p.get("locked"):
+            errs.append(f"{p['name']}: his game has started")
+        elif to != "BE" and (to not in settings["starters"] or p["pos"] not in _slot_accepts(to)):
+            errs.append(f"{p['name']}: {slot_label(to)} does not take a {p['pos']}")
+        elif to != p.get("slot"):
+            items.append((p["player_id"], p["slot"], to))
+            slots[p["player_id"]] = to
+    if not errs:
+        filled = Counter(s for s in slots.values() if s not in BENCH_SLOTS)
+        errs = [f"{slot_label(s)}: {n} players for {settings['starters'].get(s, 0)} spots"
+                for s, n in filled.items() if n > settings["starters"].get(s, 0)]
+    return items, errs
+
+
+def lineup_entry(items: list[tuple[int, str, str]], cards: list[dict], week: int, day: str) -> str:
+    """journal/DECISIONS.md's entry for moves made from the Roster page: what moved, and the call and gap each
+    player carried at that moment (the reasoning is the call; a hand override says so by its chip)."""
+    by = {c["player_id"]: c for c in cards}
+    where = lambda s: "the bench" if s == "BE" else slot_label(s)  # noqa: E731
+    title = ", ".join(f"{by[p]['name']} to {where(t)}" for p, _, t in items)
+    moved = "; ".join(f"{by[p]['name']} ({by[p]['pos']}) {slot_label(f)} → {slot_label(t)}" for p, f, t in items)
+    calls = "; ".join(f"{by[p]['name']}: call {by[p]['call']}" + (
+        f", gap {'+' if by[p]['gap'] >= 0 else '−'}{abs(by[p]['gap']):.1f}" if by[p].get("gap") is not None else "")
+        for p, _, _ in items)
+    return (f"## {day} — Week {week} lineup: {title}\n"
+            f"- **Decision:** {moved}. Made from the Roster page.\n"
+            f"- **Reasoning:** {calls}.\n"
+            f"- **Outcome (fill in later):**\n")

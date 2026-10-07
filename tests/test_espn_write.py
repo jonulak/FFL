@@ -235,3 +235,24 @@ def test_fake_reorder_sets_the_order(monkeypatch):
     b = W.submit_claim(102, 1, 6)
     W.reorder_claims([b, a])
     assert [(c["id"], c["priority"]) for c in W.pending_claims()] == [(b, 1), (a, 2)]
+
+
+def test_lineup_body_matches_the_captured_swap():
+    want = json.loads((FX / "lineup_request.json").read_text())
+    got = W.lineup_body([(4426515, "WR", "RB/WR/TE"), (4239993, "RB/WR/TE", "WR")], 5, 7, "{SWID}")
+    assert got == want
+
+
+def test_move_lineup_under_fake_writes_moves_the_fake_slots(monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "0")
+    monkeypatch.setattr(W, "_FAKE_SLOTS", {})
+    W.move_lineup([(1, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], 5)
+    assert W.fake_slots() == {1: "RB/WR/TE", 2: "BE"}
+
+
+def test_move_lineup_raises_unless_espn_says_executed(monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "1")
+    monkeypatch.setattr(W, "_team_id", lambda: 7)
+    monkeypatch.setattr(W, "_post", lambda body, url=W.WRITE_URL: {"status": "PENDING"})
+    with pytest.raises(W.WriteError):
+        W.move_lineup([(1, "BE", "RB")], 5)
