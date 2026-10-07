@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import type { Card } from "@/lib/api";
+import { STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
 import { gainText, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure, type Target } from "@/lib/lineup";
 import { NAME_LINK } from "@/lib/player-log";
@@ -64,17 +65,30 @@ function SlotName({ slot }: { slot: string }) {
 }
 
 // "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare.
+// The phone's kickoff, the way a scores app sets it in a narrow line: "Sun 1 PM", "Mon 8:15 PM" (minutes only
+// when there are any), in the viewer's zone.
+function PhoneKickoff({ iso }: { iso: string }) {
+  const d = new Date(iso);
+  const opts: Intl.DateTimeFormatOptions = { weekday: "short", hour: "numeric", ...(d.getMinutes() ? { minute: "2-digit" } : {}) };
+  return <span suppressHydrationWarning>{d.toLocaleString(undefined, opts)}</span>;
+}
+
 function Matchup({ c }: { c: Card }) {
   if (!c.opponent) {
     return <span className="text-sm text-muted-foreground"><Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} /></span>;
   }
   return (
-    <span className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
+    <span className="flex items-center gap-x-1.5 text-sm text-muted-foreground max-md:whitespace-nowrap md:flex-wrap">
       {c.home !== null && <span className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/80">{c.home ? "vs" : "at"}</span>}
       <span className="contents max-md:hidden"><TeamLogo abbr={c.opponent} size={18} /></span>
       <span className="font-medium text-foreground/85">{c.opponent}</span>
       <span aria-hidden className="max-md:hidden">·</span>
-      <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} />
+      <span className="max-md:hidden"><Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} /></span>
+      <span className="md:hidden">
+        {c.game || !c.kickoff
+          ? <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} compact />
+          : <PhoneKickoff iso={c.kickoff} />}
+      </span>
     </span>
   );
 }
@@ -120,21 +134,43 @@ function Headshot({ c, idle }: { c: Card; idle: boolean }) {
   );
 }
 
-function Chips({ c, week }: { c: Card; week: number }) {
-  // An IR or OUT call is the injury status restated; the tag alone carries it, with the return week.
+// An IR or OUT call is the injury status restated; the tag alone carries it, with the return week.
+const hurtCall = (c: Card) => {
   const hurt = !HEALTHY.has(c.injury);
-  const showCall = !(hurt && (c.call === "IR" || c.call === "OUT"));
+  return { hurt, showCall: !(hurt && (c.call === "IR" || c.call === "OUT")) };
+};
+
+// Phone only: a status beside the call is ESPN's own letter after the name (Q, D), in its colour and without a
+// chip, as the Matchup board sets it; the full status is read out and in the title.
+function InjuryMark({ c }: { c: Card }) {
+  const { hurt, showCall } = hurtCall(c);
+  if (!hurt || !showCall) return null;
+  const status = c.injury.replaceAll("_", " ");
+  return (
+    <span title={c.injury_note ?? status} className={`shrink-0 text-[0.9375rem] font-bold md:hidden ${TONE[injuryTone(c.injury)]}`}>
+      <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
+      <span className="sr-only">{status.toLowerCase()}</span>
+    </span>
+  );
+}
+
+function Chips({ c, week }: { c: Card; week: number }) {
+  const { hurt, showCall } = hurtCall(c);
   // ESPN has him where the call would not: the accent ring, on whichever chip carries the call.
   const off = isMismatch(c);
   const ring = off ? "ring-2 ring-close/70" : "";
   const differs = off ? <span className="sr-only">, differs from ESPN</span> : null;
+  const status = c.injury.replaceAll("_", " ");
   return (
     <>
       {showCall && <Badge variant={CALL[c.call]} shape="chip" className={ring}>{c.call}{differs}</Badge>}
       {c.close_call && <Badge variant="close" shape="chip">close<span className="max-md:sr-only"> call</span></Badge>}
+      {/* on the phone a status beside the call shows as ESPN's letter beside the name (InjuryMark); one that is the
+          call (IR, OUT) stays here, shortened */}
       {hurt && (
-        <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" className={showCall ? "" : ring} title={c.injury_note ?? undefined}>
-          {injuryLabel(c.injury.replaceAll("_", " "), c.return_week, week)}
+        <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" className={showCall ? "max-md:hidden" : ring} title={c.injury_note ?? undefined}>
+          <span className={showCall ? "" : "max-md:hidden"}>{injuryLabel(status, c.return_week, week)}</span>
+          {!showCall && <span className="md:hidden">{injuryLabel(STATUS_SHORT[status] ?? status, c.return_week, week)}</span>}
           {!showCall && differs}
         </Badge>
       )}
@@ -190,11 +226,12 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
           </span>
           <div className="[grid-area:shot]"><Headshot c={c} idle={idle} /></div>
           <div className="min-w-0 [grid-area:name]">
-            <p className={`truncate font-display text-[1.0625rem] font-semibold leading-tight tracking-tight md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
-              <PlayerTrigger p={c} className={`rounded-sm ${NAME_LINK}`}>
+            <p className={`flex items-baseline gap-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
+              <PlayerTrigger p={c} className={`min-w-0 truncate rounded-sm ${NAME_LINK}`}>
                 <span className="md:hidden">{shortName(c.name)}</span>
                 <span className="max-md:hidden">{c.name}</span>
               </PlayerTrigger>
+              <InjuryMark c={c} />
             </p>
             <p className="truncate text-xs text-muted-foreground max-md:hidden">
               <span className="font-semibold text-foreground/80">{c.pos}</span>
@@ -202,11 +239,12 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
               {team(c.team).name || c.team}
             </p>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 [grid-area:meta] md:contents">
+          {/* phone: one line that never wraps; the chips keep their width and the matchup gives way */}
+          <div className="flex min-w-0 items-center gap-x-1.5 [grid-area:meta] md:contents">
             {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it */}
-            {c.pos !== slot && <span className="text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>}
-            <div className="min-w-0 md:[grid-area:match]"><Matchup c={c} /></div>
-            <div className="flex flex-wrap gap-1 md:[grid-area:chips]"><Chips c={c} week={week} /></div>
+            {c.pos !== slot && <span className="shrink-0 text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>}
+            <div className="min-w-0 max-md:overflow-hidden md:[grid-area:match]"><Matchup c={c} /></div>
+            <div className="flex shrink-0 gap-1 md:flex-wrap md:[grid-area:chips]"><Chips c={c} week={week} /></div>
           </div>
           <div className="text-right [grid-area:num]" title={live ? `${pts(c.actual)} points scored · projected ${pts(c.proj)}` : "projected points"}>
             <span className={`block font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
