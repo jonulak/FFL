@@ -14,14 +14,14 @@ const POS = ["QB", "RB", "WR", "TE", "D/ST", "K"];
 export function PosTabs({ active, base, extra = "" }: { active: string | null; base: string; extra?: string }) {
   return (
     <Tabs value={active} aria-label="Position">
-      <TabsList variant="line" className="h-10 w-full justify-start gap-0 overflow-x-auto border-foreground/12 p-0 [scrollbar-width:none] max-sm:border-b">
+      <TabsList variant="line" className="h-10 w-full justify-start gap-0 overflow-x-auto overflow-y-hidden border-foreground/12 p-0 [scrollbar-width:none] max-sm:border-b">
         {POS.map((p) => (
           <TabsTrigger
             key={p}
             value={p}
             nativeButton={false}
             render={<Link href={`${base}?pos=${encodeURIComponent(p)}${extra}`} />}
-            className="h-full flex-none rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground after:inset-x-2.5 after:bottom-0 dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
+            className="h-full flex-none rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground after:inset-x-2.5! after:bottom-0! dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
           >
             {p}
           </TabsTrigger>

@@ -183,12 +183,12 @@ export function TransactionsView({ data }: { data: Transactions }) {
       </div>
       <div className="border-b border-foreground/12">
         <Tabs value={filter} onValueChange={(v) => setFilter(v as TxFilter)} aria-label="Kind of move">
-          <TabsList variant="line" className="h-10 w-full justify-start gap-0 overflow-x-auto p-0 [scrollbar-width:none]">
+          <TabsList variant="line" className="h-10 w-full justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 [scrollbar-width:none]">
             {TX_FILTERS.map((f) => (
               <TabsTrigger
                 key={f.value}
                 value={f.value}
-                className="h-full flex-none gap-1.5 rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground after:inset-x-2.5 after:bottom-0 dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
+                className="h-full flex-none gap-1.5 rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground after:inset-x-2.5! after:bottom-0! dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
               >
                 {f.label}
                 <span className="font-medium tracking-normal text-muted-foreground">{count(f.value)}</span>
