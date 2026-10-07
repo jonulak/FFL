@@ -52,6 +52,46 @@ def test_flex_takes_the_best_remaining_eligible():
     assert "IR guy" not in [e["name"] for e in lu]
 
 
+SUN_1, SUN_4, MON = "2026-10-11T13:00:00-04:00", "2026-10-11T16:25:00-04:00", "2026-10-12T20:15:00-04:00"
+
+
+def _kicks(r, kicks):
+    for p in r:
+        p["kickoff"] = kicks.get(p["name"], SUN_1)
+    return r
+
+
+def test_the_latest_kickoffs_take_flex_and_the_starters_do_not_change():
+    # the four RBs start either way; RB C (Mon) and RB A (Sun 4:25) play last, so they hold the flex spots
+    r = _kicks(roster(), {"RB C": MON, "RB A": SUN_4})
+    lu = season.optimal_lineup(r, TWO_QB)
+    flex = {e["name"] for e in lu if e["slot"] == "RB/WR/TE"}
+    assert flex == {"RB C", "RB A"}
+    assert {e["name"] for e in lu if e["slot"] == "RB"} == {"RB B", "RB D"}
+    base = season.optimal_lineup(roster(), TWO_QB)
+    assert {e["name"] for e in lu} == {e["name"] for e in base}, "who starts is projection's call"
+    assert season.lineup_total(lu) == season.lineup_total(base)
+
+
+def test_a_started_game_keeps_his_slot():
+    # RB D's game is on and ESPN has him in FLEX: he stays; the other flex spot goes to the latest game
+    r = _kicks(roster(), {"RB C": MON, "RB A": SUN_4})
+    r[11]["locked"] = True  # RB D, slot RB/WR/TE, Sun 1:00
+    lu = season.optimal_lineup(r, TWO_QB)
+    flex = {e["name"] for e in lu if e["slot"] == "RB/WR/TE"}
+    assert flex == {"RB D", "RB C"}
+    assert {e["name"] for e in lu if e["slot"] == "RB"} == {"RB B", "RB A"}
+
+
+def test_roster_cards_name_the_slot_the_call_puts_him_in():
+    r = _kicks(roster(), {"RB C": MON, "RB A": SUN_4})
+    cards = {c["name"]: c for c in season.roster_cards(r, TWO_QB, 2)}
+    assert cards["RB C"]["call"] == "START" and cards["RB C"]["call_slot"] == "RB/WR/TE"
+    assert cards["RB B"]["call_slot"] == "RB" and cards["QB C"]["call_slot"] == "QB"
+    assert cards["TE B"]["call"] == "BENCH" and cards["TE B"]["call_slot"] is None
+    assert cards["RB C"]["reason"].startswith("starts at FLEX")
+
+
 def test_out_and_bye_players_are_not_started():
     r = roster()
     r[5]["injury"] = "OUT"          # RB C

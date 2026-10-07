@@ -14,9 +14,11 @@ export function accepts(slot: string): Set<string> {
   return new Set(FLEX.has(slot) ? slot.split("/") : [slot]);
 }
 
-// ESPN's lineup and the call disagree: the chip gets the accent. OUT/BYE/IR on the bench agree with it.
-export function isMismatch(c: Pick<Card, "group" | "call">): boolean {
-  return (c.group === "starter" && c.call !== "START") || (c.group === "bench" && c.call === "START");
+// ESPN's lineup and the call disagree: the chip gets the accent. OUT/BYE/IR on the bench agree with it; a starter
+// in another slot than the call's (STRATEGY.md, Slot by kickoff) does not.
+export function isMismatch(c: Pick<Card, "group" | "call"> & Partial<Pick<Card, "slot" | "call_slot">>): boolean {
+  if (c.group === "starter" && c.call === "START") return c.call_slot != null && c.slot !== c.call_slot;
+  return c.group === "starter" || (c.group === "bench" && c.call === "START");
 }
 
 export type Target = { kind: "swap"; with: Card; gain: number } | { kind: "slot"; slot: string; gain: number } | { kind: "bench"; gain: number };

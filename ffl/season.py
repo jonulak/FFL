@@ -139,8 +139,39 @@ def optimal_lineup(roster: list[dict], settings: dict) -> list[dict]:
                 if pick is not None:
                     used.add(pick["player_id"])
                 out.append(_entry(slot, pick))
+    out = _place_by_kickoff(out, {p["player_id"]: p for p in pool})
     order = {s: i for i, s in enumerate(SLOT_ORDER)}
     return sorted(out, key=lambda e: order[e["slot"]])
+
+
+def _kick_key(p: dict) -> float:
+    k = p.get("kickoff")
+    return datetime.fromisoformat(k).timestamp() if k else float("-inf")
+
+
+def _place_by_kickoff(lineup: list[dict], by_id: dict[int, dict]) -> list[dict]:
+    """STRATEGY.md "Slot by kickoff": the same starters re-placed so the latest games hold the flex spots. A started
+    game keeps the slot ESPN has him in; then, earliest kickoff first, each takes his position's own slot while one is
+    open, else the narrowest flex that takes him. Ties keep projection order. Empty slots stay as they are."""
+    filled = [e for e in lineup if e["player_id"] is not None]
+    open_slots = [e["slot"] for e in filled]
+    placed: list[dict] = []
+    rest = []
+    for e in filled:
+        p = by_id[e["player_id"]]
+        if p.get("locked") and p.get("slot") in open_slots and p["pos"] in _slot_accepts(p["slot"]):
+            open_slots.remove(p["slot"])
+            placed.append(_entry(p["slot"], p))
+        else:
+            rest.append(p)
+    for p in sorted(rest, key=_kick_key):
+        fits = [s for s in open_slots if p["pos"] in _slot_accepts(s)]
+        if not fits:
+            return lineup  # cannot happen for a feasible lineup; keep projection's placement rather than drop him
+        slot = min(fits, key=lambda s: (_is_flex(s), len(_slot_accepts(s))))
+        open_slots.remove(slot)
+        placed.append(_entry(slot, p))
+    return placed + [e for e in lineup if e["player_id"] is None]
 
 
 def current_lineup(roster: list[dict]) -> list[dict]:
@@ -263,7 +294,9 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
             reason += " — his status is your call"
         cards.append({**p, "group": _group(p), "call": call, "gap": gap, "close_call": close, "reason": reason,
                       "ros_adj": ros_adj(p, week), "play_proj": playable_proj(p), "locked": bool(p.get("locked")),
-                      "espn_order": p.get("espn_order", i)})
+                      "espn_order": p.get("espn_order", i),
+                      # the slot a START puts him in (STRATEGY.md "Slot by kickoff"); the chip names it
+                      "call_slot": slot_of.get(p["player_id"]) if call == "START" else None})
     return sorted(cards, key=_card_sort_key)
 
 

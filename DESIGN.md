@@ -228,7 +228,7 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 ### Verdict Chips (Badge, `shape="chip"`)
 - **Character:** a lower-third block; squared, condensed caps, letterspaced.
 - **Shape:** 6px corners, 20px tall, 6px side padding.
-- **Variants:** `start` lime on green ink (START); `close` amber on brown ink (CLOSE CALL); `warn` amber at 25% with a 60% amber ring, brown ink / amber text in dark (QUESTIONABLE, DOUBTFUL); `out` red on white (OUT, IR, injury OUT/IR with the return week); `muted` ink at 10% on ink at 75% (BENCH, BYE). `out-soft` is defined and unplaced.
+- **Variants:** `start` lime on green ink, naming the slot the call puts him in (QB, RB, WR, TE, FLEX, D/ST, K; STRATEGY.md "Slot by kickoff"), read out as "start at"; `close` amber on brown ink (CLOSE CALL); `warn` amber at 25% with a 60% amber ring, brown ink / amber text in dark (QUESTIONABLE, DOUBTFUL); `out` red on white (OUT, IR, injury OUT/IR with the return week); `muted` ink at 10% on ink at 75% (BENCH, BYE). `out-soft` is defined and unplaced.
 - **Stack:** top-right of the card header, verdict first, close call second, injury third.
 
 ### Player Card (shadcn Card, board layout)

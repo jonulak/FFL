@@ -174,7 +174,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   `season.SIGMA_FALLBACK`. The Week payload's `win_prob` and each League row's (over the side's `starters`, the
   board's merged players, whose sum is now the tile's `proj`) are re-priced by `live.overlay_week`/`overlay_league`
   on every push. UI: `web/components/win-meter.tsx` on Base UI's Meter.
-- **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (STRATEGY.md "Lineup"), pure;
+- **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (STRATEGY.md "Lineup"), pure; a START
+  carries `call_slot`, the slot `optimal_lineup` places him in (`_place_by_kickoff`: same starters, latest kickoffs in
+  flex, a started game kept in place), and the chip names it;
   `ffl/outlook.py` writes labelled bullets under each card (Injury, Usage, Depth, Team, Take; each cites
   dated, linked sources; never projections) by running `claude -p` (Opus, WebSearch + WebFetch) from a
   fact sheet: the card's non-projection facts, per-game usage rows (`form["rows"]`) and `ffl/news.py`'s
