@@ -12,8 +12,8 @@ export function TrendArrow({ trend, className = "" }: { trend: Trend | undefined
 
 export type Fact = { key: string; label: string; value: string; title?: string; trend?: Trend };
 
-// A row of facts as label/value pairs on one line (STRATEGY.md "Recent form"; the ROS figures on
-// a phone): condensed small-caps label, the number in medium ink beside it. Each pair stays on
+// A row of facts as label/value pairs on one line (STRATEGY.md "Recent form"; the ROS figures in
+// the player dialog): condensed small-caps label, the number in medium ink beside it. Each pair stays on
 // one line; the line wraps between pairs. Nothing here is a verdict.
 export function FactStrip({ items, className = "" }: { items: Fact[]; className?: string }) {
   if (items.length === 0) return null;
@@ -32,7 +32,7 @@ export function FactStrip({ items, className = "" }: { items: Fact[]; className?
 }
 
 // His last three games as one FactStrip: the Roster card's register for a row of facts, and
-// the Waiver row's strip below `lg`, where the table has no room for the form columns.
+// the player dialog's Form block, the whole line the Players table shows only part of.
 export function FormStrip({ form, className = "" }: { form: Form | null | undefined; className?: string }) {
   if (!form) return null;
   return <FactStrip items={formItems(form)} className={className} />;

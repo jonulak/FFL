@@ -11,10 +11,9 @@ import { useClaimsMaybe } from "./claims-context";
 // A free agent's place in the week's claims, on his row: "+ claim" when he is in no group, his
 // position and rank in his group ("WR·2") when he is. The menu puts him in a group (moving him
 // out of any other), starts a new group with him, or takes him out. Nothing without the plan.
-// `className` places it per breakpoint: the table's own column from `sm`, the row's caption line
-// on a phone (where the column would sit off-screen, past the sideways scroll); `sep` leads it
-// with the caption's dot.
-export function ClaimControl({ id, name, className = "", sep = false }: { id: number; name: string; className?: string; sep?: boolean }) {
+// `className` places it per width: the table's own column when the table is wide enough, the
+// row's action line under the name when it is not.
+export function ClaimControl({ id, name, className = "" }: { id: number; name: string; className?: string }) {
   const c = useClaimsMaybe();
   if (!c) return null;
   const { groups, pos, setGroups, submitting } = c;
@@ -22,7 +21,6 @@ export function ClaimControl({ id, name, className = "", sep = false }: { id: nu
   const at = groups.findIndex((g) => g.targets.includes(id));
   return (
     <span className={`inline-flex items-center gap-x-1 ${className}`}>
-    {sep && <span aria-hidden>·</span>}
     <DropdownMenu>
       <DropdownMenuTrigger disabled={submitting}
         render={

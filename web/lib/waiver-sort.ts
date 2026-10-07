@@ -1,22 +1,21 @@
+import type { ColumnDef } from "@tanstack/react-table";
 import type { Form, PlayerRow } from "./api";
-import { FORM_COLUMNS } from "./format";
 
-export type Dir = "asc" | "desc";
-export type Sort = { key: string; dir: Dir };
+// What each sortable column of the Players table reads off a row, as TanStack column defs without
+// their cells (the table adds those). A missing number is `undefined`, which TanStack sorts last
+// whichever way the column runs; every number sorts high first, the name A to Z.
+const num = (id: string, get: (r: PlayerRow) => number | null | undefined): ColumnDef<PlayerRow> => ({
+  id, accessorFn: (r) => get(r) ?? undefined, sortDescFirst: true, sortUndefined: "last",
+});
+const form = (key: keyof Form) => num(key, (r) => (r.form ? (r.form[key] as number | null) : null));
 
-// What each sortable column of the Waivers table reads off a row; null sorts last either way.
-const SORT_BY: Record<string, (r: PlayerRow) => number | string | null> = {
-  name: (r) => r.name, add: (r) => r.add, wk: (r) => r.week_proj, ros: (r) => r.ros_adj, model: (r) => r.ros_proj,
-  dr: (r) => r.delta_roster, dp: (r) => r.delta_pool,
-  ...Object.fromEntries(FORM_COLUMNS.map((c) => [c.key, (r: PlayerRow) => (r.form ? (r.form[c.key as keyof Form] as number | null) : null)])),
+export const SORT_COLUMNS = {
+  name: { id: "name", accessorFn: (r) => r.name, sortDescFirst: false, sortingFn: "text" } as ColumnDef<PlayerRow>,
+  add: num("add", (r) => r.add),
+  wk: num("wk", (r) => r.week_proj),
+  ros: num("ros", (r) => r.ros_adj),
+  beat: form("beat"),
+  pace_gap: form("pace_gap"),
+  opp: form("opp"),
+  snap_pct: form("snap_pct"),
 };
-
-export function sortRows(rows: PlayerRow[], sort: Sort): PlayerRow[] {
-  const get = SORT_BY[sort.key];
-  const sign = sort.dir === "asc" ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    const x = get(a), y = get(b);
-    if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1;
-    return (x < y ? -1 : x > y ? 1 : 0) * sign;
-  });
-}

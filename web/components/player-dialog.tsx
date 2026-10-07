@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { OppRank, PlayerLog, PlayerTx, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
-import { ordinal, pts } from "@/lib/format";
+import { ordinal, pts, signed } from "@/lib/format";
 import { columns, NAME_LINK, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
 import { volumeText } from "@/lib/box";
 import { teamHref } from "@/lib/team-link";
@@ -21,6 +21,7 @@ import { clubLogoSrc } from "@/lib/teams";
 import { HISTORY_LABEL, historyDetail, historyWhen } from "@/lib/transactions";
 import { BoxTable } from "./box-table";
 import { ClubLogo } from "./club-logo";
+import { FactStrip, FormStrip, type Fact } from "./form-strip";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
 import { TeamLogo } from "./player-media";
 import { StaleBadge } from "./stale-badge";
@@ -126,9 +127,37 @@ function Body({ seed, fetch }: { seed: PlayerSeed; fetch: LogFetch }) {
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined}
         rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
       <div className="overflow-y-auto overscroll-contain">
+        <SeasonFacts p={seed} />
         <PlayerRecord load={load} retry={retry} fetch={fetch} className="px-4 pt-4 pb-5" />
       </div>
     </>
+  );
+}
+
+// The figures the Players table leaves to the dialog, when the row that opened it carried them:
+// the rest of season (the adjusted ROS add runs on, the models' own number with their spread,
+// the two deltas on a free agent) and his last three games in full. A row without them (the
+// Matchup board's, a transaction's) shows nothing here.
+function SeasonFacts({ p }: { p: PlayerSeed }) {
+  if (p.ros_adj == null) return null;
+  const ros: Fact[] = [
+    { key: "ros", label: "ROS", value: pts(p.ros_adj), title: "usage-adjusted rest of season: what add runs on" },
+  ];
+  if (p.ros_proj != null) {
+    const src = [p.ros_sleeper != null && `Sleeper ${pts(p.ros_sleeper)}`, p.ros_cbs != null && `CBS ${pts(p.ros_cbs)}`].filter(Boolean).join(" · ");
+    ros.push({
+      key: "model", label: "model", value: p.ros_spread != null ? `${pts(p.ros_proj)} ±${pts(p.ros_spread)}` : pts(p.ros_proj),
+      title: src ? `the models' rest of season, averaged: ${src}` : "no rest-of-season source has him: season projection scaled by the weeks left",
+    });
+  }
+  if (p.delta_roster != null) ros.push({ key: "dr", label: "Δ roster", value: signed(p.delta_roster), title: "ROS against my weakest at the position" });
+  if (p.delta_pool != null) ros.push({ key: "dp", label: "Δ pool", value: signed(p.delta_pool), title: "ROS against the league's replacement level" });
+  return (
+    <section aria-labelledby="season-form" className="log-in space-y-1.5 px-4 pt-4">
+      <Heading id="season-form" title="Form" note={p.form ? `last ${p.form.games} · rest of season` : "rest of season"} />
+      <FactStrip items={ros} />
+      <FormStrip form={p.form} />
+    </section>
   );
 }
 

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { Player } from "@/lib/api";
+import type { Player, PlayerRow } from "@/lib/api";
 import { injuryTone } from "@/lib/format";
 import { headerInjury } from "@/lib/player-log";
 import { headshotUrl, logoUrl, team } from "@/lib/teams";
@@ -14,7 +14,10 @@ import { GameLine } from "./local-time";
 // What a row knows about a player when it opens his modal; the header draws from it at once,
 // before any fetch. Every Player-shaped row satisfies it.
 export type PlayerSeed = Pick<Player, "player_id" | "name" | "pos" | "team">
-  & Partial<Pick<Player, "injury" | "injury_note" | "return_week" | "opponent" | "home" | "kickoff" | "bye" | "game">>;
+  & Partial<Pick<Player, "injury" | "injury_note" | "return_week" | "opponent" | "home" | "kickoff" | "bye" | "game">>
+  // what a Players row knows past the header: the season figures and form his dialog lays out (SeasonFacts)
+  & Partial<Pick<Player, "ros_proj" | "ros_spread" | "ros_sleeper" | "ros_cbs" | "form">>
+  & Partial<Pick<PlayerRow, "ros_adj" | "delta_roster" | "delta_pool">>;
 
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.

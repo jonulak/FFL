@@ -1,34 +1,42 @@
+import { createTable, getCoreRowModel, getSortedRowModel, type SortingState, type TableOptionsResolved } from "@tanstack/react-table";
 import { describe, expect, it } from "vitest";
 import type { PlayerRow } from "./api";
-import { sortRows } from "./waiver-sort";
+import { SORT_COLUMNS } from "./waiver-sort";
 
-const row = (name: string, add: number, form: Partial<PlayerRow["form"]> | null, ros: [number, number] = [0, 0]) =>
-  ({ name, add, week_proj: 0, ros_proj: ros[0], ros_adj: ros[1], delta_roster: 0, delta_pool: 0, form } as unknown as PlayerRow);
+const row = (name: string, add: number | null, form: Partial<PlayerRow["form"]> | null, ros = 0) =>
+  ({ name, add, week_proj: 0, ros_adj: ros, form } as unknown as PlayerRow);
 
-describe("sortRows", () => {
-  const rows = [row("B", 1, { snap_pct: 40 }, [100, 90]), row("A", 3, null, [120, 120]), row("C", 2, { snap_pct: 90 }, [80, 130])];
-  it("sorts the ROS column by the adjusted number and the model by its own", () => {
-    expect(sortRows(rows, { key: "ros", dir: "desc" }).map((r) => r.name)).toEqual(["C", "A", "B"]);
-    expect(sortRows(rows, { key: "model", dir: "desc" }).map((r) => r.name)).toEqual(["A", "B", "C"]);
-  });
-  it("orders numbers either way and never mutates the input", () => {
-    expect(sortRows(rows, { key: "add", dir: "desc" }).map((r) => r.name)).toEqual(["A", "C", "B"]);
-    expect(sortRows(rows, { key: "add", dir: "asc" }).map((r) => r.name)).toEqual(["B", "C", "A"]);
-    expect(rows.map((r) => r.name)).toEqual(["B", "A", "C"]);
-  });
-  it("puts a player without the number last in both directions", () => {
-    expect(sortRows(rows, { key: "snap_pct", dir: "desc" }).map((r) => r.name)).toEqual(["C", "B", "A"]);
-    expect(sortRows(rows, { key: "snap_pct", dir: "asc" }).map((r) => r.name)).toEqual(["B", "C", "A"]);
-  });
-  it("sorts names alphabetically", () => {
-    expect(sortRows(rows, { key: "name", dir: "asc" }).map((r) => r.name)).toEqual(["A", "B", "C"]);
-  });
-});
+// The headless table the component builds, sorted by one column: the names in order.
+function sorted(rows: PlayerRow[], sorting: SortingState): string[] {
+  const options: TableOptionsResolved<PlayerRow> = {
+    data: rows, columns: Object.values(SORT_COLUMNS), state: { sorting }, onStateChange: () => {},
+    renderFallbackValue: null, getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(),
+  };
+  const table = createTable(options);
+  table.setOptions((o) => ({ ...o, state: { ...table.initialState, sorting } }));
+  return table.getRowModel().rows.map((r) => r.original.name);
+}
 
-describe("sortRows on the Players table", () => {
-  it("a null add (my own player) sorts last both ways", () => {
-    const rows = [{ name: "a", add: null }, { name: "b", add: 2 }, { name: "c", add: 5 }] as unknown as PlayerRow[];
-    expect(sortRows(rows, { key: "add", dir: "desc" }).map((r) => r.name)).toEqual(["c", "b", "a"]);
-    expect(sortRows(rows, { key: "add", dir: "asc" }).map((r) => r.name)).toEqual(["b", "c", "a"]);
+describe("Players table sorting", () => {
+  it("sorts by the adjusted ROS", () => {
+    const rows = [row("A", 1, null, 50), row("B", 2, null, 20), row("C", 3, null, 90)];
+    expect(sorted(rows, [{ id: "ros", desc: true }])).toEqual(["C", "A", "B"]);
+  });
+  it("puts a missing add last both ways (my own player has none)", () => {
+    const rows = [row("a", null, null), row("b", -3, null), row("c", 4, null)];
+    expect(sorted(rows, [{ id: "add", desc: true }])).toEqual(["c", "b", "a"]);
+    expect(sorted(rows, [{ id: "add", desc: false }])).toEqual(["b", "c", "a"]);
+  });
+  it("sorts a form column, a player without form last both ways", () => {
+    const rows = [row("A", 0, null), row("B", 0, { snap_pct: 40 }), row("C", 0, { snap_pct: 80 })];
+    expect(sorted(rows, [{ id: "snap_pct", desc: true }])).toEqual(["C", "B", "A"]);
+    expect(sorted(rows, [{ id: "snap_pct", desc: false }])).toEqual(["B", "C", "A"]);
+  });
+  it("sorts names A to Z", () => {
+    expect(sorted([row("C", 0, null), row("A", 0, null), row("B", 0, null)], [{ id: "name", desc: false }])).toEqual(["A", "B", "C"]);
+  });
+  it("numbers open high first, the name A to Z", () => {
+    expect(SORT_COLUMNS.add.sortDescFirst).toBe(true);
+    expect(SORT_COLUMNS.name.sortDescFirst).toBe(false);
   });
 });

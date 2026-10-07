@@ -1,18 +1,22 @@
 "use client";
 
+import {
+  flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
+  type Column, type ColumnDef, type Row as TRow, type SortingState,
+} from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { Owner, PlayerRow, RosterRow } from "@/lib/api";
-import { FORM_COLUMNS, aheadLabel, expLabel, formCell, injuryLabel, injuryTone, pts, signed } from "@/lib/format";
-import { sortRows, type Sort } from "@/lib/waiver-sort";
+import type { Form, Owner, PlayerRow, RosterRow } from "@/lib/api";
+import { aheadLabel, expLabel, formCell, injuryLabel, injuryTone, pts, signed } from "@/lib/format";
+import { SORT_COLUMNS } from "@/lib/waiver-sort";
 import { TrendArrow } from "./form-strip";
 import { Kickoff } from "./local-time";
 import { NAME_LINK } from "@/lib/player-log";
 import { PlayerTrigger } from "./player-dialog";
-import { TeamLogo, TeamPanel } from "./player-media";
+import { TeamLogo } from "./player-media";
 import { WaiverOutlookButton } from "./waiver-outlook";
 import { ClaimControl } from "./claim-control";
 import { statusTag } from "@/lib/claims";
@@ -25,46 +29,22 @@ const dash = (v: number | null) => (v == null ? "—" : signed(v));
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
 const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
-const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
-// The stat-block headings over the two groups of secondary columns: the label style a step
-// smaller and lighter, with the hairline under it running the width of its group only.
-const GROUP = "border-b border-foreground/12 pb-0 pl-4 pr-2 align-bottom font-display text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-foreground/55";
-// The secondary numerals (ROS, the two deltas, the seven form columns): condensed, stepped back,
-// the way the League table sets points against. Right-aligned, 8px gutters. The first column
-// of each group is set off from the last of the one before by a 16px gutter and a hairline.
-const SIDE = "text-right font-display text-lg font-medium tabular-nums tracking-tight text-foreground/70";
-const GROUP_START = "border-l border-foreground/10 pl-4";
-// The table scrolls inside a panel no taller than the viewport under the nav, both ways, so the
-// two header rows can pin to its top and the tile and name to its left while the numerals
-// scroll; once it `fits` (an xl screen with a 62.5rem column: globals.css) the panel is the page again, the headers pinned
-// under the 48px nav instead. Pinned cells carry the card's own background. Their layers stay
-// under the nav's z-10, or a pinned name would paint over the nav as the page scrolls under it:
-// body pins at 1, headers at 2, the corner cells that pin both ways at 3.
-const PANEL = "max-h-[calc(100dvh-3rem)] overflow-auto overscroll-x-contain fits:max-h-none fits:overflow-visible";
-const PIN_TOP_1 = "sticky top-0 z-[2] bg-card fits:top-12";
-const PIN_TOP_2 = "sticky top-7 z-[2] bg-card fits:top-[4.75rem]";
-const PIN_CORNER = "z-[3]";
-const PIN_TILE = "sticky left-0 z-[1] bg-card";
-const PIN_NAME = "sticky left-[4.75rem] z-[1] bg-card sm:left-[5.5rem] cramped:border-r cramped:border-foreground/10";
-// The two ROS sources disagreeing by this much over the rest of the season is worth a look — the
-// weekly column's 3-point rule (CLOSE_SPREAD), scaled to the weeks left, rounded to a whole number.
-const ROS_CLOSE = 20;
-
-// A PlayerRow's ros_proj is always a number (the API fills the season formula in when no source
-// has him), so "sourced" is read off the two source columns.
-function sourced(r: PlayerRow | RosterRow): boolean {
-  return r.ros_sleeper != null || r.ros_cbs != null;
-}
-
-// Where ROS came from, for the hover: both numbers when both sources have him, the one when one
-// does, and the season formula when neither.
-function rosSources(r: PlayerRow | RosterRow): string {
-  if (!sourced(r)) return "no rest-of-season source has him: season projection scaled by the weeks left";
-  const parts = [];
-  if (r.ros_sleeper != null) parts.push(`Sleeper (Rotowire) weeks left ${pts(r.ros_sleeper)}`);
-  if (r.ros_cbs != null) parts.push(`CBS rest of season ${pts(r.ros_cbs)}`);
-  return parts.join(" · ");
-}
+// Column labels: the board face's small caps, a step smaller on a phone.
+const LABEL = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground sm:text-[0.8125rem] sm:tracking-[0.12em]";
+// The secondary numerals: condensed, stepped back to 70% ink, a size smaller on a phone.
+const SIDE = "text-right font-display text-[0.9375rem] font-medium tabular-nums tracking-tight text-foreground/70 sm:text-lg";
+// Cell padding: 6px gutters on a phone, 8px from `sm`.
+const PAD = "px-1.5 sm:px-2";
+// The table never scrolls inside itself: it lays out to its column (the page scrolls it), so its
+// one header row pins to the page under the 48px nav. A narrow column drops the three columns the
+// quick read can spare (wk, ROS, beat: all in his dialog) rather than scroll sideways; the claim
+// control moves onto the caption line where the claim column would not fit.
+const NARROW = "@max-[32rem]/table:hidden";
+const CLAIM_COL = "@max-[40rem]/table:hidden";
+const CLAIM_INLINE = "@min-[40rem]/table:hidden";
+// The header's hairline is a shadow, not a border: a sticky cell in a collapsed table leaves its
+// border behind, and the rows would show through the gap as they scroll under it.
+const PIN = "sticky top-12 z-[2] bg-card shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--foreground)_10%,transparent)]";
 
 // "at LAR" when he travels, "vs SF" at home; a free agent ESPN has no venue for shows the
 // opponent bare. `contents` lets the pieces wrap as items of the caption's own flex line.
@@ -72,8 +52,8 @@ function Matchup({ r }: { r: PlayerRow | RosterRow }) {
   if (!r.opponent) return <Kickoff iso={r.kickoff} bye={r.bye} />;
   return (
     <span className="contents">
-      {r.home !== null && <span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80">{r.home ? "vs" : "at"}</span>}
-      <TeamLogo abbr={r.opponent} size={16} />
+      {r.home !== null && <span className="font-display font-semibold uppercase tracking-[0.12em] text-foreground/80">{r.home ? "vs" : "at"}</span>}
+      <TeamLogo abbr={r.opponent} size={14} />
       <span className="font-medium text-foreground/85">{r.opponent}</span>
       <span aria-hidden>·</span>
       <Kickoff iso={r.kickoff} bye={r.bye} />
@@ -81,19 +61,16 @@ function Matchup({ r }: { r: PlayerRow | RosterRow }) {
   );
 }
 
-// The small line under a secondary numeral: the source spread under ROS, a short window's game
-// count under L3. Muted unless it is the amber spread.
+// The small line under a numeral: the source spread under wk, a short window's game count.
+// Muted unless it is the amber spread.
 function Under({ children, amber = false }: { children: React.ReactNode; amber?: boolean }) {
-  return <p className={`text-[0.6875rem] leading-tight tabular-nums ${amber ? "font-medium text-close-foreground dark:text-close" : "text-muted-foreground"}`}>{children}</p>;
+  return <p className={`text-[0.625rem] leading-tight tabular-nums sm:text-[0.6875rem] ${amber ? "font-medium text-close-foreground dark:text-close" : "text-muted-foreground"}`}>{children}</p>;
 }
 
-type FormCol = (typeof FORM_COLUMNS)[number];
-
-// One of the seven form columns for one player. A column that no game in the window has yet is
-// an empty cell: the grid says it, a dash would only add ink. The opportunity cell carries the
-// trend as a drawn arrow after the number.
-function FormNumeral({ r, col }: { r: PlayerRow | RosterRow; col: FormCol }) {
-  const cell = r.form ? formCell(r.form, col.key) : null;
+// One form number for one player. A number no game in the window has yet is an empty cell: the
+// grid says it, a dash would only add ink. opp carries its trend as a drawn arrow.
+function FormNumeral({ r, k }: { r: PlayerRow | RosterRow; k: keyof Form }) {
+  const cell = r.form ? formCell(r.form, k) : null;
   if (!cell) return null;
   return (
     <span title={cell.title}>
@@ -104,22 +81,29 @@ function FormNumeral({ r, col }: { r: PlayerRow | RosterRow; col: FormCol }) {
   );
 }
 
+// This week's projection, its source note beneath.
+function Week({ r }: { r: PlayerRow | RosterRow }) {
+  return (
+    <>
+      <p className={`font-display text-[0.9375rem] font-semibold tabular-nums tracking-tight sm:text-lg ${r.week_proj === 0 ? "text-muted-foreground" : ""}`}>{pts(r.week_proj)}</p>
+      {r.espn_only ? <Under>ESPN only</Under> : r.spread != null && r.spread >= 3 ? <Under amber>±{pts(r.spread)}</Under> : null}
+    </>
+  );
+}
+
 // A column heading that sorts the table: the whole cell is the button, so the tap target is the
 // header's full height; the active column carries the arrow and `aria-sort`.
-function SortHead({ id, sort, onSort, className = "", title, children }: {
-  id: string; sort: Sort; onSort: (key: string) => void; className?: string; title?: string; children: React.ReactNode;
-}) {
-  const active = sort.key === id;
-  const Arrow = sort.dir === "asc" ? ArrowUp : ArrowDown;
+function SortHead({ column, label, title }: { column: Column<PlayerRow>; label: string; title?: string }) {
+  const dir = column.getIsSorted();
+  const right = column.id !== "name";
+  const Arrow = dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <TableHead aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined} className={`h-9 p-0 ${className}`} title={title}>
-      <button type="button" onClick={() => onSort(id)}
-        className={`${LABEL} flex h-9 w-full items-center gap-0.5 px-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] ${className.includes("text-right") ? "justify-end" : ""} ${active ? "text-foreground" : ""}`}>
-        {children}
-        {/* only the active column carries the arrow, so the other columns stay as narrow as their label */}
-        {active && <Arrow aria-hidden className="size-3 stroke-[2.5]" />}
-      </button>
-    </TableHead>
+    <button type="button" onClick={column.getToggleSortingHandler()} title={title}
+      className={`${LABEL} flex h-9 w-full items-center gap-0.5 ${PAD} hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] ${right ? "justify-end" : ""} ${dir ? "text-foreground" : ""}`}>
+      {label}
+      {/* only the active column carries the arrow, so the others stay as narrow as their label */}
+      {dir && <Arrow aria-hidden className="size-3 stroke-[2.5]" />}
+    </button>
   );
 }
 
@@ -136,17 +120,20 @@ export function comparePositions(pos: string): Set<string> {
   return FLEX.has(pos) ? FLEX : new Set([pos]);
 }
 
-// The name cell every row shares: name and chip stack, then POS · TEAM · matchup. A rostered
-// player carries a muted chip with his slot in place of START; his tile and name step in
-// 12px so the group reads as the free agent's dropdown. `tail` closes the caption line: the
-// free agent's outlook button (my own players have theirs on the Roster page).
-function NameCell({ r, week, mine = false, chip, tail }: { r: PlayerRow | RosterRow; week: number; mine?: boolean; chip?: React.ReactNode; tail?: React.ReactNode }) {
+// The name cell every row shares: name and chips, then the caption (POS when the rows mix
+// positions · TEAM · years · matchup), then the hurt teammates ahead of him. It takes the
+// width the numbers leave; the name truncates and the chips and caption wrap. `tail` closes the
+// caption line (the outlook button, on a wide table); `actions` is a line of its own under it all
+// (the outlook and the claim, on a narrow one, where the caption has no room for them).
+function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
+  r: PlayerRow | RosterRow; week: number; showPos: boolean; mine?: boolean; chip?: React.ReactNode; tail?: React.ReactNode; actions?: React.ReactNode;
+}) {
   const hurt = !HEALTHY.has(r.injury);
   const idle = r.bye || injuryTone(r.injury) === "bad";
   return (
-    <TableCell className={`py-2 whitespace-normal max-sm:w-[9.5rem] max-sm:min-w-[9.5rem] sm:cramped:w-[11rem] sm:cramped:min-w-[11rem] fits:w-full fits:max-w-0 ${PIN_NAME} ${mine ? "pl-5" : ""}`}>
-      <p className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight ${idle ? "text-foreground/70" : ""}`}>
-        <PlayerTrigger p={r} className={`truncate rounded-sm ${NAME_LINK}`}>{r.name}</PlayerTrigger>
+    <TableCell className={`w-full max-w-0 py-2 whitespace-normal ${PAD} ${mine ? "pl-4 sm:pl-5" : ""}`}>
+      <p className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-display text-base font-semibold leading-tight tracking-tight sm:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
+        <PlayerTrigger p={r} className={`max-w-full truncate rounded-sm ${NAME_LINK}`}>{r.name}</PlayerTrigger>
         {chip}
         {hurt && (
           <Badge variant={TAG[injuryTone(r.injury)]} shape="chip" title={r.injury_note ?? undefined}>
@@ -155,9 +142,8 @@ function NameCell({ r, week, mine = false, chip, tail }: { r: PlayerRow | Roster
         )}
         {r.bye && <Badge variant="muted" shape="chip">bye</Badge>}
       </p>
-      <p className="mt-1 flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
-        <span className="font-semibold text-foreground/80">{r.pos}</span>
-        <span aria-hidden>·</span>
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[0.6875rem] leading-snug text-muted-foreground sm:text-xs">
+        {showPos && <><span className="font-semibold text-foreground/80">{r.pos}</span><span aria-hidden>·</span></>}
         <span>{r.team}</span>
         {/* years in the league: R for a rookie, the one story the blend cannot tell from a hot start */}
         {expLabel(r.exp) && (
@@ -168,26 +154,25 @@ function NameCell({ r, week, mine = false, chip, tail }: { r: PlayerRow | Roster
         )}
         <span aria-hidden>·</span>
         <Matchup r={r} />
-        {tail && <><span aria-hidden>·</span>{tail}</>}
+        {tail}
       </p>
       {/* the hurt teammates at his position: a fill-in's window ends when they are back */}
       {aheadLabel(r.ahead, week) && (
-        <p className="mt-0.5 text-xs text-close-foreground dark:text-close" title="teammates at his position on ESPN's injury report, with the return week the feed lists">
-          <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em]">ahead</span>{" "}
+        <p className="mt-0.5 text-[0.6875rem] leading-snug text-close-foreground sm:text-xs dark:text-close" title="teammates at his position on ESPN's injury report, with the return week the feed lists">
+          <span className="font-display font-semibold uppercase tracking-[0.12em]">ahead</span>{" "}
           {aheadLabel(r.ahead, week)}
         </p>
       )}
+      {actions && <div className={`mt-1 flex items-center gap-3 ${CLAIM_INLINE}`}>{actions}</div>}
     </TableCell>
   );
 }
 
-// ESPN's pool status beside the name: FA is added the moment the claims are submitted, so it reads
-// at full ink; W·Wed (on waivers, clears Wednesday) steps back. Nothing when the read failed.
-// Where a free agent's claim control sits, another team's player shows who has him: the team's
-// abbreviation, opening its roster (TeamLink). The full name rides the hover.
-function OwnerChip({ owner, className = "" }: { owner: Owner; className?: string }) {
+// Another team's player, where a free agent's claim control sits: the team's abbreviation,
+// opening its roster. The full name rides the hover.
+function OwnerChip({ owner }: { owner: Owner }) {
   return (
-    <span title={owner.name ?? undefined} className={className}>
+    <span title={owner.name ?? undefined}>
       <TeamLink id={owner.team_id} className="font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {ownerLabel(owner)}
       </TeamLink>
@@ -195,151 +180,156 @@ function OwnerChip({ owner, className = "" }: { owner: Owner; className?: string
   );
 }
 
+// ESPN's pool status beside the name: FA is added the moment the claims are submitted, so it reads
+// at full ink; W·Wed (on waivers, clears Wednesday) steps back. Nothing when the read failed.
 function PoolTag({ r }: { r: PlayerRow }) {
   const tag = statusTag(r);
   if (!tag) return null;
   const fa = r.status === "FREEAGENT";
   return (
     <span title={fa ? "free agent: added instantly on Submit" : "on waivers: a claim, processed when his waiver period ends"}
-      className={`font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] ${fa ? "text-foreground" : "text-muted-foreground"}`}>
+      className={`font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] sm:text-[0.75rem] ${fa ? "text-foreground" : "text-muted-foreground"}`}>
       {tag}
     </span>
   );
 }
 
-// The numerals every row shares, from `wk` on: this week's projection with its source note,
-// ROS with its spread beneath, then the form columns. The two deltas belong to a free agent
-// alone; a rostered row leaves them empty.
-function NumberCells({ r, cols }: { r: PlayerRow | RosterRow; cols: FormCol[] }) {
-  const rosSpread = r.ros_spread != null && r.ros_spread >= ROS_CLOSE;
-  const fa = "add" in r ? r : null;
+// What each column is: its label, the heading's hover, the cell for a player's row, and the cell
+// when one of my players stands under a free agent for the comparison (`compare`; the decision
+// column shows the free agent's ROS minus his there). `className` rides both the head and the
+// cells, so a column the narrow table drops goes in one place.
+type Meta = {
+  label: string; title?: string; className?: string;
+  compare?: (fa: PlayerRow, mine: RosterRow) => React.ReactNode;
+};
+type Col = ColumnDef<PlayerRow> & { meta: Meta };
+
+const FORM_COLS: { key: keyof Form & keyof typeof SORT_COLUMNS; label: string; title: string; phone: boolean }[] = [
+  { key: "beat", label: "beat", phone: false, title: "points per game over his last three games minus ESPN's projection for them" },
+  { key: "pace_gap", label: "pace", phone: true, title: "his last three games' pace × games left (his bye out) minus the models' rest-of-season projection: if the last three held" },
+  { key: "opp", label: "opp", phone: true, title: "touches + targets per game over his last three (pass attempts for a QB; kicks for a K); the arrow is the latest game against the earlier ones" },
+  { key: "snap_pct", label: "snap", phone: true, title: "share of the team's offensive snaps over his last three games (Sleeper; snaps land a day after the game)" },
+];
+
+function columns(week: number, showPos: boolean): Col[] {
+  return [
+    { id: "expand", enableSorting: false, meta: { label: "" } },
+    {
+      ...SORT_COLUMNS.name, meta: { label: "Player" },
+      cell: ({ row: { original: r } }) => {
+        const kind = rowKind(r);
+        const free = isFreeAgent(r);
+        return (
+          <NameCell r={r} week={week} showPos={showPos} chip={<>
+            {kind === "mine" && <Badge variant="muted" shape="chip">mine</Badge>}
+            {r.would_start && <Badge variant="start" shape="chip">{free ? "start" : "would start"} {signed(r.week_delta ?? 0)}</Badge>}
+            {free && <PoolTag r={r} />}
+          </>} tail={free && <span className={`contents ${CLAIM_COL}`}><span aria-hidden>·</span><WaiverOutlookButton r={r} /></span>}
+          actions={free
+            ? <><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} /></>
+            : kind === "theirs" && r.owner && <OwnerChip owner={r.owner} />} />
+        );
+      },
+    },
+    {
+      ...SORT_COLUMNS.add,
+      meta: {
+        label: "add", title: "projected points gained this season by adding him",
+        compare: (fa, mine) => {
+          const gap = fa.ros_adj - mine.ros_adj;
+          return <span title={`${fa.name}'s adjusted rest-of-season projection minus ${mine.name}'s`} className={`font-display text-base font-semibold tabular-nums tracking-tight sm:text-lg ${gap > 0 ? "" : "text-foreground/70"}`}>{signed(gap)}</span>;
+        },
+      },
+      // `add` is the decision column and the only bold numeral; a non-positive add, or a rostered
+      // player's (what he'd be worth to me, never a claim), steps back to 70% ink
+      cell: ({ row: { original: r } }) => (
+        <span className={`font-display text-lg font-bold tabular-nums tracking-tight sm:text-[1.5rem] ${isFreeAgent(r) && (r.add ?? 0) > 0 ? "" : "text-foreground/70"}`}>{dash(r.add)}</span>
+      ),
+    },
+    {
+      id: "claim", enableSorting: false, meta: { label: "claim", className: CLAIM_COL },
+      cell: ({ row: { original: r } }) => isFreeAgent(r)
+        ? <ClaimControl id={r.player_id} name={r.name} />
+        : rowKind(r) === "theirs" && r.owner ? <OwnerChip owner={r.owner} /> : null,
+    },
+    {
+      ...SORT_COLUMNS.wk, meta: { label: "wk", title: "this week's projection", className: NARROW, compare: (_, m) => <Week r={m} /> },
+      cell: ({ row: { original: r } }) => <Week r={r} />,
+    },
+    {
+      ...SORT_COLUMNS.ros,
+      meta: {
+        label: "ROS", className: NARROW, compare: (_, m) => pts(m.ros_adj),
+        title: "usage-adjusted rest of season: the models' rate shrunk toward his last games by their snap-weighted count; what add runs on (the models' own number, their spread and the deltas are in his dialog)",
+      },
+      cell: ({ row: { original: r } }) => pts(r.ros_adj),
+    },
+    ...FORM_COLS.map((c): Col => ({
+      ...SORT_COLUMNS[c.key],
+      meta: { label: c.label, title: c.title, className: c.phone ? "" : NARROW, compare: (_, m) => <FormNumeral r={m} k={c.key} /> },
+      cell: ({ row: { original: r } }) => <FormNumeral r={r} k={c.key} />,
+    })),
+  ];
+}
+
+// The cell classes of a column: the add and wk numerals are their own register, the rest stepped
+// back; every number right-aligned.
+function cellClass(id: string, meta: Meta): string {
+  if (id === "expand" || id === "name") return "";
+  const base = id === "claim" ? `${PAD}` : id === "add" || id === "wk" ? `text-right ${PAD}` : `${SIDE} ${PAD}`;
+  return `${base} ${meta.className ?? ""}`;
+}
+
+// The compare chevron at the row's start: my players at his position (every flex position for a
+// flex player), by ROS. My own player has nothing to compare against: the cell stays empty.
+function Chevron({ row }: { row: TRow<PlayerRow> }) {
+  if (!row.getCanExpand()) return null;
+  const open = row.getIsExpanded();
+  const what = [...comparePositions(row.original.pos)].join("/");
   return (
-    <>
-      <TableCell className="pr-2 text-right align-middle">
-        <p className={`font-display text-lg font-semibold tabular-nums tracking-tight ${r.week_proj === 0 ? "text-muted-foreground" : ""}`}>{pts(r.week_proj)}</p>
-        {r.espn_only
-          ? <Under>ESPN only</Under>
-          : r.spread != null && r.spread >= 3
-            ? <Under amber>±{pts(r.spread)}</Under>
-            : null}
-      </TableCell>
-      {/* rest of season: the adjusted ROS `add` runs on, the models' mean with its source spread
-          beneath, then the two deltas */}
-      <TableCell className={`${SIDE} ${GROUP_START}`} title="the models' rate shrunk toward his last games by their snap-weighted count (wt), over the games he can still play">
-        {pts(r.ros_adj)}
-      </TableCell>
-      <TableCell className={SIDE} title={rosSources(r)}>
-        {pts(r.ros_proj)}
-        <Under amber={rosSpread}>{r.ros_spread != null ? `±${pts(r.ros_spread)}` : sourced(r) ? "1 src" : "season"}</Under>
-      </TableCell>
-      <TableCell className={SIDE}>{fa && dash(fa.delta_roster)}</TableCell>
-      <TableCell className={`${SIDE} pr-2`}>{fa && dash(fa.delta_pool)}</TableCell>
-      {/* his last three games, one column each */}
-      {cols.map((col, i) => (
-        <TableCell key={col.key} className={`${SIDE} ${i === 0 ? GROUP_START : ""} ${i === cols.length - 1 ? "pr-4" : ""}`}>
-          <FormNumeral r={r} col={col} />
-        </TableCell>
-      ))}
-    </>
+    <button type="button" onClick={row.getToggleExpandedHandler()} aria-expanded={open} aria-label={open ? `hide my ${what}s` : `compare with my ${what}s`}
+      className="flex h-9 w-7 items-center justify-center rounded-md text-foreground/55 hover:text-foreground focus-visible:outline-2 sm:w-8">
+      <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180" : ""}`} />
+    </button>
   );
 }
 
-// One of my players under a free agent, for the comparison: the same row, tinted, his slot as
-// a muted chip, and in the decision column the free agent's ROS minus his — the number that
-// says whether the claim is an upgrade on this man, so the drop reads straight down.
-function CompareRow({ fa, mine, week, cols }: { fa: PlayerRow; mine: RosterRow; week: number; cols: FormCol[] }) {
-  const idle = mine.bye || injuryTone(mine.injury) === "bad";
-  const gap = fa.ros_adj - mine.ros_adj;
+// One of my players under a free agent, tinted, his slot as a muted chip; in the decision column
+// the free agent's ROS minus his, so the drop reads straight down.
+function CompareRow({ fa, mine, week, showPos, cols }: { fa: PlayerRow; mine: RosterRow; week: number; showPos: boolean; cols: Column<PlayerRow>[] }) {
   return (
     <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
-      <TableCell className={`w-0 py-1.5 pr-0 pl-6 sm:pl-7 ${PIN_TILE} bg-[color-mix(in_oklab,var(--card),var(--foreground)_3%)]`}>
-        <PlayerTrigger p={mine} className="block size-8 overflow-hidden rounded-md">
-          <TeamPanel abbr={mine.team} playerId={mine.player_id} name={mine.name} muted={idle} tile />
-        </PlayerTrigger>
-      </TableCell>
-      <NameCell r={mine} week={week} mine chip={<Badge variant="muted" shape="chip">{slotName(mine.slot)}</Badge>} />
-      <TableCell className={`text-right font-display text-lg font-semibold tabular-nums tracking-tight ${gap > 0 ? "" : "text-foreground/70"}`}
-        title={`${fa.name}'s adjusted rest-of-season projection minus ${mine.name}'s`}>
-        {signed(gap)}
-      </TableCell>
-      <TableCell />
-      <NumberCells r={mine} cols={cols} />
+      {cols.map((c) => {
+        const meta = c.columnDef.meta as Meta;
+        if (c.id === "expand") return <TableCell key={c.id} className="w-0 p-0" />;
+        if (c.id === "name") return <NameCell key={c.id} r={mine} week={week} showPos={showPos} mine chip={<Badge variant="muted" shape="chip">{slotName(mine.slot)}</Badge>} />;
+        return <TableCell key={c.id} className={cellClass(c.id, meta)}>{meta.compare?.(fa, mine)}</TableCell>;
+      })}
     </TableRow>
   );
 }
 
-// One free agent, one row: the Matchup page's lineup row with the waiver numbers beside it.
-// `add` is the decision column and the only bold numeral; a non-positive add steps back to 70%
-// ink so the one worth a claim, when there is one, reads first. A player who would go straight
-// into this week's optimal lineup carries the START chip with the lineup gain — the same
-// meaning lime has everywhere else on the board. Two stat blocks follow: the rest of season
-// (ROS and the two deltas) and his last three games; on a phone they scroll sideways under the
-// pinned tile and name rather than fold away. The chevron at the row's start opens the
-// comparison: my players at his position (every flex position for a flex player), by ROS.
-function Row({ r, week, cols, roster, open, onToggle }: {
-  r: PlayerRow; week: number; cols: FormCol[]; roster: RosterRow[]; open: boolean; onToggle: () => void;
-}) {
-  const idle = r.bye || injuryTone(r.injury) === "bad";
-  const mine = roster.filter((m) => comparePositions(r.pos).has(m.pos));
-  const kind = rowKind(r);
-  const free = isFreeAgent(r);
-  return (
-    <>
-      <TableRow className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
-        <TableCell className={`w-0 py-2 pr-0 pl-1 sm:pl-2 ${PIN_TILE}`}>
-          <div className="flex items-center gap-0.5">
-            {/* my own player has nothing to compare against: a spacer keeps the tiles aligned */}
-            {kind === "mine" ? <span aria-hidden className="size-8 shrink-0" /> : <button type="button" onClick={onToggle} aria-expanded={open} aria-label={open ? `hide my ${[...comparePositions(r.pos)].join("/")}s` : `compare with my ${[...comparePositions(r.pos)].join("/")}s`}
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/55 hover:text-foreground focus-visible:outline-2">
-              <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180" : ""}`} />
-            </button>}
-            <PlayerTrigger p={r} className="block size-9 overflow-hidden rounded-md sm:size-10">
-              <TeamPanel abbr={r.team} playerId={r.player_id} name={r.name} muted={idle} tile />
-            </PlayerTrigger>
-          </div>
-        </TableCell>
-        <NameCell r={r} week={week} chip={<>
-          {kind === "mine" && <Badge variant="muted" shape="chip">mine</Badge>}
-          {r.would_start && <Badge variant="start" shape="chip">{free ? "start" : "would start"} {signed(r.week_delta ?? 0)}</Badge>}
-          {free && <PoolTag r={r} />}
-        </>} tail={free
-          ? <><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} sep className="sm:hidden" /></>
-          : kind === "theirs" && r.owner && <OwnerChip owner={r.owner} className="sm:hidden" />} />
-        {/* a rostered player's add is what he'd be worth to me, never a claim: it stays stepped back */}
-        <TableCell className={`text-right font-display text-[1.5rem] font-bold tabular-nums tracking-tight ${free && r.add > 0 ? "" : "text-foreground/70"}`}>
-          {dash(r.add)}
-        </TableCell>
-        {/* the claim column from `sm` (another team's player shows who has him there); on a phone it
-            collapses to nothing and the control rides the caption line */}
-        <TableCell className="max-sm:p-0 sm:px-2">
-          {free
-            ? <ClaimControl id={r.player_id} name={r.name} className="max-sm:hidden" />
-            : kind === "theirs" && r.owner && <OwnerChip owner={r.owner} className="max-sm:hidden" />}
-        </TableCell>
-        <NumberCells r={r} cols={cols} />
-      </TableRow>
-      {open && mine.map((m) => <CompareRow key={m.player_id} fa={r} mine={m} week={week} cols={cols} />)}
-      {open && mine.length === 0 && (
-        <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
-          <TableCell colSpan={9 + cols.length} className="py-2 pl-6 text-xs text-muted-foreground sm:pl-7">nobody at {r.pos} on my roster</TableCell>
-        </TableRow>
-      )}
-    </>
-  );
-}
-
-// The player pool at one position as a board: a full-width card, the shadcn Table flush to
-// its edges, one row per player with his team-colour tile. Rows arrive in the API's `add` order
-// and open that way; any column heading re-sorts them (descending first, the numbers that
-// matter being high ones; a second tap flips it), the name column alphabetically. The header
-// is two rows: the stat-block headings (REST OF SEASON over ROS and the deltas, LAST 3 GAMES
-// over the form columns), then the column labels; `add` and `wk` stand under no heading, they
-// are the row's own numbers. Both header rows pin to the top and the tile and name to the
-// left while the table scrolls.
+// The player pool at one position: shadcn's Table driven by TanStack (sorting, the compare
+// rows). Rows arrive in the API's `add` order and open that way; a heading re-sorts them (numbers
+// high first, the name A to Z; a second tap flips it). The column set is the quick read: add and
+// the claim, this week and the rest of the season, then how his last three games ran against the
+// projection (beat, pace) and his usage (opp, snap). Everything else (the models' ROS and spread,
+// the two deltas, L3, tgt/snap, ypt, wt) is in his dialog.
 export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: PlayerRow[]; roster: RosterRow[]; week: number; pos: string; q?: string | null; fa?: boolean }) {
-  const [sort, setSort] = useState<Sort>({ key: "add", dir: "desc" });
-  const [open, setOpen] = useState<Set<number>>(new Set());
-  const toggle = (id: number) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const [sorting, setSorting] = useState<SortingState>([{ id: "add", desc: true }]);
+  // a search spans every position, so the caption names his; a position tab already does
+  const showPos = !!q;
+  // only the form columns this position has: a kicker never has snaps, a defence no
+  // opportunity, and before the week's snaps land nobody has a snap share yet
+  const keep = useMemo(() => new Set(FORM_COLS.filter((c) => rows.some((r) => r.form && formCell(r.form, c.key))).map((c) => c.key as string)), [rows]);
+  const cols = useMemo(() => columns(week, showPos).filter((c) => !FORM_COLS.some((f) => f.key === c.id) || keep.has(c.id!)), [week, showPos, keep]);
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack v8 hands back a mutable instance; the compiler leaves this component unmemoized
+  const table = useReactTable({
+    data: rows, columns: cols, state: { sorting }, onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(),
+    getRowId: (r) => String(r.player_id), getRowCanExpand: (r) => rowKind(r.original) !== "mine",
+    enableSortingRemoval: false,
+  });
   if (rows.length === 0) {
     // every rostered player is in the pool, the free agents only to ESPN's top 150 at each position (espn_season.POOL_SIZE)
     return (
@@ -350,48 +340,57 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
       </p>
     );
   }
-  // only the form columns this position has: a kicker never has snaps or targets, a defence
-  // no opportunity, and before the week's snaps land nobody has a snap share yet
-  const cols = FORM_COLUMNS.filter((c) => rows.some((r) => r.form && formCell(r.form, c.key)));
-  const onSort = (key: string) => setSort((s) => (
-    s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: key === "name" ? "asc" : "desc" }));
-  const head = (id: string, className: string, label: string, title?: string) => (
-    <SortHead key={id} id={id} sort={sort} onSort={onSort} className={className} title={title}>{label}</SortHead>
-  );
-  // the card clips its corners with overflow-hidden, which would also stop the headers pinning
-  // to the page once it fits; there the card lets them out and the header row rounds its own
-  // top corners instead
+  const leaf = table.getVisibleLeafColumns();
+  // the card lets the header out to pin to the page (no overflow clip); the header's end cells
+  // round their own top corners to the card's
   return (
-    <div className="@container/table"><Card className="rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] fits:overflow-visible">
-      <CardContent className="px-0 sm:px-0">
-        <Table containerClassName={PANEL}>
-          <TableHeader>
-            <TableRow className="border-0 hover:bg-transparent">
-              <TableHead colSpan={2} className={`h-7 rounded-tl-lg border-0 ${PIN_TOP_1} ${PIN_TILE} ${PIN_CORNER}`} />
-              <TableHead colSpan={3} className={`h-7 border-0 ${PIN_TOP_1}`} />
-              <TableHead colSpan={4} className={`h-7 ${GROUP} ${PIN_TOP_1}`}>Rest of season</TableHead>
-              <TableHead colSpan={cols.length} className={`h-7 rounded-tr-lg ${GROUP} ${PIN_TOP_1}`} title="his last three games played, within the last five weeks; only the snap-weighted L3 reaches add, through the adjusted ROS">Last 3 games</TableHead>
-            </TableRow>
-            <TableRow className="border-foreground/10 hover:bg-transparent">
-              <TableHead className={`h-9 pl-3 sm:pl-4 ${PIN_TOP_2} ${PIN_TILE} ${PIN_CORNER}`}><span className="sr-only">Team</span></TableHead>
-              {head("name", `${PIN_TOP_2} ${PIN_NAME} ${PIN_CORNER} cramped:border-r-0`, "Player")}
-              {head("add", `text-right ${PIN_TOP_2}`, "add", "projected points gained this season by adding him")}
-              <TableHead className={`h-9 max-sm:p-0 sm:px-2 ${PIN_TOP_2}`}><span className={`${LABEL} max-sm:sr-only`}>claim</span></TableHead>
-              {head("wk", `text-right ${PIN_TOP_2}`, "wk", "this week's projection")}
-              {head("ros", `text-right ${GROUP_START} ${PIN_TOP_2}`, "ROS", "usage-adjusted rest of season: the models' rate shrunk toward his last games by wt (the prior worth 4 games); what add and the deltas run on")}
-              {head("model", `text-right ${PIN_TOP_2}`, "model", "Sleeper's remaining weeks and CBS's rest-of-season projection, averaged; the gap between them beneath")}
-              {head("dr", `text-right ${PIN_TOP_2}`, "Δ roster", "ROS against my weakest at the position")}
-              {head("dp", `text-right ${PIN_TOP_2}`, "Δ pool", "ROS against the league's replacement level")}
-              {cols.map((col, i) => head(col.key, `text-right ${PIN_TOP_2} ${i === 0 ? GROUP_START : ""} ${i === cols.length - 1 ? "pr-2" : ""}`, col.label, col.title))}
-            </TableRow>
+    <div className="@container/table">
+      <Card className="gap-0 overflow-visible rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)]">
+        <Table containerClassName="overflow-visible" className="[&_th:first-child]:rounded-tl-lg [&_th:last-child]:rounded-tr-lg">
+          <TableHeader className="[&_tr]:border-0">
+            {table.getHeaderGroups().map((g) => (
+              <TableRow key={g.id} className="hover:bg-transparent">
+                {g.headers.map((h) => {
+                  const meta = h.column.columnDef.meta as Meta;
+                  const sorted = h.column.getIsSorted();
+                  return (
+                    <TableHead key={h.id} aria-sort={sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined}
+                      className={`h-9 p-0 ${PIN} ${h.column.id === "expand" ? "w-0" : ""} ${meta.className ?? ""}`}>
+                      {h.column.getCanSort()
+                        ? <SortHead column={h.column} label={meta.label} title={meta.title} />
+                        : meta.label && <span className={`${LABEL} block ${PAD}`}>{meta.label}</span>}
+                    </TableHead>
+                  );
+                })}
+              </TableRow>
+            ))}
           </TableHeader>
           <TableBody>
-            {sortRows(rows, sort).map((r) => (
-              <Row key={r.player_id} r={r} week={week} cols={cols} roster={roster} open={open.has(r.player_id)} onToggle={() => toggle(r.player_id)} />
-            ))}
+            {table.getRowModel().rows.map((row) => {
+              const open = row.getIsExpanded();
+              const mine = open ? roster.filter((m) => comparePositions(row.original.pos).has(m.pos)) : [];
+              return [
+                <TableRow key={row.id} className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
+                  {row.getVisibleCells().map((cell) => {
+                    const meta = cell.column.columnDef.meta as Meta;
+                    if (cell.column.id === "expand") return <TableCell key={cell.id} className="w-0 py-2 pr-0 pl-0.5 sm:pl-1.5"><Chevron row={row} /></TableCell>;
+                    // the name column's cell is a whole <td> (NameCell), shared with the compare rows
+                    if (cell.column.id === "name") return <Fragment key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</Fragment>;
+                    return <TableCell key={cell.id} className={cellClass(cell.column.id, meta)}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>;
+                  })}
+                </TableRow>,
+                ...mine.map((m) => <CompareRow key={`${row.id}-${m.player_id}`} fa={row.original} mine={m} week={week} showPos={showPos} cols={leaf} />),
+                open && mine.length === 0 && (
+                  <TableRow key={`${row.id}-none`} className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
+                    <TableCell colSpan={leaf.length} className="py-2 pl-4 text-xs text-muted-foreground sm:pl-5">nobody at {row.original.pos} on my roster</TableCell>
+                  </TableRow>
+                ),
+              ];
+            })}
           </TableBody>
         </Table>
-      </CardContent>
-    </Card></div>
+      </Card>
+    </div>
   );
 }
+

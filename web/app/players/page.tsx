@@ -68,13 +68,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
       {/* The definition is a laptop read; on the phone the first screen belongs to the table. */}
       <p className="hidden max-w-[72ch] text-xs leading-relaxed text-muted-foreground md:block">
         add = projected points gained this season by adding him (STRATEGY.md, Waivers; on a rostered player, what he&apos;d be worth to me, blank on my own), ranked
-        top down. ROS = the models&apos; per-game rate shrunk toward his last three games, each game
-        worth its snap share against the position&apos;s lead players (wt), the prior worth four games.
-        model = Sleeper&apos;s remaining weeks and CBS&apos;s rest-of-season projection, averaged; ± is the
-        gap between them. Δ roster = ROS vs my weakest at the position; Δ pool = ROS vs league
-        replacement. START marks a player who would go straight into this week&apos;s lineup, with the gain.
-        R marks a rookie; AHEAD lists the hurt teammates at his position, since a fill-in&apos;s window
-        ends when they are back. Each column&apos;s heading says what it is.
+        top down. ROS = the models&apos; per-game rate shrunk toward his last three games by their snap
+        share. beat and pace = his last three games against the projection, per game and over the
+        rest of the season; opp and snap = his usage. START marks a player who would go straight into
+        this week&apos;s lineup, with the gain; AHEAD lists the hurt teammates at his position. Tap a
+        name for the rest: the models&apos; ROS and spread, Δ roster and Δ pool, the full form line
+        and the game log.
       </p>
       {data.ros_source === "season" && (
         <p className="max-w-[72ch] text-xs leading-relaxed text-close-foreground dark:text-close">
