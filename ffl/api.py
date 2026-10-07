@@ -8,7 +8,8 @@ served, flagged, when a source is down — never a blank page on Sunday.
 Only these endpoints write anything: POST /refresh runs the journal sync, POST /outlook/refresh starts a background run that writes
 data/outlook/week-<n>.json, POST /waivers/outlook/{id} writes one free agent's into data/outlook/waivers-week-<n>.json,
 POST /claims saves the week's claim plan to journal/waivers/week-<n>.json (never touches ESPN), and POST /claims/submit is
-the one route that writes to ESPN (instant free-agent adds + waiver claims, through ffl/espn_write.py) and journals it.
+the one route that writes to ESPN (instant free-agent adds + waiver claims, through ffl/espn_write.py) and journals it;
+POST /lineup writes to ESPN too (moves players between lineup slots, one transaction) and journals it.
 Every GET is read-only.
 """
 from __future__ import annotations
@@ -124,6 +125,13 @@ class Cache:
 
     def has(self, key: str) -> bool:
         return key in self._d
+
+    def expire(self, prefix: str):
+        """Mark `prefix` and every `prefix:...` key expired: served stale once, rebuilt behind the request."""
+        with self._lock:
+            for k, e in self._d.items():
+                if k == prefix or k.startswith(prefix + ":"):
+                    e.expires = 0.0
 
     def expire_all(self):
         with self._lock:
@@ -373,6 +381,59 @@ def claims_submit(body: SubmitIn):
         return res
     finally:
         _SUBMIT.release()
+
+
+class LineupMove(BaseModel):
+    player_id: int
+    to_slot: str
+
+
+class LineupIn(BaseModel):
+    moves: list[LineupMove]
+
+
+_LINEUP = threading.Lock()  # one move at a time: the answer is read back from ESPN, and two would read each other's half
+
+
+def _espn_error(e: espn_write.WriteError) -> HTTPException:
+    return HTTPException(502, {"source": "espn", "error": "ESPN login expired, refresh .env" if e.expired else str(e)})
+
+
+@app.post("/lineup")
+def lineup(body: LineupIn):
+    """Move players between ESPN slots (one transaction), then answer with the Roster page as ESPN now has it.
+    Locks are re-read here, not trusted from the page: a game can kick off between the load and the tap."""
+    if not _LINEUP.acquire(blocking=False):
+        raise HTTPException(409, "a lineup move is already running")
+    try:
+        data = _serve("roster", lambda: espn_season.roster_state(None))
+        try:
+            flags = espn_season.roster_flags(espn_season.fresh_league())
+            _, period = espn_write.pending_state()
+        except espn_write.WriteError as e:
+            raise _espn_error(e)
+        except Exception as e:  # noqa: BLE001 — the mRoster read
+            raise HTTPException(502, {"source": "espn", "error": str(e)})
+        if period is not None and period != data["week"]:
+            raise HTTPException(409, {"error": "ESPN's week changed — reload"})
+        roster = [{**c, "locked": flags.get(c["player_id"], {}).get("locked", False)} for c in data["cards"]]
+        items, errs = season.lineup_moves([m.model_dump() for m in body.moves], roster, espn_season.load())
+        if errs:
+            raise HTTPException(409, {"errors": errs})
+        if items:
+            try:
+                espn_write.move_lineup(items, data["week"])
+            except espn_write.WriteError as e:
+                raise _espn_error(e)
+            with DECISIONS.open("a") as f:
+                f.write("\n" + season.lineup_entry(items, data["cards"], data["week"], datetime.now().strftime("%Y-%m-%d")))
+            espn_season._BOXES.clear()  # the box scores carry the slots; read them again
+            cache.expire("week")  # the Matchup board shows this lineup too
+            cache.expire("roster")
+            cache._rebuild("roster")  # this answer is read back from ESPN inline, not the stale entry
+        return roster_()
+    finally:
+        _LINEUP.release()
 
 
 def _live_for(week: int | None) -> bool:

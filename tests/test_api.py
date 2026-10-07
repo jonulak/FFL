@@ -789,3 +789,66 @@ def test_players_pool_cached_before_rostered_existed(client, monkeypatch):
 def test_claims_never_see_a_rostered_player(monkeypatch):
     pool = _league_pool(monkeypatch)
     assert set(api._pool_rows(pool)) == {7}
+
+
+@pytest.fixture
+def lineup_env(client, monkeypatch, tmp_path):
+    cards = [{"player_id": 3, "name": "Bench", "pos": "RB", "slot": "BE", "call": "START", "gap": 1.4, "group": "bench", "locked": False},
+             {"player_id": 2, "name": "Flex", "pos": "WR", "slot": "RB/WR/TE", "call": "BENCH", "gap": -1.4, "group": "starter", "locked": False}]
+    state = {"slots": {3: "BE", 2: "RB/WR/TE"}, "locked": set(), "period": 3, "builds": 0}
+
+    def roster_state(week=None):
+        state["builds"] += 1
+        return {"week": 3, "live": False, "empty_slots": [], "writes": False,
+                "cards": [{**c, "slot": state["slots"][c["player_id"]]} for c in cards]}
+    monkeypatch.setattr(api.espn_season, "roster_state", roster_state)
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: None)
+    monkeypatch.setattr(api.espn_season, "roster_flags", lambda lg: {i: {"locked": True} for i in state["locked"]})
+    monkeypatch.setattr(api.espn_season, "load", lambda: {"starters": {"RB/WR/TE": 1}})
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda: ([], state["period"]))
+    sent = []
+    monkeypatch.setattr(api.espn_write, "move_lineup",
+                        lambda items, week: sent.append((items, week)) or state["slots"].update({p: t for p, _, t in items}))
+    monkeypatch.setattr(api, "DECISIONS", tmp_path / "DECISIONS.md")
+    client.state, client.sent = state, sent
+    return client
+
+
+SWAP = {"moves": [{"player_id": 3, "to_slot": "RB/WR/TE"}, {"player_id": 2, "to_slot": "BE"}]}
+
+
+def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env, tmp_path):
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 200
+    assert lineup_env.sent == [([(3, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], 3)]
+    assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {3: "RB/WR/TE", 2: "BE"}, "read back, not echoed"
+    assert "Week 3 lineup: Bench to FLEX, Flex to the bench" in (tmp_path / "DECISIONS.md").read_text()
+
+
+def test_lineup_refuses_a_player_whose_game_started_since_the_page_loaded(lineup_env):
+    lineup_env.state["locked"] = {2}
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 409 and r.json()["detail"]["errors"] == ["Flex: his game has started"]
+    assert lineup_env.sent == []
+
+
+def test_lineup_refuses_when_espns_week_rolled(lineup_env):
+    lineup_env.state["period"] = 4
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 409 and "week changed" in r.json()["detail"]["error"] and lineup_env.sent == []
+
+
+def test_lineup_refuses_a_second_move_while_one_runs(lineup_env):
+    assert api._LINEUP.acquire(blocking=False)
+    try:
+        assert lineup_env.post("/lineup", json=SWAP).status_code == 409
+    finally:
+        api._LINEUP.release()
+
+
+def test_lineup_reports_espns_refusal(lineup_env, monkeypatch):
+    def boom(items, week):
+        raise api.espn_write.WriteError(401, "nope")
+    monkeypatch.setattr(api.espn_write, "move_lineup", boom)
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN login expired, refresh .env"
