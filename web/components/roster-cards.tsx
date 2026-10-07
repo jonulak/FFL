@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, LoaderCircle, Lock, Plus } from "lucide-react";
+import type { Ref } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -270,7 +271,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
   const error = swap.error?.id === c.player_id && !picked ? swap.error : null;
   const slot = slotLabel(c.slot);
   return (
-    <li aria-busy={busy || undefined} className={picked ? "bg-foreground/[0.045]" : undefined}>
+    <li data-flip={`p${c.player_id}`} data-slot={c.slot} aria-busy={busy || undefined} className={picked ? "bg-foreground/[0.045]" : undefined}>
       <Collapsible open={open} onOpenChange={onOpen}>
         <div className={GRID}>
           <SlotControl c={c} picked={picked} busy={busy} disabled={anyBusy} onPick={() => swap.pick(c)} />
@@ -341,9 +342,9 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
 }
 
 // A starting or IR slot ESPN has nobody in. A tap opens the sheet of who can fill it; the swap sheet offers it too.
-function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
+function EmptyRow({ slot, flip, swap }: { slot: string; flip: string; swap: SwapControl }) {
   return (
-    <li>
+    <li data-flip={`e${flip}`} data-slot={slot}>
       <button type="button" onClick={() => swap.fill(slot)} disabled={swap.pending.length > 0} aria-haspopup="dialog"
         aria-label={`Fill the empty ${slotLabel(slot)} slot`}
         className={`${GRID} group/empty w-full text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-foreground/[0.07] disabled:pointer-events-none`}>
@@ -383,13 +384,15 @@ function items(cards: Card[], group: Card["group"], empty: string[]): Item[] {
   return rows.map((r, i) => [r, i] as const).sort(([a, i], [b, j]) => order(slotOf(a)) - order(slotOf(b)) || i - j).map(([r]) => r);
 }
 
-export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, notice }: {
+export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, notice, rootRef }: {
   cards: Card[]; empty: string[]; week: number; runBusy: boolean;
   open: number | null; setOpen: (id: number | null) => void; swap: SwapControl; notice: Notice | null;
+  // the board's root, for RosterLive's move animation (use-flip.ts); the groups, cards and rows carry its marks
+  rootRef?: Ref<HTMLDivElement>;
 }) {
   const bad = irIllegal(cards);
   return (
-    <div className="space-y-7">
+    <div ref={rootRef} className="space-y-7">
       {/* read out from here; shown beside the row that moved, which may be far down the page */}
       <p aria-live="polite" className="sr-only">{notice?.text}</p>
       {bad && <IrBlocked c={bad} onFix={() => swap.pick(bad)} disabled={swap.pending.length > 0} />}
@@ -398,7 +401,7 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
         if (rows.length === 0) return null;
         const filled = rows.filter((r) => r.kind === "card").length;
         return (
-          <section key={key} className="space-y-3" aria-labelledby={`group-${key}`}>
+          <section key={key} data-flip-group={key} className="space-y-3" aria-labelledby={`group-${key}`}>
             <h2 id={`group-${key}`} className="flex items-baseline gap-3">
               <span className="font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</span>
               <span className="font-display text-sm font-medium tabular-nums text-muted-foreground">
@@ -406,12 +409,12 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
               </span>
               <Separator className="mb-1.5 flex-1 self-end bg-foreground/12" />
             </h2>
-            <ul className="divide-y divide-foreground/10 overflow-hidden rounded-lg bg-card shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)]">
+            <ul data-flip-list={key} className="divide-y divide-foreground/10 overflow-hidden rounded-lg bg-card shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)]">
               {rows.map((r) => r.kind === "card"
                 ? <PlayerRow key={r.c.player_id} c={r.c} week={week} runBusy={runBusy} swap={swap}
                     notice={notice?.id === r.c.player_id ? notice.text : null} illegal={bad?.player_id === r.c.player_id}
                     open={open === r.c.player_id} onOpen={(o) => setOpen(o ? r.c.player_id : null)} />
-                : <EmptyRow key={r.key} slot={r.slot} swap={swap} />)}
+                : <EmptyRow key={r.key} flip={r.key} slot={r.slot} swap={swap} />)}
             </ul>
           </section>
         );

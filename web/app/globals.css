@@ -357,6 +357,35 @@ tr[data-fold="shut"] > td > .fold {
 @keyframes stage-in { from { opacity: 0; translate: 0 var(--stage-from, 1.25rem); } }
 @keyframes stage-out { to { opacity: 0; scale: 0.985; } }
 
+/* A lineup move on the Roster page (use-flip.ts): the player who changed slot travels from his
+   old row to his new one as a card of his own, lifted on the board's one drop so he passes over
+   his neighbours (and between the groups' cards, which stop clipping while he is out), and he
+   lands with an ink wash running out from his slot that holds a beat and fades, so the eye can
+   find him at the end of the trip. Ink, not lime: a move is not a verdict. */
+[data-flip] {
+  position: relative;
+  isolation: isolate;
+  transition: box-shadow 240ms var(--ease-arrive);
+}
+[data-flipping] [data-flip-list] { overflow: visible; }
+[data-flip][data-travel] {
+  z-index: 10;
+  border-radius: var(--radius);
+  background-color: var(--card);
+  box-shadow: 0 10px 28px -16px rgb(0 0 0 / 0.55), 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+[data-flip][data-landed]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(to right, color-mix(in oklab, var(--foreground) 11%, transparent), transparent 70%);
+  animation: landed 1.8s ease-out both;
+}
+@keyframes landed { 0%, 35% { opacity: 1; } 100% { opacity: 0; } }
+
 /* Reduced motion keeps what carries meaning (a new row still fades in, a scoring play still
    washes) and drops the travel: no sliding, no opening and folding. */
 @media (prefers-reduced-motion: reduce) {

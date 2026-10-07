@@ -7,6 +7,7 @@ import type { Card, Roster } from "@/lib/api";
 import { afterFailure, applyMoves, fillOptions, irIllegal, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
 import { type Notice, RosterRows, type SwapControl } from "./roster-cards";
 import { type SheetPick, type SheetSubject, SwapSheet } from "./swap-sheet";
+import { useFlip } from "./use-flip";
 import { useLive } from "./use-live";
 
 // The write moves players in ESPN and reads the lineup back: give it the claims submit's minute, not a GET's 20 s.
@@ -31,6 +32,8 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const [error, setError] = useState<({ id: number } & LineupFailure) | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const shown = optimistic ?? data;
+  // every change a move makes to the rows (the re-slot, ESPN's read-back, a refusal putting them back) plays out
+  const { root, capture } = useFlip<HTMLDivElement>(shown);
 
   const pickedCard = useMemo(() => (picked == null ? null : shown.cards.find((c) => c.player_id === picked) ?? null), [shown.cards, picked]);
   const subject = useMemo((): SheetSubject | null => {
@@ -56,6 +59,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
     } else return;
     const before = shown;
     const next = applyMoves(before, moves);
+    capture();
     // replace() also bumps the refetch generation: an answer to a GET sent before this tap is dropped
     replace(next);
     setOptimistic(next);
@@ -64,11 +68,13 @@ export function RosterLive({ initial }: { initial: Roster }) {
     clear();
     try {
       const back = await clientPost<Roster>("/lineup", { moves }, MOVE_MS);
+      capture();
       replace(back);
       // a dev API with FFL_WRITES=0 answers as if ESPN had taken it; never let that read as ESPN
       setNotice(back.writes ? null : { id, text: "fake write (FFL_WRITES=0)" });
     } catch (e) {
       const f = e instanceof ClientError ? lineupFailure(e.status, e.body, e.message) : lineupFailure(null, null, message(e));
+      capture();
       replace(afterFailure(f, before, next));
       setError({ id, ...f });
     } finally {
@@ -83,7 +89,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
   return (
     <>
       <RosterRows cards={shown.cards} empty={shown.empty_slots} week={shown.week} runBusy={shown.outlook_run.running}
-        open={open} setOpen={setOpen} swap={swap} notice={notice} />
+        open={open} setOpen={setOpen} swap={swap} notice={notice} rootRef={root} />
       <SwapSheet subject={subject} move={move} onClose={close} blocked={irIllegal(shown.cards)} onFix={pick} />
     </>
   );
