@@ -114,6 +114,12 @@ export function applyMoves<T extends { cards: Card[]; empty_slots: string[] }>(r
   return { ...r, cards, empty_slots: empty };
 }
 
+// The page after a refused move: back as it was, unless ESPN probably took it (`moved`: only the answer or the
+// read-back failed), when the optimistic rows are the better guess and the notice asks for a reload to confirm.
+export function afterFailure<T>(f: Pick<LineupFailure, "moved">, before: T, optimistic: T): T {
+  return f.moved ? optimistic : before;
+}
+
 // A target's change to the starting lineup's projection: "+2.0", "−1.0" (a true minus), "±0" for no change.
 export function gainText(n: number): string {
   const r = Math.round(n * 10) / 10;
@@ -129,7 +135,7 @@ export function lineupFailure(status: number | null, body: unknown, message: str
   const detail = (body as { detail?: unknown } | null)?.detail;
   const o = detail && typeof detail === "object" && !Array.isArray(detail)
     ? (detail as { errors?: unknown; error?: unknown; moved?: unknown }) : null;
-  if (o?.moved === true) return { text: "Moved in ESPN — reload to see it", reload: true, moved: true };
+  if (o?.moved === true) return { text: "Moved in ESPN — reload to confirm", reload: true, moved: true };
   if (o && Array.isArray(o.errors) && o.errors.length) return { text: o.errors.map(String).join("; "), reload: false, moved: false };
   if (o && typeof o.error === "string" && o.error) {
     const text = status === 502 && !/^ESPN/.test(o.error) ? `ESPN: ${o.error}` : o.error;

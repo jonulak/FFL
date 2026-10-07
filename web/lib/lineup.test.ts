@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, applyMoves, fillOptions, gainText, isMismatch, lineupFailure, movesFor, slotLabel, swapOptions, targets } from "./lineup";
+import { accepts, afterFailure, applyMoves, fillOptions, gainText, isMismatch, lineupFailure, movesFor, slotLabel, swapOptions, targets } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
@@ -80,7 +80,7 @@ describe("lineupFailure", () => {
     expect(lineupFailure(409, { detail: "a lineup move is already running" }, "x").text).toBe("a lineup move is already running"));
   it("a move ESPN took but could not read back is never a failure", () =>
     expect(lineupFailure(502, { detail: { source: "espn", error: "moved in ESPN — the read-back failed, reload", moved: true } }, "x"))
-      .toEqual({ text: "Moved in ESPN — reload to see it", reload: true, moved: true }));
+      .toEqual({ text: "Moved in ESPN — reload to confirm", reload: true, moved: true }));
   it("an ESPN error names ESPN once", () => {
     expect(lineupFailure(502, { detail: { source: "espn", error: "ESPN login expired, refresh .env" } }, "x").text)
       .toBe("ESPN login expired, refresh .env");
@@ -143,6 +143,18 @@ describe("applyMoves", () => {
   it("leaves the cards it does not move as they were", () => {
     const r = applyMoves(roster(), [{ player_id: 3, to_slot: "BE" }]);
     expect(r.cards.find((x) => x.player_id === 1)).toBe(qb);
+  });
+});
+
+describe("afterFailure", () => {
+  const before = { cards: all, empty_slots: [] as string[] };
+  const optimistic = applyMoves(before, [{ player_id: 3, to_slot: "BE" }]);
+  it("a move ESPN probably took keeps the optimistic rows", () =>
+    expect(afterFailure(lineupFailure(502, { detail: { source: "espn", error: "x", moved: true } }, "x"), before, optimistic)).toBe(optimistic));
+  it("every other failure puts the page back", () => {
+    expect(afterFailure(lineupFailure(409, { detail: { errors: ["A is locked"] } }, "x"), before, optimistic)).toBe(before);
+    expect(afterFailure(lineupFailure(502, { detail: { source: "espn", error: "HTTP 500" } }, "x"), before, optimistic)).toBe(before);
+    expect(afterFailure(lineupFailure(null, null, "timed out"), before, optimistic)).toBe(before);
   });
 });
 

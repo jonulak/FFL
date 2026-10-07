@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ClientError, clientPost } from "@/app/api-client";
 import type { Card, Roster } from "@/lib/api";
-import { applyMoves, fillOptions, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
+import { afterFailure, applyMoves, fillOptions, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
 import { type Notice, RosterRows, type SwapControl } from "./roster-cards";
 import { type SheetPick, type SheetSubject, SwapSheet } from "./swap-sheet";
 import { useLive } from "./use-live";
@@ -16,7 +16,8 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // Only the rows go live: the page header (outlook run, stale badge) is server state. The swap lives here: tap a
 // player's swap button (or an empty starting slot) and the sheet lists the moves; a tap on one closes the sheet and
 // re-slots the rows at once, before ESPN answers. ESPN's read-back then replaces them; a refusal puts the page back
-// as it was and says why under the row.
+// as it was and says why under the row, except one ESPN probably took (`moved`), which keeps the new rows and asks
+// for a reload to confirm (lineup.afterFailure).
 export function RosterLive({ initial }: { initial: Roster }) {
   const router = useRouter();
   const { data, replace } = useLive(initial, "/roster");
@@ -67,8 +68,9 @@ export function RosterLive({ initial }: { initial: Roster }) {
       // a dev API with FFL_WRITES=0 answers as if ESPN had taken it; never let that read as ESPN
       setNotice(back.writes ? null : { id, text: "fake write (FFL_WRITES=0)" });
     } catch (e) {
-      replace(before);
-      setError({ id, ...(e instanceof ClientError ? lineupFailure(e.status, e.body, e.message) : lineupFailure(null, null, message(e))) });
+      const f = e instanceof ClientError ? lineupFailure(e.status, e.body, e.message) : lineupFailure(null, null, message(e));
+      replace(afterFailure(f, before, next));
+      setError({ id, ...f });
     } finally {
       setOptimistic(null);
       setPending([]);
