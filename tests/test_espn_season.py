@@ -816,7 +816,7 @@ def test_parse_roster_flags():
 def test_parse_roster_flags_undroppable():
     doc = {"teams": [{"id": 7, "roster": {"entries": [
         {"playerId": 1, "playerPoolEntry": {"lineupLocked": True, "player": {"droppable": False}}}]}}]}
-    assert espn_season.parse_roster_flags(doc, 7) == {1: {"droppable": False, "locked": True}}
+    assert espn_season.parse_roster_flags(doc, 7) == {1: {"droppable": False, "locked": True, "order": 0}}
 
 
 def test_pool_status_asks_by_status(monkeypatch):
@@ -869,3 +869,18 @@ def test_parse_roster_flags_carries_the_slot_name():
         {"playerId": 3, "lineupSlotId": 99, "playerPoolEntry": {}}]}}]}
     f = espn_season.parse_roster_flags(doc, 7)
     assert f[1]["slot"] == "BE" and f[2]["slot"] == "RB/WR/TE" and "slot" not in f[3]
+
+
+def test_parse_roster_flags_carries_espns_order():
+    doc = {"teams": [{"id": 7, "roster": {"entries": [
+        {"playerId": 5, "playerPoolEntry": {}}, {"playerId": 2, "playerPoolEntry": {}}]}}]}
+    f = espn_season.parse_roster_flags(doc, 7)
+    assert f[5]["order"] == 0 and f[2]["order"] == 1
+
+
+def test_with_espn_slots_carries_espns_order_and_falls_back_to_the_box_order():
+    rows = [{"player_id": 1, "slot": "WR"}, {"player_id": 2, "slot": "WR"}, {"player_id": 3, "slot": "BE"}]
+    out = espn_season.with_espn_slots(rows, {1: {"slot": "WR", "order": 4}, 2: {"slot": "WR", "order": 1}}, {})
+    order = {r["player_id"]: r["espn_order"] for r in out}
+    assert order[2] < order[1], "ESPN's entry order, not the box score's"
+    assert order[3] > order[1], "a player ESPN's read lacks goes after, in box order"

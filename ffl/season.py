@@ -190,9 +190,11 @@ def _group(p: dict) -> str:
 
 
 def _card_sort_key(c: dict) -> tuple:
-    """Section; starters in ESPN's slot order, the rest by position; then this week's projection, best first."""
+    """Section; starters in ESPN's slot order and, inside a slot, ESPN's own order (`espn_order`, as its Matchup tab
+    and ours list them); the rest by position, then this week's projection, best first."""
     if c["group"] == "starter":
         rank = SLOT_ORDER.index(c["slot"]) if c["slot"] in SLOT_ORDER else len(SLOT_ORDER)
+        return (GROUP_ORDER.index(c["group"]), rank, c["espn_order"])
     else:
         rank = POS_ORDER.index(c["pos"]) if c["pos"] in POS_ORDER else len(POS_ORDER)
     return (GROUP_ORDER.index(c["group"]), rank, -float(c.get("proj") or 0.0), c["name"])
@@ -228,7 +230,7 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
     by_id = {p["player_id"]: p for p in roster}
     bench = [p for p in roster if p["player_id"] not in slot_of and p.get("slot") != "IR" and playable_proj(p) > 0]
     cards = []
-    for p in roster:
+    for i, p in enumerate(roster):
         gap: float | None = None
         if p.get("slot") == "IR":
             call, reason = "IR", "IR slot"
@@ -260,7 +262,8 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
         if call in ("START", "BENCH") and p.get("injury") in INJURY_FACTOR:
             reason += " — his status is your call"
         cards.append({**p, "group": _group(p), "call": call, "gap": gap, "close_call": close, "reason": reason,
-                      "ros_adj": ros_adj(p, week), "play_proj": playable_proj(p), "locked": bool(p.get("locked"))})
+                      "ros_adj": ros_adj(p, week), "play_proj": playable_proj(p), "locked": bool(p.get("locked")),
+                      "espn_order": p.get("espn_order", i)})
     return sorted(cards, key=_card_sort_key)
 
 

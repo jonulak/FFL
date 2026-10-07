@@ -137,12 +137,18 @@ describe("applyMoves", () => {
     expect(r.empty_slots).toEqual(["RB"]);
   });
   it("orders the rows as ESPN's read-back will (season._card_sort_key), so the move does not play out twice", () => {
-    // two FLEX starters and a bench WR who out-projects both: swapped into the second FLEX, he reads first
-    const f1 = c(10, "WR", "RB/WR/TE", 9, { proj: 9, name: "Flex A" }), f2 = c(11, "WR", "RB/WR/TE", 8, { proj: 8, name: "Flex B" });
-    const te = c(12, "TE", "BE", 6, { proj: 6, name: "Tight" }), wr = c(13, "WR", "BE", 12, { proj: 12, name: "Wide" });
+    // two FLEX starters and a bench WR ahead of both in ESPN's entries: swapped into the second FLEX, he reads
+    // first, as ESPN lists him
+    const f1 = c(10, "WR", "RB/WR/TE", 9, { proj: 9, name: "Flex A", espn_order: 3 }), f2 = c(11, "WR", "RB/WR/TE", 8, { proj: 8, name: "Flex B", espn_order: 4 });
+    const te = c(12, "TE", "BE", 6, { proj: 6, name: "Tight", espn_order: 1 }), wr = c(13, "WR", "BE", 12, { proj: 12, name: "Wide", espn_order: 0 });
     const r = applyMoves({ cards: [f1, f2, te, wr], empty_slots: [] }, movesFor(wr, { kind: "swap", with: f2, gain: 4 }));
-    // starters by slot then projection; the bench by position (WR before TE) then projection
+    // starters by slot then ESPN's order; the bench by position (WR before TE) then projection
     expect(r.cards.map((x) => x.player_id)).toEqual([13, 10, 11, 12]);
+  });
+  it("keeps ESPN's order inside a starting slot over the projection", () => {
+    const hi = c(20, "QB", "QB", 18, { proj: 18, espn_order: 5 }), lo = c(21, "QB", "QB", 15, { proj: 15, espn_order: 2 });
+    const bench = c(22, "WR", "BE", 3, { proj: 3, espn_order: 0 });
+    expect(applyMoves({ cards: [hi, lo, bench], empty_slots: [] }, []).cards.map((x) => x.player_id)).toEqual([21, 20, 22]);
   });
   it("leaves the cards it does not move as they were", () => {
     const r = applyMoves(roster(), [{ player_id: 3, to_slot: "BE" }]);

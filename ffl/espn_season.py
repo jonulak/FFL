@@ -962,14 +962,15 @@ _SLOT_NAME = {i: n for n, i in espn_write.SLOT_ID.items()}
 
 
 def parse_roster_flags(doc: dict, team_id: int) -> dict[int, dict]:
-    """mRoster -> {id: {droppable, locked, slot}} for one team (slot = ESPN's lineup slot name, left out when unknown). ESPN marks an undroppable player
-    (droppable false) and one whose game has started (lineupLocked); anything unsaid is droppable/unlocked."""
+    """mRoster -> {id: {droppable, locked, slot, order}} for one team (slot = ESPN's lineup slot name, left out when unknown;
+    order = his place in ESPN's entries, the order its Matchup tab lists a slot's players in). ESPN marks an undroppable
+    player (droppable false) and one whose game has started (lineupLocked); anything unsaid is droppable/unlocked."""
     team = next((t for t in doc.get("teams", []) if t["id"] == team_id), None)
     out = {}
-    for e in (team or {}).get("roster", {}).get("entries", []):
+    for i, e in enumerate((team or {}).get("roster", {}).get("entries", [])):
         pe = e.get("playerPoolEntry") or {}
         out[int(e["playerId"])] = {"droppable": (pe.get("player") or {}).get("droppable") is not False,
-                                   "locked": bool(pe.get("lineupLocked"))}
+                                   "locked": bool(pe.get("lineupLocked")), "order": i}
         slot = _SLOT_NAME.get(e.get("lineupSlotId"))
         if slot:
             out[int(e["playerId"])]["slot"] = slot
@@ -1112,9 +1113,11 @@ def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]
 
 def with_espn_slots(rows: list[dict], flags: dict[int, dict], fake: dict[int, str]) -> list[dict]:
     """Each row's slot and lock from the fresh mRoster read (`flags`), never from the cached box score; the
-    fake store's slot (FFL_WRITES=0) wins over both, and a row ESPN's read lacks keeps the slot it has, unlocked."""
+    fake store's slot (FFL_WRITES=0) wins over both, and a row ESPN's read lacks keeps the slot it has, unlocked.
+    `espn_order` is his place in that read (after every player it has, in box order, when it lacks him)."""
     return [{**r, "slot": fake.get(r["player_id"], flags.get(r["player_id"], {}).get("slot", r["slot"])),
-             "locked": flags.get(r["player_id"], {}).get("locked", False)} for r in rows]
+             "locked": flags.get(r["player_id"], {}).get("locked", False),
+             "espn_order": flags.get(r["player_id"], {}).get("order", 1000 + i)} for i, r in enumerate(rows)]
 
 
 def roster_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,

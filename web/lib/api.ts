@@ -96,6 +96,8 @@ export type Card = Player & {
   gap: number | null; close_call: boolean; reason: string;
   // ESPN's lineupLocked, the playable projection the swap gain runs on, and the usage-adjusted rest of season
   play_proj: number; locked: boolean; ros_adj: number;
+  // his place in ESPN's roster entries: a slot's starters stand in this order (season._card_sort_key)
+  espn_order: number;
   outlook: OutlookBullet[] | null; outlook_at: string | null; outlook_stale: boolean;
   // a rewrite of this card alone is running (POST /outlook/{id}); the last one's failure, if it failed
   outlook_running: boolean; outlook_error: string | null;

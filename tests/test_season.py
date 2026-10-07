@@ -289,10 +289,16 @@ def test_roster_cards_groups_calls_and_orders_by_position_then_projection():
     assert by_name["IR guy"]["reason"] == "IR slot" and by_name["IR guy"]["gap"] is None
     groups = [c["group"] for c in cards]
     assert groups == sorted(groups, key=["starter", "bench", "ir"].index)
-    starters = [(c["slot"], c["proj"]) for c in cards if c["group"] == "starter"]
-    order = season.SLOT_ORDER
-    assert starters == sorted(starters, key=lambda t: (order.index(t[0]), -t[1])), "ESPN slot order, then projection"
-    assert [c["name"] for c in cards if c["group"] == "starter"][:2] == ["QB A", "QB B"], "20 before 18 at QB"
+    starters = [c["slot"] for c in cards if c["group"] == "starter"]
+    assert starters == sorted(starters, key=season.SLOT_ORDER.index), "ESPN slot order"
+
+
+def test_roster_cards_keep_espns_order_inside_a_slot_not_the_projection():
+    # ESPN lists QB B (18) above QB A (20); its team page and the Matchup board show them that way
+    rs = [{**p, "espn_order": {"QB A": 1, "QB B": 0}.get(p["name"], 2 + i)} for i, p in enumerate(roster())]
+    cards = season.roster_cards(rs, TWO_QB, 2)
+    assert [c["name"] for c in cards if c["group"] == "starter"][:2] == ["QB B", "QB A"]
+    assert all("espn_order" in c for c in cards), "the page re-sorts a move by it before ESPN answers"
 
 
 def test_roster_cards_starter_gap_is_against_the_best_bench_alternative():

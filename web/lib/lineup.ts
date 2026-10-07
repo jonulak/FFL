@@ -115,16 +115,17 @@ export type Move = { player_id: number; to_slot: string };
 
 const groupOf = (slot: string): Card["group"] => (slot === "BE" ? "bench" : slot === "IR" ? "ir" : "starter");
 
-// season._card_sort_key: group; starters by slot, the rest by position; then projection, best first; then name (by
-// code point, as Python compares). The optimistic page must order rows exactly as ESPN's read-back will, or a
-// player who lands in the second of two FLEX rows is moved again when the answer arrives.
+// season._card_sort_key: group; starters by slot, then ESPN's own order (`espn_order`); the rest by position, then
+// projection, best first, then name (by code point, as Python compares). The optimistic page must order rows exactly
+// as ESPN's read-back will, or a player who lands in the other of two FLEX rows is moved again when the answer arrives.
 const GROUP_ORDER: Card["group"][] = ["starter", "bench", "ir"];
 const POS_ORDER = ["QB", "RB", "WR", "TE", "D/ST", "K"];
 const rankIn = (list: string[], s: string) => { const i = list.indexOf(s); return i < 0 ? list.length : i; };
 function cardOrder(a: Card, b: Card): number {
   const rank = (c: Card) => (c.group === "starter" ? slotRank(c.slot) : rankIn(POS_ORDER, c.pos));
-  return GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group) || rank(a) - rank(b)
-    || (b.proj ?? 0) - (a.proj ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const head = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group) || rank(a) - rank(b);
+  if (head || a.group === "starter") return head || a.espn_order - b.espn_order;
+  return (b.proj ?? 0) - (a.proj ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 }
 
 // The page as it will be once ESPN takes `moves`, drawn before it answers: the moved cards re-slotted (their group
