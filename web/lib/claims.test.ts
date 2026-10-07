@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addTarget, atMost, capacity, cutBlock, displayTargets, groupHasFA, groupPos, move, moveGroup, removeFrom, reorderTargets,
-  addCut, processDay, rowTag, setOpen, statusTag, submitFailure, submitSummary,
+  addCut, holder, place, processDay, prune, rowTag, setOpen, statusTag, submitFailure, submitSummary,
 } from "./claims";
 import type { ClaimGroup, ClaimPlayer } from "./api";
 
@@ -96,6 +96,44 @@ describe("empty groups and the process day", () => {
     expect(processDay([null, new Date(2026, 9, 8, 3).getTime(), new Date(2026, 9, 7, 3).getTime()])).toBe("Wed");
     expect(processDay([new Date(2026, 9, 8, 3).getTime()])).toBe("Thu");
     expect(processDay([])).toBe("Wed");
+  });
+});
+
+describe("dragging between groups", () => {
+  it("finds the group that holds a player", () => {
+    expect(holder(G, "targets", 201)).toBe(1);
+    expect(holder(G, "cuts", 2)).toBe(0);
+    expect(holder(G, "cuts", 201)).toBeNull();
+  });
+  it("places a target in another group at a position", () => {
+    const g = place(G, {}, "targets", 102, 1, 0);
+    expect(g[0].targets).toEqual([101, 103]);
+    expect(g[1].targets).toEqual([102, 201]);
+  });
+  it("places a cut at the end of another group", () => {
+    const g = place(G, {}, "cuts", 1, 1, 9);
+    expect(g[0].cuts).toEqual([2]);
+    expect(g[1].cuts).toEqual([3, 1]);
+  });
+  it("reorders inside one group like an array move", () => expect(place(G, {}, "targets", 101, 0, 2)[0].targets).toEqual([102, 103, 101]));
+  it("a free agent lands in its group's FA block, wherever it is dropped", () => {
+    const g = place(G, { "201": "FREEAGENT" }, "targets", 201, 0, 3);
+    expect(g[0].targets).toEqual([201, 101, 102, 103]);
+  });
+  it("keeps a group the drag emptied until the drop prunes it", () => {
+    const g = place(G, {}, "targets", 201, 0, 0);
+    const moved = place(g, {}, "cuts", 3, 0, 0);
+    expect(moved).toHaveLength(2);
+    expect(prune(G, moved)).toEqual([{ targets: [201, 101, 102, 103], cuts: [3, 1, 2], open: 0 }]);
+  });
+  it("prune keeps a group that was already empty", () => {
+    const g = [...G, { targets: [], cuts: [], open: 0 }];
+    expect(prune(g, place(g, {}, "cuts", 3, 0, 0))).toHaveLength(3);
+  });
+  it("does not mutate its input", () => {
+    const before = JSON.stringify(G);
+    place(G, {}, "targets", 102, 1, 0);
+    expect(JSON.stringify(G)).toBe(before);
   });
 });
 

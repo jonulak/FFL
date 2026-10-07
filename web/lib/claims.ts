@@ -14,6 +14,9 @@ const copy = (groups: ClaimGroup[]): ClaimGroup[] => groups.map((g) => ({ ...g, 
 const isEmpty = (g: ClaimGroup) => !g.targets.length && !g.cuts.length;
 const dropEmptied = (before: ClaimGroup[], after: ClaimGroup[]): ClaimGroup[] =>
   after.filter((g, i) => !isEmpty(g) || isEmpty(before[i]));
+// A drag keeps the group it empties (renumbering the groups under the pointer would move its
+// target), so the drop prunes against the plan as it stood when the drag began.
+export const prune = dropEmptied;
 
 function arrayMove<T>(xs: T[], from: number, to: number): T[] {
   const out = [...xs];
@@ -113,6 +116,24 @@ export function reorderTargets(g: ClaimGroup, status: Status, faBlock: boolean, 
   const fa = g.targets.filter((t) => isFA(t, status));
   const w = g.targets.filter((t) => !isFA(t, status));
   return faBlock ? [...arrayMove(fa, from, to), ...w] : [...fa, ...arrayMove(w, from, to)];
+}
+
+// The group whose list holds him, or null.
+export function holder(groups: ClaimGroup[], list: List, id: number): number | null {
+  const gi = groups.findIndex((g) => g[list].includes(id));
+  return gi < 0 ? null : gi;
+}
+
+// A drag's edit: take him out of whichever group holds him and put him in group `gi` at `at`, a
+// position in the order the panel shows (for targets, the FA block then the waiver block). Inside
+// one group it is an array move. A target is re-sorted into his own block after, so a free agent
+// dropped among the waiver targets lands at the foot of the FA block. Emptied groups are kept: see prune.
+export function place(groups: ClaimGroup[], status: Status, list: List, id: number, gi: number, at: number): ClaimGroup[] {
+  const out = copy(groups).map((g) => ({ ...g, [list]: g[list].filter((x) => x !== id) }));
+  const shown = list === "targets" ? displayTargets(out[gi], status).map((t) => t.id) : out[gi].cuts;
+  shown.splice(Math.max(0, Math.min(at, shown.length)), 0, id);
+  out[gi][list] = list === "targets" ? [...shown.filter((t) => isFA(t, status)), ...shown.filter((t) => !isFA(t, status))] : shown;
+  return out;
 }
 
 // "FA" (added the moment you submit), "W·Wed" (on waivers, clears that day, local time), "W" with no

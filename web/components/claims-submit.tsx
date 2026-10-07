@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, LoaderCircle, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronLeft, LoaderCircle, TriangleAlert, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -101,7 +101,10 @@ function Outcome({ r, verdict, name }: { r: SubmitResult; verdict: { ok: boolean
 
 type Frozen = { title: string; planned: number; outside: Set<string> };
 
-function Body({ onClose }: { onClose: () => void }) {
+// The review: what will be sent, then what ESPN held. The desk's dialog hosts it, and so does the
+// phone's claims sheet as its second step (`phone`: Back to the claims, the phone's footer at
+// every width below lg). `titled` is false while the sheet fades it out, so one title labels the sheet.
+export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { onClose: () => void; onBack?: () => void; phone?: boolean; titled?: boolean }) {
   const { data, groups, player, status, submit, submitting, refresh } = useClaims();
   const router = useRouter();
   const [replaceOutside, setReplaceOutside] = useState(false);
@@ -155,13 +158,22 @@ function Body({ onClose }: { onClose: () => void }) {
     setLoading(false);
   };
 
+  const Title = titled ? DialogTitle : "h2";
   const verdict = result && frozen ? submitSummary(result, frozen.planned, result.pending.filter((c) => frozen.outside.has(c.id)).length) : null;
   const resend = verdict && !verdict.ok;
   return (
     <>
-      <DialogHeader className="pr-8">
-        <DialogTitle className="font-display text-2xl font-bold leading-tight tracking-tight">{(result || submitting) && frozen ? frozen.title : title}</DialogTitle>
-        <DialogDescription className="sr-only">Review the moves, then send them to ESPN.</DialogDescription>
+      <DialogHeader className={phone ? "pr-9" : "pr-8"}>
+        <div className="flex items-center gap-1">
+          {onBack && (
+            <Button variant="ghost" size="icon-sm" aria-label="Back to the claims" disabled={submitting} onClick={onBack}
+              className="relative -ml-2 shrink-0 pointer-coarse:after:absolute pointer-coarse:after:-inset-1.5">
+              <ChevronLeft aria-hidden className="size-5" />
+            </Button>
+          )}
+          <Title className="font-display text-2xl font-bold leading-tight tracking-tight">{(result || submitting) && frozen ? frozen.title : title}</Title>
+        </div>
+        {titled && <DialogDescription className="sr-only">Review the moves, then send them to ESPN.</DialogDescription>}
       </DialogHeader>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain">
         {!result && data.now.length > 0 && (
@@ -203,7 +215,7 @@ function Body({ onClose }: { onClose: () => void }) {
         {fault && <Failure f={fault} name={name} />}
       </div>
       {/* PHONE_INSET, written out: Tailwind only generates a variant it can read in the source */}
-      <DialogFooter className="gap-2 max-sm:rounded-none max-sm:gap-3 max-sm:px-5 max-sm:pt-3 max-sm:pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))]">
+      <DialogFooter className={phone ? `mb-0 gap-3 rounded-none px-5 pt-3 ${PHONE_INSET}` : "gap-2 max-sm:rounded-none max-sm:gap-3 max-sm:px-5 max-sm:pt-3 max-sm:pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))]"}>
         {result && <Button variant={resend ? "outline" : "default"} onClick={onClose} className={PHONE_ACTION}>Done</Button>}
         {resend && (
           <Button onClick={reviewAgain} disabled={loading} className={`min-w-24 ${PHONE_ACTION}`}>
@@ -230,7 +242,7 @@ export function ClaimsSubmit({ open, onOpenChange }: { open: boolean; onOpenChan
     <Dialog open={open} onOpenChange={(o) => { if (!submitting) onOpenChange(o); }}>
       <DialogContent showCloseButton={!submitting}
         className="flex max-h-[calc(100dvh-4rem)] flex-col gap-4 rounded-lg shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:rounded-none">
-        {open && <Body onClose={() => onOpenChange(false)} />}
+        {open && <ReviewBody onClose={() => onOpenChange(false)} />}
       </DialogContent>
     </Dialog>
   );

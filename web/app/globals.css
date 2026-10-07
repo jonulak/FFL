@@ -362,6 +362,22 @@ tr[data-fold="shut"] > td > .fold {
   transition: grid-template-rows 220ms var(--ease-arrive), opacity 120ms ease-out;
 }
 
+/* Claims to review on the phone: one sheet, two steps. The sheet rises to full height and squares
+   its corners (a WAAPI run in claims-panel.tsx, since its height comes from its content) while the
+   step it leaves sinks back and fades, and the next rises into the new room a beat later. Back
+   runs it the other way, the claims dropping in from above as the sheet settles. */
+.stage-in {
+  animation: stage-in 360ms var(--ease-arrive) 60ms both;
+  will-change: opacity, translate;
+}
+.stage-out {
+  animation: stage-out 160ms var(--ease-leave) both;
+  transform-origin: 50% 0;
+  will-change: opacity, scale;
+}
+@keyframes stage-in { from { opacity: 0; translate: 0 var(--stage-from, 1.25rem); } }
+@keyframes stage-out { to { opacity: 0; scale: 0.985; } }
+
 /* Reduced motion keeps what carries meaning (a new row still fades in, a scoring play still
    washes) and drops the travel: no sliding, no opening and folding. */
 @media (prefers-reduced-motion: reduce) {
@@ -372,4 +388,7 @@ tr[data-fold="shut"] > td > .fold {
   .field-half::before { transition: none; }
   tr[data-fold] { transition: none; }
   tr[data-fold] > td > .fold, tr[data-fold="shut"] > td > .fold { transition: opacity 200ms ease-out; }
+  .stage-in { animation: log-fade 200ms ease-out both; }
+  .stage-out { animation: stage-fade-out 120ms ease-out both; }
 }
+@keyframes stage-fade-out { to { opacity: 0; } }
