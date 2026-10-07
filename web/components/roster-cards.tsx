@@ -19,7 +19,6 @@ import { TeamLogo } from "./player-media";
 import { StatLine } from "./stat-line";
 
 const CALL = { START: "start", BENCH: "muted", OUT: "out", BYE: "muted", IR: "out" } as const;
-const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
 const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 const GROUPS: { key: Card["group"]; title: string }[] = [
@@ -40,55 +39,62 @@ export type SwapControl = {
   reload: () => void;
 };
 
-// One grid for every row. Phone and tablet (< md): two lines, the name and the number over the matchup and the
-// chips, with the swap and the chevron standing at the right across both at 44px. Laptop (md+): one line, the
-// matchup and chips in fixed columns so they line up row to row. `meta` holds the matchup and the chips together
-// on the two-line layout and dissolves (display: contents) into their own columns on one line. On the phone the
-// slot column is narrow (Bench reads BE, ESPN's own slot code) and the matchup drops the club mark and the dot, so
-// the matchup and the call share the second line.
+// One grid for every row, read slot -> who -> vs/when -> number -> call -> actions.
+// Phone (< md): two lines in the `body` cell, the name over the matchup at the left and, flush right, the number
+// over the call chip, so the two right edges are one line down the list; the swap and the chevron are one pair at
+// 44px standing across both lines. md+: one line; `body` and its two lines dissolve (display: contents) into fixed
+// columns (matchup, number, call, actions) that line up row to row, and only the person column flexes. Below lg
+// the slot reads BE for Bench, the name is shortened and the kickoff drops ":00", so a 768px tablet holds one line.
 const GRID =
   "grid items-center gap-x-1.5 px-2 py-2 " +
-  "grid-cols-[2.25rem_2.5rem_minmax(0,1fr)_auto_2.75rem_2.75rem] " +
-  "[grid-template-areas:'slot_shot_name_num_swap_chev'_'slot_shot_meta_meta_meta_meta'_'act_act_act_act_act_act'] " +
-  "md:gap-x-3 md:py-2.5 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_9.5rem_3.75rem_9rem_2.25rem_2.25rem] " +
-  "lg:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_12rem_4rem_11rem_2.25rem_2.25rem] " +
-  "md:[grid-template-areas:'slot_shot_name_match_num_chips_swap_chev'_'act_act_act_act_act_act_act_act']";
+  "grid-cols-[1.75rem_2.5rem_minmax(0,1fr)_5rem] " +
+  "[grid-template-areas:'slot_shot_body_ctl'_'msg_msg_msg_msg'] " +
+  "md:gap-x-2.5 md:py-2.5 md:grid-cols-[2.25rem_2.5rem_minmax(0,1fr)_10.5rem_3.5rem_9.5rem_5.5rem] " +
+  "lg:gap-x-3 lg:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_12.5rem_4rem_9.5rem_4.5rem] " +
+  "md:[grid-template-areas:'slot_shot_name_match_num_call_ctl'_'msg_msg_msg_msg_msg_msg_msg']";
 
 const SLOT_TEXT =
-  "font-display text-[0.75rem] font-semibold uppercase tracking-[0.06em] [grid-area:slot] md:text-[0.8125rem] md:tracking-[0.12em]";
+  "font-display text-[0.75rem] font-semibold uppercase tracking-[0.06em] [grid-area:slot] md:text-[0.8125rem] lg:tracking-[0.12em]";
 
-// The slot as ESPN labels it; the phone's narrow column takes BE for Bench.
+// The swap and the chevron: one pair, 44px each where a thumb uses them, 36px from lg.
+const ACTION = "size-11 lg:size-9";
+// On the phone the pair's column is 8px short of its two targets: they reach into the row's right padding, so the
+// matchup line keeps that width and the chevron's target ends at the card's edge.
+const PAIR = "flex items-center justify-end [grid-area:ctl] max-md:-mr-2";
+
+// The slot as ESPN labels it; below lg the narrow column takes BE for Bench, ESPN's own slot code.
 function SlotName({ slot }: { slot: string }) {
   const label = slotLabel(slot);
   if (slot !== "BE") return <>{label}</>;
-  return <><span aria-hidden className="md:hidden">BE</span><span className="max-md:sr-only">{label}</span></>;
+  return <><span aria-hidden className="lg:hidden">BE</span><span className="max-lg:sr-only">{label}</span></>;
 }
 
-// "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare.
-// The phone's kickoff, the way a scores app sets it in a narrow line: "Sun 1 PM", "Mon 8:15 PM" (minutes only
+// The short kickoff, the way a scores app sets it in a narrow line: "Sun 1 PM", "Mon 8:15 PM" (minutes only
 // when there are any), in the viewer's zone.
-function PhoneKickoff({ iso }: { iso: string }) {
+function ShortKickoff({ iso }: { iso: string }) {
   const d = new Date(iso);
   const opts: Intl.DateTimeFormatOptions = { weekday: "short", hour: "numeric", ...(d.getMinutes() ? { minute: "2-digit" } : {}) };
   return <span suppressHydrationWarning>{d.toLocaleString(undefined, opts)}</span>;
 }
 
+// "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare. One line at every
+// width: inline text on the phone, so the line ends in an ellipsis; from md the mark joins it. A game on shows its
+// clock and score in the short form everywhere, since the full score does not fit the column.
 function Matchup({ c }: { c: Card }) {
-  if (!c.opponent) {
-    return <span className="text-sm text-muted-foreground"><Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} /></span>;
-  }
+  const when = c.game || !c.kickoff
+    ? <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} compact />
+    : <><span className="lg:hidden"><ShortKickoff iso={c.kickoff} /></span><span className="max-lg:hidden"><Kickoff iso={c.kickoff} bye={c.bye} /></span></>;
+  if (!c.opponent) return <span className="text-xs text-muted-foreground md:text-sm">{when}</span>;
   return (
-    <span className="flex items-center gap-x-1.5 text-sm text-muted-foreground max-md:whitespace-nowrap md:flex-wrap">
-      {c.home !== null && <span className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/80">{c.home ? "vs" : "at"}</span>}
+    // the phone line is set at the caption size, so the kickoff fits beside the call chip more often than not
+    <span className="text-xs text-muted-foreground md:flex md:items-center md:gap-x-1.5 md:text-sm">
+      {c.home !== null && <>
+        <span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80 md:text-[0.8125rem]">{c.home ? "vs" : "at"}</span>{" "}
+      </>}
       <span className="contents max-md:hidden"><TeamLogo abbr={c.opponent} size={18} /></span>
-      <span className="font-medium text-foreground/85">{c.opponent}</span>
-      <span aria-hidden className="max-md:hidden">·</span>
-      <span className="max-md:hidden"><Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} /></span>
-      <span className="md:hidden">
-        {c.game || !c.kickoff
-          ? <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} compact />
-          : <PhoneKickoff iso={c.kickoff} />}
-      </span>
+      <span className="font-medium text-foreground/85">{c.opponent}</span>{" "}
+      <span aria-hidden className="max-lg:hidden">·</span>
+      <span className="md:min-w-0 md:truncate">{when}</span>
     </span>
   );
 }
@@ -134,64 +140,54 @@ export function Headshot({ c, idle }: { c: Card; idle: boolean }) {
   );
 }
 
-// An IR or OUT call is the injury status restated; the tag alone carries it, with the return week.
-const hurtCall = (c: Card) => {
-  const hurt = !HEALTHY.has(c.injury);
-  return { hurt, showCall: !(hurt && (c.call === "IR" || c.call === "OUT")) };
-};
+const hurt = (c: Card) => !HEALTHY.has(c.injury);
+// An IR or OUT call on an injured man is his status: the chip says it, with the return week.
+const callIsStatus = (c: Card) => hurt(c) && (c.call === "IR" || c.call === "OUT");
 
-// Phone only: a status beside the call is ESPN's own letter after the name (Q, D), in its colour and without a
-// chip, as the Matchup board sets it; the full status is read out and in the title.
-// The swap sheet shows it at every width (`always`).
-export function InjuryMark({ c, always = false }: { c: Card; always?: boolean }) {
-  const { hurt, showCall } = hurtCall(c);
-  if (!hurt || !showCall) return null;
+// His injury status as ESPN's own letter after the name (Q, D, O, SUSP), in its colour and without a chip, at every
+// width, as the Matchup board sets it; the full status and the return week are read out and in the title. Left out
+// where the call chip already says it (IR on injury reserve, OUT on out).
+export function InjuryMark({ c, week }: { c: Card; week?: number }) {
+  if (!hurt(c)) return null;
+  if ((c.call === "IR" && c.injury === "INJURY_RESERVE") || (c.call === "OUT" && c.injury === "OUT")) return null;
   const status = c.injury.replaceAll("_", " ");
+  const back = week != null && c.return_week != null && c.return_week > week ? `, back week ${c.return_week}` : "";
   return (
-    <span title={c.injury_note ?? status} className={`shrink-0 text-[0.9375rem] font-bold ${always ? "" : "md:hidden"} ${TONE[injuryTone(c.injury)]}`}>
+    <span title={c.injury_note ?? `${status.toLowerCase()}${back}`} className={`shrink-0 text-[0.9375rem] font-bold ${TONE[injuryTone(c.injury)]}`}>
       <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
-      <span className="sr-only">{status.toLowerCase()}</span>
+      <span className="sr-only">{status.toLowerCase()}{back}</span>
     </span>
   );
 }
 
-function Chips({ c, week }: { c: Card; week: number }) {
-  const { hurt, showCall } = hurtCall(c);
-  // ESPN has him where the call would not: the accent ring, on whichever chip carries the call.
+// The call as one chip, with the accent ring when ESPN has him where the call would not. A close call is an amber
+// mark inside it; with `split` (the roster row) it becomes its own CLOSE CALL chip from md, where the call column
+// holds both. An IR or OUT call on an injured man carries his return week when `week` is given.
+export function CallChip({ c, week, split = false }: { c: Card; week?: number; split?: boolean }) {
   const off = isMismatch(c);
-  const ring = off ? "ring-2 ring-close/70" : "";
-  const differs = off ? <span className="sr-only">, differs from ESPN</span> : null;
-  const status = c.injury.replaceAll("_", " ");
+  const text = callIsStatus(c) && week != null ? injuryLabel(c.call, c.return_week, week) : c.call;
   return (
     <>
-      {showCall && <Badge variant={CALL[c.call]} shape="chip" className={ring}>{c.call}{differs}</Badge>}
-      {c.close_call && <Badge variant="close" shape="chip">close<span className="max-md:sr-only"> call</span></Badge>}
-      {/* on the phone a status beside the call shows as ESPN's letter beside the name (InjuryMark); one that is the
-          call (IR, OUT) stays here, shortened */}
-      {hurt && (
-        <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" className={showCall ? "max-md:hidden" : ring} title={c.injury_note ?? undefined}>
-          <span className={showCall ? "" : "max-md:hidden"}>{injuryLabel(status, c.return_week, week)}</span>
-          {!showCall && <span className="md:hidden">{injuryLabel(STATUS_SHORT[status] ?? status, c.return_week, week)}</span>}
-          {!showCall && differs}
-        </Badge>
-      )}
+      <Badge variant={CALL[c.call]} shape="chip" title={c.close_call ? "close call" : undefined}
+        className={`${off ? "ring-2 ring-close/70" : ""} ${c.close_call ? (split ? "max-md:pr-0" : "pr-0") : ""}`}>
+        {text}
+        {off && <span className="sr-only">, differs from ESPN</span>}
+        {/* the chip's trailing end in amber, cut off by a hairline: the call and its closeness as one block */}
+        {c.close_call && (
+          <span className={`-my-0.5 flex self-stretch ${split ? "md:hidden" : ""}`}>
+            <span aria-hidden className="w-1.5 border-l border-close-foreground/40 bg-close" />
+            <span className="sr-only">, close call</span>
+          </span>
+        )}
+      </Badge>
+      {split && c.close_call && <Badge variant="close" shape="chip" className="max-md:hidden">close call</Badge>}
     </>
-  );
-}
-
-// The call alone, with the accent ring when ESPN has him where the call would not: the swap sheet's chip.
-export function CallChip({ c }: { c: Card }) {
-  const off = isMismatch(c);
-  return (
-    <Badge variant={CALL[c.call]} shape="chip" className={off ? "ring-2 ring-close/70" : ""}>
-      {c.call}{off && <span className="sr-only">, differs from ESPN</span>}
-    </Badge>
   );
 }
 
 export function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
   return (
-    <div role={f.moved ? "status" : "alert"} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:act]">
+    <div role={f.moved ? "status" : "alert"} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:msg]">
       <p className={f.moved ? "text-foreground/85" : "text-out"}>{f.text}</p>
       {f.reload && <Button variant="outline" size="sm" className="h-11 px-3.5 md:h-7 md:px-2.5" onClick={reload}>Reload</Button>}
     </div>
@@ -220,40 +216,48 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
             <SlotName slot={c.slot} />
           </span>
           <div className="[grid-area:shot]"><Headshot c={c} idle={idle} /></div>
-          <div className="min-w-0 [grid-area:name]">
-            <p className={`flex items-baseline gap-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
-              <PlayerTrigger p={c} className={`min-w-0 truncate rounded-sm ${NAME_LINK}`}>
-                <span className="md:hidden">{shortName(c.name)}</span>
-                <span className="max-md:hidden">{c.name}</span>
-              </PlayerTrigger>
-              <InjuryMark c={c} />
-            </p>
-            <p className="truncate text-xs text-muted-foreground max-md:hidden">
-              <span className="font-semibold text-foreground/80">{c.pos}</span>
-              <span aria-hidden> · </span>
-              {team(c.team).name || c.team}
-            </p>
+          <div className="flex min-w-0 flex-col gap-y-0.5 [grid-area:body] md:contents">
+            {/* line 1: who, and the number flush right */}
+            <div className="flex min-w-0 items-baseline justify-between gap-x-2 md:contents">
+              <div className="min-w-0 md:[grid-area:name]">
+                <p className={`flex items-baseline gap-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
+                  <PlayerTrigger p={c} className={`min-w-0 truncate rounded-sm ${NAME_LINK}`}>
+                    <span className="lg:hidden">{shortName(c.name)}</span>
+                    <span className="max-lg:hidden">{c.name}</span>
+                  </PlayerTrigger>
+                  <InjuryMark c={c} week={week} />
+                </p>
+                <p className="truncate text-xs text-muted-foreground max-md:hidden">
+                  <span className="font-semibold text-foreground/80">{c.pos}</span>
+                  <span aria-hidden> · </span>
+                  {team(c.team).name || c.team}
+                </p>
+              </div>
+              <div className="shrink-0 text-right md:[grid-area:num]" title={live ? `${pts(c.actual)} points scored · projected ${pts(c.proj)}` : "projected points"}>
+                <span className={`block font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
+                  {pts(big)}
+                </span>
+                <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground max-md:sr-only">
+                  {live ? "pts" : "proj"}
+                </span>
+              </div>
+            </div>
+            {/* line 2: vs/when, giving way to an ellipsis, and the call flush right under the number */}
+            <div className="flex min-w-0 items-center justify-between gap-x-2 md:contents">
+              {/* one 20px line, the chip's height: the mixed faces would otherwise stand the line box 24px tall */}
+              <div className="min-w-0 truncate max-md:h-5 max-md:leading-5 md:[grid-area:match]">
+                {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it */}
+                {c.pos !== slot && <><span className="text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>{" "}</>}
+                <Matchup c={c} />
+              </div>
+              <div className="flex shrink-0 gap-1 md:[grid-area:call]"><CallChip c={c} week={week} split /></div>
+            </div>
           </div>
-          {/* phone: one line that never wraps; the chips keep their width and the matchup gives way */}
-          <div className="flex min-w-0 items-center gap-x-1.5 [grid-area:meta] md:contents">
-            {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it */}
-            {c.pos !== slot && <span className="shrink-0 text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>}
-            <div className="min-w-0 max-md:overflow-hidden md:[grid-area:match]"><Matchup c={c} /></div>
-            <div className="flex shrink-0 gap-1 md:flex-wrap md:[grid-area:chips]"><Chips c={c} week={week} /></div>
-          </div>
-          <div className="text-right [grid-area:num]" title={live ? `${pts(c.actual)} points scored · projected ${pts(c.proj)}` : "projected points"}>
-            <span className={`block font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
-              {pts(big)}
-            </span>
-            <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground max-md:sr-only">
-              {live ? "pts" : "proj"}
-            </span>
-          </div>
-          <div className="flex justify-center [grid-area:swap]">
-            {!ir && (
+          <div className={PAIR}>
+            {ir ? <span aria-hidden className={ACTION} /> : (
               <Button
                 variant="ghost" size="icon"
-                className="-my-2.5 size-11 aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/85 md:my-0 md:size-9"
+                className={`-my-2.5 ${ACTION} aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/85 md:my-0`}
                 aria-pressed={picked}
                 aria-haspopup="dialog"
                 aria-label={c.locked ? `${c.name}: his game has started` : `Move ${c.name}`}
@@ -266,20 +270,19 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
                   : c.locked ? <Lock aria-hidden /> : <ArrowLeftRight aria-hidden />}
               </Button>
             )}
-          </div>
-          <div className="flex justify-center [grid-area:chev]">
             <CollapsibleTrigger
-              render={<Button variant="ghost" size="icon" className="group/chev -my-2.5 size-11 md:my-0 md:size-9" />}
+              render={<Button variant="ghost" size="icon" className={`group/chev -my-2.5 ${ACTION} md:my-0`} />}
               aria-label={`${open ? "Hide" : "Show"} ${c.name}'s reason and outlook`}
             >
               <ChevronDown aria-hidden className="transition-transform duration-300 ease-(--ease-arrive) group-data-[panel-open]/chev:rotate-180" />
             </CollapsibleTrigger>
           </div>
           {error && <Failure f={error} reload={swap.reload} />}
-          {notice && !error && <p aria-hidden className="pt-1 text-right text-xs text-muted-foreground [grid-area:act]">{notice}</p>}
+          {notice && !error && <p aria-hidden className="pt-1 text-right text-xs text-muted-foreground [grid-area:msg]">{notice}</p>}
         </div>
         <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-300 ease-(--ease-arrive) data-[ending-style]:h-0 data-[starting-style]:h-0">
-          <div className="space-y-2 px-2 pb-3 md:pl-[7.75rem] md:pr-[5.75rem]">
+          {/* under the person column: the slot, tile and their gutters plus the row's own padding */}
+          <div className="space-y-2 px-2 pb-3 md:pl-[6.5rem] md:pr-[6.625rem] lg:pl-[7.75rem] lg:pr-[5.75rem]">
             <Reason text={c.reason} />
             <Sources c={c} live={live} />
             {c.stat_line && <StatLine text={c.stat_line} />}
@@ -300,13 +303,15 @@ function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
         className={`${GRID} group/empty w-full text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-foreground/[0.07] disabled:pointer-events-none`}>
         <span className={`${SLOT_TEXT} text-foreground/85`}><SlotName slot={slot} /></span>
         <span aria-hidden className="size-10 rounded-md border border-dashed border-foreground/25 [grid-area:shot]" />
-        <span className="font-display text-[1.0625rem] font-semibold leading-tight tracking-tight text-muted-foreground [grid-area:name] md:text-[1.1875rem]">
+        <span className="font-display text-[1.0625rem] font-semibold leading-tight tracking-tight text-muted-foreground [grid-area:body] md:[grid-area:name] md:text-[1.1875rem]">
           Empty
         </span>
-        <span aria-hidden className="flex justify-center [grid-area:swap]">
-          <span className="-my-2.5 flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors group-hover/empty:text-foreground md:my-0 md:size-9">
+        {/* the plus stands where the swap does; the chevron's place stays empty */}
+        <span aria-hidden className={PAIR}>
+          <span className={`-my-2.5 flex ${ACTION} items-center justify-center rounded-md text-muted-foreground transition-colors group-hover/empty:text-foreground md:my-0`}>
             <Plus className="size-4" />
           </span>
+          <span className={ACTION} />
         </span>
       </button>
     </li>

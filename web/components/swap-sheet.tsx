@@ -81,13 +81,13 @@ function OptionRow({ r, onPick }: { r: Row; onPick: () => void }) {
   return (
     <li>
       <button type="button" onClick={onPick} disabled={locked} aria-label={r.label}
-        className="grid min-h-14 w-full grid-cols-[2.25rem_2.5rem_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-md px-2 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring active:bg-foreground/[0.08] disabled:pointer-events-none disabled:opacity-55 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_auto] md:min-h-12">
+        className="grid min-h-14 w-full grid-cols-[1.75rem_2.5rem_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-md px-2 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring active:bg-foreground/[0.08] disabled:pointer-events-none disabled:opacity-55 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_auto] md:min-h-12">
         <span className={`${SLOT} ${r.slot === "BE" ? "text-muted-foreground" : ""}`}>{r.slot === "BE" ? "BE" : slotLabel(r.slot)}</span>
         {shot}
         <span className="min-w-0">
           <span className={`flex items-baseline gap-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight ${who ? "" : "text-muted-foreground"}`}>
             <span className="min-w-0 truncate">{name}</span>
-            {who && <InjuryMark c={who} always />}
+            {who && <InjuryMark c={who} />}
           </span>
           {sub && <span className="mt-0.5 block">{sub}</span>}
         </span>
@@ -121,7 +121,7 @@ function Body({ subject, move, Title, Description }: {
             <span aria-hidden>·</span>
             <span className="tabular-nums">{pts(picked.proj)} proj</span>
             <CallChip c={picked} />
-            <InjuryMark c={picked} always />
+            <InjuryMark c={picked} />
           </Description>
         </div>
       </>
