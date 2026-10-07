@@ -1,0 +1,58 @@
+import { describe, expect, it } from "vitest";
+import type { Card } from "./api";
+import { accepts, isMismatch, movesFor, slotLabel, targets } from "./lineup";
+
+const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
+  ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
+     group: slot === "IR" ? "ir" : slot === "BE" ? "bench" : "starter", call: "START", ...extra }) as Card;
+
+const qb = c(1, "QB", "QB", 18), flex = c(2, "WR", "RB/WR/TE", 9), rb = c(3, "RB", "RB", 12),
+  benchRb = c(4, "RB", "BE", 11), benchQb = c(5, "QB", "BE", 0), lockedWr = c(6, "WR", "WR", 14, { locked: true }),
+  ir = c(7, "WR", "IR", 0);
+const all = [qb, flex, rb, benchRb, benchQb, lockedWr, ir];
+
+describe("slots", () => {
+  it("flex takes RB/WR/TE, not QB", () => expect([...accepts("RB/WR/TE")].sort()).toEqual(["RB", "TE", "WR"]));
+  it("OP takes a QB", () => expect(accepts("OP").has("QB")).toBe(true));
+  it("labels", () => { expect(slotLabel("RB/WR/TE")).toBe("FLEX"); expect(slotLabel("BE")).toBe("Bench"); });
+});
+
+describe("mismatch", () => {
+  it("a starter the call benches", () => expect(isMismatch({ group: "starter", call: "BENCH" })).toBe(true));
+  it("a bench player the call starts", () => expect(isMismatch({ group: "bench", call: "START" })).toBe(true));
+  it("agreement", () => expect(isMismatch({ group: "starter", call: "START" })).toBe(false));
+  it("OUT and BYE on the bench are not a mismatch", () => expect(isMismatch({ group: "bench", call: "OUT" })).toBe(false));
+});
+
+describe("targets", () => {
+  it("a bench RB can take the flex or the RB slot, with the lineup's change", () => {
+    const t = targets(all, benchRb, []);
+    expect(t).toEqual([
+      { kind: "swap", with: flex, gain: 2 },  // 11 in, 9 out
+      { kind: "swap", with: rb, gain: -1 },
+    ]);
+  });
+  it("never offers a locked player, IR, or a swap where either cannot take the other's slot", () => {
+    // flex WR: the bench RB (gain 11 - 9) and the bench; not the QB or RB slots (a WR fits neither),
+    // not the bench QB (no FLEX for a QB), not the locked WR, not IR
+    const ids = targets(all, flex, []).map((t) => (t.kind === "swap" ? t.with.player_id : t.kind));
+    expect(ids).toEqual([4, "bench"]);
+  });
+  it("a starter can go to the bench on its own, and an empty slot is offered", () => {
+    const t = targets(all, rb, ["RB/WR/TE"]);
+    expect(t).toContainEqual({ kind: "bench", gain: -12 });
+    expect(t).toContainEqual({ kind: "slot", slot: "RB/WR/TE", gain: 0 });
+  });
+  it("from the bench into an empty slot adds his projection", () =>
+    expect(targets(all, benchRb, ["RB/WR/TE"])).toContainEqual({ kind: "slot", slot: "RB/WR/TE", gain: 11 }));
+  it("nothing for a locked or IR player", () => {
+    expect(targets(all, lockedWr, [])).toEqual([]); expect(targets(all, ir, [])).toEqual([]);
+  });
+});
+
+describe("movesFor", () => {
+  it("a swap moves both", () => expect(movesFor(benchRb, { kind: "swap", with: flex, gain: 2 })).toEqual([
+    { player_id: 4, to_slot: "RB/WR/TE" }, { player_id: 2, to_slot: "BE" }]));
+  it("to the bench", () => expect(movesFor(rb, { kind: "bench", gain: -12 })).toEqual([{ player_id: 3, to_slot: "BE" }]));
+  it("into an empty slot", () => expect(movesFor(benchRb, { kind: "slot", slot: "RB", gain: 11 })).toEqual([{ player_id: 4, to_slot: "RB" }]));
+});
