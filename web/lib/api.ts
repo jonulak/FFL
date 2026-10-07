@@ -94,6 +94,8 @@ export type OutlookBullet = { label: "Injury" | "Usage" | "Depth" | "Team" | "Ta
 export type Card = Player & {
   group: "starter" | "bench" | "ir"; call: "START" | "BENCH" | "OUT" | "BYE" | "IR";
   gap: number | null; close_call: boolean; reason: string;
+  // ESPN's lineupLocked, the playable projection the swap gain runs on, and the usage-adjusted rest of season
+  play_proj: number; locked: boolean; ros_adj: number;
   outlook: OutlookBullet[] | null; outlook_at: string | null; outlook_stale: boolean;
   // a rewrite of this card alone is running (POST /outlook/{id}); the last one's failure, if it failed
   outlook_running: boolean; outlook_error: string | null;
@@ -104,7 +106,8 @@ export type OutlookRun = {
   at: string | null; generated: number; skipped: number; failed: number; running: boolean;
   error: string | null; last_failure: string | null; pending: number | null;
 };
-export type Roster = { week: number; live: boolean; cards: Card[]; outlook_run: OutlookRun; stale_since: string | null };
+export type Roster = { week: number; live: boolean; cards: Card[]; empty_slots: string[]; writes: boolean;
+  outlook_run: OutlookRun; stale_since: string | null };
 export type OutlookStarted = { started: boolean; pending: number | null };
 export type LineupEntry = { slot: string; player_id: number | null; name: string; proj: number };
 export type Swap = { slot: string; out: string; in: string; gain: number };

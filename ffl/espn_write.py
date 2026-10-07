@@ -48,6 +48,18 @@ def _writes() -> bool:
     return os.environ.get("FFL_WRITES", "1") != "0"
 
 
+_FAKE_SLOTS: dict[int, str] = {}  # dev/tests under FFL_WRITES=0: player id -> the slot a fake move put him in
+
+
+def writes() -> bool:
+    """False under FFL_WRITES=0: every write goes to the in-memory fakes, and the UI must say so."""
+    return _writes()
+
+
+def fake_slots() -> dict[int, str]:
+    return {} if _writes() else dict(_FAKE_SLOTS)
+
+
 def _team_id() -> int:
     from .espn_season import fresh_league, my_team_id
     return my_team_id(fresh_league())

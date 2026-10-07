@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import unicodedata
+from collections import Counter
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -175,14 +176,30 @@ def slot_label(slot: str) -> str:
     return SLOT_LABEL.get(slot, slot)
 
 
+def _group(p: dict) -> str:
+    """The section ESPN has him in: its lineup, not the call."""
+    s = p.get("slot")
+    return "ir" if s == "IR" else "bench" if s in BENCH_SLOTS or s is None else "starter"
+
+
 def _card_sort_key(c: dict) -> tuple:
-    """Section, then position in lineup order, then this week's projection, best first."""
-    pos = POS_ORDER.index(c["pos"]) if c["pos"] in POS_ORDER else len(POS_ORDER)
-    return (GROUP_ORDER.index(c["group"]), pos, -float(c.get("proj") or 0.0), c["name"])
+    """Section; starters in ESPN's slot order, the rest by position; then this week's projection, best first."""
+    if c["group"] == "starter":
+        rank = SLOT_ORDER.index(c["slot"]) if c["slot"] in SLOT_ORDER else len(SLOT_ORDER)
+    else:
+        rank = POS_ORDER.index(c["pos"]) if c["pos"] in POS_ORDER else len(POS_ORDER)
+    return (GROUP_ORDER.index(c["group"]), rank, -float(c.get("proj") or 0.0), c["name"])
+
+
+def empty_slots(roster: list[dict], settings: dict) -> list[str]:
+    """One entry per starter spot ESPN has nobody in, in slot order."""
+    filled = Counter(p.get("slot") for p in roster)
+    return [s for s in SLOT_ORDER for _ in range(settings["starters"].get(s, 0) - filled.get(s, 0))]
 
 
 def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
-    """STRATEGY.md, "Lineup": one card per rostered player with the call and its reason.
+    """STRATEGY.md, "Lineup": one card per rostered player with the call and its reason, grouped by
+    ESPN's slot; the call is optimal_lineup's and shows as the chip.
 
     The call is optimal_lineup's; the card adds the gap that decides it (starter vs the best bench
     alternative for his slot; bench player vs the weakest starter in a slot that takes him), a
@@ -197,13 +214,13 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
     for p in roster:
         gap: float | None = None
         if p.get("slot") == "IR":
-            group, call, reason = "ir", "IR", "IR slot"
+            call, reason = "IR", "IR slot"
         elif p.get("bye"):
-            group, call, reason = "bench", "BYE", "bye week"
+            call, reason = "BYE", "bye week"
         elif p.get("injury") in UNPLAYABLE:
-            group, call, reason = "bench", "OUT", f"out: {p['injury']}"
+            call, reason = "OUT", f"out: {p['injury']}"
         elif p["player_id"] in slot_of:
-            group, call = "starter", "START"
+            call = "START"
             slot = slot_of[p["player_id"]]
             alt = max((b for b in bench if b["pos"] in _slot_accepts(slot)), key=playable_proj, default=None)
             if alt is None:
@@ -212,7 +229,7 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
                 gap = round(playable_proj(p) - playable_proj(alt), 1)
                 reason = f"starts at {slot_label(slot)}: {playable_proj(p):.1f} vs {playable_proj(alt):.1f} for {alt['name']}"
         else:
-            group, call = "bench", "BENCH"
+            call = "BENCH"
             takers = [(by_id[e["player_id"]], e["slot"]) for e in optimal
                       if e["player_id"] is not None and p["pos"] in _slot_accepts(e["slot"])]
             weakest = min(takers, key=lambda t: playable_proj(t[0]), default=None)
@@ -225,7 +242,8 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
             (gap is not None and abs(gap) < CLOSE_GAP) or float(p.get("spread") or 0.0) >= CLOSE_SPREAD)
         if call in ("START", "BENCH") and p.get("injury") in INJURY_FACTOR:
             reason += " — his status is your call"
-        cards.append({**p, "group": group, "call": call, "gap": gap, "close_call": close, "reason": reason})
+        cards.append({**p, "group": _group(p), "call": call, "gap": gap, "close_call": close, "reason": reason,
+                      "ros_adj": ros_adj(p, week), "play_proj": playable_proj(p), "locked": bool(p.get("locked"))})
     return sorted(cards, key=_card_sort_key)
 
 

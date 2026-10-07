@@ -206,6 +206,26 @@ def test_roster_state_builds_cards_for_my_side_only(monkeypatch):
     assert all("call" in c and "reason" in c for c in st["cards"])
 
 
+def test_roster_state_carries_locks_empty_slots_and_the_writes_flag(monkeypatch):
+    matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
+                              home_lineup=[as_box(p) for p in season_roster() if p["name"] != "K"],
+                              away_team=SimpleNamespace(team_id=2, team_name="Them"), away_lineup=[])
+    lg = SimpleNamespace(box_scores=lambda week: [matchup], current_week=1)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {1: {"locked": True}})
+    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    locked = {c["player_id"]: c["locked"] for c in st["cards"]}
+    assert locked[1] is True and locked[2] is False
+    assert st["empty_slots"] == ["K"] and st["writes"] is False, "the suite runs under FFL_WRITES=0"
+    monkeypatch.setenv("FFL_WRITES", "1")
+    assert espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})["writes"] is True
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: 1 / 0)
+    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    assert not any(c["locked"] for c in st["cards"]), "a failed flags read shows every row unlocked"
+
+
 class FakeLeagueFactory:
     """Stands in for config.league: an lru_cache'd callable with a cache_clear()."""
 

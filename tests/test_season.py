@@ -283,16 +283,16 @@ def test_roster_cards_groups_calls_and_orders_by_position_then_projection():
     rs = roster()
     cards = season.roster_cards(rs, TWO_QB, 2)
     by_name = {c["name"]: c for c in cards}
-    assert by_name["QB C"]["group"] == "starter" and by_name["QB C"]["call"] == "START"
-    assert by_name["QB B"]["group"] == "bench" and by_name["QB B"]["call"] == "BENCH"
+    assert by_name["QB C"]["group"] == "bench" and by_name["QB C"]["call"] == "START", "ESPN benches him"
+    assert by_name["QB B"]["group"] == "starter" and by_name["QB B"]["call"] == "BENCH"
     assert by_name["IR guy"]["group"] == "ir" and by_name["IR guy"]["call"] == "IR"
     assert by_name["IR guy"]["reason"] == "IR slot" and by_name["IR guy"]["gap"] is None
     groups = [c["group"] for c in cards]
     assert groups == sorted(groups, key=["starter", "bench", "ir"].index)
-    starters = [(c["pos"], c["proj"]) for c in cards if c["group"] == "starter"]
-    order = ["QB", "RB", "WR", "TE", "D/ST", "K"]
-    assert starters == sorted(starters, key=lambda t: (order.index(t[0]), -t[1])), "position order, then projection"
-    assert [c["name"] for c in cards if c["group"] == "starter"][:2] == ["QB C", "QB A"], "22 before 20 at QB"
+    starters = [(c["slot"], c["proj"]) for c in cards if c["group"] == "starter"]
+    order = season.SLOT_ORDER
+    assert starters == sorted(starters, key=lambda t: (order.index(t[0]), -t[1])), "ESPN slot order, then projection"
+    assert [c["name"] for c in cards if c["group"] == "starter"][:2] == ["QB A", "QB B"], "20 before 18 at QB"
 
 
 def test_roster_cards_starter_gap_is_against_the_best_bench_alternative():
@@ -331,7 +331,7 @@ def test_roster_cards_bye_and_out_have_no_gap():
     rs[7]["bye"] = True                  # WR B
     rs[8]["injury"] = "OUT"              # WR C
     cards = {c["name"]: c for c in season.roster_cards(rs, TWO_QB, 2)}
-    assert cards["WR B"] == {**cards["WR B"], "group": "bench", "call": "BYE", "gap": None,
+    assert cards["WR B"] == {**cards["WR B"], "group": "starter", "call": "BYE", "gap": None,
                              "close_call": False, "reason": "bye week"}
     assert cards["WR C"]["call"] == "OUT" and cards["WR C"]["reason"] == "out: OUT"
     assert cards["WR C"]["close_call"] is False
@@ -557,3 +557,30 @@ def test_rank_players_one_row_per_player_rostered_wins_add_desc_none_last():
     mine = {"player_id": 3, "add": None, "owner": {"team_id": 7}}
     out = season.rank_players([mine, fa, stale_fa, theirs])
     assert [(r["player_id"], r["add"]) for r in out] == [(2, 9.0), (1, 5.0), (3, None)]
+
+
+def test_cards_group_by_espn_slot_and_keep_the_call_as_the_chip():
+    settings = {"starters": {"RB": 1}}
+    ps = [{"player_id": 1, "name": "A", "pos": "RB", "proj": 10.0, "slot": "BE", "injury": "ACTIVE"},
+          {"player_id": 2, "name": "B", "pos": "RB", "proj": 5.0, "slot": "RB", "injury": "ACTIVE"},
+          {"player_id": 3, "name": "C", "pos": "RB", "proj": 0.0, "slot": "IR", "injury": "INJURY_RESERVE"}]
+    cards = {c["player_id"]: c for c in season.roster_cards(ps, settings, week=5)}
+    assert (cards[1]["group"], cards[1]["call"]) == ("bench", "START"), "ESPN benches him; the call says start"
+    assert (cards[2]["group"], cards[2]["call"]) == ("starter", "BENCH")
+    assert cards[3]["group"] == "ir"
+    assert cards[1]["play_proj"] == 10.0 and isinstance(cards[1]["ros_adj"], float)
+
+
+def test_starters_sort_in_espn_slot_order_whatever_the_position():
+    settings = {"starters": {"QB": 1, "RB/WR/TE": 1, "K": 1}}
+    ps = [{"player_id": 1, "name": "K", "pos": "K", "proj": 8.0, "slot": "K", "injury": "ACTIVE"},
+          {"player_id": 2, "name": "Flex", "pos": "WR", "proj": 12.0, "slot": "RB/WR/TE", "injury": "ACTIVE"},
+          {"player_id": 3, "name": "Q", "pos": "QB", "proj": 18.0, "slot": "QB", "injury": "ACTIVE"}]
+    assert [c["slot"] for c in season.roster_cards(ps, settings, week=5)] == ["QB", "RB/WR/TE", "K"]
+
+
+def test_empty_slots_lists_each_unfilled_starter_spot():
+    settings = {"starters": {"RB": 2, "RB/WR/TE": 2}}
+    ps = [{"player_id": 1, "pos": "RB", "slot": "RB"}, {"player_id": 2, "pos": "WR", "slot": "RB/WR/TE"},
+          {"player_id": 3, "pos": "WR", "slot": "BE"}]
+    assert season.empty_slots(ps, settings) == ["RB", "RB/WR/TE"]

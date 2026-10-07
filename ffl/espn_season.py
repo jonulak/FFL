@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from . import calibrate, cbs
+from . import calibrate, cbs, espn_write
 from . import season as S
 from .adp import norm_name
 from .config import JOURNAL, MY_TEAM_ID, SEASON, SWID, cookies, league, raw_league_get
@@ -1114,7 +1114,15 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
         apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1),
         home_by_team(lg, week)), _exp_for(weeks, snaps)),
         _roster_games(lg, {me: boxes[me]}, week), snap_weeks, rw, bye_by_team(lg), snap_refs(snap_weeks))
-    return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week)}
+    fake = espn_write.fake_slots()
+    try:
+        flags = roster_flags(lg)
+    except Exception:  # noqa: BLE001 — a failed read shows every row unlocked; POST /lineup re-reads before writing
+        flags = {}
+    players = [{**p, "slot": fake.get(p["player_id"], p["slot"]), "locked": flags.get(p["player_id"], {}).get("locked", False)}
+               for p in players]
+    return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week),
+            "empty_slots": S.empty_slots(players, settings), "writes": espn_write.writes()}
 
 
 def _club(t) -> dict:
