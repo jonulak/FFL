@@ -39,7 +39,7 @@ export function targets(cards: Card[], picked: Card, empty: string[]): Target[] 
     out.push({ kind: "swap", with: q, gain: round(gain) });
   }
   for (const slot of new Set(empty)) {
-    if (fits(picked, slot)) out.push({ kind: "slot", slot, gain: starts(picked.slot) ? 0 : round(picked.play_proj) });
+    if (slot !== picked.slot && fits(picked, slot)) out.push({ kind: "slot", slot, gain: starts(picked.slot) ? 0 : round(picked.play_proj) });
   }
   if (starts(picked.slot)) out.push({ kind: "bench", gain: round(-picked.play_proj) });
   return out;

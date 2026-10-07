@@ -48,6 +48,13 @@ describe("targets", () => {
   it("nothing for a locked or IR player", () => {
     expect(targets(all, lockedWr, [])).toEqual([]); expect(targets(all, ir, [])).toEqual([]);
   });
+  it("skips an empty slot equal to the starter's current slot (no-op)", () => {
+    // RB starter in "RB" with empty ["RB"] should not offer a no-op "move to RB" target
+    const t = targets(all, rb, ["RB"]);
+    expect(t).not.toContainEqual({ kind: "slot", slot: "RB", gain: 0 });
+    // But a bench RB with empty ["RB"] should offer it (he's not in the RB slot yet)
+    expect(targets(all, benchRb, ["RB"])).toContainEqual({ kind: "slot", slot: "RB", gain: 11 });
+  });
 });
 
 describe("movesFor", () => {
