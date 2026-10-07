@@ -57,7 +57,12 @@ export function fetchLog(id: number): LogFetch {
 // Settles when the log lands or HOLD_MS passes, whichever is first: when to open a dialog that
 // shows it (the Matchup breakdown waits on it the same way).
 export function holdFor(fetch: LogFetch): Promise<void> {
-  return Promise.race([fetch.promise.then(() => {}, () => {}), new Promise<void>((r) => setTimeout(r, HOLD_MS))]);
+  return hold(fetch.promise);
+}
+
+// The same wait over any first read a dialog opens on (the Players page's outlook).
+export function hold(first: Promise<unknown>): Promise<void> {
+  return Promise.race([first.then(() => {}, () => {}), new Promise<void>((r) => setTimeout(r, HOLD_MS))]);
 }
 
 export function PlayerDialogProvider({ children }: { children: React.ReactNode }) {
@@ -237,7 +242,7 @@ const GROW_EASE = "cubic-bezier(0.65, 0, 0.35, 1)";
 // from where it stood instead of snapping taller around its centre. Rows opening inside the log
 // change no state and keep their own animation (a week's panel, a past season's fold). A change
 // that lands mid-grow (the moves just after the log) carries on from the height on screen.
-function useGrow(state: string) {
+export function useGrow(state: string) {
   const ref = useRef<HTMLDivElement>(null);
   const last = useRef(0);
   useLayoutEffect(() => {
