@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, gainText, isMismatch, lineupFailure, movesFor, slotLabel, swapOptions, targets } from "./lineup";
+import { accepts, applyMoves, fillOptions, gainText, isMismatch, lineupFailure, movesFor, slotLabel, swapOptions, targets } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
@@ -114,4 +114,49 @@ describe("swapOptions", () => {
   it("nothing for a locked or IR player", () => {
     expect(swapOptions(all, lockedWr, [])).toEqual([]); expect(swapOptions(all, ir, [])).toEqual([]);
   });
+});
+
+describe("applyMoves", () => {
+  const roster = (empty: string[] = []) => ({ week: 3, cards: all, empty_slots: empty });
+  const slots = (r: { cards: Card[] }) => Object.fromEntries(r.cards.map((x) => [x.player_id, [x.slot, x.group]]));
+  it("a swap trades the two slots and the groups follow", () => {
+    const r = applyMoves(roster(), movesFor(benchRb, { kind: "swap", with: flex, gain: 2 }));
+    expect(slots(r)[4]).toEqual(["RB/WR/TE", "starter"]);
+    expect(slots(r)[2]).toEqual(["BE", "bench"]);
+    expect(r.empty_slots).toEqual([]);
+    expect(r.week).toBe(3);
+  });
+  it("to the bench leaves the slot empty", () => {
+    const r = applyMoves(roster(), [{ player_id: 3, to_slot: "BE" }]);
+    expect(slots(r)[3]).toEqual(["BE", "bench"]);
+    expect(r.empty_slots).toEqual(["RB"]);
+  });
+  it("filling an empty slot removes it, in ESPN's slot order", () => {
+    const r = applyMoves(roster(["RB", "RB/WR/TE"]), [{ player_id: 4, to_slot: "RB/WR/TE" }]);
+    expect(slots(r)[4]).toEqual(["RB/WR/TE", "starter"]);
+    expect(r.empty_slots).toEqual(["RB"]);
+  });
+  it("a starter moved into an empty slot leaves his own empty", () => {
+    const r = applyMoves(roster(["RB/WR/TE"]), [{ player_id: 3, to_slot: "RB/WR/TE" }]);
+    expect(r.empty_slots).toEqual(["RB"]);
+  });
+  it("leaves the cards it does not move as they were", () => {
+    const r = applyMoves(roster(), [{ player_id: 3, to_slot: "BE" }]);
+    expect(r.cards.find((x) => x.player_id === 1)).toBe(qb);
+  });
+});
+
+describe("fillOptions", () => {
+  const key = (o: ReturnType<typeof fillOptions>[number]) => (o.kind === "fill" ? `fill:${o.who.player_id}:${o.gain}` : `locked:${o.with.player_id}`);
+  it("bench players add their projection, starters elsewhere move for ±0, best first; locked last", () =>
+    // FLEX takes RB/WR/TE: bench RB 11, the RB starter (0); the flex WR is already there; the locked WR listed shut;
+    // the bench QB does not fit; IR never
+    expect(fillOptions(all.filter((x) => x.player_id !== 2), "RB/WR/TE").map(key)).toEqual(["fill:4:11", "fill:3:0", "locked:6"]));
+  it("ties read by name", () => {
+    const b = c(8, "WR", "BE", 9, { name: "Brown" }), a = c(9, "WR", "BE", 9, { name: "Adams" });
+    expect(fillOptions([b, a], "WR").map(key)).toEqual(["fill:9:9", "fill:8:9"]);
+  });
+  it("OP takes a QB from the bench", () => expect(fillOptions(all, "OP").map(key)).toContain("fill:5:0"));
+  it("nobody already in a slot of that type", () =>
+    expect(fillOptions(all, "RB").map(key)).toEqual(["fill:4:11"]));
 });

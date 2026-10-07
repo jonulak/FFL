@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, ChevronDown, LoaderCircle, Lock } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, LoaderCircle, Lock, Plus } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import type { Card } from "@/lib/api";
 import { STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
-import { isMismatch, SLOT_ORDER, slotLabel, type LineupFailure, type SwapOption, type Target } from "@/lib/lineup";
+import { isMismatch, SLOT_ORDER, slotLabel, type LineupFailure } from "@/lib/lineup";
 import { NAME_LINK } from "@/lib/player-log";
 import { headshotUrl, team } from "@/lib/teams";
 import { Kickoff } from "./local-time";
@@ -29,14 +29,14 @@ const GROUPS: { key: Card["group"]; title: string }[] = [
 // A word on the last move, shown under the row of the player who moved.
 export type Notice = { id: number; text: string };
 
-// The swap control's state, owned by RosterLive: who is picked (his sheet is open), where he can go, what is in flight.
+// The swap control's state, owned by RosterLive: who is picked (his sheet is open), which players' move is saving,
+// the last refusal; `pick` opens a player's sheet, `fill` an empty slot's.
 export type SwapControl = {
   picked: Card | null;
-  options: SwapOption[];
   pending: number[];
   error: ({ id: number } & LineupFailure) | null;
   pick: (c: Card) => void;
-  move: (t: Target) => void;
+  fill: (slot: string) => void;
   reload: () => void;
 };
 
@@ -291,17 +291,24 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
   );
 }
 
-// A starting slot ESPN has nobody in. The swap sheet offers it as somewhere to move a player.
-function EmptyRow({ slot }: { slot: string }) {
+// A starting slot ESPN has nobody in. A tap opens the sheet of who can fill it; the swap sheet offers it too.
+function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
   return (
     <li>
-      <div className={GRID}>
+      <button type="button" onClick={() => swap.fill(slot)} disabled={swap.pending.length > 0} aria-haspopup="dialog"
+        aria-label={`Fill the empty ${slotLabel(slot)} slot`}
+        className={`${GRID} group/empty w-full text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-foreground/[0.07] disabled:pointer-events-none`}>
         <span className={`${SLOT_TEXT} text-foreground/85`}><SlotName slot={slot} /></span>
-        <div aria-hidden className="size-10 rounded-md border border-dashed border-foreground/25 [grid-area:shot]" />
-        <p className="font-display text-[1.0625rem] font-semibold leading-tight tracking-tight text-muted-foreground [grid-area:name] md:text-[1.1875rem]">
-          Empty<span className="sr-only"> {slotLabel(slot)} slot</span>
-        </p>
-      </div>
+        <span aria-hidden className="size-10 rounded-md border border-dashed border-foreground/25 [grid-area:shot]" />
+        <span className="font-display text-[1.0625rem] font-semibold leading-tight tracking-tight text-muted-foreground [grid-area:name] md:text-[1.1875rem]">
+          Empty
+        </span>
+        <span aria-hidden className="flex justify-center [grid-area:swap]">
+          <span className="-my-2.5 flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors group-hover/empty:text-foreground md:my-0 md:size-9">
+            <Plus className="size-4" />
+          </span>
+        </span>
+      </button>
     </li>
   );
 }
@@ -344,7 +351,7 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
                 ? <PlayerRow key={r.c.player_id} c={r.c} week={week} runBusy={runBusy} swap={swap}
                     notice={notice?.id === r.c.player_id ? notice.text : null}
                     open={open === r.c.player_id} onOpen={(o) => setOpen(o ? r.c.player_id : null)} />
-                : <EmptyRow key={r.key} slot={r.slot} />)}
+                : <EmptyRow key={r.key} slot={r.slot} swap={swap} />)}
             </ul>
           </section>
         );

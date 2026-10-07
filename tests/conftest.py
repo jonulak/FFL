@@ -25,3 +25,13 @@ def _no_claim_fact_reads(monkeypatch):
     from ffl import espn_season
     monkeypatch.setattr(espn_season, "raw_league_get", lambda *a, **k: {})
     monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {})
+
+
+@pytest.fixture(autouse=True)
+def _fresh_box_scores():
+    """A finished week's box scores are kept for the process (espn_season.box_scores); one test's stub League
+    must not answer another's."""
+    from ffl import espn_season
+    espn_season._BOXES.clear()
+    yield
+    espn_season._BOXES.clear()

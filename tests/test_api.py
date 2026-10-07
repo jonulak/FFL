@@ -796,16 +796,20 @@ def test_claims_never_see_a_rostered_player(monkeypatch):
 def lineup_env(client, monkeypatch, tmp_path):
     cards = [{"player_id": 3, "name": "Bench", "pos": "RB", "slot": "BE", "call": "START", "gap": 1.4, "group": "bench", "locked": False},
              {"player_id": 2, "name": "Flex", "pos": "WR", "slot": "RB/WR/TE", "call": "BENCH", "gap": -1.4, "group": "starter", "locked": False}]
-    state = {"slots": {3: "BE", 2: "RB/WR/TE"}, "locked": set(), "period": 3, "builds": 0}
+    state = {"slots": {3: "BE", 2: "RB/WR/TE"}, "locked": set(), "period": 3, "builds": 0, "flag_reads": 0}
 
-    def roster_state(week=None):
+    def roster_state(week=None, flags=None):
         state["builds"] += 1
+        state["readback_flags"] = flags
         return {"week": 3, "live": False, "empty_slots": [], "writes": False,
                 "cards": [{**c, "slot": state["slots"][c["player_id"]]} for c in cards]}
     monkeypatch.setattr(api.espn_season, "roster_state", roster_state)
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda: None)
-    monkeypatch.setattr(api.espn_season, "roster_flags", lambda lg: {
-        i: {"locked": i in state["locked"], "slot": s} for i, s in state["slots"].items()})
+    def roster_flags(lg):
+        state["flag_reads"] += 1
+        return {i: {"locked": i in state["locked"], "slot": s} for i, s in state["slots"].items()}
+    monkeypatch.setattr(api.espn_season, "roster_flags", roster_flags)
+    monkeypatch.setattr(api.espn_write, "writes", lambda: True)  # these model real writes (move_lineup is stubbed)
     monkeypatch.setattr(api.espn_season, "load", lambda: {"starters": {"RB/WR/TE": 1}})
     monkeypatch.setattr(api.espn_write, "pending_state", lambda: ([], state["period"]))
     sent = []
@@ -816,6 +820,7 @@ def lineup_env(client, monkeypatch, tmp_path):
     return client
 
 
+ORIGINAL_WRITES = api.espn_write.writes
 SWAP = {"moves": [{"player_id": 3, "to_slot": "RB/WR/TE"}, {"player_id": 2, "to_slot": "BE"}]}
 ORIGINAL_MOVE_LINEUP = api.espn_write.move_lineup
 
@@ -833,8 +838,9 @@ def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_en
     monkeypatch.setenv("FFL_WRITES", "0")
     monkeypatch.setattr(api.espn_write, "_FAKE_SLOTS", {})
     monkeypatch.setattr(api.espn_write, "move_lineup", ORIGINAL_MOVE_LINEUP)
+    monkeypatch.setattr(api.espn_write, "writes", ORIGINAL_WRITES)
     real = api.espn_season.roster_state
-    monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None: {
+    monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None, flags=None: {
         **(d := real(week)), "cards": [{**c, "slot": api.espn_write.fake_slots().get(c["player_id"], c["slot"])} for c in d["cards"]]})
     assert lineup_env.post("/lineup", json=SWAP).status_code == 200
     back = {"moves": [{"player_id": 3, "to_slot": "BE"}, {"player_id": 2, "to_slot": "RB/WR/TE"}]}
@@ -842,7 +848,33 @@ def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_en
     assert r.status_code == 200
     assert api.espn_write.fake_slots() == {3: "BE", 2: "RB/WR/TE"}, "the second move ran from the first one's slots"
     assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {3: "BE", 2: "RB/WR/TE"}
-    assert (tmp_path / "DECISIONS.md").read_text().count("Week 3 lineup") == 2
+    assert not (tmp_path / "DECISIONS.md").exists(), "a fake move is not a decision: logged, never journaled"
+
+
+def test_lineup_read_back_reuses_the_flags_it_read_with_the_moves_applied(lineup_env):
+    lineup_env.get("/roster")
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 200
+    assert lineup_env.state["flag_reads"] == 1, "one mRoster read per move: the read-back reuses it"
+    assert {i: f["slot"] for i, f in lineup_env.state["readback_flags"].items()} == {3: "RB/WR/TE", 2: "BE"}
+
+
+def test_lineup_fake_move_logs_instead_of_journaling(lineup_env, monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: False)
+    with caplog.at_level("INFO", logger=api.log.name):
+        assert lineup_env.post("/lineup", json=SWAP).status_code == 200
+    assert not (tmp_path / "DECISIONS.md").exists()
+    assert "Week 3 lineup: Bench to FLEX" in caplog.text
+
+
+def test_lineup_maps_errors_from_the_concurrent_reads_as_before(lineup_env, monkeypatch):
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda: (_ for _ in ()).throw(api.espn_write.WriteError(401, "x")))
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN login expired, refresh .env"
+    monkeypatch.setattr(api.espn_season, "roster_flags", lambda lg: (_ for _ in ()).throw(RuntimeError("mRoster down")))
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 502 and r.json()["detail"] == {"source": "espn", "error": "mRoster down"}
+    assert lineup_env.sent == []
 
 
 def test_lineup_refuses_a_player_whose_game_started_since_the_page_loaded(lineup_env):
@@ -883,7 +915,7 @@ def test_lineup_reports_espns_refusal(lineup_env, monkeypatch):
 
 def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):
     real = api.espn_season.roster_state
-    def after_write(week=None):
+    def after_write(week=None, flags=None):
         if lineup_env.sent:
             raise RuntimeError("espn down")
         return real(week)
@@ -898,7 +930,7 @@ def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):
 def test_lineup_read_back_failure_still_journals_the_move(lineup_env, monkeypatch, tmp_path):
     real = api.espn_season.roster_state
     monkeypatch.setattr(api.espn_season, "roster_state",
-                        lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")) if lineup_env.sent else real(week))
+                        lambda week=None, flags=None: (_ for _ in ()).throw(RuntimeError("espn down")) if lineup_env.sent else real(week))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["moved"] is True and len(lineup_env.sent) == 1
     assert "Week 3 lineup: Bench to FLEX, Flex to the bench" in (tmp_path / "DECISIONS.md").read_text()

@@ -20,6 +20,7 @@ import os
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -428,9 +429,13 @@ def lineup(body: LineupIn):
         raise HTTPException(409, "a lineup move is already running")
     try:
         data = _serve("roster", lambda: espn_season.roster_state(None))
+        # the two reads are independent: both in flight at once (0.45 s + 0.2 s, one after the other)
+        with ThreadPoolExecutor(2) as pool:
+            reading = pool.submit(lambda: espn_season.roster_flags(espn_season.fresh_league()))
+            pending = pool.submit(espn_write.pending_state)
         try:
-            flags = espn_season.roster_flags(espn_season.fresh_league())
-            _, period = espn_write.pending_state()
+            flags = reading.result()
+            _, period = pending.result()
         except espn_write.WriteError as e:
             raise _espn_error(e)
         except Exception as e:  # noqa: BLE001 — the mRoster read
@@ -454,13 +459,17 @@ def lineup(body: LineupIn):
                 raise _espn_error(e)
             except requests.RequestException:  # ESPN may have executed it before the connection died
                 uncertain = True
-            # journaled the moment ESPN may have taken the move, whatever the read-back does
+            # journaled the moment ESPN may have taken the move, whatever the read-back does; a fake move
+            # (FFL_WRITES=0) is not a decision, so it only goes to the log
             try:
                 entry = season.lineup_entry(items, data["cards"], data["week"], datetime.now().strftime("%Y-%m-%d"))
                 if uncertain:
                     entry += "\n- ESPN did not answer; the move may not have happened — check ESPN."
-                with DECISIONS.open("a") as f:
-                    f.write("\n" + entry)
+                if espn_write.writes():
+                    with DECISIONS.open("a") as f:
+                        f.write("\n" + entry)
+                else:
+                    log.info("fake lineup move (FFL_WRITES=0), not journaled: %s", entry)
             except OSError as e:
                 log.warning("lineup move made but not journaled: %s", e)
             espn_season._BOXES.pop(data["week"], None)  # the box scores carry the slots; read them again
@@ -468,8 +477,11 @@ def lineup(body: LineupIn):
             if uncertain:
                 cache.drop("roster")
                 raise HTTPException(502, {"source": "espn", "error": "ESPN did not answer — it may have moved; reload", "moved": True})
+            # the read-back reuses this request's mRoster read, the moves applied (ESPN said EXECUTED): a second
+            # read would only say the same; locks cannot have changed in the second since
+            moved = {**flags, **{p: {**flags.get(p, {}), "slot": to} for p, _, to in items}}
             try:
-                cache.put("roster", espn_season.roster_state(None))
+                cache.put("roster", espn_season.roster_state(None, flags=moved))
             except Exception as e:  # noqa: BLE001 — ESPN took the move; say so, never show the old slots as current
                 cache.drop("roster")  # the reload this asks for must build from ESPN, not serve the pre-move page
                 raise HTTPException(502, {"source": "espn", "error": "moved in ESPN — the read-back failed, reload", "moved": True}) from e

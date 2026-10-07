@@ -248,3 +248,54 @@ def test_free_agent_pool_snapshots_the_blend_once_per_ros_week(monkeypatch, tmp_
     first = (tmp_path / "week-3.json").read_text()
     espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
     assert (tmp_path / "week-3.json").read_text() == first, "the first build of the week stands"
+
+
+def test_a_finished_weeks_box_scores_are_read_once_for_the_process(monkeypatch):
+    """ffl-qf7: weeks before the current one never change; only the current week runs on BOXES_TTL_S."""
+    asked = []
+
+    def league():
+        return SimpleNamespace(current_week=3, box_scores=lambda w: asked.append(w) or [w])
+    clock = [1000.0]
+    monkeypatch.setattr(espn_season.time, "time", lambda: clock[0])
+    lg = league()
+    assert espn_season.box_scores(lg, 1) == [1] and espn_season.box_scores(lg, 3) == [3]
+    clock[0] += espn_season.BOXES_TTL_S * 10
+    rebuilt = league()  # fresh_league after an hour: a new League object
+    assert espn_season.box_scores(rebuilt, 1) == [1] and espn_season.box_scores(rebuilt, 3) == [3]
+    assert asked == [1, 3, 3], "week 1 once; the current week again past the TTL"
+
+
+def test_roster_state_drops_a_week_whose_box_scores_fail_instead_of_failing(monkeypatch):
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    lg.current_week = 3
+    mine = season_roster()[3]  # RB A, id 4
+    hist = SimpleNamespace(playerId=mine["player_id"], position="RB", stats={
+        2: week_stats(22.0, 14.5, rushingAttempts=20, receivingTargets=5, receivingYards=40)})
+    hist.game_played = 100
+    now_boxes = espn_season._boxes_by_team
+
+    def boxes(lg, w):
+        if w == 1:
+            raise RuntimeError("ESPN 500")
+        return now_boxes(lg, w) if w == 3 else {7: [_week_only(hist, w)]}
+    monkeypatch.setattr(espn_season, "_boxes_by_team", boxes)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    st = espn_season.roster_state(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    card = next(c for c in st["cards"] if c["player_id"] == 4)
+    assert card["form"]["weeks"] == [2], "week 1 has no rows; the page still builds"
+
+
+def test_roster_state_uses_the_flags_it_is_handed(monkeypatch):
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(_matchup(), calls)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: (_ for _ in ()).throw(AssertionError("read again")))
+    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={}, flags={4: {"slot": "BE", "locked": True}})
+    card = next(c for c in st["cards"] if c["player_id"] == 4)
+    assert card["slot"] == "BE" and card["locked"] is True

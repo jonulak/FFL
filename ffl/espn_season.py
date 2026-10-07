@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import math
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -694,12 +695,16 @@ def box_scores(lg, week: int) -> list:
     within the same minute or two; this is one 0.7 s ESPN call instead of four. Keyed on the
     League object itself, not its build time: tests stub a fresh League per case, and a rebuilt
     League (fresh_league after an hour, or POST /refresh) is a new source, fetched again.
+    A finished week (before the League's current one: the form window's earlier weeks) never
+    changes, so it is kept for the life of the process, whichever League asks (ffl-qf7); only
+    POST /refresh clears it.
     """
     hit = _BOXES.get(week)
-    if hit and hit[0] > time.time() and hit[1] is lg:
+    if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):
         return hit[2]
     boxes = lg.box_scores(week)
-    _BOXES[week] = (time.time() + BOXES_TTL_S, lg, boxes)
+    finished = week < getattr(lg, "current_week", week)
+    _BOXES[week] = (math.inf if finished else time.time() + BOXES_TTL_S, lg, boxes)
     return boxes
 
 
@@ -1093,7 +1098,12 @@ def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]
     games = {bp.playerId: player_games(bp, [week], week) for lineup in boxes.values() for bp in lineup}
     earlier: dict[int, list[dict]] = {pid: [] for pid in games}
     for w in form_weeks(week)[:-1]:
-        for lineup in _boxes_by_team(lg, w).values():
+        try:
+            by_team = _boxes_by_team(lg, w)
+        except Exception as e:  # noqa: BLE001 — one week's history is not worth the page (ffl-qf7)
+            logging.getLogger(__name__).warning("week %s box scores not read; no form rows for it: %s", w, e)
+            continue
+        for lineup in by_team.values():
             for bp in lineup:
                 if bp.playerId in earlier:
                     earlier[bp.playerId] += player_games(bp, [w], week)
@@ -1108,9 +1118,10 @@ def with_espn_slots(rows: list[dict], flags: dict[int, dict], fake: dict[int, st
 
 
 def roster_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
-                 injuries: dict | None = None, snaps: dict | None = None) -> dict:
+                 injuries: dict | None = None, snaps: dict | None = None, flags: dict | None = None) -> dict:
     """My roster as cards (season.roster_cards) for the Roster page. Same enrichment as week_state,
-    plus `form` (STRATEGY.md, "Recent form") on every card."""
+    plus `form` (STRATEGY.md, "Recent form") on every card. `flags` is an mRoster read the caller
+    already has (POST /lineup's, with the moves applied); without it the read is made here."""
     lg = fresh_league()
     settings = load()
     week = week or lg.current_week
@@ -1129,11 +1140,12 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
         home_by_team(lg, week)), _exp_for(weeks, snaps)),
         _roster_games(lg, {me: boxes[me]}, week), snap_weeks, rw, bye_by_team(lg), snap_refs(snap_weeks))
     fake = espn_write.fake_slots()
-    try:
-        flags = roster_flags(lg)
-    except Exception as e:  # noqa: BLE001 — a failed read shows every row unlocked; POST /lineup re-reads before writing
-        logging.getLogger(__name__).warning("roster_flags read failed; every row shows unlocked: %s", e)
-        flags = {}
+    if flags is None:
+        try:
+            flags = roster_flags(lg)
+        except Exception as e:  # noqa: BLE001 — a failed read shows every row unlocked; POST /lineup re-reads before writing
+            logging.getLogger(__name__).warning("roster_flags read failed; every row shows unlocked: %s", e)
+            flags = {}
     players = with_espn_slots(players, flags, fake)
     return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week),
             "empty_slots": S.empty_slots(players, settings), "writes": espn_write.writes()}

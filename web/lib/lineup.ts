@@ -74,6 +74,46 @@ export function swapOptions(cards: Card[], picked: Card, empty: string[]): SwapO
   return [...open, ...shut];
 }
 
+// An empty starting slot's sheet: everyone who could fill it. Bench players add their projection; a starter in
+// another slot moves over and leaves that one empty instead (no change). IR and anyone already in a slot of this
+// type are left out; a player whose game has started is listed after, not tappable.
+export type Fill = { kind: "fill"; who: Card; gain: number };
+export type FillOption = Fill | { kind: "locked"; with: Card };
+
+export function fillOptions(cards: Card[], slot: string): FillOption[] {
+  const fit = cards.filter((c) => c.slot !== "IR" && c.group !== "ir" && c.slot !== slot && accepts(slot).has(c.pos));
+  const byName = (a: Card, b: Card) => a.name.localeCompare(b.name);
+  const open: FillOption[] = fit.filter((c) => !c.locked)
+    .map((c) => ({ kind: "fill" as const, who: c, gain: starts(c.slot) ? 0 : round(c.play_proj) }))
+    .sort((a, b) => b.gain - a.gain || byName(a.who, b.who));
+  const shut: FillOption[] = fit.filter((c) => c.locked).sort(byName).map((c) => ({ kind: "locked" as const, with: c }));
+  return [...open, ...shut];
+}
+
+export type Move = { player_id: number; to_slot: string };
+
+const groupOf = (slot: string): Card["group"] => (slot === "BE" ? "bench" : slot === "IR" ? "ir" : "starter");
+
+// The page as it will be once ESPN takes `moves`, drawn before it answers: the moved cards re-slotted (their group
+// follows the slot) and the empty starting slots recounted against the lineup's own size, which is every starting
+// slot's players plus its empties before the move. The POST's answer replaces it.
+export function applyMoves<T extends { cards: Card[]; empty_slots: string[] }>(r: T, moves: Move[]): T {
+  const size = new Map<string, number>();
+  const add = (m: Map<string, number>, s: string) => m.set(s, (m.get(s) ?? 0) + 1);
+  for (const c of r.cards) if (starts(c.slot)) add(size, c.slot);
+  for (const s of r.empty_slots) add(size, s);
+  const to = new Map(moves.map((m) => [m.player_id, m.to_slot]));
+  const cards = r.cards.map((c) => {
+    const slot = to.get(c.player_id);
+    return slot === undefined || slot === c.slot ? c : { ...c, slot, group: groupOf(slot) };
+  });
+  const filled = new Map<string, number>();
+  for (const c of cards) if (starts(c.slot)) add(filled, c.slot);
+  const slots = [...SLOT_ORDER, ...[...size.keys()].filter((s) => !SLOT_ORDER.includes(s))];
+  const empty = slots.flatMap((s) => Array<string>(Math.max(0, (size.get(s) ?? 0) - (filled.get(s) ?? 0))).fill(s));
+  return { ...r, cards, empty_slots: empty };
+}
+
 // A target's change to the starting lineup's projection: "+2.0", "−1.0" (a true minus), "±0" for no change.
 export function gainText(n: number): string {
   const r = Math.round(n * 10) / 10;
