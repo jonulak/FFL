@@ -437,7 +437,10 @@ def lineup(body: LineupIn):
         if period is not None and period != data["week"]:
             raise HTTPException(409, {"error": "ESPN's week changed — reload"})
         # slots and locks both from this one mRoster read: the cached page may be minutes behind
-        roster = [{**c, "locked": False, **{k: v for k, v in flags.get(c["player_id"], {}).items() if k in ("slot", "locked")}}
+        # under FFL_WRITES=0 the page shows the fake store's slots, so the moves are validated against those ({} for real)
+        fake = espn_write.fake_slots()
+        roster = [{**c, "locked": False, **{k: v for k, v in flags.get(c["player_id"], {}).items() if k in ("slot", "locked")},
+                   **({"slot": fake[c["player_id"]]} if c["player_id"] in fake else {})}
                   for c in data["cards"]]
         items, errs = season.lineup_moves([m.model_dump() for m in body.moves], roster, espn_season.load())
         if errs:

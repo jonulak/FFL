@@ -817,6 +817,7 @@ def lineup_env(client, monkeypatch, tmp_path):
 
 
 SWAP = {"moves": [{"player_id": 3, "to_slot": "RB/WR/TE"}, {"player_id": 2, "to_slot": "BE"}]}
+ORIGINAL_MOVE_LINEUP = api.espn_write.move_lineup
 
 
 def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env, tmp_path):
@@ -825,6 +826,23 @@ def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env
     assert lineup_env.sent == [([(3, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], 3)]
     assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {3: "RB/WR/TE", 2: "BE"}, "read back, not echoed"
     assert "Week 3 lineup: Bench to FLEX, Flex to the bench" in (tmp_path / "DECISIONS.md").read_text()
+
+
+def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_env, monkeypatch, tmp_path):
+    # FFL_WRITES=0: ESPN never moves, the fake store does; roster_state shows the fake slots, and so must the validator
+    monkeypatch.setenv("FFL_WRITES", "0")
+    monkeypatch.setattr(api.espn_write, "_FAKE_SLOTS", {})
+    monkeypatch.setattr(api.espn_write, "move_lineup", ORIGINAL_MOVE_LINEUP)
+    real = api.espn_season.roster_state
+    monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None: {
+        **(d := real(week)), "cards": [{**c, "slot": api.espn_write.fake_slots().get(c["player_id"], c["slot"])} for c in d["cards"]]})
+    assert lineup_env.post("/lineup", json=SWAP).status_code == 200
+    back = {"moves": [{"player_id": 3, "to_slot": "BE"}, {"player_id": 2, "to_slot": "RB/WR/TE"}]}
+    r = lineup_env.post("/lineup", json=back)
+    assert r.status_code == 200
+    assert api.espn_write.fake_slots() == {3: "BE", 2: "RB/WR/TE"}, "the second move ran from the first one's slots"
+    assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {3: "BE", 2: "RB/WR/TE"}
+    assert (tmp_path / "DECISIONS.md").read_text().count("Week 3 lineup") == 2
 
 
 def test_lineup_refuses_a_player_whose_game_started_since_the_page_loaded(lineup_env):
