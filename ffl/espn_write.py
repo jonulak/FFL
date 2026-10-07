@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import itertools
 import os
+from datetime import datetime
 
 import requests
 
@@ -28,6 +29,7 @@ _FAKE: list[dict] = []
 _FAKE_ADDS: list[dict] = []
 _FAIL_ADDS: set[int] = set()  # dev/tests under FFL_WRITES=0: ids whose instant add "was taken"
 _FAKE_PERIOD: int | None = None  # dev/tests under FFL_WRITES=0: ESPN's scoring period; None means "the plan week"
+_FAKE_LAST_RUN: str | None = None  # dev/tests under FFL_WRITES=0: the last waiver run, local ISO
 _IDS = itertools.count(1)
 
 
@@ -111,6 +113,18 @@ def pending_state() -> tuple[list[dict], int | None]:
         raise WriteError(getattr(getattr(e, "response", None), "status_code", 0) or 401, str(e))
     period = doc.get("scoringPeriodId")
     return parse_pending(doc, _team_id()), None if period is None else int(period)
+
+
+def last_waiver_run() -> str | None:
+    """When ESPN last ran waivers (mStatus waiverLastExecutionDate), local ISO to the second; None when the read
+    fails or carries no date, so a plan is never retired on a guess."""
+    if not _writes():
+        return _FAKE_LAST_RUN
+    try:
+        ms = config.raw_league_get("mStatus").get("status", {}).get("waiverLastExecutionDate")
+    except Exception:  # noqa: BLE001
+        return None
+    return None if ms is None else datetime.fromtimestamp(ms / 1000).isoformat(timespec="seconds")
 
 
 def pending_claims() -> list[dict]:

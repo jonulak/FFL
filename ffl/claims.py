@@ -225,6 +225,19 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
             "match": error is None and numbered and matches(claims, ours), "error": error, "readback_failed": readback_failed}
 
 
+def retire(plan, last_run):
+    """The plan once ESPN's waiver run has processed it: a plan sent and not saved since the run (`last_run`, local
+    ISO; None when unknown) moves to `retired` and the week starts empty. The plan file is per ESPN week, which rolls
+    days after the run, so without this the won targets sit in it as "already on your roster"."""
+    if not plan["submits"] or last_run is None:
+        return plan
+    stamp = max(plan.get("saved_at") or "", plan["submits"][-1]["at"])
+    if last_run <= stamp:
+        return plan
+    old = {"run": last_run, "groups": plan["groups"], "submits": plan["submits"]}
+    return {**plan, "groups": [], "submits": [], "retired": plan.get("retired", []) + [old]}
+
+
 def consume(groups, now):
     """The plan minus what instant adds already did: a landed target and its row leave their group (a no-drop row is an
     open spot), and a group with no targets left is dropped. `now` indexes the groups as submitted."""

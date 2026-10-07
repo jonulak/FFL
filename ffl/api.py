@@ -225,12 +225,16 @@ def _plan_path(week):
 
 
 def _load_plan(week):
+    # a plan the waiver run already processed reads as retired (an empty week); the next save writes that down
     p = _plan_path(week)
-    return json.loads(p.read_text()) if p.exists() else {"week": week, "groups": [], "submits": []}
+    if not p.exists():
+        return {"week": week, "groups": [], "submits": []}
+    return claims_mod.retire(json.loads(p.read_text()), espn_write.last_waiver_run())
 
 
 def _save_plan(plan):
     # atomic: a tmp file in the same dir, then os.replace, so a crash mid-write never leaves half a plan
+    plan["saved_at"] = datetime.now().isoformat(timespec="seconds")
     CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=CLAIMS_DIR, prefix=".week-", suffix=".tmp")
     try:

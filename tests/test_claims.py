@@ -308,3 +308,21 @@ def test_unnumbered_read_back_is_never_a_match():
     w = Unnumbered([])
     r = C.run_submit(G, {}, [], set(), False, w)
     assert [c["add"] for c in r["pending"]] == [101, 102] and r["match"] is False
+
+
+def test_retire_after_the_run():
+    plan = {"week": 5, "groups": [{"targets": [101], "cuts": [1], "open": 0}],
+            "submits": [{"at": "2026-10-06T21:50:25", "claims": [], "ids": []}], "saved_at": "2026-10-06T21:50:25"}
+    out = C.retire(plan, "2026-10-07T03:31:23")
+    assert out["groups"] == [] and out["submits"] == []
+    assert out["retired"] == [{"run": "2026-10-07T03:31:23", "groups": plan["groups"], "submits": plan["submits"]}]
+    assert C.retire(out, "2026-10-07T03:31:23") == out, "idempotent"
+
+
+def test_retire_keeps_a_plan_saved_after_the_run_or_never_sent():
+    g = [{"targets": [101], "cuts": [1], "open": 0}]
+    sub = [{"at": "2026-10-06T21:50:25", "claims": [], "ids": []}]
+    assert C.retire({"week": 5, "groups": g, "submits": sub, "saved_at": "2026-10-07T05:00:00"}, "2026-10-07T03:31:23")["groups"] == g
+    assert C.retire({"week": 5, "groups": g, "submits": []}, "2026-10-07T03:31:23")["groups"] == g, "never sent: not spent"
+    assert C.retire({"week": 5, "groups": g, "submits": sub}, None)["groups"] == g, "unknown run: keep"
+    assert C.retire({"week": 5, "groups": g, "submits": sub}, "2026-10-07T03:31:23")["groups"] == [], "legacy file: last submit"

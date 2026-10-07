@@ -483,6 +483,19 @@ def test_submit_happy_path_and_decision(claims_env):
     assert "Waiver claims (from the app)" in api.DECISIONS.read_text()
 
 
+def test_waiver_run_retires_the_submitted_plan(claims_env, monkeypatch):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    claims_env.post("/claims/submit", json={"replace_outside": False})
+    api.espn_write._FAKE.clear()                               # the run processed the claims
+    monkeypatch.setattr(api.espn_write, "_FAKE_LAST_RUN", "2999-01-01T00:00:00")
+    g = claims_env.get("/claims").json()
+    assert g["groups"] == [] and g["last_submit"] is None and g["errors"] == []
+    claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [2], "open": 0}]})
+    saved = json.loads((api.CLAIMS_DIR / "week-6.json").read_text())
+    assert saved["submits"] == [] and saved["retired"][0]["groups"][0]["targets"] == [101]
+    assert claims_env.get("/claims").json()["groups"][0]["targets"] == [102], "a plan saved after the run stays"
+
+
 def test_submit_free_agent_is_instant(claims_env):
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"          # Mims cleared waivers
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
