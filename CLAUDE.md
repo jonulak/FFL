@@ -195,6 +195,16 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - Every roster decision made in a session is appended to `journal/DECISIONS.md` (decision, reasoning, alternatives)
   before committing. Draft picks are logged automatically to `journal/draft/picks.csv`; add the reasoning by hand.
 - Commit and push (`git push`) at the end of every session; the GitHub repo is the backup.
+- **Landing a worktree branch on main — only after Jonathan explicitly says to land that branch** (asking whether
+  to land is fine; a finished task is not permission). A worktree session is refused git against the main checkout,
+  so it runs `scripts/land.sh` (ff-only merge + push; the post-merge hook deploys) in the FFL workspace's Herdr tab
+  labelled `Terminal`, a plain shell in `~/Developer/FFL`. Pane IDs change across Herdr restarts: find it with
+  `herdr workspace list` / `herdr tab list --workspace <id>` / `herdr pane list --workspace <id>`, one plain
+  command each with literal IDs. Then: `git rebase main` in the worktree; check the tab is at its prompt
+  (`herdr pane read <pane> --lines 3`); `herdr pane run <pane> "scripts/land.sh <branch>"`;
+  `herdr pane wait-output <pane> --regex "land: done|error|fatal|rejected|Not possible" --timeout 600000`; read
+  the pane (the deploy prints `deployed <sha>`). On any failure stop and report; never fix it in his tab.
+  Without his go-ahead, or outside Herdr, hand him `cd ~/Developer/FFL && scripts/land.sh <branch>`.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
 - `journal/results/` is written by `journal sync` / the UI's Refresh and is committed like the rest of `journal/`.
 - UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`
