@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDownToLine, BriefcaseMedical, Lock } from "lucide-react";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import type { Card } from "@/lib/api";
@@ -176,6 +176,20 @@ export function SwapSheet({ subject, move, onClose, blocked, onFix }: {
   const [shown, setShown] = useState<SheetSubject | null>(null);
   if (subject && shown !== subject) setShown(subject);
   const open = subject != null;
+  // Opened by a tap or a click, focus goes to the panel, not the first option: iOS Safari rings a focused button even
+  // after a touch, so the best option opened framed as if picked. A keyboard still lands on that option. The sheet is
+  // opened from RosterLive's state, not a Base UI trigger, so Base UI cannot tell how (its type comes through empty):
+  // the last input on the page says.
+  const panel = useRef<HTMLDivElement>(null);
+  const byKey = useRef(false);
+  useEffect(() => {
+    const pointer = () => { byKey.current = false; };
+    const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") byKey.current = true; };
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("keydown", key, true);
+    return () => { document.removeEventListener("pointerdown", pointer, true); document.removeEventListener("keydown", key, true); };
+  }, []);
+  const initialFocus = () => (byKey.current ? true : panel.current);
   const onOpenChange = (o: boolean) => { if (!o) onClose(); };
   const body = shown && (
     <Body key={shown.kind === "card" ? `p${shown.card.player_id}` : `s${shown.slot}`} subject={shown} move={move}
@@ -184,7 +198,7 @@ export function SwapSheet({ subject, move, onClose, blocked, onFix }: {
   if (desk) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex max-h-[calc(100dvh-4rem)] flex-col gap-3 rounded-lg p-4 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-md">
+        <DialogContent ref={panel} initialFocus={initialFocus} className="flex max-h-[calc(100dvh-4rem)] flex-col gap-3 rounded-lg p-4 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-md">
           {body}
         </DialogContent>
       </Dialog>
@@ -193,7 +207,7 @@ export function SwapSheet({ subject, move, onClose, blocked, onFix }: {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       {/* PHONE_INSET: the layout sets no viewport-fit=cover, so the inset alone reads 0 in the in-app browser */}
-      <SheetContent side="bottom" className={`max-h-[85dvh] gap-3 rounded-t-xl px-4 pt-4 ${PHONE_INSET}`}>
+      <SheetContent ref={panel} initialFocus={initialFocus} side="bottom" className={`max-h-[85dvh] gap-3 rounded-t-xl px-4 pt-4 ${PHONE_INSET}`}>
         {body}
       </SheetContent>
     </Sheet>
