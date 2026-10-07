@@ -50,3 +50,28 @@ export function movesFor(picked: Card, t: Target): { player_id: number; to_slot:
   if (t.kind === "slot") return [{ player_id: picked.player_id, to_slot: t.slot }];
   return [{ player_id: picked.player_id, to_slot: t.with.slot }, { player_id: t.with.player_id, to_slot: picked.slot }];
 }
+
+// A target's change to the starting lineup's projection: "+2.0", "−1.0" (a true minus), "±0" for no change.
+export function gainText(n: number): string {
+  const r = Math.round(n * 10) / 10;
+  if (r === 0) return "±0";
+  return r > 0 ? `+${r.toFixed(1)}` : `−${Math.abs(r).toFixed(1)}`;
+}
+
+// A refused POST /lineup, as the row says it. `moved`: ESPN took the move but the read-back failed, so the
+// page is behind, not wrong; `reload` offers the button that fetches the page again.
+export type LineupFailure = { text: string; reload: boolean; moved: boolean };
+
+export function lineupFailure(status: number | null, body: unknown, message: string): LineupFailure {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  const o = detail && typeof detail === "object" && !Array.isArray(detail)
+    ? (detail as { errors?: unknown; error?: unknown; moved?: unknown }) : null;
+  if (o?.moved === true) return { text: "Moved in ESPN — reload to see it", reload: true, moved: true };
+  if (o && Array.isArray(o.errors) && o.errors.length) return { text: o.errors.map(String).join("; "), reload: false, moved: false };
+  if (o && typeof o.error === "string" && o.error) {
+    const text = status === 502 ? `ESPN: ${o.error}` : o.error;
+    return { text, reload: status === 409 && /week changed/i.test(o.error), moved: false };
+  }
+  if (typeof detail === "string" && detail) return { text: detail, reload: false, moved: false };
+  return { text: `Not moved: ${message}`, reload: false, moved: false };
+}

@@ -25,12 +25,8 @@ export default async function Page() {
         <StaleBadge since={data.stale_since} />
         <div className="ml-auto"><OutlookButton running={run.running} /></div>
       </div>
-      {/* The definition is a laptop read; on the phone the first screen belongs to the cards. */}
       <p className="max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
-        <span className="hidden md:inline">
-          Call = optimal lineup by projection (STRATEGY.md, Lineup); close call under 2 points or a
-          source spread of 3+. Outlooks are bullets written by Claude from the card&apos;s facts and recent news; each links its sources.
-        </span>
+        Lineup as ESPN has it · chips are the call (STRATEGY.md, Lineup) · tap a name for form and log.
         {/* A run that died leaves the old counts standing, so report the failure instead of them. */}
         {run.error
           ? ` Last run failed: ${run.error}.`

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, isMismatch, movesFor, slotLabel, targets } from "./lineup";
+import { accepts, gainText, isMismatch, lineupFailure, movesFor, slotLabel, targets } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
@@ -62,4 +62,27 @@ describe("movesFor", () => {
     { player_id: 4, to_slot: "RB/WR/TE" }, { player_id: 2, to_slot: "BE" }]));
   it("to the bench", () => expect(movesFor(rb, { kind: "bench", gain: -12 })).toEqual([{ player_id: 3, to_slot: "BE" }]));
   it("into an empty slot", () => expect(movesFor(benchRb, { kind: "slot", slot: "RB", gain: 11 })).toEqual([{ player_id: 4, to_slot: "RB" }]));
+});
+
+describe("gainText", () => {
+  it("signs a gain, a true minus for a loss", () => { expect(gainText(2)).toBe("+2.0"); expect(gainText(-1)).toBe("−1.0"); });
+  it("zero and minus zero are ±0", () => { expect(gainText(0)).toBe("±0"); expect(gainText(-0)).toBe("±0"); expect(gainText(-0.04)).toBe("±0"); });
+});
+
+describe("lineupFailure", () => {
+  it("refused moves join their reasons", () =>
+    expect(lineupFailure(409, { detail: { errors: ["A is locked", "B can't play FLEX"] } }, "x"))
+      .toEqual({ text: "A is locked; B can't play FLEX", reload: false, moved: false }));
+  it("a week change offers a reload", () =>
+    expect(lineupFailure(409, { detail: { error: "ESPN's week changed — reload" } }, "x"))
+      .toEqual({ text: "ESPN's week changed — reload", reload: true, moved: false }));
+  it("a move already running says so", () =>
+    expect(lineupFailure(409, { detail: "a lineup move is already running" }, "x").text).toBe("a lineup move is already running"));
+  it("a move ESPN took but could not read back is never a failure", () =>
+    expect(lineupFailure(502, { detail: { source: "espn", error: "moved in ESPN — the read-back failed, reload", moved: true } }, "x"))
+      .toEqual({ text: "Moved in ESPN — reload to see it", reload: true, moved: true }));
+  it("an ESPN error names ESPN", () =>
+    expect(lineupFailure(502, { detail: { source: "espn", error: "ESPN login expired, refresh .env" } }, "x").text)
+      .toBe("ESPN: ESPN login expired, refresh .env"));
+  it("anything else the message", () => expect(lineupFailure(null, null, "timed out").text).toBe("Not moved: timed out"));
 });

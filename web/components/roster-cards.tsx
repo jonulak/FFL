@@ -1,15 +1,20 @@
+"use client";
+
+import { ArrowLeftRight, ChevronDown, LoaderCircle, Lock } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Card as UiCard, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import type { Card } from "@/lib/api";
-import { injuryLabel, injuryTone, pts } from "@/lib/format";
-import { team } from "@/lib/teams";
-import { FormStrip } from "./form-strip";
+import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
+import { gainText, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure, type Target } from "@/lib/lineup";
+import { NAME_LINK } from "@/lib/player-log";
+import { headshotUrl, team } from "@/lib/teams";
 import { Kickoff } from "./local-time";
 import { Outlook } from "./outlook";
-import { NAME_LINK } from "@/lib/player-log";
 import { PlayerTrigger } from "./player-dialog";
-import { TeamLogo, TeamPanel } from "./player-media";
+import { TeamLogo } from "./player-media";
 import { StatLine } from "./stat-line";
 
 const CALL = { START: "start", BENCH: "muted", OUT: "out", BYE: "muted", IR: "out" } as const;
@@ -20,6 +25,29 @@ const GROUPS: { key: Card["group"]; title: string }[] = [
   { key: "starter", title: "Starters" }, { key: "bench", title: "Bench" }, { key: "ir", title: "IR" },
 ];
 
+// The swap control's state, owned by RosterLive: who is picked, where he can go, what is in flight.
+export type SwapControl = {
+  picked: Card | null;
+  targets: Target[];
+  pending: number[];
+  error: ({ id: number } & LineupFailure) | null;
+  pick: (c: Card) => void;
+  move: (t: Target) => void;
+  reload: () => void;
+};
+
+// One grid for every row. Phone and tablet (< md): two lines, the name and the number over the matchup and the
+// chips, with the swap and the chevron standing at the right across both at 44px. Laptop (md+): one line, the
+// matchup and chips in fixed columns so they line up row to row. `meta` holds the matchup and the chips together
+// on the two-line layout and dissolves (display: contents) into their own columns on one line.
+const GRID =
+  "grid items-center gap-x-2 px-2 py-2 " +
+  "grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_auto_2.75rem_2.75rem] " +
+  "[grid-template-areas:'slot_shot_name_num_swap_chev'_'slot_shot_meta_meta_meta_meta'_'act_act_act_act_act_act'] " +
+  "md:gap-x-3 md:py-2.5 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_9.5rem_3.75rem_9rem_2.25rem_2.25rem] " +
+  "lg:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_12rem_4rem_11rem_2.25rem_2.25rem] " +
+  "md:[grid-template-areas:'slot_shot_name_match_num_chips_swap_chev'_'act_act_act_act_act_act_act_act']";
+
 // "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare.
 function Matchup({ c }: { c: Card }) {
   if (!c.opponent) {
@@ -28,7 +56,7 @@ function Matchup({ c }: { c: Card }) {
   return (
     <span className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
       {c.home !== null && <span className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/80">{c.home ? "vs" : "at"}</span>}
-      <TeamLogo abbr={c.opponent} size={20} />
+      <TeamLogo abbr={c.opponent} size={18} />
       <span className="font-medium text-foreground/85">{c.opponent}</span>
       <span aria-hidden>·</span>
       <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} />
@@ -36,139 +64,245 @@ function Matchup({ c }: { c: Card }) {
   );
 }
 
-// The number that decides the call. Once the game is on, the score he has posted takes the big
-// slot and the projection steps beside it.
-function Numbers({ c }: { c: Card }) {
-  const live = c.game_played > 0 || c.actual > 0;
-  const big = live ? c.actual : c.proj;
-  const zero = !live && c.proj === 0;
-  return (
-    <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-      <div className="flex items-baseline gap-1.5">
-        <span className={`font-display text-[2.6rem] font-bold leading-none tracking-tight ${zero ? "text-muted-foreground" : ""}`}>
-          {pts(big)}
-        </span>
-        <span className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          {live ? "pts" : "proj"}
-        </span>
-      </div>
-      <div className="pb-1 text-xs tabular-nums text-muted-foreground">
-        {live && <span className="mr-2">proj {pts(c.proj)}</span>}
-        {c.espn_only
-          ? <span>ESPN only</span>
-          : <span>ESPN {pts(c.proj_espn)} <span aria-hidden>·</span> Sleeper {pts(c.proj_sleeper)}</span>}
-        {c.spread != null && c.spread >= 3 && (
-          <span className="ml-2 font-medium text-close-foreground dark:text-close">±{pts(c.spread)}</span>
-        )}
-      </div>
-      <Ros c={c} />
-    </div>
-  );
-}
-
-// The two ROS sources disagreeing by this much over the rest of the season is worth a look — the
-// weekly 3-point rule scaled to the weeks left, as on the Waivers page.
-const ROS_CLOSE = 20;
-
-// Rest of season under the week's numbers: the mean, with the sources on hover and the gap between
-// them when both have him. Both sources are revised in season; the frozen draft-day total is not shown.
-function Ros({ c }: { c: Card }) {
-  if (c.ros_proj == null) return null;
-  const parts = [];
-  if (c.ros_sleeper != null) parts.push(`Sleeper (Rotowire) weeks left ${pts(c.ros_sleeper)}`);
-  if (c.ros_cbs != null) parts.push(`CBS rest of season ${pts(c.ros_cbs)}`);
-  const title = parts.length ? parts.join(" · ") : "no rest-of-season source has him: season projection scaled by the weeks left";
-  return (
-    <div className="basis-full text-xs tabular-nums text-muted-foreground" title={title}>
-      <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em]">ROS</span>{" "}
-      <span className="font-medium text-foreground/70">{pts(c.ros_proj)}</span>
-      {c.ros_spread != null && (
-        <span className={`ml-2 ${c.ros_spread >= ROS_CLOSE ? "font-medium text-close-foreground dark:text-close" : ""}`}>±{pts(c.ros_spread)}</span>
-      )}
-      {!parts.length && <span className="ml-2">season</span>}
-    </div>
-  );
-}
-
-// The rule that fired, on one line at laptop widths. season.roster_cards appends
-// " — his status is your call" for QUESTIONABLE/DOUBTFUL; that note gets its own small line so
-// the call and the gap never wrap. On the phone the column is too narrow to keep the alternative
-// on one line, so it wraps there rather than hide who he is being compared to.
+// The rule that fired. season.roster_cards appends " — his status is your call" for QUESTIONABLE/DOUBTFUL;
+// that note gets its own small line.
 function Reason({ text }: { text: string }) {
   const [main, note] = text.split(" — ", 2);
   return (
-    <div className="mt-2">
-      <p className="text-[0.9375rem] font-medium leading-snug md:truncate" title={main}>{main}</p>
+    <div>
+      <p className="text-[0.9375rem] font-medium leading-snug text-pretty">{main}</p>
       {note && <p className="mt-0.5 text-xs text-muted-foreground">{note}</p>}
     </div>
   );
 }
 
-// shadcn Card, laid out as a broadcast lineup panel: the team-colour media column spans every
-// row on the left, header / content / footer stack on the right.
-function PlayerCard({ c, week, runBusy }: { c: Card; week: number; runBusy: boolean }) {
-  const t = team(c.team);
-  const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR";
-  // An IR or OUT call is the injury status restated; the tag alone carries it, with the return week.
-  const hurt = !HEALTHY.has(c.injury);
-  const showCall = !(hurt && (c.call === "IR" || c.call === "OUT"));
+// The projection's sources under the reason: what the row's number is the mean of, and how far apart they are.
+function Sources({ c, live }: { c: Card; live: boolean }) {
   return (
-    <UiCard
-      className="grid grid-cols-[5.25rem_minmax(0,1fr)] grid-rows-[auto_auto_1fr] gap-0 rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] sm:grid-cols-[6.25rem_minmax(0,1fr)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]"
-      aria-label={`${c.name}, ${c.call}`}
-    >
-      <PlayerTrigger p={c} className="row-span-3 block h-full overflow-hidden rounded-l-lg"><TeamPanel abbr={c.team} playerId={c.player_id} name={c.name} muted={idle} /></PlayerTrigger>
-      <CardHeader className="flex flex-row items-start justify-between gap-2 pt-2.5 sm:pt-3">
-        <div className="min-w-0">
-          <CardTitle className={`line-clamp-2 text-balance font-display text-[1.65rem] font-semibold leading-none tracking-tight ${idle ? "text-foreground/70" : ""}`}>
-            <PlayerTrigger p={c} className={`rounded-sm ${NAME_LINK}`}>{c.name}</PlayerTrigger>
-          </CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground/80">{c.pos}</span>
-            <span aria-hidden> · </span>
-            {t.name || c.team}
-          </p>
-        </div>
-        <div className="flex max-w-[11.5rem] shrink-0 flex-wrap justify-end gap-1">
-          {showCall && <Badge variant={CALL[c.call]} shape="chip">{c.call}</Badge>}
-          {c.close_call && <Badge variant="close" shape="chip">close call</Badge>}
-          {hurt && (
-            <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" title={c.injury_note ?? undefined}>
-              {injuryLabel(c.injury.replaceAll("_", " "), c.return_week, week)}
-            </Badge>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-2">
-        <Matchup c={c} />
-        {c.stat_line && <StatLine text={c.stat_line} className="mt-1" />}
-        <div className="mt-3"><Numbers c={c} /></div>
-        <Reason text={c.reason} />
-        <FormStrip form={c.form} className="mt-2" />
-      </CardContent>
-      <CardFooter className="flex flex-col items-stretch rounded-none border-t border-foreground/10 bg-transparent pt-2 pb-3 sm:pb-3.5">
-        <Outlook c={c} runBusy={runBusy} />
-      </CardFooter>
-    </UiCard>
+    <p className="text-xs tabular-nums text-muted-foreground">
+      {live && <span className="mr-2">proj {pts(c.proj)}</span>}
+      {c.espn_only
+        ? <span>ESPN only</span>
+        : <span>ESPN {pts(c.proj_espn)} <span aria-hidden>·</span> Sleeper {pts(c.proj_sleeper)}</span>}
+      {c.spread != null && c.spread >= 3 && (
+        <span className="ml-2 font-medium text-close-foreground dark:text-close">±{pts(c.spread)}</span>
+      )}
+    </p>
   );
 }
 
-export function RosterCards({ cards, week, runBusy }: { cards: Card[]; week: number; runBusy: boolean }) {
+// His portrait on a quiet tile, the club's colour as its left edge; a defence or a missing portrait shows the mark.
+function Headshot({ c, idle }: { c: Card; idle: boolean }) {
+  const src = headshotUrl(c.player_id);
+  return (
+    <Avatar
+      className={`size-10 overflow-hidden rounded-md border-l-[3px] bg-foreground/[0.07] after:rounded-md ${idle ? "opacity-70 saturate-[.35]" : ""}`}
+      style={{ borderLeftColor: team(c.team).primary }}
+    >
+      {src && <AvatarImage src={src} alt="" className="rounded-none object-cover object-top" />}
+      <AvatarFallback className="rounded-none bg-transparent"><TeamLogo abbr={c.team} size={26} /></AvatarFallback>
+    </Avatar>
+  );
+}
+
+function Chips({ c, week }: { c: Card; week: number }) {
+  // An IR or OUT call is the injury status restated; the tag alone carries it, with the return week.
+  const hurt = !HEALTHY.has(c.injury);
+  const showCall = !(hurt && (c.call === "IR" || c.call === "OUT"));
+  // ESPN has him where the call would not: the accent ring, on whichever chip carries the call.
+  const off = isMismatch(c);
+  const ring = off ? "ring-2 ring-close/70" : "";
+  const differs = off ? <span className="sr-only">, differs from ESPN</span> : null;
+  return (
+    <>
+      {showCall && <Badge variant={CALL[c.call]} shape="chip" className={ring}>{c.call}{differs}</Badge>}
+      {c.close_call && <Badge variant="close" shape="chip">close call</Badge>}
+      {hurt && (
+        <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" className={showCall ? "" : ring} title={c.injury_note ?? undefined}>
+          {injuryLabel(c.injury.replaceAll("_", " "), c.return_week, week)}
+          {!showCall && differs}
+        </Badge>
+      )}
+    </>
+  );
+}
+
+// The tap that finishes a move: the change to the starting lineup's projection, then the button.
+function MoveAction({ label, aria, gain, busy, onClick }: { label: string; aria: string; gain: number; busy: boolean; onClick: () => void }) {
+  return (
+    <div className="flex items-center justify-end gap-2 pt-1.5 [grid-area:act]">
+      <span className={`font-display text-base font-semibold tabular-nums ${gain > 0 ? "text-foreground" : "text-muted-foreground"}`}>
+        {gainText(gain)}
+        <span className="sr-only"> projected points</span>
+      </span>
+      <Button variant="outline" size="sm" className="h-9 md:h-7" aria-label={aria} disabled={busy} onClick={onClick}>{label}</Button>
+    </div>
+  );
+}
+
+function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
+  return (
+    <div role={f.moved ? "status" : "alert"} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:act]">
+      <p className={f.moved ? "text-foreground/85" : "text-out"}>{f.text}</p>
+      {f.reload && <Button variant="outline" size="sm" className="h-9 md:h-7" onClick={reload}>Reload</Button>}
+    </div>
+  );
+}
+
+function PlayerRow({ c, week, runBusy, open, onOpen, swap }: {
+  c: Card; week: number; runBusy: boolean; open: boolean; onOpen: (open: boolean) => void; swap: SwapControl;
+}) {
+  const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR";
+  const live = c.game_played > 0 || c.actual > 0;
+  const big = live ? c.actual : c.proj;
+  const picked = swap.picked?.player_id === c.player_id;
+  const busy = swap.pending.includes(c.player_id);
+  const anyBusy = swap.pending.length > 0;
+  const target = swap.targets.find((t) => t.kind === "swap" && t.with.player_id === c.player_id);
+  const bench = picked ? swap.targets.find((t) => t.kind === "bench") : undefined;
+  const dim = swap.picked != null && !picked && !target;
+  const error = swap.error?.id === c.player_id ? swap.error : null;
+  const ir = c.slot === "IR" || c.group === "ir";
+  const slot = slotLabel(c.slot);
+  return (
+    <li data-roster-row aria-busy={busy || undefined}
+      className={`transition-opacity duration-200 ${dim ? "opacity-50" : ""} ${picked ? "bg-foreground/[0.045]" : ""}`}>
+      <Collapsible open={open} onOpenChange={onOpen}>
+        <div className={GRID}>
+          <span className={`font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] [grid-area:slot] ${c.slot === "BE" || ir ? "text-muted-foreground" : "text-foreground/85"}`}>
+            {slot}
+          </span>
+          <div className="[grid-area:shot]"><Headshot c={c} idle={idle} /></div>
+          <div className="min-w-0 [grid-area:name]">
+            <p className={`truncate font-display text-[1.0625rem] font-semibold leading-tight tracking-tight md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
+              <PlayerTrigger p={c} className={`rounded-sm ${NAME_LINK}`}>
+                <span className="md:hidden">{shortName(c.name)}</span>
+                <span className="max-md:hidden">{c.name}</span>
+              </PlayerTrigger>
+            </p>
+            <p className="truncate text-xs text-muted-foreground max-md:hidden">
+              <span className="font-semibold text-foreground/80">{c.pos}</span>
+              <span aria-hidden> · </span>
+              {team(c.team).name || c.team}
+            </p>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 [grid-area:meta] md:contents">
+            <span className="text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>
+            <div className="min-w-0 md:[grid-area:match]"><Matchup c={c} /></div>
+            <div className="flex flex-wrap gap-1 md:[grid-area:chips]"><Chips c={c} week={week} /></div>
+          </div>
+          <div className="text-right [grid-area:num]" title={live ? `${pts(c.actual)} points scored · projected ${pts(c.proj)}` : "projected points"}>
+            <span className={`block font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
+              {pts(big)}
+            </span>
+            <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground max-md:sr-only">
+              {live ? "pts" : "proj"}
+            </span>
+          </div>
+          <div className="flex justify-center [grid-area:swap]">
+            {!ir && (
+              <Button
+                variant="ghost" size="icon"
+                className="-my-2.5 size-11 aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/85 md:my-0 md:size-9"
+                aria-pressed={picked}
+                aria-label={c.locked ? `${c.name}: his game has started` : picked ? `Cancel moving ${c.name}` : `Move ${c.name}`}
+                title={c.locked ? "his game has started" : undefined}
+                disabled={c.locked || anyBusy}
+                onClick={() => swap.pick(c)}
+              >
+                {busy
+                  ? <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" />
+                  : c.locked ? <Lock aria-hidden /> : <ArrowLeftRight aria-hidden />}
+              </Button>
+            )}
+          </div>
+          <div className="flex justify-center [grid-area:chev]">
+            <CollapsibleTrigger
+              render={<Button variant="ghost" size="icon" className="group/chev -my-2.5 size-11 md:my-0 md:size-9" />}
+              aria-label={`${open ? "Hide" : "Show"} ${c.name}'s reason and outlook`}
+            >
+              <ChevronDown aria-hidden className="transition-transform duration-300 ease-(--ease-arrive) group-data-[panel-open]/chev:rotate-180" />
+            </CollapsibleTrigger>
+          </div>
+          {target && swap.picked && (
+            <MoveAction label="Move here" gain={target.gain} busy={anyBusy} onClick={() => swap.move(target)}
+              aria={`Swap ${swap.picked.name} with ${c.name}, ${slot}`} />
+          )}
+          {bench && <MoveAction label="To bench" gain={bench.gain} busy={anyBusy} onClick={() => swap.move(bench)} aria={`Move ${c.name} to the bench`} />}
+          {error && <Failure f={error} reload={swap.reload} />}
+        </div>
+        <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-300 ease-(--ease-arrive) data-[ending-style]:h-0 data-[starting-style]:h-0">
+          <div className="space-y-2 px-2 pb-3 md:pl-[7.75rem] md:pr-[5.75rem]">
+            <Reason text={c.reason} />
+            <Sources c={c} live={live} />
+            {c.stat_line && <StatLine text={c.stat_line} />}
+            <div className="border-t border-foreground/10 pt-2"><Outlook c={c} runBusy={runBusy} /></div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </li>
+  );
+}
+
+// A starting slot ESPN has nobody in. It is somewhere to move a player, nothing else.
+function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
+  const target = swap.targets.find((t) => t.kind === "slot" && t.slot === slot);
+  const dim = swap.picked != null && !target;
+  return (
+    <li data-roster-row className={`transition-opacity duration-200 ${dim ? "opacity-50" : ""}`}>
+      <div className={GRID}>
+        <span className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/85 [grid-area:slot]">{slotLabel(slot)}</span>
+        <div aria-hidden className="size-10 rounded-md border border-dashed border-foreground/25 [grid-area:shot]" />
+        <p className="font-display text-[1.0625rem] font-semibold leading-tight tracking-tight text-muted-foreground [grid-area:name] md:text-[1.1875rem]">
+          Empty<span className="sr-only"> {slotLabel(slot)} slot</span>
+        </p>
+        {target && swap.picked && (
+          <MoveAction label="Move here" gain={target.gain} busy={swap.pending.length > 0} onClick={() => swap.move(target)}
+            aria={`Move ${swap.picked.name} to ${slotLabel(slot)}`} />
+        )}
+      </div>
+    </li>
+  );
+}
+
+type Item = { kind: "card"; c: Card } | { kind: "empty"; slot: string; key: string };
+const order = (slot: string) => { const i = SLOT_ORDER.indexOf(slot); return i < 0 ? SLOT_ORDER.length : i; };
+
+// Starters in ESPN's lineup order with its empty slots in place; the bench and IR as the API sends them.
+function items(cards: Card[], group: Card["group"], empty: string[]): Item[] {
+  const rows: Item[] = cards.filter((c) => c.group === group).map((c) => ({ kind: "card", c }));
+  if (group !== "starter") return rows;
+  rows.push(...empty.map((slot, i): Item => ({ kind: "empty", slot, key: `${slot}-${i}` })));
+  const slotOf = (r: Item) => (r.kind === "card" ? r.c.slot : r.slot);
+  return rows.map((r, i) => [r, i] as const).sort(([a, i], [b, j]) => order(slotOf(a)) - order(slotOf(b)) || i - j).map(([r]) => r);
+}
+
+export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, notice }: {
+  cards: Card[]; empty: string[]; week: number; runBusy: boolean;
+  open: number | null; setOpen: (id: number | null) => void; swap: SwapControl; notice: string | null;
+}) {
   return (
     <div className="space-y-7">
+      <p aria-live="polite" className="text-xs text-muted-foreground empty:hidden">{notice}</p>
       {GROUPS.map(({ key, title }) => {
-        const rows = cards.filter((c) => c.group === key);
+        const rows = items(cards, key, empty);
         if (rows.length === 0) return null;
+        const filled = rows.filter((r) => r.kind === "card").length;
         return (
           <section key={key} className="space-y-3" aria-labelledby={`group-${key}`}>
             <h2 id={`group-${key}`} className="flex items-baseline gap-3">
               <span className="font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</span>
-              <span className="font-display text-sm font-medium tabular-nums text-muted-foreground">{rows.length}</span>
+              <span className="font-display text-sm font-medium tabular-nums text-muted-foreground">
+                {filled === rows.length ? filled : `${filled} of ${rows.length}`}
+              </span>
               <Separator className="mb-1.5 flex-1 self-end bg-foreground/12" />
             </h2>
-            <div className="grid gap-3 md:grid-cols-2">
-              {rows.map((c) => <PlayerCard key={c.player_id} c={c} week={week} runBusy={runBusy} />)}
-            </div>
+            <ul className="divide-y divide-foreground/10 overflow-hidden rounded-lg bg-card shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)]">
+              {rows.map((r) => r.kind === "card"
+                ? <PlayerRow key={r.c.player_id} c={r.c} week={week} runBusy={runBusy} swap={swap}
+                    open={open === r.c.player_id} onOpen={(o) => setOpen(o ? r.c.player_id : null)} />
+                : <EmptyRow key={r.key} slot={r.slot} swap={swap} />)}
+            </ul>
           </section>
         );
       })}

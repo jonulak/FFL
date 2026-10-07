@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { clientGet } from "@/app/api-client";
 
 // A page's data kept live: the server render hands us `initial`; while the API says games are
@@ -20,7 +20,7 @@ const resume = <T,>(initial: T, path: string): T => {
   return hit && hit.initial === initial ? (hit.data as T) : initial;
 };
 
-export function useLive<T extends { live: boolean }>(initial: T, path: string): { data: T; now: number } {
+export function useLive<T extends { live: boolean }>(initial: T, path: string): { data: T; now: number; replace: (d: T) => void } {
   const [data, setData] = useState(() => resume(initial, path));
   const [seen, setSeen] = useState(initial);
   if (seen !== initial) {
@@ -71,5 +71,13 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
     };
   }, [live, path]);
 
-  return { data, now };
+  // A fresher payload the page got some other way (a POST that answers with it) becomes the data, and the
+  // one a back/forward navigation resumes from.
+  const replace = useCallback((d: T) => {
+    latest.set(path, { initial: from.current, data: d });
+    setData(d);
+    setNow(Date.now());
+  }, [path]);
+
+  return { data, now, replace };
 }

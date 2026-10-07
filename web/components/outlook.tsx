@@ -1,20 +1,12 @@
 "use client";
 
-import { ChevronDown, LoaderCircle, RotateCw } from "lucide-react";
+import { LoaderCircle, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import type { Card, CardOutlook, OutlookBullet } from "@/lib/api";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Ago } from "./local-time";
 
-// The bullets under a card. On a laptop it is simply there; on a phone the decision has to fit
-// one screen, so it opens on a tap. The bullets are rendered twice on purpose: a plain block for
-// md+ and the Collapsible for the phone. base-ui hides a closed panel with the `hidden`
-// attribute, which the Tailwind preflight enforces with !important, so one panel cannot be
-// "closed on the phone, open on a laptop" from CSS alone, and deciding it in JS would flash.
-// The open/close is the page's one authored motion: base-ui's panel height under an
-// exponential ease-out, no fade stacked on top.
 // One block per label: the label as a small heading over its text, so the sentence gets the card's full
 // width, and the sources trailing it as small dotted links that open in a new tab. Each link keeps its
 // site and date together; the list itself wraps, or a long one runs past the card's clipped edge.
@@ -118,8 +110,9 @@ function RewriteButton({ c, running, runBusy, onClick }: { c: Card; running: boo
   );
 }
 
+// A Roster row's outlook. It sits in the row's detail, which is already opened on a tap, so it is shown
+// whole at every width rather than folded again on the phone.
 export function Outlook({ c, runBusy }: { c: Card; runBusy: boolean }) {
-  const [open, setOpen] = useState(false);
   const { running, fault, rewrite } = useRewrite(c);
   const { outlook: bullets, outlook_at: at, outlook_stale: stale, outlook_error: error } = c;
   const button = <RewriteButton c={c} running={running} runBusy={runBusy} onClick={rewrite} />;
@@ -148,26 +141,12 @@ export function Outlook({ c, runBusy }: { c: Card; runBusy: boolean }) {
   // the old bullets stay readable while the new ones are written, set back a step
   const fade = `transition-opacity duration-300 ${running ? "opacity-55" : ""}`;
   return (
-    <div aria-busy={running} aria-live="polite" className="md:h-full">
-      <div className="hidden md:flex md:h-full md:flex-col">
-        <div className={fade}><Bullets bullets={bullets} /></div>
-        <div className="mt-auto flex items-center justify-between gap-3 pt-1.5">
-          <p className="min-w-0 text-xs text-muted-foreground">{stamp}</p>
-          {button}
-        </div>
+    <div aria-busy={running} aria-live="polite">
+      <div className={fade}><Bullets bullets={bullets} /></div>
+      <div className="flex items-center justify-between gap-3 pt-1.5">
+        <p className="min-w-0 text-xs text-muted-foreground">{stamp}</p>
+        {button}
       </div>
-      <Collapsible open={open} onOpenChange={setOpen} className="md:hidden">
-        <div className="flex items-center gap-2">
-          <CollapsibleTrigger className="group/outlook -my-1 flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left text-xs text-muted-foreground">
-            <ChevronDown className="size-3.5 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-data-[panel-open]/outlook:rotate-180" />
-            <span>{stamp}</span>
-          </CollapsibleTrigger>
-          {button}
-        </div>
-        <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] data-[ending-style]:h-0 data-[starting-style]:h-0">
-          <div className={`pt-2 ${fade}`}><Bullets bullets={bullets} /></div>
-        </CollapsibleContent>
-      </Collapsible>
     </div>
   );
 }
