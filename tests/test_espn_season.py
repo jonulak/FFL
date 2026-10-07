@@ -206,7 +206,7 @@ def test_roster_state_builds_cards_for_my_side_only(monkeypatch):
     assert all("call" in c and "reason" in c for c in st["cards"])
 
 
-def test_roster_state_carries_locks_empty_slots_and_the_writes_flag(monkeypatch):
+def test_roster_state_carries_locks_empty_slots_and_the_writes_flag(monkeypatch, caplog):
     matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
                               home_lineup=[as_box(p) for p in season_roster() if p["name"] != "K"],
                               away_team=SimpleNamespace(team_id=2, team_name="Them"), away_lineup=[])
@@ -224,6 +224,7 @@ def test_roster_state_carries_locks_empty_slots_and_the_writes_flag(monkeypatch)
     monkeypatch.setattr(espn_season, "roster_flags", lambda lg: 1 / 0)
     st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
     assert not any(c["locked"] for c in st["cards"]), "a failed flags read shows every row unlocked"
+    assert "roster_flags read failed" in caplog.text, "and says so in the log"
 
 
 class FakeLeagueFactory:

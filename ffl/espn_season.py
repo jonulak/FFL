@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -1117,7 +1118,8 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
     fake = espn_write.fake_slots()
     try:
         flags = roster_flags(lg)
-    except Exception:  # noqa: BLE001 — a failed read shows every row unlocked; POST /lineup re-reads before writing
+    except Exception as e:  # noqa: BLE001 — a failed read shows every row unlocked; POST /lineup re-reads before writing
+        logging.getLogger(__name__).warning("roster_flags read failed; every row shows unlocked: %s", e)
         flags = {}
     players = [{**p, "slot": fake.get(p["player_id"], p["slot"]), "locked": flags.get(p["player_id"], {}).get("locked", False)}
                for p in players]
