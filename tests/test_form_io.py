@@ -136,7 +136,11 @@ def test_free_agent_pool_fetches_the_form_weeks_and_reads_their_stats(monkeypatc
     assert row["form"]["l3"] == round((11 + 12) / 2, 1)
 
 
-def test_roster_state_reads_earlier_weeks_off_the_team_roster(monkeypatch):
+def _week_only(bp, w):
+    return SimpleNamespace(playerId=bp.playerId, position=bp.position, game_played=100, stats={w: bp.stats[w]})
+
+
+def test_roster_state_reads_earlier_weeks_off_those_weeks_box_scores(monkeypatch):
     calls = {"box": 0, "fa": []}
     lg = _stub_league(_matchup(), calls)
     lg.current_week = 3
@@ -144,7 +148,10 @@ def test_roster_state_reads_earlier_weeks_off_the_team_roster(monkeypatch):
     hist = SimpleNamespace(playerId=mine["player_id"], position="RB", stats={
         1: week_stats(15.0, 14.0, rushingAttempts=18, receivingTargets=3, receivingYards=20),
         2: week_stats(22.0, 14.5, rushingAttempts=20, receivingTargets=5, receivingYards=40)})
-    lg.teams = [SimpleNamespace(team_id=7, roster=[hist]), SimpleNamespace(team_id=2, roster=[])]
+    hist.game_played = 100
+    now_boxes = espn_season._boxes_by_team
+    monkeypatch.setattr(espn_season, "_boxes_by_team",
+                        lambda lg, w: now_boxes(lg, w) if w == 3 else {7: [_week_only(hist, w)]})
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
@@ -192,18 +199,20 @@ def test_apply_exp_sets_years_where_sleeper_has_him_and_leaves_none_otherwise():
     assert out[0]["exp"] == 6 and out[1]["exp"] is None
 
 
-def test_roster_games_read_every_clubs_players_off_the_league_rosters():
-    """The replacement line runs on the whole league's adjusted ROS, so every rostered player
-    needs his earlier weeks, not only mine."""
-    hist = SimpleNamespace(playerId=4, position="RB", stats={1: week_stats(15.0, 14.0, rushingAttempts=18)})
-    theirs = SimpleNamespace(playerId=1, position="RB", stats={1: week_stats(20.0, 14.0, rushingAttempts=22)})
-    lg = SimpleNamespace(teams=[SimpleNamespace(team_id=7, roster=[hist]), SimpleNamespace(team_id=2, roster=[theirs])])
-    mine_box, their_box = as_box(season_roster()[3]), as_box(season_roster()[0])
-    mine_box.stats = {2: week_stats(9.0, 14.0, rushingAttempts=10)}
-    their_box.stats = {2: week_stats(7.0, 14.0, rushingAttempts=12)}
-    games = espn_season._roster_games(lg, {7: [mine_box], 2: [their_box]}, week=2)
-    assert [g["week"] for g in games[4]] == [1, 2] and [g["week"] for g in games[1]] == [1, 2]
-    assert games[1][0]["pts"] == 20.0, "the other club's history came off its roster"
+def test_roster_games_read_earlier_weeks_off_those_weeks_box_scores(monkeypatch):
+    """lg.teams rosters carry only the current period (ffl-rns, ffl-sba), so earlier weeks come from
+    each week's box scores, for every club's players. A player on no roster that week has no row for it."""
+    def box(pid, w, pts):
+        return SimpleNamespace(playerId=pid, position="RB", game_played=100,
+                               stats={w: week_stats(pts, 14.0, rushingAttempts=12)})
+    past = {1: {7: [box(4, 1, 15.0)], 2: [box(1, 1, 20.0)]},
+            2: {7: [box(4, 2, 11.0)], 2: [box(1, 2, 8.0)]}}
+    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w: past[w])
+    now = {7: [box(4, 3, 9.0), box(5, 3, 6.0)], 2: [box(1, 3, 7.0)]}  # 5 joined a roster this week
+    games = espn_season._roster_games(SimpleNamespace(teams=[]), now, week=3)
+    assert [g["week"] for g in games[4]] == [1, 2, 3]
+    assert [g["week"] for g in games[1]] == [1, 2, 3] and games[1][0]["pts"] == 20.0, "another club's history too"
+    assert [g["week"] for g in games[5]] == [3], "no earlier rows borrowed for a new arrival"
 
 
 def test_free_agent_pool_starts_ros_from_the_next_week_once_this_weeks_games_are_played(monkeypatch):

@@ -1079,15 +1079,18 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sleeper: dic
 
 
 def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]]:
-    """Game rows for every rostered player: this week's off the box score (fresh every minute),
-    the earlier form weeks off the League's team rosters, whose Players carry every week's stats."""
-    weeks = form_weeks(week)
+    """Game rows for every rostered player: this week's off the box score (fresh every minute), the
+    earlier form weeks off those weeks' box scores (one cached call a week). A Player on lg.teams
+    rosters carries only the current scoring period's stats, so it cannot supply them (ffl-rns). A
+    player on no fantasy roster in an earlier week has no row for it."""
     games = {bp.playerId: player_games(bp, [week], week) for lineup in boxes.values() for bp in lineup}
-    for team in getattr(lg, "teams", []) or []:
-        for pl in (getattr(team, "roster", None) or []):
-            if pl.playerId in games:
-                games[pl.playerId] = player_games(pl, weeks[:-1], week) + games[pl.playerId]
-    return games
+    earlier: dict[int, list[dict]] = {pid: [] for pid in games}
+    for w in form_weeks(week)[:-1]:
+        for lineup in _boxes_by_team(lg, w).values():
+            for bp in lineup:
+                if bp.playerId in earlier:
+                    earlier[bp.playerId] += player_games(bp, [w], week)
+    return {pid: earlier[pid] + g for pid, g in games.items()}
 
 
 def roster_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
