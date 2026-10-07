@@ -51,6 +51,29 @@ export function movesFor(picked: Card, t: Target): { player_id: number; to_slot:
   return [{ player_id: picked.player_id, to_slot: t.with.slot }, { player_id: t.with.player_id, to_slot: picked.slot }];
 }
 
+// One row of the swap sheet: a move it can make, or a partner whose game has started (shown, not tappable).
+export type SwapOption = Target | { kind: "locked"; with: Card };
+
+// ESPN's slot order, the bench after it.
+const slotRank = (slot: string) => { const i = SLOT_ORDER.indexOf(slot); return i < 0 ? SLOT_ORDER.length : i; };
+const optionSlot = (o: SwapOption) => (o.kind === "bench" ? "BE" : o.kind === "slot" ? o.slot : o.with.slot);
+const optionName = (o: SwapOption) => (o.kind === "swap" || o.kind === "locked" ? o.with.name : "");
+const bySlotName = (a: SwapOption, b: SwapOption) =>
+  slotRank(optionSlot(a)) - slotRank(optionSlot(b)) || optionName(a).localeCompare(optionName(b));
+
+// The swap sheet's rows: every target, best change to the lineup first (then ESPN's slot order, then name), and
+// after them the partners who would be legal but whose game has started. Nothing for a locked or IR player.
+export function swapOptions(cards: Card[], picked: Card, empty: string[]): SwapOption[] {
+  if (picked.locked || picked.slot === "IR") return [];
+  const open: SwapOption[] = targets(cards, picked, empty).sort((a, b) => b.gain - a.gain || bySlotName(a, b));
+  const byId = new Map(cards.map((c) => [c.player_id, c]));
+  const shut: SwapOption[] = targets(cards.map((c) => (c.locked ? { ...c, locked: false } : c)), picked, [])
+    .flatMap((t) => (t.kind === "swap" && byId.get(t.with.player_id)?.locked
+      ? [{ kind: "locked" as const, with: byId.get(t.with.player_id)! }] : []))
+    .sort(bySlotName);
+  return [...open, ...shut];
+}
+
 // A target's change to the starting lineup's projection: "+2.0", "−1.0" (a true minus), "±0" for no change.
 export function gainText(n: number): string {
   const r = Math.round(n * 10) / 10;

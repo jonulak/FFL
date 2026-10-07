@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import type { Card } from "@/lib/api";
 import { STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
-import { gainText, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure, type Target } from "@/lib/lineup";
+import { isMismatch, SLOT_ORDER, slotLabel, type LineupFailure, type SwapOption, type Target } from "@/lib/lineup";
 import { NAME_LINK } from "@/lib/player-log";
 import { headshotUrl, team } from "@/lib/teams";
 import { Kickoff } from "./local-time";
@@ -29,10 +29,10 @@ const GROUPS: { key: Card["group"]; title: string }[] = [
 // A word on the last move, shown under the row of the player who moved.
 export type Notice = { id: number; text: string };
 
-// The swap control's state, owned by RosterLive: who is picked, where he can go, what is in flight.
+// The swap control's state, owned by RosterLive: who is picked (his sheet is open), where he can go, what is in flight.
 export type SwapControl = {
   picked: Card | null;
-  targets: Target[];
+  options: SwapOption[];
   pending: number[];
   error: ({ id: number } & LineupFailure) | null;
   pick: (c: Card) => void;
@@ -121,7 +121,7 @@ function Sources({ c, live }: { c: Card; live: boolean }) {
 }
 
 // His portrait on a quiet tile, the club's colour as its left edge; a defence or a missing portrait shows the mark.
-function Headshot({ c, idle }: { c: Card; idle: boolean }) {
+export function Headshot({ c, idle }: { c: Card; idle: boolean }) {
   const src = headshotUrl(c.player_id);
   return (
     <Avatar
@@ -142,12 +142,13 @@ const hurtCall = (c: Card) => {
 
 // Phone only: a status beside the call is ESPN's own letter after the name (Q, D), in its colour and without a
 // chip, as the Matchup board sets it; the full status is read out and in the title.
-function InjuryMark({ c }: { c: Card }) {
+// The swap sheet shows it at every width (`always`).
+export function InjuryMark({ c, always = false }: { c: Card; always?: boolean }) {
   const { hurt, showCall } = hurtCall(c);
   if (!hurt || !showCall) return null;
   const status = c.injury.replaceAll("_", " ");
   return (
-    <span title={c.injury_note ?? status} className={`shrink-0 text-[0.9375rem] font-bold md:hidden ${TONE[injuryTone(c.injury)]}`}>
+    <span title={c.injury_note ?? status} className={`shrink-0 text-[0.9375rem] font-bold ${always ? "" : "md:hidden"} ${TONE[injuryTone(c.injury)]}`}>
       <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
       <span className="sr-only">{status.toLowerCase()}</span>
     </span>
@@ -178,20 +179,17 @@ function Chips({ c, week }: { c: Card; week: number }) {
   );
 }
 
-// The tap that finishes a move: the change to the starting lineup's projection, then the button.
-function MoveAction({ label, aria, gain, busy, onClick }: { label: string; aria: string; gain: number; busy: boolean; onClick: () => void }) {
+// The call alone, with the accent ring when ESPN has him where the call would not: the swap sheet's chip.
+export function CallChip({ c }: { c: Card }) {
+  const off = isMismatch(c);
   return (
-    <div className="flex items-center justify-end gap-2 pt-1.5 [grid-area:act]">
-      <span className={`font-display text-base font-semibold tabular-nums ${gain > 0 ? "text-foreground" : "text-muted-foreground"}`}>
-        {gainText(gain)}
-        <span className="sr-only"> projected points</span>
-      </span>
-      <Button variant="outline" size="sm" className="h-11 px-3.5 md:h-7 md:px-2.5" aria-label={aria} disabled={busy} onClick={onClick}>{label}</Button>
-    </div>
+    <Badge variant={CALL[c.call]} shape="chip" className={off ? "ring-2 ring-close/70" : ""}>
+      {c.call}{off && <span className="sr-only">, differs from ESPN</span>}
+    </Badge>
   );
 }
 
-function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
+export function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
   return (
     <div role={f.moved ? "status" : "alert"} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:act]">
       <p className={f.moved ? "text-foreground/85" : "text-out"}>{f.text}</p>
@@ -210,15 +208,12 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
   const picked = swap.picked?.player_id === c.player_id;
   const busy = swap.pending.includes(c.player_id);
   const anyBusy = swap.pending.length > 0;
-  const target = swap.targets.find((t) => t.kind === "swap" && t.with.player_id === c.player_id);
-  const bench = picked ? swap.targets.find((t) => t.kind === "bench") : undefined;
-  const dim = swap.picked != null && !picked && !target;
-  const error = swap.error?.id === c.player_id ? swap.error : null;
+  // while his sheet is open the sheet says it
+  const error = swap.error?.id === c.player_id && !picked ? swap.error : null;
   const ir = c.slot === "IR" || c.group === "ir";
   const slot = slotLabel(c.slot);
   return (
-    <li data-roster-row aria-busy={busy || undefined}
-      className={`transition-opacity duration-200 ${dim ? "opacity-50" : ""} ${picked ? "bg-foreground/[0.045]" : ""}`}>
+    <li aria-busy={busy || undefined} className={picked ? "bg-foreground/[0.045]" : undefined}>
       <Collapsible open={open} onOpenChange={onOpen}>
         <div className={GRID}>
           <span className={`${SLOT_TEXT} ${c.slot === "BE" || ir ? "text-muted-foreground" : "text-foreground/85"}`}>
@@ -260,7 +255,8 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
                 variant="ghost" size="icon"
                 className="-my-2.5 size-11 aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/85 md:my-0 md:size-9"
                 aria-pressed={picked}
-                aria-label={c.locked ? `${c.name}: his game has started` : picked ? `Cancel moving ${c.name}` : `Move ${c.name}`}
+                aria-haspopup="dialog"
+                aria-label={c.locked ? `${c.name}: his game has started` : `Move ${c.name}`}
                 title={c.locked ? "his game has started" : undefined}
                 disabled={c.locked || anyBusy}
                 onClick={() => swap.pick(c)}
@@ -279,11 +275,6 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
               <ChevronDown aria-hidden className="transition-transform duration-300 ease-(--ease-arrive) group-data-[panel-open]/chev:rotate-180" />
             </CollapsibleTrigger>
           </div>
-          {target && swap.picked && (
-            <MoveAction label="Move here" gain={target.gain} busy={anyBusy} onClick={() => swap.move(target)}
-              aria={`Swap ${swap.picked.name} with ${c.name}, ${slot}`} />
-          )}
-          {bench && <MoveAction label="To bench" gain={bench.gain} busy={anyBusy} onClick={() => swap.move(bench)} aria={`Move ${c.name} to the bench`} />}
           {error && <Failure f={error} reload={swap.reload} />}
           {notice && !error && <p aria-hidden className="pt-1 text-right text-xs text-muted-foreground [grid-area:act]">{notice}</p>}
         </div>
@@ -300,22 +291,16 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
   );
 }
 
-// A starting slot ESPN has nobody in. It is somewhere to move a player, nothing else.
-function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
-  const target = swap.targets.find((t) => t.kind === "slot" && t.slot === slot);
-  const dim = swap.picked != null && !target;
+// A starting slot ESPN has nobody in. The swap sheet offers it as somewhere to move a player.
+function EmptyRow({ slot }: { slot: string }) {
   return (
-    <li data-roster-row className={`transition-opacity duration-200 ${dim ? "opacity-50" : ""}`}>
+    <li>
       <div className={GRID}>
         <span className={`${SLOT_TEXT} text-foreground/85`}><SlotName slot={slot} /></span>
         <div aria-hidden className="size-10 rounded-md border border-dashed border-foreground/25 [grid-area:shot]" />
         <p className="font-display text-[1.0625rem] font-semibold leading-tight tracking-tight text-muted-foreground [grid-area:name] md:text-[1.1875rem]">
           Empty<span className="sr-only"> {slotLabel(slot)} slot</span>
         </p>
-        {target && swap.picked && (
-          <MoveAction label="Move here" gain={target.gain} busy={swap.pending.length > 0} onClick={() => swap.move(target)}
-            aria={`Move ${swap.picked.name} to ${slotLabel(slot)}`} />
-        )}
       </div>
     </li>
   );
@@ -359,7 +344,7 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
                 ? <PlayerRow key={r.c.player_id} c={r.c} week={week} runBusy={runBusy} swap={swap}
                     notice={notice?.id === r.c.player_id ? notice.text : null}
                     open={open === r.c.player_id} onOpen={(o) => setOpen(o ? r.c.player_id : null)} />
-                : <EmptyRow key={r.key} slot={r.slot} swap={swap} />)}
+                : <EmptyRow key={r.key} slot={r.slot} />)}
             </ul>
           </section>
         );

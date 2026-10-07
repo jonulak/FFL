@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, gainText, isMismatch, lineupFailure, movesFor, slotLabel, targets } from "./lineup";
+import { accepts, gainText, isMismatch, lineupFailure, movesFor, slotLabel, swapOptions, targets } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
@@ -87,4 +87,31 @@ describe("lineupFailure", () => {
     expect(lineupFailure(502, { detail: { source: "espn", error: "HTTP 500" } }, "x").text).toBe("ESPN: HTTP 500");
   });
   it("anything else the message", () => expect(lineupFailure(null, null, "timed out").text).toBe("Not moved: timed out"));
+});
+
+describe("swapOptions", () => {
+  const key = (o: ReturnType<typeof swapOptions>[number]) =>
+    o.kind === "swap" || o.kind === "locked" ? `${o.kind}:${o.with.player_id}` : o.kind === "slot" ? `slot:${o.slot}` : "bench";
+  it("sorts by gain, best first", () =>
+    expect(swapOptions(all, benchRb, []).map(key)).toEqual(["swap:2", "swap:3"]));  // flex +2, RB −1
+  it("a tie goes to ESPN's slot order, then the name", () => {
+    // a bench TE at 9 swaps ±0 with the flex TE and the TE: TE comes before FLEX in ESPN's order
+    const te = c(10, "TE", "TE", 9), flexTe = c(11, "TE", "RB/WR/TE", 9), benchTe = c(12, "TE", "BE", 9);
+    expect(swapOptions([flexTe, te, benchTe], benchTe, []).map(key)).toEqual(["swap:10", "swap:11"]);
+    // the flex WR's ±0 swaps with two bench WRs at his projection read by name
+    const b = c(8, "WR", "BE", 9, { name: "Brown" }), a = c(9, "WR", "BE", 9, { name: "Adams" });
+    expect(swapOptions([flex, b, a], flex, []).map(key)).toEqual(["swap:9", "swap:8", "bench"]);
+  });
+  it("a starter can go to the bench, and an empty slot is an option", () => {
+    const ks = swapOptions(all, rb, ["RB/WR/TE"]).map(key);
+    expect(ks).toContain("slot:RB/WR/TE");
+    expect(ks.at(-1)).toBe("bench");  // −12, the worst change
+  });
+  it("a locked partner is listed last, as locked", () => {
+    const benchWr = c(13, "WR", "BE", 10);
+    expect(swapOptions([...all, benchWr], benchWr, []).map(key)).toEqual(["swap:2", "locked:6"]);
+  });
+  it("nothing for a locked or IR player", () => {
+    expect(swapOptions(all, lockedWr, [])).toEqual([]); expect(swapOptions(all, ir, [])).toEqual([]);
+  });
 });
