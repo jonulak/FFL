@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, ChevronDown, LoaderCircle, Lock, Plus } from "lucide-react";
+import { ChevronDown, LoaderCircle, Lock, Plus } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,32 +41,81 @@ export type SwapControl = {
 
 // One grid for every row, read slot -> who -> vs/when -> number -> call -> actions.
 // Phone (< md): two lines in the `body` cell, the name over the matchup at the left and, flush right, the number
-// over the call chip, so the two right edges are one line down the list; the swap and the chevron are one pair at
-// 44px standing across both lines. md+: one line; `body` and its two lines dissolve (display: contents) into fixed
+// over the call chip, so the two right edges are one line down the list; the chevron stands at 44px across both
+// lines. The slot label is the move control, so there is no swap column. md+: one line; `body` and its two lines
+// dissolve (display: contents) into fixed
 // columns (matchup, number, call, actions) that line up row to row, and only the person column flexes. Below lg
 // the slot reads BE for Bench, the name is shortened and the kickoff drops ":00", so a 768px tablet holds one line.
 const GRID =
   "grid items-center gap-x-1.5 px-2 py-2 " +
-  "grid-cols-[1.75rem_2.5rem_minmax(0,1fr)_5rem] " +
+  "grid-cols-[2.25rem_2.5rem_minmax(0,1fr)_2.25rem] " +
   "[grid-template-areas:'slot_shot_body_ctl'_'msg_msg_msg_msg'] " +
-  "md:gap-x-2.5 md:py-2.5 md:grid-cols-[2.25rem_2.5rem_minmax(0,1fr)_10.5rem_3.5rem_9.5rem_5.5rem] " +
-  "lg:gap-x-3 lg:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_12.5rem_4rem_9.5rem_4.5rem] " +
+  "md:gap-x-2.5 md:py-2.5 md:grid-cols-[2.75rem_2.5rem_minmax(0,1fr)_10.5rem_3.5rem_9.5rem_2.75rem] " +
+  "lg:gap-x-3 lg:grid-cols-[3.75rem_2.5rem_minmax(0,1fr)_12.5rem_4rem_9.5rem_2.25rem] " +
   "md:[grid-template-areas:'slot_shot_name_match_num_call_ctl'_'msg_msg_msg_msg_msg_msg_msg']";
 
 const SLOT_TEXT =
-  "font-display text-[0.75rem] font-semibold uppercase tracking-[0.06em] [grid-area:slot] md:text-[0.8125rem] lg:tracking-[0.12em]";
+  "font-display text-[0.75rem] font-semibold uppercase tracking-[0.06em] md:text-[0.8125rem] lg:tracking-[0.12em]";
+// The slot's box, the same width on every row so the labels stand in one column, centred.
+const SLOT_BOX = "flex h-7 w-full items-center justify-center rounded-md";
+// The move control's face: an outline button in miniature (hairline ink, a faint fill), firmer on hover, ink on
+// inverse while his sheet is open, as the Transactions page's pressed toggle. Focus rings the face, not the cell.
+const SLOT_FACE =
+  `${SLOT_BOX} border border-foreground/20 bg-foreground/[0.035] transition-colors ` +
+  "group-hover/slot:border-foreground/35 group-hover/slot:bg-foreground/[0.07] " +
+  "group-active/slot:bg-foreground/[0.1] " +
+  "group-aria-pressed/slot:border-foreground group-aria-pressed/slot:bg-foreground group-aria-pressed/slot:text-background " +
+  "group-focus-visible/slot:outline-2 group-focus-visible/slot:outline-offset-2 group-focus-visible/slot:outline-start";
+// The cell reaches into the row's padding (left and both ends) so the target is 44px wide and the row's height.
+const SLOT_CELL = "-my-2 -ml-2 flex items-center self-stretch pl-2 [grid-area:slot] md:-my-2.5";
 
-// The swap and the chevron: one pair, 44px each where a thumb uses them, 36px from lg.
+// The chevron: 44px where a thumb uses it, 36px from lg.
 const ACTION = "size-11 lg:size-9";
-// On the phone the pair's column is 8px short of its two targets: they reach into the row's right padding, so the
-// matchup line keeps that width and the chevron's target ends at the card's edge.
-const PAIR = "flex items-center justify-end [grid-area:ctl] max-md:-mr-2";
+// On the phone its column is 8px short of the target: it reaches into the row's right padding, so the matchup line
+// keeps that width and the target ends at the card's edge.
+const CTL = "flex items-center justify-end [grid-area:ctl] max-md:-mr-2";
 
 // The slot as ESPN labels it; below lg the narrow column takes BE for Bench, ESPN's own slot code.
 function SlotName({ slot }: { slot: string }) {
   const label = slotLabel(slot);
   if (slot !== "BE") return <>{label}</>;
   return <><span aria-hidden className="lg:hidden">BE</span><span className="max-lg:sr-only">{label}</span></>;
+}
+
+// The slot label is the move control (ESPN's MOVE): a tap opens his sheet of moves. A started game makes it a plain
+// label with a lock mark; IR is plain text, since IR moves are not made here.
+function SlotControl({ c, picked, busy, disabled, onPick }: {
+  c: Card; picked: boolean; busy: boolean; disabled: boolean; onPick: () => void;
+}) {
+  const ir = c.slot === "IR" || c.group === "ir";
+  const tone = c.slot === "BE" || ir ? "text-muted-foreground" : "text-foreground/85";
+  if (ir) return <div className={SLOT_CELL}><span className={`${SLOT_BOX} ${SLOT_TEXT} ${tone}`}><SlotName slot={c.slot} /></span></div>;
+  if (c.locked) {
+    return (
+      <div className={SLOT_CELL} title="his game has started">
+        <span className={`${SLOT_BOX} gap-0.5 ${SLOT_TEXT} ${tone}`}>
+          <SlotName slot={c.slot} />
+          <Lock aria-hidden className="size-2.5 shrink-0 opacity-70" />
+          <span className="sr-only">, {c.name}: his game has started</span>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`group/slot ${SLOT_CELL} outline-none disabled:pointer-events-none`}
+      aria-pressed={picked}
+      aria-haspopup="dialog"
+      aria-label={picked ? `Cancel moving ${c.name}` : `Move ${c.name}`}
+      disabled={disabled}
+      onClick={onPick}
+    >
+      <span className={`${SLOT_FACE} ${SLOT_TEXT} ${tone} ${disabled && !busy ? "opacity-50" : ""}`}>
+        {busy ? <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" /> : <SlotName slot={c.slot} />}
+      </span>
+    </button>
+  );
 }
 
 // The short kickoff, the way a scores app sets it in a narrow line: "Sun 1 PM", "Mon 8:15 PM" (minutes only
@@ -206,15 +255,12 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
   const anyBusy = swap.pending.length > 0;
   // while his sheet is open the sheet says it
   const error = swap.error?.id === c.player_id && !picked ? swap.error : null;
-  const ir = c.slot === "IR" || c.group === "ir";
   const slot = slotLabel(c.slot);
   return (
     <li aria-busy={busy || undefined} className={picked ? "bg-foreground/[0.045]" : undefined}>
       <Collapsible open={open} onOpenChange={onOpen}>
         <div className={GRID}>
-          <span className={`${SLOT_TEXT} ${c.slot === "BE" || ir ? "text-muted-foreground" : "text-foreground/85"}`}>
-            <SlotName slot={c.slot} />
-          </span>
+          <SlotControl c={c} picked={picked} busy={busy} disabled={anyBusy} onPick={() => swap.pick(c)} />
           <div className="[grid-area:shot]"><Headshot c={c} idle={idle} /></div>
           <div className="flex min-w-0 flex-col gap-y-0.5 [grid-area:body] md:contents">
             {/* line 1: who, and the number flush right */}
@@ -253,23 +299,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
               <div className="flex shrink-0 gap-1 md:[grid-area:call]"><CallChip c={c} week={week} split /></div>
             </div>
           </div>
-          <div className={PAIR}>
-            {ir ? <span aria-hidden className={ACTION} /> : (
-              <Button
-                variant="ghost" size="icon"
-                className={`-my-2.5 ${ACTION} aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/85 md:my-0`}
-                aria-pressed={picked}
-                aria-haspopup="dialog"
-                aria-label={c.locked ? `${c.name}: his game has started` : `Move ${c.name}`}
-                title={c.locked ? "his game has started" : undefined}
-                disabled={c.locked || anyBusy}
-                onClick={() => swap.pick(c)}
-              >
-                {busy
-                  ? <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" />
-                  : c.locked ? <Lock aria-hidden /> : <ArrowLeftRight aria-hidden />}
-              </Button>
-            )}
+          <div className={CTL}>
             <CollapsibleTrigger
               render={<Button variant="ghost" size="icon" className={`group/chev -my-2.5 ${ACTION} md:my-0`} />}
               aria-label={`${open ? "Hide" : "Show"} ${c.name}'s reason and outlook`}
@@ -282,7 +312,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
         </div>
         <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-300 ease-(--ease-arrive) data-[ending-style]:h-0 data-[starting-style]:h-0">
           {/* under the person column: the slot, tile and their gutters plus the row's own padding */}
-          <div className="space-y-2 px-2 pb-3 md:pl-[6.5rem] md:pr-[6.625rem] lg:pl-[7.75rem] lg:pr-[5.75rem]">
+          <div className="space-y-2 px-2 pb-3 md:pl-[7rem] md:pr-[3.875rem] lg:pl-[8.25rem] lg:pr-[3.5rem]">
             <Reason text={c.reason} />
             <Sources c={c} live={live} />
             {c.stat_line && <StatLine text={c.stat_line} />}
@@ -301,17 +331,21 @@ function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
       <button type="button" onClick={() => swap.fill(slot)} disabled={swap.pending.length > 0} aria-haspopup="dialog"
         aria-label={`Fill the empty ${slotLabel(slot)} slot`}
         className={`${GRID} group/empty w-full text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-foreground/[0.07] disabled:pointer-events-none`}>
-        <span className={`${SLOT_TEXT} text-foreground/85`}><SlotName slot={slot} /></span>
+        {/* the slot in the move control's shape, dashed like the empty tile: the whole row is the Fill button */}
+        <span className={SLOT_CELL}>
+          <span className={`${SLOT_BOX} border border-dashed border-foreground/30 transition-colors group-hover/empty:border-foreground/50 ${SLOT_TEXT} text-foreground/85`}>
+            <SlotName slot={slot} />
+          </span>
+        </span>
         <span aria-hidden className="size-10 rounded-md border border-dashed border-foreground/25 [grid-area:shot]" />
         <span className="font-display text-[1.0625rem] font-semibold leading-tight tracking-tight text-muted-foreground [grid-area:body] md:[grid-area:name] md:text-[1.1875rem]">
           Empty
         </span>
-        {/* the plus stands where the swap does; the chevron's place stays empty */}
-        <span aria-hidden className={PAIR}>
+        {/* the plus stands in the chevron's place */}
+        <span aria-hidden className={CTL}>
           <span className={`-my-2.5 flex ${ACTION} items-center justify-center rounded-md text-muted-foreground transition-colors group-hover/empty:text-foreground md:my-0`}>
             <Plus className="size-4" />
           </span>
-          <span className={ACTION} />
         </span>
       </button>
     </li>
