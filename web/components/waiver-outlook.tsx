@@ -4,12 +4,13 @@ import { LoaderCircle, NotebookText } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import type { WaiverOutlook, FreeAgentRow } from "@/lib/api";
 import { outlookPhase } from "@/lib/waiver-outlook";
 import { Ago } from "./local-time";
 import { Bullets } from "./outlook";
 import { hold, useGrow } from "./player-dialog";
+import { BAND_CLOSE, PlayerHeader } from "./player-header";
 
 // A write is a minute or two of Opus with web search; reading the stored entry every few seconds
 // is a local file read, so the dialog polls rather than holding a request open.
@@ -47,7 +48,7 @@ export function WaiverOutlookButton({ r }: { r: FreeAgentRow }) {
         {written && <span aria-hidden className="size-1.5 rounded-full bg-foreground/70" />}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="gap-0 rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-xl">
+        <DialogContent className={`gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-xl ${BAND_CLOSE}`}>
           {open && first && <Body r={r} first={first} setWritten={setWritten} />}
         </DialogContent>
       </Dialog>
@@ -120,15 +121,8 @@ function Body({ r, first, setWritten }: { r: FreeAgentRow; first: FirstRead; set
   const grow = useGrow(`${phase}${fault ? "+fault" : ""}`);
   return (
     <>
-      <DialogHeader className="gap-1.5 border-b border-foreground/10 px-4 pt-4 pb-3 pr-12">
-        <DialogTitle className="flex flex-wrap items-baseline gap-x-2 font-display text-[1.5rem] font-semibold leading-none tracking-tight">
-          {r.name}
-          <span className="font-sans text-xs font-semibold text-muted-foreground">{r.pos} · {r.team}</span>
-        </DialogTitle>
-        <DialogDescription className="text-xs text-muted-foreground">
-          Free agent outlook: injury, usage, depth and team news, with sources. No projections.
-        </DialogDescription>
-      </DialogHeader>
+      {/* the season modal's band and game line, so the two dialogs read as one player's */}
+      <PlayerHeader p={r} />
       <div ref={grow} className="overflow-hidden">
         <div className="max-h-[60dvh] overflow-y-auto px-4 pt-3 pb-4" aria-live="polite">
           {fault && <p className="mb-3 text-sm text-out">{fault}</p>}
