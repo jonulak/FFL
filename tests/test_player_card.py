@@ -239,3 +239,32 @@ def test_player_log_pos_ranks():
     assert "pos_rank" not in by_week[current]
     bare = pc.player_log(card, SCORING, {2026: SCHED25}, current, 2026, now=0)
     assert bare["seasons"][0]["totals"]["pos_rank"] is None
+
+
+def test_player_log_snaps():
+    """This season's games played carry his share of the offensive snaps (Sleeper's, a day behind:
+    a game without them yet reads None), and the season's totals the share over every game with
+    them; past seasons carry none."""
+    allen = player(3918298)
+    played = [r["scoringPeriodId"] for r in pc._game_rows(allen["stats"], 2026)]
+    first, second, *rest = played
+    snaps = {first: (60.0, 64.0), second: (55.0, 70.0)}
+    card = {"players": [{"player": allen}]}
+    log = pc.player_log(card, SCORING, {2025: SCHED25, 2026: SCHED25}, max(played), 2026, now=0, snaps=snaps)
+    now, past = log["seasons"][0], log["seasons"][1]
+    by_week = {w["week"]: w for w in now["weeks"]}
+    assert by_week[first]["snap_pct"] == 94  # 60 of 64
+    assert by_week[second]["snap_pct"] == 79  # 55 of 70
+    assert all(by_week[wk]["snap_pct"] is None for wk in rest)
+    assert (now["totals"]["snap_pct"], now["totals"]["snap_games"]) == (86, 2)  # 115 of 134
+    assert all("snap_pct" not in w for w in now["weeks"] if w["status"] not in ("played", "live"))
+    assert "snap_pct" not in past["totals"] and all("snap_pct" not in w for w in past["weeks"])
+    bare = pc.player_log(card, SCORING, {2026: SCHED25}, max(played), 2026, now=0)["seasons"][0]
+    assert bare["totals"]["snap_pct"] is None and all(w.get("snap_pct") is None for w in bare["weeks"])
+
+
+def test_with_live_keeps_the_weeks_snaps():
+    log = {"pos": "QB", "season": 2026, "current_week": 4, "team": "BUF", "seasons": [{"season": 2026, "totals": None, "weeks": [
+        {**pc._blank(4, "played"), "opp": "KC", "home": True, "snap_pct": 97}]}]}
+    out = pc.with_live(log, 4, {"0": 10, "1": 7, "3": 80}, SCORING, {"status": "post"})
+    assert out["seasons"][0]["weeks"][0]["snap_pct"] == 97

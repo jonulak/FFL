@@ -806,9 +806,12 @@ def player_card(player_id: int) -> dict:
     reads |= {("stats", yr): (lambda yr=yr: past_stats(yr, player_id)) for yr in earlier}
     settings = load()
     reads |= {("sleeper", wk): (lambda wk=wk: _sleeper_for(wk, settings)) for wk in range(lg.current_week, S.NFL_WEEKS + 1)}
+    if pos in S.SNAP_POSITIONS:  # his snaps each week this season, off the cached Sleeper stat rows
+        reads |= {("snaps", wk): (lambda wk=wk: parse_sleeper_snaps(_stats_rows(wk))) for wk in range(1, lg.current_week + 1)}
     with ThreadPoolExecutor(max_workers=len(reads)) as pool:
         futures = {k: pool.submit(fn) for k, fn in reads.items()}
-    schedules, rows, ranks, sleeper, pos_ranks = {}, [], {}, {}, {}
+    schedules, rows, ranks, sleeper, pos_ranks, snaps = {}, [], {}, {}, {}, {}
+    key = (norm_name(p.get("fullName") or ""), pos)
     for (kind, yr), f in futures.items():
         try:
             if kind == "sched":
@@ -819,13 +822,16 @@ def player_card(player_id: int) -> dict:
                 pos_ranks = f.result()
             elif kind == "sleeper":
                 sleeper[yr] = f.result()  # yr is the week here
+            elif kind == "snaps":
+                if key in (week := f.result()):
+                    snaps[yr] = week[key]
             else:
                 rows += f.result()
         except Exception as e:  # noqa: BLE001 — an earlier season or the opponents are not worth the log
             print(f"{kind} {yr} unavailable for player {player_id}: {e}")
     card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
     return card_log.player_log(card, settings["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks,
-                               sleeper=sleeper, pos_ranks=pos_ranks)
+                               sleeper=sleeper, pos_ranks=pos_ranks, snaps=snaps)
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:

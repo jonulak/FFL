@@ -13,17 +13,17 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { OppRank, PlayerLog, PlayerTx, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
-import { ordinal, pts, signed } from "@/lib/format";
-import { columns, NAME_LINK, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
+import { ordinal, pts } from "@/lib/format";
+import { cells, columns, hasSnaps, NAME_LINK, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
 import { volumeText } from "@/lib/box";
 import { teamHref } from "@/lib/team-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { HISTORY_LABEL, historyDetail, historyWhen } from "@/lib/transactions";
 import { BoxTable } from "./box-table";
 import { ClubLogo } from "./club-logo";
-import { FactStrip, FormStrip, type Fact } from "./form-strip";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
 import { TeamLogo } from "./player-media";
+import { SeasonFacts } from "./season-facts";
 import { StaleBadge } from "./stale-badge";
 
 // The season modal: tap a player anywhere outside a matchup view and his game log opens over the
@@ -127,36 +127,22 @@ function Body({ seed, fetch }: { seed: PlayerSeed; fetch: LogFetch }) {
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined}
         rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
       <div className="overflow-y-auto overscroll-contain">
-        <SeasonFacts p={seed} />
+        <FormSection p={seed} />
         <PlayerRecord load={load} retry={retry} fetch={fetch} className="px-4 pt-4 pb-5" />
       </div>
     </>
   );
 }
 
-// The figures the Players table leaves to the dialog, when the row that opened it carried them:
-// the rest of season (the adjusted ROS add runs on, the models' own number with their spread,
-// the two deltas on a free agent) and his last three games in full. A row without them (the
-// Matchup board's, a transaction's) shows nothing here.
-function SeasonFacts({ p }: { p: PlayerSeed }) {
+// The Players row's Form section: the figures its table leaves to the dialog (SeasonFacts), when
+// the row that opened it carried them. A row without ROS (the Matchup board's, a transaction's)
+// shows nothing here.
+function FormSection({ p }: { p: PlayerSeed }) {
   if (p.ros_adj == null) return null;
-  const ros: Fact[] = [
-    { key: "ros", label: "ROS", value: pts(p.ros_adj), title: "usage-adjusted rest of season: what add runs on" },
-  ];
-  if (p.ros_proj != null) {
-    const src = [p.ros_sleeper != null && `Sleeper ${pts(p.ros_sleeper)}`, p.ros_cbs != null && `CBS ${pts(p.ros_cbs)}`].filter(Boolean).join(" · ");
-    ros.push({
-      key: "model", label: "model", value: p.ros_spread != null ? `${pts(p.ros_proj)} ±${pts(p.ros_spread)}` : pts(p.ros_proj),
-      title: src ? `the models' rest of season, averaged: ${src}` : "no rest-of-season source has him: season projection scaled by the weeks left",
-    });
-  }
-  if (p.delta_roster != null) ros.push({ key: "dr", label: "Δ roster", value: signed(p.delta_roster), title: "ROS against my weakest at the position" });
-  if (p.delta_pool != null) ros.push({ key: "dp", label: "Δ pool", value: signed(p.delta_pool), title: "ROS against the league's replacement level" });
   return (
-    <section aria-labelledby="season-form" className="log-in space-y-1.5 px-4 pt-4">
-      <Heading id="season-form" title="Form" note={p.form ? `last ${p.form.games} · rest of season` : "rest of season"} />
-      <FactStrip items={ros} />
-      <FormStrip form={p.form} />
+    <section aria-labelledby="season-form" className="log-in space-y-1 px-4 pt-4">
+      <Heading id="season-form" title="Form" note={p.form ? `${p.form.weeks.length === 1 ? "week" : "weeks"} ${p.form.weeks.join(", ")}` : undefined} />
+      <SeasonFacts p={{ ...p, ros_adj: p.ros_adj }} />
     </section>
   );
 }
@@ -299,11 +285,13 @@ function Seasons({ log }: { log: PlayerLog }) {
   const now = log.seasons.find((s) => s.season === log.season);
   const past = log.seasons.filter((s) => s.season < log.season && s.totals);
   const played = seasonPts(now?.weeks ?? []);
+  // the season's snap share, over the games Sleeper has snaps for
+  const snap = now?.totals?.snap_pct;
   return (
     <div className="space-y-7">
       <section aria-labelledby="season-now" className="log-in space-y-1.5">
         <Heading id="season-now" title={String(log.season)} stale={log.stale_since}
-          note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts` : undefined} />
+          note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts${snap != null ? ` · ${snap}% snaps` : ""}` : undefined} />
         {now && now.weeks.length > 0
           ? <Weeks s={now} pos={log.pos} week={log.current_week} />
           : <p className="py-1 text-sm text-muted-foreground">No games yet.</p>}
@@ -332,8 +320,9 @@ export function Heading({ id, title, note, stale }: { id: string; title: string;
 }
 
 const LABEL = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
-const HEAD = `h-auto px-1.5 pb-1 ${LABEL}`;
-const CELL = "px-1.5 py-2";
+const HEAD = `h-auto px-1 pb-1 sm:px-1.5 ${LABEL}`;
+// a step tighter on a phone, where a QB's row (C/A, YDS, TD, INT, SNAP) has ten columns to fit
+const CELL = "px-1 py-2 max-sm:text-[0.8125rem] sm:px-1.5";
 const ROW = "border-foreground/10";
 const PANEL = "h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] data-ending-style:h-0 data-starting-style:h-0 motion-reduce:transition-none";
 
@@ -375,6 +364,7 @@ function Toggle({ open, label }: { open: boolean; label: string }) {
 // opponent's rank. No legend under the table: he reads the columns without one.
 function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
   const cols = columns(s);
+  const snaps = hasSnaps(s);
   const span = cols.length + 5;
   const split = s.weeks.findIndex((w) => w.status === "upcoming" || w.week > week);
   const done = split < 0 ? s.weeks : s.weeks.slice(0, split);
@@ -382,7 +372,7 @@ function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
   return (
     <>
       <SeasonTable cols={cols} ranked>
-        {done.map((w, i) => <WeekRows key={w.week} w={w} span={span} i={i + 1} ranked pos={pos} />)}
+        {done.map((w, i) => <WeekRows key={w.week} w={w} span={span} i={i + 1} ranked pos={pos} snaps={snaps} />)}
         {ahead.length > 0 && (
           <TableRow className={`${ROW} hover:bg-transparent log-in`} style={{ "--i": done.length + 1 } as React.CSSProperties}>
             <TableCell colSpan={3} className="px-0 pt-5 pb-1 font-display text-[0.8125rem] font-semibold uppercase leading-none tracking-[0.12em]">Ahead</TableCell>
@@ -393,7 +383,7 @@ function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
         )}
         {ahead.map((w, i) => w.status === "upcoming"
           ? <AheadRow key={w.week} w={w} pos={pos} cols={cols.length} i={done.length + i + 2} />
-          : <WeekRows key={w.week} w={w} span={span} i={done.length + i + 2} />)}
+          : <WeekRows key={w.week} w={w} span={span} i={done.length + i + 2} snaps={snaps} />)}
       </SeasonTable>
     </>
   );
@@ -462,7 +452,7 @@ function Opponent({ w }: { w: WeekLog }) {
 // `i` places the row in the log's entrance (log-in), a beat after the one above it. A past
 // season's weeks carry `fold` instead: always mounted, they fold open and shut with their season
 // (globals.css, tr[data-fold]), and a shut one is inert so no tab stop or reader lands in it.
-function WeekRows({ w, span, i, fold, ranked, pos = "" }: { w: WeekLog; span: number; i?: number; fold?: boolean; ranked?: boolean; pos?: string }) {
+function WeekRows({ w, span, i, fold, ranked, pos = "", snaps = false }: { w: WeekLog; span: number; i?: number; fold?: boolean; ranked?: boolean; pos?: string; snaps?: boolean }) {
   const [open, setOpen] = useState(false);
   const enter = i == null ? "" : "log-in";
   const order = i == null ? undefined : { "--i": i } as React.CSSProperties;
@@ -491,7 +481,7 @@ function WeekRows({ w, span, i, fold, ranked, pos = "" }: { w: WeekLog; span: nu
         {label}
         <TableCell className={CELL}><Fold on={folds}><Opponent w={w} /></Fold></TableCell>
         {ranked && <TableCell className={`${CELL} text-right`}><Fold on={folds}><Rank r={w.opp_rank} pos={pos} /></Fold></TableCell>}
-        {w.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right`}><Fold on={folds}>{v}</Fold></TableCell>)}
+        {cells(w, snaps).map(([k, v]) => <TableCell key={k} className={`${CELL} text-right`}><Fold on={folds}>{v}</Fold></TableCell>)}
         <TableCell className={`${CELL} text-right`}>
           <Fold on={folds}>
             <span className="block font-display text-lg font-bold leading-none tracking-tight">{ptsText(w.pts)}</span>

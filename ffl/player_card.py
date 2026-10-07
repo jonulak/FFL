@@ -231,9 +231,26 @@ def _ranked(w: dict, by_opp: dict, by_week: dict, pid: int, current_week: int) -
     return w
 
 
+def _pct(off: float, team: float) -> int:
+    return round(100 * off / team)
+
+
+def with_snaps(s: dict, snaps: dict[int, tuple[float, float]]) -> dict:
+    """This season's games played (or in play) with his share of the offensive snaps, None for a
+    game Sleeper has no snaps for yet (they land a day after it), and the season's totals with
+    the share over every game that has them (`snap_games` of them)."""
+    weeks = [{**w, "snap_pct": _pct(*snaps[w["week"]]) if w["week"] in snaps else None}
+             if w["status"] in ("played", "live") else w for w in s["weeks"]]
+    had = [snaps[w["week"]] for w in weeks if w.get("snap_pct") is not None]
+    totals = s["totals"] and {**s["totals"], "snap_games": len(had),
+                              "snap_pct": _pct(sum(o for o, _ in had), sum(t for _, t in had)) if had else None}
+    return {**s, "weeks": weeks, "totals": totals}
+
+
 def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], current_week: int, season: int,
                history: int = 1, ranks: dict[str, dict[str, dict]] | None = None, now: float | None = None,
-               sleeper: dict[int, dict[tuple[str, str], float]] | None = None, pos_ranks: dict | None = None) -> dict:
+               sleeper: dict[int, dict[tuple[str, str], float]] | None = None, pos_ranks: dict | None = None,
+               snaps: dict[int, tuple[float, float]] | None = None) -> dict:
     """The modal's payload from a kona_playercard response: this season through the current
     week and its games still to play (schedule_ahead), then `history` past seasons whole, newest
     first; a season with neither a game played nor one ahead is left out. The rows may come from
@@ -242,7 +259,8 @@ def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], curr
     it reads how that defence has held up since, not what it was the day he played it. Past
     seasons have no ranks (ESPN keeps only the current season's). `pos_ranks` (parse_pos_ranks, his
     position's) ranks him at it: this season's totals, and each week played before the current one
-    (a week still being played has no settled rank)."""
+    (a week still being played has no settled rank). `snaps` (week -> his offensive snaps, his
+    team's) gives this season's games and totals his snap share (with_snaps)."""
     p = card["players"][0]["player"]
     pos, team = POS.get(p.get("defaultPositionId"), "?"), PRO_TEAM_MAP.get(p.get("proTeamId"))
     seasons = []
@@ -257,6 +275,7 @@ def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], curr
                 at = pos_ranks or {}
                 s = {**s, "weeks": [_ranked(w, by_opp, at.get("weeks", {}), p["id"], current_week) for w in s["weeks"]],
                      "totals": {**s["totals"], "pos_rank": at.get("season", {}).get(p["id"])}}
+                s = with_snaps(s, snaps or {})
             # the current week is in the log once played (or his bye); otherwise it is still ahead
             logged = max((w["week"] for w in s["weeks"]), default=0) if s else 0
             ahead = schedule_ahead(sched, team, max(logged, current_week - 1), by_opp,
@@ -286,7 +305,7 @@ def with_live(log: dict, week: int, stats: dict, scoring: list[dict], game: dict
                    status="live" if (game or {}).get("status") == "in" else "played")
     if old:
         entry["opp"], entry["home"] = old["opp"], old["home"]
-        for k in ("opp_rank", "pos_rank"):
+        for k in ("opp_rank", "pos_rank", "snap_pct"):
             if k in old:
                 entry[k] = old[k]
     cur["weeks"] = sorted([w for w in cur["weeks"] if w["week"] != week] + [entry], key=lambda w: w["week"])

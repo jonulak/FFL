@@ -1,11 +1,24 @@
 import type { PlayerLog, SeasonLog, WeekLog } from "./api";
 import { injuryLabel, pts } from "./format";
 
+// This season carries his snap share (player_card.with_snaps); a past season, a K and a D/ST do not.
+export function hasSnaps(s: SeasonLog): boolean {
+  return s.weeks.some((w) => w.snap_pct !== undefined);
+}
+
+// A week's collapsed-row cells: the position's stat group, then his snap share when the season
+// carries it (a dash for a game Sleeper has no snaps for yet).
+export function cells(w: WeekLog, snaps: boolean): [string, string][] {
+  return snaps ? [...w.summary, ["SNAP", w.snap_pct == null ? "—" : `${w.snap_pct}%`]] : w.summary;
+}
+
 // The season modal's column headings: the position's stat group, read off the first week that has
-// one (a bye or a missed game has none), else off the season's totals.
+// one (a bye or a missed game has none), else off the season's totals; SNAP after it when the
+// season carries snaps.
 export function columns(s: SeasonLog): string[] {
   const w = s.weeks.find((w) => w.summary.length > 0);
-  return (w?.summary ?? s.totals?.summary ?? []).map(([label]) => label);
+  const group = (w?.summary ?? s.totals?.summary ?? []).map(([label]) => label);
+  return hasSnaps(s) ? [...group, "SNAP"] : group;
 }
 
 export const weekLabel =(w: WeekLog) => `W${w.week}`;

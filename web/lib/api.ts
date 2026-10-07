@@ -61,12 +61,16 @@ export type WeekLog = {
   pts: number | null; summary: [string, string][]; box: BoxItem[]; volume: Volume | null;
   opp_rank?: OppRank | null; // this season's games, played or ahead
   pos_rank?: number | null; // his rank at his position that week: this season's weeks before the current one
+  // his share of the offensive snaps (Sleeper's, a day behind: null until they land); this season's
+  // games played only, and never on a K or a D/ST
+  snap_pct?: number | null;
   // a game still to play: Sleeper's projection, averaged with ESPN's for the current week
   proj?: number | null; proj_espn?: number | null; proj_sleeper?: number | null;
 };
 export type SeasonTotals = {
   games: number; pts: number; ppg: number; summary: [string, string][]; box: BoxItem[];
   pos_rank?: number | null; // this season's only: his rank at his position by points to date
+  snap_pct?: number | null; snap_games?: number; // this season's only: his snap share over the games that have snaps
 };
 // `totals` is null for a season he has yet to finish a game in: the live feed opened it (his first
 // game is in progress), or it holds only the weeks ahead.
