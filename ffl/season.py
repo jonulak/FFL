@@ -21,6 +21,13 @@ SLOT_ORDER = ["QB", "RB", "WR", "TE", "RB/WR/TE", "RB/WR", "WR/TE", "OP", "D/ST"
 # playable on purpose: that call is his, on practice-report news the tree cannot see.
 UNPLAYABLE = {"OUT", "INJURY_RESERVE", "SUSPENSION"}
 BENCH_SLOTS = {"BE", "IR"}
+# The league's IR rule (Jonathan, 2026-10-07): only a player ESPN lists IR or Out may go INTO the IR slot; one
+# already there may STAY while he carries any designation (Q, D, Out, IR, suspension). With none (ACTIVE, NORMAL,
+# blank) the roster is illegal and ESPN allows no other move until he comes off IR. web/lib/lineup.ts mirrors these.
+IR_ENTRY = {"INJURY_RESERVE", "OUT"}
+NO_DESIGNATION = {"ACTIVE", "NORMAL", "", None}
+# ESPN's default when an older settings.json predates `ir_size` (this league has 1)
+IR_SIZE_DEFAULT = 1
 NFL_WEEKS = 18
 # ESPN's fantasy status carries no return date; the public injuries feed does. These are the
 # fallback for a player that feed has no date for: OUT is usually one game, IR a four-game minimum.
@@ -191,10 +198,20 @@ def _card_sort_key(c: dict) -> tuple:
     return (GROUP_ORDER.index(c["group"]), rank, -float(c.get("proj") or 0.0), c["name"])
 
 
+def ir_size(settings: dict) -> int:
+    return int(settings.get("ir_size", IR_SIZE_DEFAULT))
+
+
+def ir_illegal(roster: list[dict]) -> list[dict]:
+    """The players on IR with no injury designation: while there are any, ESPN refuses every other move."""
+    return [p for p in roster if p.get("slot") == "IR" and p.get("injury") in NO_DESIGNATION]
+
+
 def empty_slots(roster: list[dict], settings: dict) -> list[str]:
-    """One entry per starter spot ESPN has nobody in, in slot order."""
+    """One entry per starter spot ESPN has nobody in, in slot order, then one per open IR spot."""
     filled = Counter(p.get("slot") for p in roster)
-    return [s for s in SLOT_ORDER for _ in range(settings["starters"].get(s, 0) - filled.get(s, 0))]
+    return ([s for s in SLOT_ORDER for _ in range(settings["starters"].get(s, 0) - filled.get(s, 0))]
+            + ["IR"] * (ir_size(settings) - filled.get("IR", 0)))
 
 
 def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
@@ -634,30 +651,36 @@ def rank_players(rows: list[dict]) -> list[dict]:
 
 
 def lineup_moves(moves: list[dict], roster: list[dict], settings: dict) -> tuple[list[tuple[int, str, str]], list[str]]:
-    """A requested set of slot moves as ESPN's items (player, from, to), or why not. Refused: a player not on the
-    roster, IR either way (made in ESPN), a locked player (his game has started), a slot this league does not
-    have or that does not take him, and any starter slot left holding more players than it has spots."""
+    """A requested set of slot moves as ESPN's items (player, from, to), or why not. Refused: anything that leaves an
+    IR player with no designation on IR (ESPN blocks every other move until he is off), a player not on the roster,
+    a locked player (his game has started), a move into IR for anyone not listed IR or Out, a slot this league does
+    not have or that does not take him, and any starter slot or IR left holding more players than it has spots."""
     by_id = {p["player_id"]: p for p in roster}
     slots = {p["player_id"]: p.get("slot") for p in roster}
+    off = {m["player_id"] for m in moves if m["to_slot"] != "IR"}
+    stuck = [p for p in ir_illegal(roster) if p["player_id"] not in off]
+    if stuck:
+        return [], [f"{p['name']} is on IR without an injury designation — move him off IR first" for p in stuck]
     items: list[tuple[int, str, str]] = []
     errs: list[str] = []
     for m in moves:
         p, to = by_id.get(m["player_id"]), m["to_slot"]
         if p is None:
             errs.append(f"player {m['player_id']} is not on the roster")
-        elif "IR" in (p.get("slot"), to):
-            errs.append(f"{p['name']}: IR moves are made in ESPN")
         elif p.get("locked"):
             errs.append(f"{p['name']}: his game has started")
-        elif to != "BE" and (to not in settings["starters"] or p["pos"] not in _slot_accepts(to)):
+        elif to == "IR" and p.get("slot") != "IR" and p.get("injury") not in IR_ENTRY:
+            errs.append(f"{p['name']}: only IR or Out can go on IR")
+        elif to not in BENCH_SLOTS and (to not in settings["starters"] or p["pos"] not in _slot_accepts(to)):
             errs.append(f"{p['name']}: {slot_label(to)} does not take a {p['pos']}")
         elif to != p.get("slot"):
             items.append((p["player_id"], p["slot"], to))
             slots[p["player_id"]] = to
     if not errs:
-        filled = Counter(s for s in slots.values() if s not in BENCH_SLOTS)
-        errs = [f"{slot_label(s)}: {n} players for {settings['starters'].get(s, 0)} spots"
-                for s, n in filled.items() if n > settings["starters"].get(s, 0)]
+        spots = {**settings["starters"], "IR": ir_size(settings)}
+        filled = Counter(s for s in slots.values() if s != "BE")
+        errs = [f"{slot_label(s)}: {n} players for {spots.get(s, 0)} spots"
+                for s, n in filled.items() if n > spots.get(s, 0)]
     return items, errs
 
 

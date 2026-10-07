@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ClientError, clientPost } from "@/app/api-client";
 import type { Card, Roster } from "@/lib/api";
-import { afterFailure, applyMoves, fillOptions, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
+import { afterFailure, applyMoves, fillOptions, irIllegal, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
 import { type Notice, RosterRows, type SwapControl } from "./roster-cards";
 import { type SheetPick, type SheetSubject, SwapSheet } from "./swap-sheet";
 import { useLive } from "./use-live";
@@ -84,7 +84,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
     <>
       <RosterRows cards={shown.cards} empty={shown.empty_slots} week={shown.week} runBusy={shown.outlook_run.running}
         open={open} setOpen={setOpen} swap={swap} notice={notice} />
-      <SwapSheet subject={subject} move={move} onClose={close} />
+      <SwapSheet subject={subject} move={move} onClose={close} blocked={irIllegal(shown.cards)} onFix={pick} />
     </>
   );
 }

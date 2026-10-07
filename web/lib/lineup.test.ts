@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, afterFailure, applyMoves, fillOptions, gainText, isMismatch, lineupFailure, movesFor, slotLabel, swapOptions, targets } from "./lineup";
+import { accepts, afterFailure, applyMoves, fillOptions, gainText, irEligible, irIllegal, isMismatch, lineupFailure, movesFor, slotLabel, swapOptions, targets } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
-     group: slot === "IR" ? "ir" : slot === "BE" ? "bench" : "starter", call: "START", ...extra }) as Card;
+     group: slot === "IR" ? "ir" : slot === "BE" ? "bench" : "starter", call: "START", injury: "ACTIVE", ...extra }) as Card;
 
 const qb = c(1, "QB", "QB", 18), flex = c(2, "WR", "RB/WR/TE", 9), rb = c(3, "RB", "RB", 12),
   benchRb = c(4, "RB", "BE", 11), benchQb = c(5, "QB", "BE", 0), lockedWr = c(6, "WR", "WR", 14, { locked: true }),
-  ir = c(7, "WR", "IR", 0);
+  ir = c(7, "WR", "IR", 0, { injury: "INJURY_RESERVE" });
 const all = [qb, flex, rb, benchRb, benchQb, lockedWr, ir];
 
 describe("slots", () => {
@@ -45,9 +45,7 @@ describe("targets", () => {
   });
   it("from the bench into an empty slot adds his projection", () =>
     expect(targets(all, benchRb, ["RB/WR/TE"])).toContainEqual({ kind: "slot", slot: "RB/WR/TE", gain: 11 }));
-  it("nothing for a locked or IR player", () => {
-    expect(targets(all, lockedWr, [])).toEqual([]); expect(targets(all, ir, [])).toEqual([]);
-  });
+  it("nothing for a locked player", () => expect(targets(all, lockedWr, [])).toEqual([]));
   it("skips an empty slot equal to the starter's current slot (no-op)", () => {
     // RB starter in "RB" with empty ["RB"] should not offer a no-op "move to RB" target
     const t = targets(all, rb, ["RB"]);
@@ -111,9 +109,7 @@ describe("swapOptions", () => {
     const benchWr = c(13, "WR", "BE", 10);
     expect(swapOptions([...all, benchWr], benchWr, []).map(key)).toEqual(["swap:2", "locked:6"]);
   });
-  it("nothing for a locked or IR player", () => {
-    expect(swapOptions(all, lockedWr, [])).toEqual([]); expect(swapOptions(all, ir, [])).toEqual([]);
-  });
+  it("nothing for a locked player", () => expect(swapOptions(all, lockedWr, [])).toEqual([]));
 });
 
 describe("applyMoves", () => {
@@ -162,8 +158,8 @@ describe("fillOptions", () => {
   const key = (o: ReturnType<typeof fillOptions>[number]) => (o.kind === "fill" ? `fill:${o.who.player_id}:${o.gain}` : `locked:${o.with.player_id}`);
   it("bench players add their projection, starters elsewhere move for ±0, best first; locked last", () =>
     // FLEX takes RB/WR/TE: bench RB 11, the RB starter (0); the flex WR is already there; the locked WR listed shut;
-    // the bench QB does not fit; IR never
-    expect(fillOptions(all.filter((x) => x.player_id !== 2), "RB/WR/TE").map(key)).toEqual(["fill:4:11", "fill:3:0", "locked:6"]));
+    // the bench QB does not fit; the IR WR comes off IR at his projection (0, he is hurt)
+    expect(fillOptions(all.filter((x) => x.player_id !== 2), "RB/WR/TE").map(key)).toEqual(["fill:4:11", "fill:3:0", "fill:7:0", "locked:6"]));
   it("ties read by name", () => {
     const b = c(8, "WR", "BE", 9, { name: "Brown" }), a = c(9, "WR", "BE", 9, { name: "Adams" });
     expect(fillOptions([b, a], "WR").map(key)).toEqual(["fill:9:9", "fill:8:9"]);
@@ -171,4 +167,72 @@ describe("fillOptions", () => {
   it("OP takes a QB from the bench", () => expect(fillOptions(all, "OP").map(key)).toContain("fill:5:0"));
   it("nobody already in a slot of that type", () =>
     expect(fillOptions(all, "RB").map(key)).toEqual(["fill:4:11"]));
+});
+
+describe("IR", () => {
+  const out = c(20, "RB", "BE", 0, { injury: "OUT" }), irStarter = c(21, "WR", "WR", 7, { injury: "INJURY_RESERVE" }),
+    q = c(22, "WR", "BE", 6, { injury: "QUESTIONABLE" }), benchWr = c(23, "WR", "BE", 8);
+  const roster = [qb, flex, rb, benchRb, benchQb, lockedWr, ir, out, irStarter, q, benchWr];
+  const key = (o: ReturnType<typeof swapOptions>[number]) =>
+    o.kind === "swap" ? `swap:${o.with.player_id}:${o.gain}` : o.kind === "locked" ? `locked:${o.with.player_id}`
+      : o.kind === "slot" ? `slot:${o.slot}:${o.gain}` : `bench:${o.gain}`;
+  const fkey = (o: ReturnType<typeof fillOptions>[number]) => (o.kind === "fill" ? `fill:${o.who.player_id}:${o.gain}` : `locked:${o.with.player_id}`);
+
+  it("only IR or Out may go in", () => {
+    expect(["INJURY_RESERVE", "OUT"].map((injury) => irEligible({ injury }))).toEqual([true, true]);
+    expect(["ACTIVE", "QUESTIONABLE", "DOUBTFUL", "SUSPENSION", "NORMAL", ""].some((injury) => irEligible({ injury }))).toBe(false);
+  });
+  it("an IR player goes to the bench, an empty starting slot that takes him, or swaps with an IR-eligible player", () => {
+    // the flex WR (ACTIVE), the bench WR and the Questionable WR cannot take IR; the Out RB and the IR-listed WR starter can
+    expect(swapOptions(roster, ir, ["RB/WR/TE"]).map(key)).toEqual(["slot:RB/WR/TE:0", "bench:0", "swap:20:0", "swap:21:-7"]);
+  });
+  it("an IR-eligible player gets To IR when IR has room, and the swap with the occupant", () => {
+    expect(swapOptions(roster.filter((x) => x !== ir), out, ["IR"]).map(key)).toContain("slot:IR:0");
+    expect(swapOptions(roster, out, []).map(key)).toContain("swap:7:0");
+    // a starter listed IR takes his projection out of the lineup when he goes in
+    expect(swapOptions(roster.filter((x) => x !== ir), irStarter, ["IR"]).map(key)).toContain("slot:IR:-7");
+  });
+  it("an ineligible player is never offered IR", () => {
+    for (const p of [benchRb, q, benchWr, flex]) {
+      expect(swapOptions(roster.filter((x) => x !== ir), p, ["IR"]).map(key).some((k) => k.startsWith("slot:IR"))).toBe(false);
+      expect(swapOptions(roster, p, []).map(key).some((k) => k.startsWith("swap:7:"))).toBe(false);
+    }
+  });
+  it("an empty IR's fill lists only players listed IR or Out", () =>
+    expect(fillOptions(roster.filter((x) => x !== ir), "IR").map(fkey)).toEqual(["fill:20:0", "fill:21:-7"]));
+  it("moves into IR re-slot to the ir group and fill the empty IR", () => {
+    const r = applyMoves({ cards: roster.filter((x) => x !== ir), empty_slots: ["IR"] }, [{ player_id: 20, to_slot: "IR" }]);
+    expect(r.cards.find((x) => x.player_id === 20)).toMatchObject({ slot: "IR", group: "ir" });
+    expect(r.empty_slots).toEqual([]);
+  });
+  it("moving the IR player off leaves IR empty, after the starting slots", () => {
+    const r = applyMoves({ cards: [rb, ir], empty_slots: [] }, [{ player_id: 7, to_slot: "BE" }, { player_id: 3, to_slot: "BE" }]);
+    expect(r.cards.find((x) => x.player_id === 7)).toMatchObject({ slot: "BE", group: "bench" });
+    expect(r.empty_slots).toEqual(["RB", "IR"]);
+  });
+});
+
+describe("illegal IR", () => {
+  const healed = c(7, "WR", "IR", 0, { injury: "ACTIVE" }), out = c(20, "RB", "BE", 0, { injury: "OUT" });
+  const roster = [qb, flex, rb, benchRb, benchQb, healed, out];
+  it("is an IR player with no designation; Q, D, Out, IR and suspension may stay", () => {
+    expect(irIllegal(roster)).toBe(healed);
+    for (const injury of ["ACTIVE", "NORMAL", ""]) expect(irIllegal([c(7, "WR", "IR", 0, { injury })])?.player_id).toBe(7);
+    expect(irIllegal([c(7, "WR", "IR", 0, { injury: null as unknown as string })])?.player_id).toBe(7);
+    for (const injury of ["QUESTIONABLE", "DOUBTFUL", "OUT", "INJURY_RESERVE", "SUSPENSION"]) {
+      expect(irIllegal([c(7, "WR", "IR", 0, { injury })])).toBeNull();
+    }
+    expect(irIllegal([c(8, "WR", "BE", 0)])).toBeNull();
+  });
+  it("blocks every other player's moves but the one that takes his place on IR", () => {
+    expect(swapOptions(roster, benchRb, ["RB/WR/TE"])).toEqual([]);
+    expect(swapOptions(roster, flex, [])).toEqual([]);
+    expect(swapOptions(roster, out, []).map((o) => (o.kind === "swap" ? o.with.player_id : o.kind))).toEqual([7]);
+  });
+  it("leaves his own sheet as usual", () =>
+    expect(swapOptions(roster, healed, ["RB/WR/TE"]).map((o) => (o.kind === "swap" ? o.with.player_id : o.kind))).toEqual(["slot", "bench", 20]));
+  it("lets an empty slot be filled only by him", () => {
+    expect(fillOptions(roster, "RB/WR/TE").map((o) => (o.kind === "fill" ? o.who.player_id : o.kind))).toEqual([7]);
+    expect(fillOptions(roster, "QB")).toEqual([]);
+  });
 });

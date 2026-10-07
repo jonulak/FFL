@@ -21,27 +21,41 @@ export function isMismatch(c: Pick<Card, "group" | "call">): boolean {
 
 export type Target = { kind: "swap"; with: Card; gain: number } | { kind: "slot"; slot: string; gain: number } | { kind: "bench"; gain: number };
 
-const fits = (p: Card, slot: string) => slot === "BE" || accepts(slot).has(p.pos);
+// The league's IR rule (season.IR_ENTRY / NO_DESIGNATION): only a player listed IR or Out may go INTO IR; one already
+// there may stay while he carries any designation. With none the roster is illegal and ESPN allows no other move.
+export const IR_ENTRY = new Set(["INJURY_RESERVE", "OUT"]);
+export const NO_DESIGNATION = new Set(["ACTIVE", "NORMAL", ""]);
+export const irEligible = (c: Pick<Card, "injury">) => IR_ENTRY.has(c.injury ?? "");
+
+// The IR player with no injury designation, if any (season.ir_illegal): every other move waits on him.
+export function irIllegal(cards: Card[]): Card | null {
+  return cards.find((c) => c.slot === "IR" && NO_DESIGNATION.has(c.injury ?? "")) ?? null;
+}
+
+const fits = (p: Card, slot: string) =>
+  slot === "BE" || (slot === "IR" ? p.slot === "IR" || irEligible(p) : accepts(slot).has(p.pos));
 const starts = (slot: string) => slot !== "BE" && slot !== "IR";
-const round = (n: number) => Math.round(n * 10) / 10;
+// what a player is worth to the starting lineup in a slot
+const worth = (c: Card, slot: string) => (starts(slot) ? c.play_proj : 0);
+const round = (n: number) => Math.round(n * 10) / 10 || 0;  // never −0
 
 // Where the picked player can go in one tap, with the change to the starting lineup's projection. A swap needs
-// each player to fit the other's slot; locked and IR players are never offered; two bench players never swap.
+// each player to fit the other's slot (IR takes only a player listed IR or Out); locked players are never
+// offered; two bench players never swap.
 export function targets(cards: Card[], picked: Card, empty: string[]): Target[] {
-  if (picked.locked || picked.slot === "IR") return [];
+  if (picked.locked) return [];
   const out: Target[] = [];
   for (const q of cards) {
-    if (q.player_id === picked.player_id || q.locked || q.slot === "IR" || q.slot === picked.slot) continue;
-    if (!starts(q.slot) && !starts(picked.slot)) continue;
+    if (q.player_id === picked.player_id || q.locked || q.slot === picked.slot) continue;
+    if (q.slot === "BE" && picked.slot === "BE") continue;
     if (!fits(picked, q.slot) || !fits(q, picked.slot)) continue;
-    const gain = starts(picked.slot) === starts(q.slot) ? 0
-      : starts(q.slot) ? picked.play_proj - q.play_proj : q.play_proj - picked.play_proj;
+    const gain = worth(picked, q.slot) + worth(q, picked.slot) - worth(picked, picked.slot) - worth(q, q.slot);
     out.push({ kind: "swap", with: q, gain: round(gain) });
   }
   for (const slot of new Set(empty)) {
-    if (slot !== picked.slot && fits(picked, slot)) out.push({ kind: "slot", slot, gain: starts(picked.slot) ? 0 : round(picked.play_proj) });
+    if (slot !== picked.slot && fits(picked, slot)) out.push({ kind: "slot", slot, gain: round(worth(picked, slot) - worth(picked, picked.slot)) });
   }
-  if (starts(picked.slot)) out.push({ kind: "bench", gain: round(-picked.play_proj) });
+  if (picked.slot !== "BE") out.push({ kind: "bench", gain: round(-worth(picked, picked.slot)) });
   return out;
 }
 
@@ -62,9 +76,14 @@ const bySlotName = (a: SwapOption, b: SwapOption) =>
   slotRank(optionSlot(a)) - slotRank(optionSlot(b)) || optionName(a).localeCompare(optionName(b));
 
 // The swap sheet's rows: every target, best change to the lineup first (then ESPN's slot order, then name), and
-// after them the partners who would be legal but whose game has started. Nothing for a locked or IR player.
+// after them the partners who would be legal but whose game has started. Nothing for a locked player. While an IR
+// player has no designation (irIllegal), anyone else is offered only the move that takes his place on IR.
 export function swapOptions(cards: Card[], picked: Card, empty: string[]): SwapOption[] {
-  if (picked.locked || picked.slot === "IR") return [];
+  if (picked.locked) return [];
+  const bad = irIllegal(cards);
+  if (bad && bad.player_id !== picked.player_id) {
+    return targets(cards, picked, []).filter((t) => t.kind === "swap" && t.with.player_id === bad.player_id);
+  }
   const open: SwapOption[] = targets(cards, picked, empty).sort((a, b) => b.gain - a.gain || bySlotName(a, b));
   const byId = new Map(cards.map((c) => [c.player_id, c]));
   const shut: SwapOption[] = targets(cards.map((c) => (c.locked ? { ...c, locked: false } : c)), picked, [])
@@ -74,17 +93,19 @@ export function swapOptions(cards: Card[], picked: Card, empty: string[]): SwapO
   return [...open, ...shut];
 }
 
-// An empty starting slot's sheet: everyone who could fill it. Bench players add their projection; a starter in
-// another slot moves over and leaves that one empty instead (no change). IR and anyone already in a slot of this
-// type are left out; a player whose game has started is listed after, not tappable.
+// An empty slot's sheet: everyone who could fill it. Bench and IR players add their projection to a starting slot;
+// a starter in another slot moves over and leaves that one empty instead (no change). An empty IR takes only a
+// player listed IR or Out. Anyone already in a slot of this type is left out; a player whose game has started is
+// listed after, not tappable. While an IR player has no designation (irIllegal), only he is offered.
 export type Fill = { kind: "fill"; who: Card; gain: number };
 export type FillOption = Fill | { kind: "locked"; with: Card };
 
 export function fillOptions(cards: Card[], slot: string): FillOption[] {
-  const fit = cards.filter((c) => c.slot !== "IR" && c.group !== "ir" && c.slot !== slot && accepts(slot).has(c.pos));
+  const bad = irIllegal(cards);
+  const fit = cards.filter((c) => c.slot !== slot && fits(c, slot) && (!bad || c.player_id === bad.player_id));
   const byName = (a: Card, b: Card) => a.name.localeCompare(b.name);
   const open: FillOption[] = fit.filter((c) => !c.locked)
-    .map((c) => ({ kind: "fill" as const, who: c, gain: starts(c.slot) ? 0 : round(c.play_proj) }))
+    .map((c) => ({ kind: "fill" as const, who: c, gain: round(worth(c, slot) - worth(c, c.slot)) }))
     .sort((a, b) => b.gain - a.gain || byName(a.who, b.who));
   const shut: FillOption[] = fit.filter((c) => c.locked).sort(byName).map((c) => ({ kind: "locked" as const, with: c }));
   return [...open, ...shut];
@@ -95,12 +116,13 @@ export type Move = { player_id: number; to_slot: string };
 const groupOf = (slot: string): Card["group"] => (slot === "BE" ? "bench" : slot === "IR" ? "ir" : "starter");
 
 // The page as it will be once ESPN takes `moves`, drawn before it answers: the moved cards re-slotted (their group
-// follows the slot) and the empty starting slots recounted against the lineup's own size, which is every starting
-// slot's players plus its empties before the move. The POST's answer replaces it.
+// follows the slot) and the empty slots (starting and IR, as season.empty_slots) recounted against the lineup's own
+// size, which is every such slot's players plus its empties before the move. The POST's answer replaces it.
 export function applyMoves<T extends { cards: Card[]; empty_slots: string[] }>(r: T, moves: Move[]): T {
   const size = new Map<string, number>();
   const add = (m: Map<string, number>, s: string) => m.set(s, (m.get(s) ?? 0) + 1);
-  for (const c of r.cards) if (starts(c.slot)) add(size, c.slot);
+  const sized = (s: string) => s !== "BE";
+  for (const c of r.cards) if (sized(c.slot)) add(size, c.slot);
   for (const s of r.empty_slots) add(size, s);
   const to = new Map(moves.map((m) => [m.player_id, m.to_slot]));
   const cards = r.cards.map((c) => {
@@ -108,7 +130,7 @@ export function applyMoves<T extends { cards: Card[]; empty_slots: string[] }>(r
     return slot === undefined || slot === c.slot ? c : { ...c, slot, group: groupOf(slot) };
   });
   const filled = new Map<string, number>();
-  for (const c of cards) if (starts(c.slot)) add(filled, c.slot);
+  for (const c of cards) if (sized(c.slot)) add(filled, c.slot);
   const slots = [...SLOT_ORDER, ...[...size.keys()].filter((s) => !SLOT_ORDER.includes(s))];
   const empty = slots.flatMap((s) => Array<string>(Math.max(0, (size.get(s) ?? 0) - (filled.get(s) ?? 0))).fill(s));
   return { ...r, cards, empty_slots: empty };

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, Lock } from "lucide-react";
+import { ArrowDownToLine, BriefcaseMedical, Lock } from "lucide-react";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -8,7 +8,7 @@ import type { Card } from "@/lib/api";
 import { pts, shortName } from "@/lib/format";
 import { accepts, type Fill, type FillOption, gainText, slotLabel, type SwapOption, type Target } from "@/lib/lineup";
 import { PHONE_INSET } from "./claims-submit";
-import { CallChip, Headshot, InjuryMark } from "./roster-cards";
+import { CallChip, Headshot, InjuryMark, IrBlocked } from "./roster-cards";
 
 // md and up gets the centred dialog; the phone and tablet get the bottom sheet. Closed on the server, so the
 // first render never needs to know.
@@ -40,7 +40,8 @@ function cardRows(picked: Card, options: SwapOption[]): Row[] {
     if (o.kind === "locked") return lockedRow(o.with);
     if (o.kind === "bench") return { key: "bench", slot: "BE", who: null, label: `Move ${picked.name} to the bench`, gain: o.gain, pick: o };
     if (o.kind === "slot") {
-      return { key: `s${o.slot}`, slot: o.slot, who: null, label: `Move ${picked.name} to the empty ${slotLabel(o.slot)}`, gain: o.gain, pick: o };
+      const to = o.slot === "IR" ? "IR" : `the empty ${slotLabel(o.slot)}`;
+      return { key: `s${o.slot}`, slot: o.slot, who: null, label: `Move ${picked.name} to ${to}`, gain: o.gain, pick: o };
     }
     return { key: `p${o.with.player_id}`, slot: o.with.slot, who: o.with, gain: o.gain, pick: o,
       label: `Swap ${picked.name} with ${o.with.name}, ${slotLabel(o.with.slot)}` };
@@ -74,9 +75,10 @@ function OptionRow({ r, onPick }: { r: Row; onPick: () => void }) {
     shot = (
       <div aria-hidden className="flex size-10 items-center justify-center rounded-md border border-dashed border-foreground/25 text-muted-foreground">
         {r.slot === "BE" && <ArrowDownToLine className="size-4" />}
+        {r.slot === "IR" && <BriefcaseMedical className="size-4" />}
       </div>
     );
-    name = r.slot === "BE" ? "To bench" : `Empty ${slotLabel(r.slot)}`;
+    name = r.slot === "BE" ? "To bench" : r.slot === "IR" ? "To IR" : `Empty ${slotLabel(r.slot)}`;
   }
   return (
     <li>
@@ -103,8 +105,9 @@ function OptionRow({ r, onPick }: { r: Row; onPick: () => void }) {
   );
 }
 
-function Body({ subject, move, Title, Description }: {
-  subject: SheetSubject; move: (p: SheetPick) => void; Title: typeof DialogTitle; Description: typeof DialogDescription;
+function Body({ subject, move, blocked, onFix, Title, Description }: {
+  subject: SheetSubject; move: (p: SheetPick) => void; blocked: Card | null; onFix: (c: Card) => void;
+  Title: typeof DialogTitle; Description: typeof DialogDescription;
 }) {
   const rows = subject.kind === "card" ? cardRows(subject.card, subject.options) : fillRows(subject.slot, subject.options);
   const open = rows.filter((r) => r.pick).length;
@@ -133,20 +136,27 @@ function Body({ subject, move, Title, Description }: {
         <div className="min-w-0">
           <Title className="truncate font-display text-xl font-bold leading-tight tracking-tight">Fill {slotLabel(subject.slot)}</Title>
           <Description className="mt-0.5 text-sm text-muted-foreground">
-            Empty starting slot <span aria-hidden>·</span> takes {[...accepts(subject.slot)].join(", ")}
+            {subject.slot === "IR"
+              ? <>Empty IR slot <span aria-hidden>·</span> IR or Out only</>
+              : <>Empty starting slot <span aria-hidden>·</span> takes {[...accepts(subject.slot)].join(", ")}</>}
           </Description>
         </div>
       </>
     );
   }
+  // while an IR player has no designation, anyone else's sheet says so first and offers only the move that fixes it
+  const block = blocked && !(subject.kind === "card" && subject.card.player_id === blocked.player_id) ? blocked : null;
   const none = subject.kind === "card"
     ? "Nowhere to move him: every slot he fits is taken by a player whose game has started."
-    : "Nobody can fill it: every player who fits is on IR, already in this slot, or his game has started.";
+    : subject.slot === "IR"
+      ? "Nobody can go on IR: only a player ESPN lists as IR or Out can, and nobody on the roster is."
+      : "Nobody can fill it: every player who fits is already in this slot or his game has started.";
   return (
     <>
       <div className="flex items-center gap-3 pr-10">{header}</div>
+      {block && <IrBlocked c={block} onFix={() => onFix(block)} disabled={false} />}
       <div className="-mx-2 min-h-0 overflow-y-auto overscroll-contain">
-        {open === 0 && <p className="px-2 py-3 text-sm text-muted-foreground">{none}</p>}
+        {open === 0 && !block && <p className="px-2 py-3 text-sm text-muted-foreground">{none}</p>}
         <ul className="space-y-0.5">
           {rows.map((r) => <OptionRow key={r.key} r={r} onPick={() => { if (r.pick) move(r.pick); }} />)}
         </ul>
@@ -157,8 +167,9 @@ function Body({ subject, move, Title, Description }: {
 
 // The swap sheet: the picked player's options, or who can fill an empty slot, best change to the lineup first. A
 // tap posts the move and closes the sheet at once: the page shows the move before ESPN answers (RosterLive).
-export function SwapSheet({ subject, move, onClose }: {
+export function SwapSheet({ subject, move, onClose, blocked, onFix }: {
   subject: SheetSubject | null; move: (p: SheetPick) => void; onClose: () => void;
+  blocked: Card | null; onFix: (c: Card) => void;
 }) {
   const desk = useDesk();
   // hold the last subject through the closing animation, when RosterLive has already cleared it
@@ -168,7 +179,7 @@ export function SwapSheet({ subject, move, onClose }: {
   const onOpenChange = (o: boolean) => { if (!o) onClose(); };
   const body = shown && (
     <Body key={shown.kind === "card" ? `p${shown.card.player_id}` : `s${shown.slot}`} subject={shown} move={move}
-      Title={desk ? DialogTitle : SheetTitle} Description={desk ? DialogDescription : SheetDescription} />
+      blocked={blocked} onFix={onFix} Title={desk ? DialogTitle : SheetTitle} Description={desk ? DialogDescription : SheetDescription} />
   );
   if (desk) {
     return (

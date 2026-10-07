@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import type { Card } from "@/lib/api";
 import { STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
-import { isMismatch, SLOT_ORDER, slotLabel, type LineupFailure } from "@/lib/lineup";
+import { irIllegal, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure } from "@/lib/lineup";
 import { NAME_LINK } from "@/lib/player-log";
 import { headshotUrl, team } from "@/lib/teams";
 import { Kickoff } from "./local-time";
@@ -82,14 +82,12 @@ function SlotName({ slot }: { slot: string }) {
   return <><span aria-hidden className="lg:hidden">BE</span><span className="max-lg:sr-only">{label}</span></>;
 }
 
-// The slot label is the move control (ESPN's MOVE): a tap opens his sheet of moves. A started game makes it a plain
-// label with a lock mark; IR is plain text, since IR moves are not made here.
+// The slot label is the move control (ESPN's MOVE): a tap opens his sheet of moves, IR included. A started game
+// makes it a plain label with a lock mark.
 function SlotControl({ c, picked, busy, disabled, onPick }: {
   c: Card; picked: boolean; busy: boolean; disabled: boolean; onPick: () => void;
 }) {
-  const ir = c.slot === "IR" || c.group === "ir";
-  const tone = c.slot === "BE" || ir ? "text-muted-foreground" : "text-foreground/85";
-  if (ir) return <div className={SLOT_CELL}><span className={`${SLOT_BOX} ${SLOT_TEXT} ${tone}`}><SlotName slot={c.slot} /></span></div>;
+  const tone = c.slot === "BE" || c.slot === "IR" ? "text-muted-foreground" : "text-foreground/85";
   if (c.locked) {
     return (
       <div className={SLOT_CELL} title="his game has started">
@@ -234,6 +232,21 @@ export function CallChip({ c, week, split = false }: { c: Card; week?: number; s
   );
 }
 
+// An IR player with no injury designation (lineup.irIllegal): ESPN refuses every other move until he is off IR. Said
+// above the lineup and in every other player's sheet, with the one button that opens his.
+export function IrBlocked({ c, onFix, disabled }: { c: Card; onFix: () => void; disabled: boolean }) {
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-lg border border-out/45 bg-out/[0.08] px-3.5 py-3">
+      <p className="min-w-0 flex-1 basis-56 text-[0.9375rem] leading-snug text-pretty">
+        <span className="font-semibold">{c.name}</span> is on IR with no injury designation — ESPN blocks every move until he comes off IR.
+      </p>
+      <Button variant="outline" className="h-11 shrink-0 px-4 md:h-9" disabled={disabled || c.locked} onClick={onFix}>
+        Move {shortName(c.name)}
+      </Button>
+    </div>
+  );
+}
+
 export function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
   return (
     <div role={f.moved ? "status" : "alert"} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:msg]">
@@ -243,9 +256,9 @@ export function Failure({ f, reload }: { f: LineupFailure; reload: () => void })
   );
 }
 
-function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
+function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
   c: Card; week: number; runBusy: boolean; open: boolean; onOpen: (open: boolean) => void; swap: SwapControl;
-  notice: string | null;
+  notice: string | null; illegal: boolean;
 }) {
   const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR";
   const live = c.game_played > 0 || c.actual > 0;
@@ -309,6 +322,9 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
           </div>
           {error && <Failure f={error} reload={swap.reload} />}
           {notice && !error && <p aria-hidden className="pt-1 text-right text-xs text-muted-foreground [grid-area:msg]">{notice}</p>}
+          {illegal && !error && !notice && (
+            <p className="pt-1 text-right text-xs font-medium text-out [grid-area:msg]">No injury designation — move him off IR</p>
+          )}
         </div>
         <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-300 ease-(--ease-arrive) data-[ending-style]:h-0 data-[starting-style]:h-0">
           {/* under the person column: the slot, tile and their gutters plus the row's own padding */}
@@ -324,7 +340,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
   );
 }
 
-// A starting slot ESPN has nobody in. A tap opens the sheet of who can fill it; the swap sheet offers it too.
+// A starting or IR slot ESPN has nobody in. A tap opens the sheet of who can fill it; the swap sheet offers it too.
 function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
   return (
     <li>
@@ -355,11 +371,14 @@ function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
 type Item = { kind: "card"; c: Card } | { kind: "empty"; slot: string; key: string };
 const order = (slot: string) => { const i = SLOT_ORDER.indexOf(slot); return i < 0 ? SLOT_ORDER.length : i; };
 
-// Starters in ESPN's lineup order with its empty slots in place; the bench and IR as the API sends them.
+// Starters in ESPN's lineup order with its empty slots in place; the bench as the API sends it; IR with its open
+// spots after its players.
 function items(cards: Card[], group: Card["group"], empty: string[]): Item[] {
   const rows: Item[] = cards.filter((c) => c.group === group).map((c) => ({ kind: "card", c }));
+  const open = (slots: string[]) => slots.map((slot, i): Item => ({ kind: "empty", slot, key: `${slot}-${i}` }));
+  if (group === "ir") return [...rows, ...open(empty.filter((s) => s === "IR"))];
   if (group !== "starter") return rows;
-  rows.push(...empty.map((slot, i): Item => ({ kind: "empty", slot, key: `${slot}-${i}` })));
+  rows.push(...open(empty.filter((s) => s !== "IR")));
   const slotOf = (r: Item) => (r.kind === "card" ? r.c.slot : r.slot);
   return rows.map((r, i) => [r, i] as const).sort(([a, i], [b, j]) => order(slotOf(a)) - order(slotOf(b)) || i - j).map(([r]) => r);
 }
@@ -368,10 +387,12 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
   cards: Card[]; empty: string[]; week: number; runBusy: boolean;
   open: number | null; setOpen: (id: number | null) => void; swap: SwapControl; notice: Notice | null;
 }) {
+  const bad = irIllegal(cards);
   return (
     <div className="space-y-7">
       {/* read out from here; shown beside the row that moved, which may be far down the page */}
       <p aria-live="polite" className="sr-only">{notice?.text}</p>
+      {bad && <IrBlocked c={bad} onFix={() => swap.pick(bad)} disabled={swap.pending.length > 0} />}
       {GROUPS.map(({ key, title }) => {
         const rows = items(cards, key, empty);
         if (rows.length === 0) return null;
@@ -388,7 +409,7 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
             <ul className="divide-y divide-foreground/10 overflow-hidden rounded-lg bg-card shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)]">
               {rows.map((r) => r.kind === "card"
                 ? <PlayerRow key={r.c.player_id} c={r.c} week={week} runBusy={runBusy} swap={swap}
-                    notice={notice?.id === r.c.player_id ? notice.text : null}
+                    notice={notice?.id === r.c.player_id ? notice.text : null} illegal={bad?.player_id === r.c.player_id}
                     open={open === r.c.player_id} onOpen={(o) => setOpen(o ? r.c.player_id : null)} />
                 : <EmptyRow key={r.key} slot={r.slot} swap={swap} />)}
             </ul>

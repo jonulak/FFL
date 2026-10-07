@@ -580,7 +580,7 @@ def test_starters_sort_in_espn_slot_order_whatever_the_position():
 
 
 def test_empty_slots_lists_each_unfilled_starter_spot():
-    settings = {"starters": {"RB": 2, "RB/WR/TE": 2}}
+    settings = {"starters": {"RB": 2, "RB/WR/TE": 2}, "ir_size": 0}
     ps = [{"player_id": 1, "pos": "RB", "slot": "RB"}, {"player_id": 2, "pos": "WR", "slot": "RB/WR/TE"},
           {"player_id": 3, "pos": "WR", "slot": "BE"}]
     assert season.empty_slots(ps, settings) == ["RB", "RB/WR/TE"]
@@ -591,7 +591,9 @@ R = [{"player_id": 1, "name": "Qb", "pos": "QB", "slot": "QB"},
      {"player_id": 2, "name": "Flex", "pos": "WR", "slot": "RB/WR/TE"},
      {"player_id": 3, "name": "Bench", "pos": "RB", "slot": "BE"},
      {"player_id": 4, "name": "Rb", "pos": "RB", "slot": "RB", "locked": True},
-     {"player_id": 5, "name": "Hurt", "pos": "WR", "slot": "IR"}]
+     {"player_id": 5, "name": "Hurt", "pos": "WR", "slot": "IR", "injury": "INJURY_RESERVE"},
+     {"player_id": 7, "name": "Sore", "pos": "WR", "slot": "BE", "injury": "OUT"},
+     {"player_id": 8, "name": "Iffy", "pos": "RB", "slot": "BE", "injury": "QUESTIONABLE"}]
 
 
 def test_lineup_moves_turns_a_swap_into_two_items():
@@ -604,9 +606,81 @@ def test_lineup_moves_refuses_a_slot_that_does_not_take_him():
     assert errs == ["Qb: FLEX does not take a QB"]
 
 
-def test_lineup_moves_refuses_a_locked_player_and_ir():
-    _, errs = season.lineup_moves([{"player_id": 4, "to_slot": "BE"}, {"player_id": 5, "to_slot": "BE"}], R, ST)
-    assert errs == ["Rb: his game has started", "Hurt: IR moves are made in ESPN"]
+def test_lineup_moves_refuses_a_locked_player():
+    _, errs = season.lineup_moves([{"player_id": 4, "to_slot": "BE"}], R, ST)
+    assert errs == ["Rb: his game has started"]
+
+
+def test_lineup_moves_refuses_a_locked_player_into_ir():
+    locked_out = [*R, {"player_id": 9, "name": "Gone", "pos": "WR", "slot": "BE", "injury": "OUT", "locked": True}]
+    _, errs = season.lineup_moves([{"player_id": 5, "to_slot": "BE"}, {"player_id": 9, "to_slot": "IR"}], locked_out, ST)
+    assert errs == ["Gone: his game has started"]
+
+
+def test_empty_slots_counts_the_open_ir_spots_after_the_starters():
+    settings = {"starters": {"K": 1}, "ir_size": 2}
+    assert season.empty_slots([{"player_id": 1, "pos": "WR", "slot": "IR"}], settings) == ["K", "IR"]
+    assert season.empty_slots([], {"starters": {}}) == ["IR"], "an older settings.json without ir_size: ESPN's one"
+
+
+def test_lineup_moves_ir_off_to_the_bench():
+    assert season.lineup_moves([{"player_id": 5, "to_slot": "BE"}], R, ST) == ([(5, "IR", "BE")], [])
+
+
+def test_lineup_moves_ir_off_to_a_starting_slot_that_takes_him():
+    bench_flex = [{**p, "slot": "BE"} if p["player_id"] == 2 else p for p in R]
+    assert season.lineup_moves([{"player_id": 5, "to_slot": "RB/WR/TE"}], bench_flex, ST) == ([(5, "IR", "RB/WR/TE")], [])
+    _, errs = season.lineup_moves([{"player_id": 5, "to_slot": "QB"}], R, ST)
+    assert errs == ["Hurt: QB does not take a WR"]
+
+
+def test_lineup_moves_an_out_player_into_an_open_ir():
+    open_ir = [p for p in R if p["player_id"] != 5]
+    assert season.lineup_moves([{"player_id": 7, "to_slot": "IR"}], open_ir, ST) == ([(7, "BE", "IR")], [])
+
+
+def test_lineup_moves_refuses_ir_for_anyone_not_listed_ir_or_out():
+    open_ir = [p for p in R if p["player_id"] != 5]
+    _, errs = season.lineup_moves([{"player_id": 3, "to_slot": "IR"}, {"player_id": 8, "to_slot": "IR"}], open_ir, ST)
+    assert errs == ["Bench: only IR or Out can go on IR", "Iffy: only IR or Out can go on IR"]
+
+
+def test_lineup_moves_refuses_more_on_ir_than_the_league_has_spots():
+    _, errs = season.lineup_moves([{"player_id": 7, "to_slot": "IR"}], R, {**ST, "ir_size": 1})
+    assert errs == ["IR: 2 players for 1 spots"]
+
+
+def test_lineup_moves_swaps_the_ir_occupant_with_an_eligible_bench_player():
+    moves = [{"player_id": 7, "to_slot": "IR"}, {"player_id": 5, "to_slot": "BE"}]
+    assert season.lineup_moves(moves, R, ST) == ([(7, "BE", "IR"), (5, "IR", "BE")], [])
+
+
+def test_ir_illegal_is_an_ir_player_with_no_designation():
+    roster = [{"player_id": i, "slot": "IR", "injury": s} for i, s in
+              enumerate(["ACTIVE", "NORMAL", None, "", "QUESTIONABLE", "DOUBTFUL", "OUT", "INJURY_RESERVE", "SUSPENSION"])]
+    assert [p["player_id"] for p in season.ir_illegal(roster)] == [0, 1, 2, 3]
+    assert season.ir_illegal([{"player_id": 9, "slot": "BE", "injury": "ACTIVE"}]) == []
+
+
+HEALED = [{**p, "injury": "ACTIVE"} if p["player_id"] == 5 else p for p in R]
+
+
+def test_lineup_moves_an_illegal_ir_blocks_every_other_move():
+    _, errs = season.lineup_moves([{"player_id": 3, "to_slot": "RB/WR/TE"}, {"player_id": 2, "to_slot": "BE"}], HEALED, ST)
+    assert errs == ["Hurt is on IR without an injury designation — move him off IR first"]
+
+
+def test_lineup_moves_an_illegal_ir_player_may_come_off():
+    assert season.lineup_moves([{"player_id": 5, "to_slot": "BE"}], HEALED, ST) == ([(5, "IR", "BE")], [])
+    swap = [{"player_id": 5, "to_slot": "BE"}, {"player_id": 7, "to_slot": "IR"}]
+    assert season.lineup_moves(swap, HEALED, ST) == ([(5, "IR", "BE"), (7, "BE", "IR")], [])
+    _, errs = season.lineup_moves([{"player_id": 5, "to_slot": "BE"}, {"player_id": 3, "to_slot": "IR"}], HEALED, ST)
+    assert errs == ["Bench: only IR or Out can go on IR"], "the swap's other half is validated as usual"
+
+
+def test_lineup_moves_a_questionable_player_may_stay_on_ir():
+    iffy_ir = [{**p, "injury": "QUESTIONABLE"} if p["player_id"] == 5 else p for p in R]
+    assert season.lineup_moves([{"player_id": 3, "to_slot": "RB/WR/TE"}, {"player_id": 2, "to_slot": "BE"}], iffy_ir, ST)[1] == []
 
 
 def test_lineup_moves_refuses_an_overfilled_slot():

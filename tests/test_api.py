@@ -972,3 +972,31 @@ def test_cache_put_beats_a_revalidate_that_started_before_it():
     release.set()
     t.join()
     assert c._d["k"].payload == "new"
+
+
+def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch, tmp_path):
+    # FFL_WRITES=0: the IR occupant to the bench and an Out bench player onto IR, through the fake store, and back
+    monkeypatch.setenv("FFL_WRITES", "0")
+    monkeypatch.setattr(api.espn_write, "_FAKE_SLOTS", {})
+    monkeypatch.setattr(api.espn_write, "move_lineup", ORIGINAL_MOVE_LINEUP)
+    monkeypatch.setattr(api.espn_write, "writes", ORIGINAL_WRITES)
+    cards = [{"player_id": 5, "name": "Hurt", "pos": "WR", "slot": "IR", "injury": "INJURY_RESERVE", "call": "IR",
+              "gap": None, "group": "ir", "locked": False},
+             {"player_id": 7, "name": "Sore", "pos": "RB", "slot": "BE", "injury": "OUT", "call": "OUT",
+              "gap": None, "group": "bench", "locked": False}]
+    monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None, flags=None: {
+        "week": 3, "live": False, "empty_slots": [], "writes": False,
+        "cards": [{**c, "slot": api.espn_write.fake_slots().get(c["player_id"], c["slot"])} for c in cards]})
+    monkeypatch.setattr(api.espn_season, "roster_flags",
+                        lambda lg: {c["player_id"]: {"locked": False, "slot": c["slot"]} for c in cards})
+    monkeypatch.setattr(api.espn_season, "load", lambda: {"starters": {"RB/WR/TE": 1}, "ir_size": 1})
+    r = lineup_env.post("/lineup", json={"moves": [{"player_id": 5, "to_slot": "BE"}, {"player_id": 7, "to_slot": "IR"}]})
+    assert r.status_code == 200, r.json()
+    assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {5: "BE", 7: "IR"}
+    assert api.espn_write.fake_slots() == {5: "BE", 7: "IR"}
+    # validated against the fake slots: IR is full now
+    r = lineup_env.post("/lineup", json={"moves": [{"player_id": 5, "to_slot": "IR"}]})
+    assert r.status_code == 409 and r.json()["detail"]["errors"] == ["IR: 2 players for 1 spots"]
+    assert lineup_env.post("/lineup", json={"moves": [{"player_id": 7, "to_slot": "BE"}, {"player_id": 5, "to_slot": "IR"}]}).status_code == 200
+    assert api.espn_write.fake_slots() == {5: "IR", 7: "BE"}
+    assert not (tmp_path / "DECISIONS.md").exists(), "a fake move is not a decision"
