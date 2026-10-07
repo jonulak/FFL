@@ -865,6 +865,9 @@ def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):
     monkeypatch.setattr(api.espn_season, "roster_state", after_write)
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["moved"] is True and len(lineup_env.sent) == 1
+    monkeypatch.setattr(api.espn_season, "roster_state", real)  # ESPN is back
+    g = lineup_env.get("/roster")
+    assert {c["player_id"]: c["slot"] for c in g.json()["cards"]} == {3: "RB/WR/TE", 2: "BE"}, "rebuilt, not the cached pre-move page"
 
 
 def test_lineup_posts_the_from_slots_espn_has_now_not_the_cached_ones(lineup_env):

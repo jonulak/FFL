@@ -148,6 +148,11 @@ class Cache:
                 if k == prefix or k.startswith(prefix + ":"):
                     e.expires = 0.0
 
+    def drop(self, key: str):
+        """Forget `key`: the next request builds it inline, never served from the old payload."""
+        with self._lock:
+            self._d.pop(key, None)
+
     def expire_all(self):
         with self._lock:
             for e in self._d.values():
@@ -447,6 +452,7 @@ def lineup(body: LineupIn):
             try:
                 cache.put("roster", espn_season.roster_state(None))
             except Exception as e:  # noqa: BLE001 — ESPN took the move; say so, never show the old slots as current
+                cache.drop("roster")  # the reload this asks for must build from ESPN, not serve the pre-move page
                 raise HTTPException(502, {"source": "espn", "error": "moved in ESPN — the read-back failed, reload", "moved": True}) from e
             try:
                 with DECISIONS.open("a") as f:
