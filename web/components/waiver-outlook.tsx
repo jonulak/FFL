@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import type { WaiverOutlook, FreeAgentRow } from "@/lib/api";
+import type { FreeAgentRow, PlayerLog, WaiverOutlook } from "@/lib/api";
+import { seasonRank } from "@/lib/player-log";
 import { outlookPhase } from "@/lib/waiver-outlook";
 import { Ago } from "./local-time";
 import { Bullets } from "./outlook";
@@ -30,10 +31,15 @@ export function WaiverOutlookButton({ r }: { r: FreeAgentRow }) {
   const latest = useRef(0);
   const show = () => {
     const tap = ++latest.current;
-    const read: FirstRead = { promise: clientGet<WaiverOutlook>(`/waivers/outlook/${r.player_id}`) };
-    // registered before the hold's race, so `value` is set by the time it settles; a failure is the Body's to report
+    const read: FirstRead = {
+      promise: clientGet<WaiverOutlook>(`/waivers/outlook/${r.player_id}`),
+      // the header's jersey and season rank, as the season modal reads them; a failure leaves them off
+      log: clientGet<PlayerLog>(`/player/${r.player_id}`).catch(() => null),
+    };
+    // registered before the hold's race, so the values are set by the time it settles; a failure is the Body's to report
     read.promise.then((v) => { read.value = v; }, () => {});
-    void hold(read.promise).then(() => {
+    void read.log.then((l) => { read.logValue = l; });
+    void hold(Promise.all([read.promise, read.log])).then(() => {
       if (tap !== latest.current) return;
       setFirst(read);
       setOpen(true);
@@ -58,12 +64,21 @@ export function WaiverOutlookButton({ r }: { r: FreeAgentRow }) {
 
 // The tap's read, with `value` set as soon as it lands: the dialog opens on the bullets, not on
 // "Reading…" for a render before the promise's callback runs.
-type FirstRead = { promise: Promise<WaiverOutlook>; value?: WaiverOutlook };
+type FirstRead = {
+  promise: Promise<WaiverOutlook>; value?: WaiverOutlook;
+  log: Promise<PlayerLog | null>; logValue?: PlayerLog | null;
+};
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 function Body({ r, first, setWritten }: { r: FreeAgentRow; first: FirstRead; setWritten: (w: boolean) => void }) {
   const [o, setO] = useState<WaiverOutlook | null>(first.value ?? null);
+  const [log, setLog] = useState<PlayerLog | null>(first.logValue ?? null);
+  useEffect(() => {
+    let live = true;
+    void first.log.then((l) => { if (live) setLog(l); });
+    return () => { live = false; };
+  }, [first]);
   const [fault, setFault] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const running = o?.running ?? false;
@@ -122,7 +137,7 @@ function Body({ r, first, setWritten }: { r: FreeAgentRow; first: FirstRead; set
   return (
     <>
       {/* the season modal's band and game line, so the two dialogs read as one player's */}
-      <PlayerHeader p={r} />
+      <PlayerHeader p={r} week={log?.current_week} rank={log ? seasonRank(log) : undefined} jersey={log?.jersey} />
       <div ref={grow} className="overflow-hidden">
         <div className="max-h-[60dvh] overflow-y-auto px-4 pt-3 pb-4" aria-live="polite">
           {fault && <p className="mb-3 text-sm text-out">{fault}</p>}
