@@ -125,7 +125,8 @@ function Body({ seed, fetch }: { seed: PlayerSeed; fetch: LogFetch }) {
   return (
     <>
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined}
-        rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
+        rank={load.state === "ready" ? seasonRank(load.log) : undefined}
+        jersey={load.state === "ready" ? load.log.jersey : undefined} />
       <div className="overflow-y-auto overscroll-contain">
         <FormSection p={seed} />
         <PlayerRecord load={load} retry={retry} fetch={fetch} className="px-4 pt-4 pb-5" />

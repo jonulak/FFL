@@ -286,6 +286,7 @@ def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], curr
         if s:
             seasons.append(s)
     return {"player_id": p["id"], "name": p.get("fullName"), "pos": pos, "team": team,
+            "jersey": p.get("jersey") or None,  # a string ("41"); a D/ST has none
             "season": season, "current_week": current_week, "seasons": seasons}
 
 

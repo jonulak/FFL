@@ -77,6 +77,7 @@ export type SeasonTotals = {
 export type SeasonLog = { season: number; weeks: WeekLog[]; totals: SeasonTotals | null };
 export type PlayerLog = {
   player_id: number; name: string; pos: string; team: string; season: number; current_week: number; seasons: SeasonLog[];
+  jersey?: string | null; // ESPN's number as written ("41"); none for a D/ST
   stale_since: string | null;
 };
 // A hurt teammate at his position: ESPN's status upper-cased, the return week when the feed has one.

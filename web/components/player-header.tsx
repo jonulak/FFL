@@ -28,7 +28,7 @@ const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 // the name set on a caption scrim at the foot (white type on any club's colour, the Steelers'
 // gold included), and beneath the band, on the dialog's own surface, this week's game.
 // The dialog's close button sits on the band: the DialogContent carries BAND_CLOSE.
-export function PlayerHeader({ p, week, rank }: { p: PlayerSeed; week?: number; rank?: number }) {
+export function PlayerHeader({ p, week, rank, jersey }: { p: PlayerSeed; week?: number; rank?: number; jersey?: string | null }) {
   const t = team(p.team);
   const src = headshotUrl(p.player_id);
   const [portrait, setPortrait] = useState(src !== null);  const hurt = p.injury != null && !HEALTHY.has(p.injury);
@@ -61,11 +61,12 @@ export function PlayerHeader({ p, week, rank }: { p: PlayerSeed; week?: number; 
         <div className="absolute right-12 bottom-0 left-32 pb-3 will-change-transform sm:left-38">
           <DialogTitle className="line-clamp-2 text-balance font-display text-[1.65rem] font-semibold leading-none tracking-tight text-white">
             {p.name}
+            {jersey && <span className="font-medium text-white/70"> #{jersey}</span>}
           </DialogTitle>
           <DialogDescription render={<div />} className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-white/85">
-            {/* his season rank leads the position: "#3 QB", not "QB3", which reads as third string */}
-            <span className="font-semibold text-white" title={rank != null ? `#${rank} ${p.pos} by points this season` : undefined}>
-              {rank != null && `#${rank} `}{p.pos}{rank != null && <span className="sr-only"> by points this season</span>}
+            {/* his season rank trails the position, "RB30": "#" is his jersey number, in the title */}
+            <span className="font-semibold text-white" title={rank != null ? `${p.pos}${rank} by points this season` : undefined}>
+              {p.pos}{rank}{rank != null && <span className="sr-only"> by points this season</span>}
             </span>
             <span aria-hidden>·</span>
             <span>{t.name || p.team}</span>

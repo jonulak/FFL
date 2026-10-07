@@ -34,7 +34,8 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
   const vol = box.length > 0 || p.game ? volumeText(p.volume) : undefined;
   return (
     <>
-      <PlayerHeader p={p} rank={load.state === "ready" ? seasonRank(load.log) : undefined} />
+      <PlayerHeader p={p} rank={load.state === "ready" ? seasonRank(load.log) : undefined}
+        jersey={load.state === "ready" ? load.log.jersey : undefined} />
       <div className="overflow-y-auto overscroll-contain">
         <section aria-labelledby="box-week" className="space-y-1.5 px-4 pt-4">
           <Heading id="box-week" title={`Week ${week}`} note={box.length > 0 ? `${pts(p.actual)} pts` : undefined} />

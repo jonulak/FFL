@@ -88,6 +88,15 @@ def test_player_log_both_seasons():
     assert [s["season"] for s in log["seasons"]] == [2026, 2025]
 
 
+def test_player_log_jersey():
+    """His number rides along as ESPN writes it; a D/ST's missing or empty one reads None."""
+    log = lambda p: pc.player_log({"players": [{"player": p}]}, SCORING, {}, 4, 2026)["jersey"]
+    base = player(3916433)
+    assert log({**base, "jersey": "41"}) == "41"
+    assert log({**base, "jersey": ""}) is None
+    assert log({k: v for k, v in base.items() if k != "jersey"}) is None
+
+
 def test_player_log_history():
     """Past seasons' rows come from other calls, merged into the one stats list; each season
     keeps to its own rows, newest first, and a season he did not play is left out."""
