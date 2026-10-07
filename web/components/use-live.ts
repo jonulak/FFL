@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clientGet } from "@/app/api-client";
+import { generation } from "@/lib/generation";
 
 // A page's data kept live: the server render hands us `initial`; while the API says games are
 // on we listen to its /live event stream and refetch `path` on every tick (a tick means a
@@ -28,6 +29,7 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
     setData(resume(initial, path));
   }
   const from = useRef(initial);
+  const gen = useRef(generation());
   useEffect(() => { from.current = initial; }, [initial]);
   // The clock game phases are read against: fixed at first render (react-hooks/purity), then
   // advanced with each update so a row turns live at kickoff without a reload.
@@ -43,9 +45,11 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
       // one request at a time; a tick that lands mid-fetch queues exactly one more
       if (inflight) { again = true; return; }
       inflight = true;
+      const ticket = gen.current.ticket();
       clientGet<T>(path)
         .then((d) => {
-          if (closed) return;
+          // a replace() landed while this was in flight: this answer is from before it (a lineup move would snap back)
+          if (closed || !gen.current.fresh(ticket)) return;
           latest.set(path, { initial: from.current, data: d });
           setData(d);
           setNow(Date.now());
@@ -74,6 +78,7 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
   // A fresher payload the page got some other way (a POST that answers with it) becomes the data, and the
   // one a back/forward navigation resumes from.
   const replace = useCallback((d: T) => {
+    gen.current.bump();
     latest.set(path, { initial: from.current, data: d });
     setData(d);
     setNow(Date.now());

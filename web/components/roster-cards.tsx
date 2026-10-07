@@ -135,7 +135,7 @@ function MoveAction({ label, aria, gain, busy, onClick }: { label: string; aria:
         {gainText(gain)}
         <span className="sr-only"> projected points</span>
       </span>
-      <Button variant="outline" size="sm" className="h-9 md:h-7" aria-label={aria} disabled={busy} onClick={onClick}>{label}</Button>
+      <Button variant="outline" size="sm" className="h-11 px-3.5 md:h-7 md:px-2.5" aria-label={aria} disabled={busy} onClick={onClick}>{label}</Button>
     </div>
   );
 }
@@ -144,7 +144,7 @@ function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
   return (
     <div role={f.moved ? "status" : "alert"} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:act]">
       <p className={f.moved ? "text-foreground/85" : "text-out"}>{f.text}</p>
-      {f.reload && <Button variant="outline" size="sm" className="h-9 md:h-7" onClick={reload}>Reload</Button>}
+      {f.reload && <Button variant="outline" size="sm" className="h-11 px-3.5 md:h-7 md:px-2.5" onClick={reload}>Reload</Button>}
     </div>
   );
 }
