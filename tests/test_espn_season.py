@@ -227,6 +227,24 @@ def test_roster_state_carries_locks_empty_slots_and_the_writes_flag(monkeypatch,
     assert "roster_flags read failed" in caplog.text, "and says so in the log"
 
 
+def test_roster_state_takes_slots_from_the_fresh_read_not_the_box_score(monkeypatch):
+    matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
+                              home_lineup=[as_box(p) for p in season_roster()],
+                              away_team=SimpleNamespace(team_id=2, team_name="Them"), away_lineup=[])
+    lg = SimpleNamespace(box_scores=lambda week: [matchup], current_week=1)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    bench = next(p for p in matchup.home_lineup if p.slot_position == "BE")
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {bench.playerId: {"locked": False, "slot": "RB/WR/TE"}})
+    kw = dict(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    card = next(c for c in espn_season.roster_state(**kw)["cards"] if c["player_id"] == bench.playerId)
+    assert card["slot"] == "RB/WR/TE" and card["group"] == "starter", "the box score is a cache; ESPN's read is the page"
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: 1 / 0)
+    card = next(c for c in espn_season.roster_state(**kw)["cards"] if c["player_id"] == bench.playerId)
+    assert card["slot"] == "BE" and card["group"] == "bench", "a failed flags read keeps the box slot"
+
+
 class FakeLeagueFactory:
     """Stands in for config.league: an lru_cache'd callable with a cache_clear()."""
 

@@ -852,10 +852,17 @@ def test_lineup_refuses_a_player_whose_game_started_since_the_page_loaded(lineup
     assert lineup_env.sent == []
 
 
-def test_lineup_refuses_when_espns_week_rolled(lineup_env):
+def test_lineup_refuses_when_espns_week_rolled(lineup_env, monkeypatch):
+    refreshed = []
+    monkeypatch.setattr(api.espn_season, "refresh_league", lambda: refreshed.append(1))
+    lineup_env.get("/roster")  # caches the old week's page
+    builds = lineup_env.state["builds"]
     lineup_env.state["period"] = 4
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 409 and "week changed" in r.json()["detail"]["error"] and lineup_env.sent == []
+    assert refreshed == [1], "the cached League is dropped, or Reload rebuilds the same old week"
+    lineup_env.get("/roster")
+    assert lineup_env.state["builds"] > builds, "the roster page rebuilds on the next GET"
 
 
 def test_lineup_refuses_a_second_move_while_one_runs(lineup_env):
@@ -886,6 +893,26 @@ def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):
     monkeypatch.setattr(api.espn_season, "roster_state", real)  # ESPN is back
     g = lineup_env.get("/roster")
     assert {c["player_id"]: c["slot"] for c in g.json()["cards"]} == {3: "RB/WR/TE", 2: "BE"}, "rebuilt, not the cached pre-move page"
+
+
+def test_lineup_read_back_failure_still_journals_the_move(lineup_env, monkeypatch, tmp_path):
+    real = api.espn_season.roster_state
+    monkeypatch.setattr(api.espn_season, "roster_state",
+                        lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")) if lineup_env.sent else real(week))
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 502 and r.json()["detail"]["moved"] is True and len(lineup_env.sent) == 1
+    assert "Week 3 lineup: Bench to FLEX, Flex to the bench" in (tmp_path / "DECISIONS.md").read_text()
+
+
+def test_lineup_timeout_may_have_moved_so_it_says_so_journals_it_and_drops_the_page(lineup_env, monkeypatch, tmp_path):
+    def slow(items, week):
+        raise api.requests.Timeout("15s")
+    lineup_env.get("/roster")
+    monkeypatch.setattr(api.espn_write, "move_lineup", slow)
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 502 and r.json()["detail"]["moved"] is True and "did not answer" in r.json()["detail"]["error"]
+    assert "may not have happened" in (tmp_path / "DECISIONS.md").read_text()
+    assert not api.cache.has("roster")
 
 
 def test_lineup_posts_the_from_slots_espn_has_now_not_the_cached_ones(lineup_env):

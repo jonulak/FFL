@@ -93,7 +93,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   `data/calibration/week-<w>.json`, once per ROS week) and `ffl.calibrate` scores the Ks against what happened.
 - Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
   (`espn_season.game_from_stats` off espn-api's per-week `stats`; every rostered player's earlier weeks come from
-  `lg.teams[..].roster` (`_roster_games`, so the replacement line runs on adjusted ROS too), free agents' from
+  each earlier form week's box scores (`_roster_games`, so the replacement line runs on adjusted ROS too), free agents' from
   one `free_agents(week=w)` call per position and form week) with Sleeper's snaps (`SLEEPER_STATS`,
   `off_snp`/`tm_off_snp`, a day behind the games) joined per week. Every Roster card and Waiver row carries
   `form` (None before his first game); the columns are shown raw, and only the snap-weighted `l3` reaches `add`,
@@ -190,6 +190,20 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   no call, a claim-framed Take; WORKERS in flight at most) into `data/outlook/waivers-week-<n>.json`, apart
   from the Roster file; the dialog polls `GET /waivers/outlook/{id}`. The CLI must be logged in for the launchd user (`claude -p` from a plain
   terminal answers; from inside a Claude Code session it says "Not logged in").
+  The page groups rows by ESPN's slot (lineup order, then bench, IR) with the call as chips beside it (a ring when
+  ESPN's lineup and the call disagree); rows are compact, detail expands, and the name opens the shared player
+  dialog (Form on `ros_adj`). `espn_season.with_espn_slots` takes each card's slot and lock from a fresh mRoster
+  read (`roster_flags`), never the cached box score; a failed read keeps the box slot, unlocked.
+  **`POST /lineup`** is the one-tap swap (`ffl/espn_write.py` is the only code that writes to ESPN): it re-reads
+  mRoster for slots and locks, refuses when ESPN's week (`pending_state`) differs from the page's (and drops the
+  cached League and page so Reload sees the new week), takes the non-blocking `_LINEUP` lock (409 when held),
+  validates with `season.lineup_moves`, sends ESPN's ROSTER/LINEUP transaction (`espn_write.move_lineup`), appends
+  `season.lineup_entry` to `journal/DECISIONS.md` as soon as ESPN may have taken it (a timeout journals it as
+  uncertain and answers 502 `moved`), then reads the page back (`roster_state`) into the cache with `Cache.put`
+  (its generation guard stops an older in-flight rebuild landing over it; a failed read-back drops the key and
+  answers 502 `moved`). Under `FFL_WRITES=0` nothing reaches ESPN: `espn_write.fake_slots()` holds the moves
+  and wins over ESPN's slots in the page and the validator. `web/components/use-live.ts` ignores a refetch that
+  started before a move landed (generation guard).
 
 ## Rules for working here
 - Every roster decision made in a session is appended to `journal/DECISIONS.md` (decision, reasoning, alternatives)

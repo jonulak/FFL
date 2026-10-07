@@ -69,7 +69,7 @@ export function lineupFailure(status: number | null, body: unknown, message: str
   if (o?.moved === true) return { text: "Moved in ESPN — reload to see it", reload: true, moved: true };
   if (o && Array.isArray(o.errors) && o.errors.length) return { text: o.errors.map(String).join("; "), reload: false, moved: false };
   if (o && typeof o.error === "string" && o.error) {
-    const text = status === 502 ? `ESPN: ${o.error}` : o.error;
+    const text = status === 502 && !/^ESPN/.test(o.error) ? `ESPN: ${o.error}` : o.error;
     return { text, reload: status === 409 && /week changed/i.test(o.error), moved: false };
   }
   if (typeof detail === "string" && detail) return { text: detail, reload: false, moved: false };

@@ -26,6 +26,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, Literal
 
+import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
@@ -435,33 +436,43 @@ def lineup(body: LineupIn):
         except Exception as e:  # noqa: BLE001 — the mRoster read
             raise HTTPException(502, {"source": "espn", "error": str(e)})
         if period is not None and period != data["week"]:
+            # the League is cached up to LEAGUE_TTL_S: drop it and the page, or the Reload rebuilds the same old week
+            espn_season.refresh_league()
+            cache.drop("roster")
             raise HTTPException(409, {"error": "ESPN's week changed — reload"})
         # slots and locks both from this one mRoster read: the cached page may be minutes behind
         # under FFL_WRITES=0 the page shows the fake store's slots, so the moves are validated against those ({} for real)
-        fake = espn_write.fake_slots()
-        roster = [{**c, "locked": False, **{k: v for k, v in flags.get(c["player_id"], {}).items() if k in ("slot", "locked")},
-                   **({"slot": fake[c["player_id"]]} if c["player_id"] in fake else {})}
-                  for c in data["cards"]]
+        roster = espn_season.with_espn_slots(data["cards"], flags, espn_write.fake_slots())
         items, errs = season.lineup_moves([m.model_dump() for m in body.moves], roster, espn_season.load())
         if errs:
             raise HTTPException(409, {"errors": errs})
         if items:
+            uncertain = False
             try:
                 espn_write.move_lineup(items, data["week"])
             except espn_write.WriteError as e:
                 raise _espn_error(e)
-            espn_season._BOXES.clear()  # the box scores carry the slots; read them again
+            except requests.RequestException:  # ESPN may have executed it before the connection died
+                uncertain = True
+            # journaled the moment ESPN may have taken the move, whatever the read-back does
+            try:
+                entry = season.lineup_entry(items, data["cards"], data["week"], datetime.now().strftime("%Y-%m-%d"))
+                if uncertain:
+                    entry += "\n- ESPN did not answer; the move may not have happened — check ESPN."
+                with DECISIONS.open("a") as f:
+                    f.write("\n" + entry)
+            except OSError as e:
+                log.warning("lineup move made but not journaled: %s", e)
+            espn_season._BOXES.pop(data["week"], None)  # the box scores carry the slots; read them again
             cache.expire("week")  # the Matchup board shows this lineup too
+            if uncertain:
+                cache.drop("roster")
+                raise HTTPException(502, {"source": "espn", "error": "ESPN did not answer — it may have moved; reload", "moved": True})
             try:
                 cache.put("roster", espn_season.roster_state(None))
             except Exception as e:  # noqa: BLE001 — ESPN took the move; say so, never show the old slots as current
                 cache.drop("roster")  # the reload this asks for must build from ESPN, not serve the pre-move page
                 raise HTTPException(502, {"source": "espn", "error": "moved in ESPN — the read-back failed, reload", "moved": True}) from e
-            try:
-                with DECISIONS.open("a") as f:
-                    f.write("\n" + season.lineup_entry(items, data["cards"], data["week"], datetime.now().strftime("%Y-%m-%d")))
-            except OSError as e:
-                log.warning("lineup move made but not journaled: %s", e)
         return roster_()
     finally:
         _LINEUP.release()

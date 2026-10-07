@@ -81,8 +81,10 @@ describe("lineupFailure", () => {
   it("a move ESPN took but could not read back is never a failure", () =>
     expect(lineupFailure(502, { detail: { source: "espn", error: "moved in ESPN — the read-back failed, reload", moved: true } }, "x"))
       .toEqual({ text: "Moved in ESPN — reload to see it", reload: true, moved: true }));
-  it("an ESPN error names ESPN", () =>
+  it("an ESPN error names ESPN once", () => {
     expect(lineupFailure(502, { detail: { source: "espn", error: "ESPN login expired, refresh .env" } }, "x").text)
-      .toBe("ESPN: ESPN login expired, refresh .env"));
+      .toBe("ESPN login expired, refresh .env");
+    expect(lineupFailure(502, { detail: { source: "espn", error: "HTTP 500" } }, "x").text).toBe("ESPN: HTTP 500");
+  });
   it("anything else the message", () => expect(lineupFailure(null, null, "timed out").text).toBe("Not moved: timed out"));
 });
