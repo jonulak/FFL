@@ -791,7 +791,7 @@ def test_parse_roster_flags():
     doc = json.loads((FX / "roster.json").read_text())
     team_id = doc["teams"][0]["id"]
     f = espn_season.parse_roster_flags(doc, team_id)
-    assert f and all(set(v) == {"droppable", "locked"} for v in f.values())
+    assert f and all({"droppable", "locked"} <= set(v) for v in f.values())
     assert [v["droppable"] for v in f.values()].count(False) == 1, "Puka Nacua is the one undroppable player"
 
 
@@ -842,3 +842,12 @@ def test_free_agent_pool_rows_carry_defaults_when_the_reads_raise(monkeypatch):
     rows = [r for rs in out["positions"].values() for r in rs]
     assert rows and all(r["status"] is None and r["waiver_date"] is None for r in rows), "unknown counts as WAIVERS"
     assert out["roster"] and all(r["droppable"] is True and r["locked"] is False for r in out["roster"])
+
+
+def test_parse_roster_flags_carries_the_slot_name():
+    doc = {"teams": [{"id": 7, "roster": {"entries": [
+        {"playerId": 1, "lineupSlotId": 20, "playerPoolEntry": {}},
+        {"playerId": 2, "lineupSlotId": 23, "playerPoolEntry": {}},
+        {"playerId": 3, "lineupSlotId": 99, "playerPoolEntry": {}}]}}]}
+    f = espn_season.parse_roster_flags(doc, 7)
+    assert f[1]["slot"] == "BE" and f[2]["slot"] == "RB/WR/TE" and "slot" not in f[3]

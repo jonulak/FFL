@@ -953,8 +953,11 @@ def parse_pool_status(doc: dict) -> dict[int, dict]:
             for p in doc.get("players", [])}
 
 
+_SLOT_NAME = {i: n for n, i in espn_write.SLOT_ID.items()}
+
+
 def parse_roster_flags(doc: dict, team_id: int) -> dict[int, dict]:
-    """mRoster -> {id: {droppable, locked}} for one team. ESPN marks an undroppable player
+    """mRoster -> {id: {droppable, locked, slot}} for one team (slot = ESPN's lineup slot name, left out when unknown). ESPN marks an undroppable player
     (droppable false) and one whose game has started (lineupLocked); anything unsaid is droppable/unlocked."""
     team = next((t for t in doc.get("teams", []) if t["id"] == team_id), None)
     out = {}
@@ -962,6 +965,9 @@ def parse_roster_flags(doc: dict, team_id: int) -> dict[int, dict]:
         pe = e.get("playerPoolEntry") or {}
         out[int(e["playerId"])] = {"droppable": (pe.get("player") or {}).get("droppable") is not False,
                                    "locked": bool(pe.get("lineupLocked"))}
+        slot = _SLOT_NAME.get(e.get("lineupSlotId"))
+        if slot:
+            out[int(e["playerId"])]["slot"] = slot
     return out
 
 

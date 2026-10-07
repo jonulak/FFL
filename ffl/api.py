@@ -15,6 +15,7 @@ Every GET is read-only.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -36,6 +37,7 @@ from .config import JOURNAL
 from .journal import sync_results, sync_transactions
 from .settings import load
 
+log = logging.getLogger(__name__)
 TTL = 120.0
 
 
@@ -99,6 +101,7 @@ class Cache:
             hit = self._d.get(key)
         if hit is None:
             return
+        started = time.time()
         try:
             payload = hit.fn()
         except Exception as e:  # noqa: BLE001 — any source failure keeps the stale payload
@@ -107,6 +110,18 @@ class Cache:
             return
         now = time.time()
         with self._lock:
+            cur = self._d.get(key)
+            if cur is not None and cur.built_at > started:
+                return  # something was installed (put) while this build ran; its read is older
+            self._d[key] = Entry(now + hit.ttl, now, payload, hit.fn, hit.ttl)
+
+    def put(self, key: str, payload: object) -> None:
+        """Install a payload built by the caller, fresh. A revalidate that began before this lands cannot replace it."""
+        now = time.time()
+        with self._lock:
+            hit = self._d.get(key)
+            if hit is None:
+                return
             self._d[key] = Entry(now + hit.ttl, now, payload, hit.fn, hit.ttl)
 
     def rebuild_expired(self) -> None:
@@ -416,7 +431,9 @@ def lineup(body: LineupIn):
             raise HTTPException(502, {"source": "espn", "error": str(e)})
         if period is not None and period != data["week"]:
             raise HTTPException(409, {"error": "ESPN's week changed — reload"})
-        roster = [{**c, "locked": flags.get(c["player_id"], {}).get("locked", False)} for c in data["cards"]]
+        # slots and locks both from this one mRoster read: the cached page may be minutes behind
+        roster = [{**c, "locked": False, **{k: v for k, v in flags.get(c["player_id"], {}).items() if k in ("slot", "locked")}}
+                  for c in data["cards"]]
         items, errs = season.lineup_moves([m.model_dump() for m in body.moves], roster, espn_season.load())
         if errs:
             raise HTTPException(409, {"errors": errs})
@@ -425,12 +442,17 @@ def lineup(body: LineupIn):
                 espn_write.move_lineup(items, data["week"])
             except espn_write.WriteError as e:
                 raise _espn_error(e)
-            with DECISIONS.open("a") as f:
-                f.write("\n" + season.lineup_entry(items, data["cards"], data["week"], datetime.now().strftime("%Y-%m-%d")))
             espn_season._BOXES.clear()  # the box scores carry the slots; read them again
             cache.expire("week")  # the Matchup board shows this lineup too
-            cache.expire("roster")
-            cache._rebuild("roster")  # this answer is read back from ESPN inline, not the stale entry
+            try:
+                cache.put("roster", espn_season.roster_state(None))
+            except Exception as e:  # noqa: BLE001 — ESPN took the move; say so, never show the old slots as current
+                raise HTTPException(502, {"source": "espn", "error": "moved in ESPN — the read-back failed, reload", "moved": True}) from e
+            try:
+                with DECISIONS.open("a") as f:
+                    f.write("\n" + season.lineup_entry(items, data["cards"], data["week"], datetime.now().strftime("%Y-%m-%d")))
+            except OSError as e:
+                log.warning("lineup move made but not journaled: %s", e)
         return roster_()
     finally:
         _LINEUP.release()

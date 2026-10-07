@@ -1,5 +1,6 @@
 """API glue: caching, stale fallback, validation. espn_season is stubbed; no network."""
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -803,7 +804,8 @@ def lineup_env(client, monkeypatch, tmp_path):
                 "cards": [{**c, "slot": state["slots"][c["player_id"]]} for c in cards]}
     monkeypatch.setattr(api.espn_season, "roster_state", roster_state)
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda: None)
-    monkeypatch.setattr(api.espn_season, "roster_flags", lambda lg: {i: {"locked": True} for i in state["locked"]})
+    monkeypatch.setattr(api.espn_season, "roster_flags", lambda lg: {
+        i: {"locked": i in state["locked"], "slot": s} for i, s in state["slots"].items()})
     monkeypatch.setattr(api.espn_season, "load", lambda: {"starters": {"RB/WR/TE": 1}})
     monkeypatch.setattr(api.espn_write, "pending_state", lambda: ([], state["period"]))
     sent = []
@@ -852,3 +854,41 @@ def test_lineup_reports_espns_refusal(lineup_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "move_lineup", boom)
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN login expired, refresh .env"
+
+
+def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):
+    real = api.espn_season.roster_state
+    def after_write(week=None):
+        if lineup_env.sent:
+            raise RuntimeError("espn down")
+        return real(week)
+    monkeypatch.setattr(api.espn_season, "roster_state", after_write)
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 502 and r.json()["detail"]["moved"] is True and len(lineup_env.sent) == 1
+
+
+def test_lineup_posts_the_from_slots_espn_has_now_not_the_cached_ones(lineup_env):
+    lineup_env.get("/roster")  # caches the page with 3 on the bench, 2 at FLEX
+    lineup_env.state["slots"] = {3: "RB/WR/TE", 2: "BE"}  # moved on ESPN since
+    r = lineup_env.post("/lineup", json={"moves": [{"player_id": 3, "to_slot": "BE"}, {"player_id": 2, "to_slot": "RB/WR/TE"}]})
+    assert r.status_code == 200
+    assert lineup_env.sent == [([(3, "RB/WR/TE", "BE"), (2, "BE", "RB/WR/TE")], 3)]
+
+
+def test_cache_put_beats_a_revalidate_that_started_before_it():
+    c = api.Cache(60.0)
+    gate, release = threading.Event(), threading.Event()
+    def slow():
+        gate.set()
+        release.wait(5)
+        return "old"
+    c.get_or_build("k", lambda: "first")
+    c._d["k"].fn = slow
+    c.expire("k")
+    t = threading.Thread(target=c._rebuild, args=("k",))
+    t.start()
+    gate.wait(5)
+    c.put("k", "new")
+    release.set()
+    t.join()
+    assert c._d["k"].payload == "new"
