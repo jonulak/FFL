@@ -136,6 +136,14 @@ describe("applyMoves", () => {
     const r = applyMoves(roster(["RB/WR/TE"]), [{ player_id: 3, to_slot: "RB/WR/TE" }]);
     expect(r.empty_slots).toEqual(["RB"]);
   });
+  it("orders the rows as ESPN's read-back will (season._card_sort_key), so the move does not play out twice", () => {
+    // two FLEX starters and a bench WR who out-projects both: swapped into the second FLEX, he reads first
+    const f1 = c(10, "WR", "RB/WR/TE", 9, { proj: 9, name: "Flex A" }), f2 = c(11, "WR", "RB/WR/TE", 8, { proj: 8, name: "Flex B" });
+    const te = c(12, "TE", "BE", 6, { proj: 6, name: "Tight" }), wr = c(13, "WR", "BE", 12, { proj: 12, name: "Wide" });
+    const r = applyMoves({ cards: [f1, f2, te, wr], empty_slots: [] }, movesFor(wr, { kind: "swap", with: f2, gain: 4 }));
+    // starters by slot then projection; the bench by position (WR before TE) then projection
+    expect(r.cards.map((x) => x.player_id)).toEqual([13, 10, 11, 12]);
+  });
   it("leaves the cards it does not move as they were", () => {
     const r = applyMoves(roster(), [{ player_id: 3, to_slot: "BE" }]);
     expect(r.cards.find((x) => x.player_id === 1)).toBe(qb);

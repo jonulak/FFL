@@ -115,6 +115,18 @@ export type Move = { player_id: number; to_slot: string };
 
 const groupOf = (slot: string): Card["group"] => (slot === "BE" ? "bench" : slot === "IR" ? "ir" : "starter");
 
+// season._card_sort_key: group; starters by slot, the rest by position; then projection, best first; then name (by
+// code point, as Python compares). The optimistic page must order rows exactly as ESPN's read-back will, or a
+// player who lands in the second of two FLEX rows is moved again when the answer arrives.
+const GROUP_ORDER: Card["group"][] = ["starter", "bench", "ir"];
+const POS_ORDER = ["QB", "RB", "WR", "TE", "D/ST", "K"];
+const rankIn = (list: string[], s: string) => { const i = list.indexOf(s); return i < 0 ? list.length : i; };
+function cardOrder(a: Card, b: Card): number {
+  const rank = (c: Card) => (c.group === "starter" ? slotRank(c.slot) : rankIn(POS_ORDER, c.pos));
+  return GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group) || rank(a) - rank(b)
+    || (b.proj ?? 0) - (a.proj ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+}
+
 // The page as it will be once ESPN takes `moves`, drawn before it answers: the moved cards re-slotted (their group
 // follows the slot) and the empty slots (starting and IR, as season.empty_slots) recounted against the lineup's own
 // size, which is every such slot's players plus its empties before the move. The POST's answer replaces it.
@@ -128,7 +140,7 @@ export function applyMoves<T extends { cards: Card[]; empty_slots: string[] }>(r
   const cards = r.cards.map((c) => {
     const slot = to.get(c.player_id);
     return slot === undefined || slot === c.slot ? c : { ...c, slot, group: groupOf(slot) };
-  });
+  }).sort(cardOrder);
   const filled = new Map<string, number>();
   for (const c of cards) if (sized(c.slot)) add(filled, c.slot);
   const slots = [...SLOT_ORDER, ...[...size.keys()].filter((s) => !SLOT_ORDER.includes(s))];
