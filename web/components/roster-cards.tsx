@@ -25,6 +25,9 @@ const GROUPS: { key: Card["group"]; title: string }[] = [
   { key: "starter", title: "Starters" }, { key: "bench", title: "Bench" }, { key: "ir", title: "IR" },
 ];
 
+// A word on the last move, shown under the row of the player who moved.
+export type Notice = { id: number; text: string };
+
 // The swap control's state, owned by RosterLive: who is picked, where he can go, what is in flight.
 export type SwapControl = {
   picked: Card | null;
@@ -39,14 +42,26 @@ export type SwapControl = {
 // One grid for every row. Phone and tablet (< md): two lines, the name and the number over the matchup and the
 // chips, with the swap and the chevron standing at the right across both at 44px. Laptop (md+): one line, the
 // matchup and chips in fixed columns so they line up row to row. `meta` holds the matchup and the chips together
-// on the two-line layout and dissolves (display: contents) into their own columns on one line.
+// on the two-line layout and dissolves (display: contents) into their own columns on one line. On the phone the
+// slot column is narrow (Bench reads BE, ESPN's own slot code) and the matchup drops the club mark and the dot, so
+// the matchup and the call share the second line.
 const GRID =
-  "grid items-center gap-x-2 px-2 py-2 " +
-  "grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_auto_2.75rem_2.75rem] " +
+  "grid items-center gap-x-1.5 px-2 py-2 " +
+  "grid-cols-[2.25rem_2.5rem_minmax(0,1fr)_auto_2.75rem_2.75rem] " +
   "[grid-template-areas:'slot_shot_name_num_swap_chev'_'slot_shot_meta_meta_meta_meta'_'act_act_act_act_act_act'] " +
   "md:gap-x-3 md:py-2.5 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_9.5rem_3.75rem_9rem_2.25rem_2.25rem] " +
   "lg:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_12rem_4rem_11rem_2.25rem_2.25rem] " +
   "md:[grid-template-areas:'slot_shot_name_match_num_chips_swap_chev'_'act_act_act_act_act_act_act_act']";
+
+const SLOT_TEXT =
+  "font-display text-[0.75rem] font-semibold uppercase tracking-[0.06em] [grid-area:slot] md:text-[0.8125rem] md:tracking-[0.12em]";
+
+// The slot as ESPN labels it; the phone's narrow column takes BE for Bench.
+function SlotName({ slot }: { slot: string }) {
+  const label = slotLabel(slot);
+  if (slot !== "BE") return <>{label}</>;
+  return <><span aria-hidden className="md:hidden">BE</span><span className="max-md:sr-only">{label}</span></>;
+}
 
 // "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare.
 function Matchup({ c }: { c: Card }) {
@@ -56,9 +71,9 @@ function Matchup({ c }: { c: Card }) {
   return (
     <span className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
       {c.home !== null && <span className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/80">{c.home ? "vs" : "at"}</span>}
-      <TeamLogo abbr={c.opponent} size={18} />
+      <span className="contents max-md:hidden"><TeamLogo abbr={c.opponent} size={18} /></span>
       <span className="font-medium text-foreground/85">{c.opponent}</span>
-      <span aria-hidden>·</span>
+      <span aria-hidden className="max-md:hidden">·</span>
       <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} />
     </span>
   );
@@ -116,7 +131,7 @@ function Chips({ c, week }: { c: Card; week: number }) {
   return (
     <>
       {showCall && <Badge variant={CALL[c.call]} shape="chip" className={ring}>{c.call}{differs}</Badge>}
-      {c.close_call && <Badge variant="close" shape="chip">close call</Badge>}
+      {c.close_call && <Badge variant="close" shape="chip">close<span className="max-md:sr-only"> call</span></Badge>}
       {hurt && (
         <Badge variant={TAG[injuryTone(c.injury)]} shape="chip" className={showCall ? "" : ring} title={c.injury_note ?? undefined}>
           {injuryLabel(c.injury.replaceAll("_", " "), c.return_week, week)}
@@ -149,8 +164,9 @@ function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
   );
 }
 
-function PlayerRow({ c, week, runBusy, open, onOpen, swap }: {
+function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice }: {
   c: Card; week: number; runBusy: boolean; open: boolean; onOpen: (open: boolean) => void; swap: SwapControl;
+  notice: string | null;
 }) {
   const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR";
   const live = c.game_played > 0 || c.actual > 0;
@@ -169,8 +185,8 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap }: {
       className={`transition-opacity duration-200 ${dim ? "opacity-50" : ""} ${picked ? "bg-foreground/[0.045]" : ""}`}>
       <Collapsible open={open} onOpenChange={onOpen}>
         <div className={GRID}>
-          <span className={`font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] [grid-area:slot] ${c.slot === "BE" || ir ? "text-muted-foreground" : "text-foreground/85"}`}>
-            {slot}
+          <span className={`${SLOT_TEXT} ${c.slot === "BE" || ir ? "text-muted-foreground" : "text-foreground/85"}`}>
+            <SlotName slot={c.slot} />
           </span>
           <div className="[grid-area:shot]"><Headshot c={c} idle={idle} /></div>
           <div className="min-w-0 [grid-area:name]">
@@ -187,7 +203,8 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap }: {
             </p>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 [grid-area:meta] md:contents">
-            <span className="text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>
+            {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it */}
+            {c.pos !== slot && <span className="text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>}
             <div className="min-w-0 md:[grid-area:match]"><Matchup c={c} /></div>
             <div className="flex flex-wrap gap-1 md:[grid-area:chips]"><Chips c={c} week={week} /></div>
           </div>
@@ -230,6 +247,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap }: {
           )}
           {bench && <MoveAction label="To bench" gain={bench.gain} busy={anyBusy} onClick={() => swap.move(bench)} aria={`Move ${c.name} to the bench`} />}
           {error && <Failure f={error} reload={swap.reload} />}
+          {notice && !error && <p aria-hidden className="pt-1 text-right text-xs text-muted-foreground [grid-area:act]">{notice}</p>}
         </div>
         <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-300 ease-(--ease-arrive) data-[ending-style]:h-0 data-[starting-style]:h-0">
           <div className="space-y-2 px-2 pb-3 md:pl-[7.75rem] md:pr-[5.75rem]">
@@ -251,7 +269,7 @@ function EmptyRow({ slot, swap }: { slot: string; swap: SwapControl }) {
   return (
     <li data-roster-row className={`transition-opacity duration-200 ${dim ? "opacity-50" : ""}`}>
       <div className={GRID}>
-        <span className="font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/85 [grid-area:slot]">{slotLabel(slot)}</span>
+        <span className={`${SLOT_TEXT} text-foreground/85`}><SlotName slot={slot} /></span>
         <div aria-hidden className="size-10 rounded-md border border-dashed border-foreground/25 [grid-area:shot]" />
         <p className="font-display text-[1.0625rem] font-semibold leading-tight tracking-tight text-muted-foreground [grid-area:name] md:text-[1.1875rem]">
           Empty<span className="sr-only"> {slotLabel(slot)} slot</span>
@@ -279,11 +297,12 @@ function items(cards: Card[], group: Card["group"], empty: string[]): Item[] {
 
 export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, notice }: {
   cards: Card[]; empty: string[]; week: number; runBusy: boolean;
-  open: number | null; setOpen: (id: number | null) => void; swap: SwapControl; notice: string | null;
+  open: number | null; setOpen: (id: number | null) => void; swap: SwapControl; notice: Notice | null;
 }) {
   return (
     <div className="space-y-7">
-      <p aria-live="polite" className="text-xs text-muted-foreground empty:hidden">{notice}</p>
+      {/* read out from here; shown beside the row that moved, which may be far down the page */}
+      <p aria-live="polite" className="sr-only">{notice?.text}</p>
       {GROUPS.map(({ key, title }) => {
         const rows = items(cards, key, empty);
         if (rows.length === 0) return null;
@@ -300,6 +319,7 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
             <ul className="divide-y divide-foreground/10 overflow-hidden rounded-lg bg-card shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)]">
               {rows.map((r) => r.kind === "card"
                 ? <PlayerRow key={r.c.player_id} c={r.c} week={week} runBusy={runBusy} swap={swap}
+                    notice={notice?.id === r.c.player_id ? notice.text : null}
                     open={open === r.c.player_id} onOpen={(o) => setOpen(o ? r.c.player_id : null)} />
                 : <EmptyRow key={r.key} slot={r.slot} swap={swap} />)}
             </ul>

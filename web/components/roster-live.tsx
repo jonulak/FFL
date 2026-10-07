@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { ClientError, clientPost } from "@/app/api-client";
 import type { Card, Roster } from "@/lib/api";
 import { lineupFailure, type LineupFailure, movesFor, type Target, targets } from "@/lib/lineup";
-import { RosterRows, type SwapControl } from "./roster-cards";
+import { type Notice, RosterRows, type SwapControl } from "./roster-cards";
 import { useLive } from "./use-live";
 
 // The write moves players in ESPN and reads the lineup back: give it the claims submit's minute, not a GET's 20 s.
@@ -22,7 +22,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const [picked, setPicked] = useState<number | null>(null);
   const [pending, setPending] = useState<number[]>([]);
   const [error, setError] = useState<({ id: number } & LineupFailure) | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const pickedCard = picked == null ? null : data.cards.find((c) => c.player_id === picked) ?? null;
   const ts = pickedCard ? targets(data.cards, pickedCard, data.empty_slots) : [];
@@ -62,7 +62,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
       replace(next);
       setPicked(null);
       // a dev API with FFL_WRITES=0 answers as if ESPN had taken it; never let that read as ESPN
-      setNotice(next.writes ? null : "fake write (FFL_WRITES=0)");
+      setNotice(next.writes ? null : { id: pickedCard.player_id, text: "fake write (FFL_WRITES=0)" });
     } catch (e) {
       const f = e instanceof ClientError ? lineupFailure(e.status, e.body, e.message) : lineupFailure(null, null, message(e));
       setError({ id: pickedCard.player_id, ...f });
