@@ -246,6 +246,21 @@ def test_runner_tags_the_points_with_the_week_of_the_roster_it_scored(monkeypatc
     assert r.state.week == 2
 
 
+def test_a_failed_plays_write_is_recorded_not_raised(monkeypatch):
+    from ffl import db
+
+    class Failing:
+        def add(self, rows):
+            raise db.DBError("database is locked")
+
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r._on_doc(copy.deepcopy(FIX))  # the baseline
+    r.store = Failing()
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.state.error.startswith("plays not saved")
+
+
 def test_field_marks_the_offense_with_the_ball_and_the_defense_without_it():
     rz = {"status": "in", "ball": "BUF", "red_zone": True}
     mid = {"status": "in", "ball": "NE", "red_zone": False}

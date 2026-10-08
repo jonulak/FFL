@@ -19,6 +19,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
+from . import db
 from . import fastcast as fc
 from . import plays as P
 from . import season as S
@@ -391,8 +392,11 @@ class Runner(threading.Thread):
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if self.store is not None and not first:
-            self.store.add(P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays,
-                                           stats_before))
+            try:
+                self.store.add(P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays,
+                                               stats_before))
+            except db.DBError as e:  # the board keeps the rows in memory; a DB hiccup must not drop the feed
+                self.state.error = f"plays not saved: {e}"
         idle = idle_for(doc)
         if idle is not None:
             self.idle_until = time.time() + idle

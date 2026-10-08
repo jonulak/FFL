@@ -2,6 +2,8 @@
 import json
 from datetime import datetime
 
+import pytest
+
 from ffl import db, plays
 
 LEAGUE = {"week": 1, "games": [[{"team_id": 7, "lineup": [{"player_id": 1, "name": "Me QB", "pos": "QB", "team": "SF"}]},
@@ -60,6 +62,16 @@ def test_store_appends_and_reloads_newest_first():
     assert [r["at"] for r in again.latest()] == ["c", "b", "a"]
     assert again.latest() == st.latest()
     assert plays.Store(2).latest() == [], "another week's feed is separate"
+
+
+def test_store_keeps_rows_in_memory_when_the_db_write_fails(monkeypatch):
+    def boom(rows):
+        raise RuntimeError("locked")
+    monkeypatch.setattr(db, "add_plays", boom)
+    st = plays.Store(1)
+    with pytest.raises(RuntimeError):
+        st.add([_row("a", 7)])
+    assert [r["at"] for r in st.latest()] == ["a"]
 
 
 def test_store_add_nothing_writes_nothing():

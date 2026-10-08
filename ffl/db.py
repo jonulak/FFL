@@ -27,6 +27,9 @@ class SchemaError(RuntimeError):
     pass
 
 
+DBError = sa.exc.SQLAlchemyError  # callers outside db.py catch DB errors through this
+
+
 def _season():
     return sa.Column("season", sa.Integer, nullable=False, default=SEASON)
 

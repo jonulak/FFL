@@ -168,8 +168,8 @@ class Store:
         if not rows:
             return
         with self._lock:
-            db.add_plays(rows)
-            self.rows.extend(rows)
+            self.rows.extend(rows)  # memory first: the live baseline has moved on, so these must not be lost
+        db.add_plays(rows)  # outside the lock: a slow or failed write must not block readers; errors propagate
 
     def latest(self, n: int | None = None, teams: set[int] | None = None) -> list[dict]:
         """Newest first; with `teams`, only the rows scored for those fantasy teams (one board)."""
