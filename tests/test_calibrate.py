@@ -1,5 +1,7 @@
 """STRATEGY.md "Usage-adjusted ROS": K is checked, not trusted. The pool builder snapshots what the
 blend saw each ROS week; the scorer says which K would have missed least since."""
+import pytest
+
 from ffl import calibrate, db, season
 
 
@@ -80,3 +82,9 @@ def test_load_sigma_falls_back_on_a_db_error(monkeypatch):
         raise db.DBError("locked")
     monkeypatch.setattr(db, "latest_sigma", boom)
     assert calibrate.load_sigma()[1] == "fallback"
+
+
+@pytest.mark.parametrize("fit", [{"sigma": {"QB": "x"}}, {"sigma": {"QB": None}}, {"sigma": [1]}, {"n": {}}, [1, 2], 5])
+def test_load_sigma_falls_back_on_a_malformed_fit(fit):
+    db.put_sigma(fit)
+    assert calibrate.load_sigma() == (season.SIGMA_FALLBACK, "fallback")

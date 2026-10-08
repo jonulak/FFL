@@ -30,15 +30,15 @@ MIN_ROWS = 10  # starter-weeks a position needs before its fitted σ replaces th
 
 def load_sigma() -> tuple[dict[str, float], str]:
     """The win meter's fitted spread per position over the fallback table, and which it is; no fit
-    yet, or a DB error, is the fallback, never an error (the meter still draws)."""
+    yet, a DB error or a malformed stored fit is the fallback, never an error (the meter still draws)."""
     try:
         fit = db.latest_sigma()
-    except db.DBError as e:
+        if not fit:
+            return dict(S.SIGMA_FALLBACK), "fallback"
+        return {**S.SIGMA_FALLBACK, **{k: float(v) for k, v in fit["sigma"].items()}}, "calibrated"
+    except (db.DBError, ValueError, KeyError, TypeError, AttributeError) as e:
         print(f"sigma unreadable, using the fallback: {e}")
-        fit = None
-    if not fit or not isinstance(fit.get("sigma"), dict):
         return dict(S.SIGMA_FALLBACK), "fallback"
-    return {**S.SIGMA_FALLBACK, **{k: float(v) for k, v in fit["sigma"].items()}}, "calibrated"
 
 
 def snapshot_rows(positions: dict[str, list[dict]], week: int) -> list[dict]:
