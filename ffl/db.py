@@ -138,6 +138,16 @@ claim_plans = sa.Table(
     sa.PrimaryKeyConstraint("season", "week"),
 )
 
+# The players sat by hand for a week (the Roster sheet's toggle): left out of the lineup call. A row is a sit and
+# the toggle off deletes it, so a new week starts with none.
+sits = sa.Table(
+    "sits", metadata, _season(),
+    sa.Column("week", sa.Integer, nullable=False),
+    sa.Column("player_id", sa.Integer, nullable=False),
+    sa.Column("at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("season", "week", "player_id"),
+)
+
 
 def url() -> str:
     return os.environ.get("FFL_DB_URL") or f"sqlite:///{DATA / 'ffl.db'}"
@@ -403,6 +413,25 @@ def claim_plan(week: int, season: int = SEASON) -> dict | None:
     q = sa.select(claim_plans.c.plan).where(claim_plans.c.season == season, claim_plans.c.week == week)
     with _read() as c:
         return c.execute(q).scalar()
+
+
+def put_sit(week: int, player_id: int, sat: bool, season: int = SEASON) -> None:
+    """Sit him for the week (a repeat is a no-op) or stand him back up (delete)."""
+    from datetime import datetime
+    with _write() as c:
+        if sat:
+            c.execute(_upsert(sits, [{"season": season, "week": week, "player_id": player_id,
+                                      "at": datetime.now().astimezone().isoformat(timespec="seconds")}],
+                              ["season", "week", "player_id"], None))
+        else:
+            c.execute(sa.delete(sits).where(sits.c.season == season, sits.c.week == week,
+                                            sits.c.player_id == player_id))
+
+
+def sat_ids(week: int, season: int = SEASON) -> set[int]:
+    q = sa.select(sits.c.player_id).where(sits.c.season == season, sits.c.week == week)
+    with _read() as c:
+        return set(c.execute(q).scalars())
 
 
 _KEYS = {"transactions": ["season", "id"], "draft_picks": ["season", "overall"], "results": ["season", "week"],

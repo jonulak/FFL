@@ -750,3 +750,38 @@ def test_lineup_entry_records_each_move_with_the_call():
     assert e.startswith("## 2026-10-07 — Week 5 lineup: Bench to FLEX, Flex to the bench\n")
     assert "- **Decision:** Bench (RB) BE → FLEX; Flex (WR) FLEX → BE. Made from the Roster page." in e
     assert "Bench: call START, gap +1.4" in e and "Flex: call BENCH, gap −1.4" in e
+
+
+def test_a_sat_player_is_left_out_of_the_call_and_the_roster_is_called_without_him():
+    rs = [{**p, "sat": p["name"] == "QB C"} for p in roster()]   # QB C (22) is the best QB
+    cards = {c["name"]: c for c in season.roster_cards(rs, TWO_QB, 2)}
+    c = cards["QB C"]
+    assert (c["call"], c["sat"], c["model_call"]) == ("SIT", True, "START"), "model_call: what the outlook hashes"
+    assert c["play_proj"] == 0.0, "worth nothing to the swap sheet's gains"
+    assert c["reason"] == "sat by hand this week — the call: starts at QB: 22.0 vs 18.0 for QB B"
+    assert c["gap"] is None and c["close_call"] is False
+    assert cards["QB A"]["call"] == cards["QB B"]["call"] == "START", "QB B takes his place"
+    assert cards["QB A"]["reason"] == "starts at QB: no bench alternative", "never measured against the sat man"
+    assert (cards["QB A"]["sat"], cards["QB A"]["model_call"]) == (False, "START")
+    assert all(e["player_id"] != 3 for e in season.optimal_lineup(rs, TWO_QB))
+
+
+def test_a_sat_player_on_a_bye_keeps_the_bye_and_the_sit():
+    rs = [{**p, "sat": p["name"] == "WR B", "bye": p["name"] == "WR B"} for p in roster()]
+    c = {c["name"]: c for c in season.roster_cards(rs, TWO_QB, 2)}["WR B"]
+    assert (c["call"], c["sat"]) == ("BYE", True), "the bye is the stronger fact; the toggle still reads on"
+
+
+def test_sitting_nobody_changes_nothing():
+    plain = season.roster_cards(roster(), TWO_QB, 2)
+    unsat = season.roster_cards([{**p, "sat": False} for p in roster()], TWO_QB, 2)
+    assert [(c["call"], c["reason"], c["gap"]) for c in plain] == [(c["call"], c["reason"], c["gap"]) for c in unsat]
+
+
+def test_sit_entry_names_him_and_the_call_he_had():
+    card = {"name": "QB C", "pos": "QB", "call": "START", "model_call": "START",
+            "reason": "starts at QB: 22.0 vs 18.0 for QB B"}
+    e = season.sit_entry(card, True, 5, "2026-10-08")
+    assert e.startswith("## 2026-10-08 — Week 5 sit: QB C\n")
+    assert "the call was START (starts at QB: 22.0 vs 18.0 for QB B)" in e
+    assert "Week 5 unsit: QB C" in season.sit_entry(card, False, 5, "2026-10-08")

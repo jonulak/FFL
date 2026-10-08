@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowDownToLine, BriefcaseMedical, Lock } from "lucide-react";
+import { ArrowDownToLine, BriefcaseMedical, LoaderCircle, Lock } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import type { Card } from "@/lib/api";
 import { pts, shortName } from "@/lib/format";
 import { accepts, type Fill, type FillOption, gainText, slotLabel, type SwapOption, type Target } from "@/lib/lineup";
@@ -22,7 +23,35 @@ function useDesk() {
 }
 
 const SLOT = "font-display text-[0.75rem] font-semibold uppercase tracking-[0.06em] text-foreground/85 md:text-[0.8125rem] md:tracking-[0.12em]";
-const idle = (c: Card) => c.call === "BYE" || c.call === "OUT" || c.call === "IR";
+const idle = (c: Card) => c.call === "BYE" || c.call === "OUT" || c.call === "IR" || c.call === "SIT";
+
+// The sit toggle's state, owned by RosterLive: who is saving and the last refusal.
+export type SitControl = { pending: number | null; error: { id: number; text: string } | null; set: (c: Card, sat: boolean) => void };
+
+// Sit him for the week: out of the lineup call (the chip reads SIT, the rest of the roster is called without him) until
+// ESPN's week turns. Nothing is sent to ESPN; where he stands there is the slot's business.
+function SitToggle({ c, week, sit, disabled }: { c: Card; week: number; sit: SitControl; disabled: boolean }) {
+  const busy = sit.pending === c.player_id;
+  const error = sit.error?.id === c.player_id ? sit.error.text : null;
+  const id = `sit-${c.player_id}`;
+  return (
+    <div className="border-y border-foreground/10 py-1">
+      <label htmlFor={id} className="flex min-h-14 cursor-pointer items-center gap-3 rounded-md px-2 transition-colors hover:bg-foreground/[0.04] has-[[data-disabled]]:cursor-default has-[[data-disabled]]:hover:bg-transparent md:min-h-12">
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-[1.0625rem] font-semibold leading-tight tracking-tight">Sit this week</span>
+          <span className="mt-0.5 block text-xs text-pretty text-muted-foreground">
+            {c.sat ? `Out of the lineup call for week ${week}` : "Leave him out of the lineup call"}{" "}
+            {/* the dot travels with its clause, so a wrapped line never ends on it */}
+            <span className="whitespace-nowrap"><span aria-hidden>· </span>ESPN unchanged</span>
+          </span>
+        </span>
+        {busy && <LoaderCircle aria-hidden className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none" />}
+        <Switch id={id} className="data-unchecked:bg-foreground/20 dark:data-unchecked:bg-foreground/25" checked={c.sat} disabled={disabled || busy} onCheckedChange={(on) => sit.set(c, on)} />
+      </label>
+      {error && <p role="alert" className="px-2 pb-1.5 text-sm text-out">{error}</p>}
+    </div>
+  );
+}
 
 // What the sheet is for: a picked player (where can he go) or an empty starting slot (who can fill it).
 export type SheetSubject =
@@ -105,9 +134,9 @@ function OptionRow({ r, onPick }: { r: Row; onPick: () => void }) {
   );
 }
 
-function Body({ subject, move, blocked, onFix, Title, Description }: {
+function Body({ subject, move, blocked, onFix, week, sit, busy, Title, Description }: {
   subject: SheetSubject; move: (p: SheetPick) => void; blocked: Card | null; onFix: (c: Card) => void;
-  Title: typeof DialogTitle; Description: typeof DialogDescription;
+  week: number; sit: SitControl; busy: boolean; Title: typeof DialogTitle; Description: typeof DialogDescription;
 }) {
   const rows = subject.kind === "card" ? cardRows(subject.card, subject.options) : fillRows(subject.slot, subject.options);
   const open = rows.filter((r) => r.pick).length;
@@ -155,6 +184,10 @@ function Body({ subject, move, blocked, onFix, Title, Description }: {
     <>
       <div className="flex items-center gap-3 pr-10">{header}</div>
       {block && <IrBlocked c={block} onFix={() => onFix(block)} disabled={false} />}
+      {/* an IR man is out of the call already */}
+      {subject.kind === "card" && subject.card.slot !== "IR" && (
+        <SitToggle c={subject.card} week={week} sit={sit} disabled={busy} />
+      )}
       <div className="-mx-2 min-h-0 overflow-y-auto overscroll-contain">
         {open === 0 && !block && <p className="px-2 py-3 text-sm text-muted-foreground">{none}</p>}
         <ul className="space-y-0.5">
@@ -167,9 +200,9 @@ function Body({ subject, move, blocked, onFix, Title, Description }: {
 
 // The swap sheet: the picked player's options, or who can fill an empty slot, best change to the lineup first. A
 // tap posts the move and closes the sheet at once: the page shows the move before ESPN answers (RosterLive).
-export function SwapSheet({ subject, move, onClose, blocked, onFix }: {
+export function SwapSheet({ subject, move, onClose, blocked, onFix, week, sit, busy }: {
   subject: SheetSubject | null; move: (p: SheetPick) => void; onClose: () => void;
-  blocked: Card | null; onFix: (c: Card) => void;
+  blocked: Card | null; onFix: (c: Card) => void; week: number; sit: SitControl; busy: boolean;
 }) {
   const desk = useDesk();
   // hold the last subject through the closing animation, when RosterLive has already cleared it
@@ -193,7 +226,7 @@ export function SwapSheet({ subject, move, onClose, blocked, onFix }: {
   const onOpenChange = (o: boolean) => { if (!o) onClose(); };
   const body = shown && (
     <Body key={shown.kind === "card" ? `p${shown.card.player_id}` : `s${shown.slot}`} subject={shown} move={move}
-      blocked={blocked} onFix={onFix} Title={desk ? DialogTitle : SheetTitle} Description={desk ? DialogDescription : SheetDescription} />
+      blocked={blocked} onFix={onFix} week={week} sit={sit} busy={busy} Title={desk ? DialogTitle : SheetTitle} Description={desk ? DialogDescription : SheetDescription} />
   );
   if (desk) {
     return (

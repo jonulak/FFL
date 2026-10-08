@@ -900,7 +900,10 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
             sides.reverse()
         # a bye or placeholder side has no team to build; the real side takes the left
         sides = [s for s in sides if hasattr(s[0], "team_id")]
-        built = [build_side(t, _side_players(lineup, settings, sl, seas, inj, w1, home), settings)
+        # my players sat by hand this week stay out of my side's by-projection lineup, as on the Roster page
+        sat = db.sat_ids(week) if mine else set()
+        built = [build_side(t, with_sits(_side_players(lineup, settings, sl, seas, inj, w1, home),
+                                         sat if t.team_id == me else set()), settings)
                  for t, lineup in sides]
         # the left side's odds of winning (season.win_prob); the live overlay recomputes them
         odds = None
@@ -1132,6 +1135,11 @@ def with_espn_slots(rows: list[dict], flags: dict[int, dict], fake: dict[int, st
              "espn_order": flags.get(r["player_id"], {}).get("order", 1000 + i)} for i, r in enumerate(rows)]
 
 
+def with_sits(rows: list[dict], sat: set[int]) -> list[dict]:
+    """Each row marked `sat` when he is sat by hand this week (the `sits` table; season.roster_cards)."""
+    return [{**r, "sat": r["player_id"] in sat} for r in rows]
+
+
 def roster_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
                  injuries: dict | None = None, snaps: dict | None = None, flags: dict | None = None) -> dict:
     """My roster as cards (season.roster_cards) for the Roster page. Same enrichment as week_state,
@@ -1161,7 +1169,7 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
         except Exception as e:  # noqa: BLE001 — a failed read shows every row unlocked; POST /lineup re-reads before writing
             logging.getLogger(__name__).warning("roster_flags read failed; every row shows unlocked: %s", e)
             flags = {}
-    players = with_espn_slots(players, flags, fake)
+    players = with_sits(with_espn_slots(players, flags, fake), db.sat_ids(week))
     return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week),
             "empty_slots": S.empty_slots(players, settings), "writes": espn_write.writes()}
 

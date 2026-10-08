@@ -123,8 +123,9 @@ def _slot_accepts(slot: str) -> set[str]:
 def optimal_lineup(roster: list[dict], settings: dict) -> list[dict]:
     """Best lineup by projection. Fixed slots first (best of each position), then flex from what is
     left — optimal for slots whose eligibility is by position (exchange argument), which is every
-    ESPN slot. IR players and OUT/bye players score 0 so they are never chosen over a live body."""
-    pool = sorted((p for p in roster if p.get("slot") != "IR"), key=playable_proj, reverse=True)
+    ESPN slot. IR players and OUT/bye players score 0 so they are never chosen over a live body; a player sat by
+    hand for the week (`sat`) is left out like IR."""
+    pool = sorted((p for p in roster if p.get("slot") != "IR" and not p.get("sat")), key=playable_proj, reverse=True)
     used: set[int] = set()
     out: list[dict] = []
     slots = [s for s in SLOT_ORDER if s in settings["starters"]]
@@ -255,20 +256,30 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
     alternative for his slot; bench player vs the weakest starter in a slot that takes him), a
     close-call flag on that gap or on the source spread, and a one-line reason from a template.
     QUESTIONABLE/DOUBTFUL keep the projection's call — the status is his call, and the line says so.
+
+    A player sat by hand (`sat`) is left out of the call: SIT, worth nothing to the lineup (`play_proj` 0, so the
+    swap sheet never offers him), and the rest of the roster is called without him. `model_call` is the call he
+    would have had, which the outlook's hash and sheet read so a sit does not rewrite his outlook.
     """
+    model = ({c["player_id"]: c for c in roster_cards([{**p, "sat": False} for p in roster], settings, week)}
+             if any(p.get("sat") for p in roster) else {})
     optimal = optimal_lineup(roster, settings)
     slot_of = {e["player_id"]: e["slot"] for e in optimal if e["player_id"] is not None}
     by_id = {p["player_id"]: p for p in roster}
-    bench = [p for p in roster if p["player_id"] not in slot_of and p.get("slot") != "IR" and playable_proj(p) > 0]
+    bench = [p for p in roster if p["player_id"] not in slot_of and p.get("slot") != "IR" and not p.get("sat")
+             and playable_proj(p) > 0]
     cards = []
     for i, p in enumerate(roster):
         gap: float | None = None
+        sat = bool(p.get("sat"))
         if p.get("slot") == "IR":
             call, reason = "IR", "IR slot"
         elif p.get("bye"):
             call, reason = "BYE", "bye week"
         elif p.get("injury") in UNPLAYABLE:
             call, reason = "OUT", f"out: {p['injury']}"
+        elif sat:
+            call, reason = "SIT", f"sat by hand this week — the call: {model[p['player_id']]['reason']}"
         elif p["player_id"] in slot_of:
             call = "START"
             slot = slot_of[p["player_id"]]
@@ -293,7 +304,9 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
         if call in ("START", "BENCH") and p.get("injury") in INJURY_FACTOR:
             reason += " — his status is your call"
         cards.append({**p, "group": _group(p), "call": call, "gap": gap, "close_call": close, "reason": reason,
-                      "ros_adj": ros_adj(p, week), "play_proj": playable_proj(p), "locked": bool(p.get("locked")),
+                      "sat": sat, "model_call": model[p["player_id"]]["call"] if sat else call,
+                      "ros_adj": ros_adj(p, week), "play_proj": 0.0 if sat else playable_proj(p),
+                      "locked": bool(p.get("locked")),
                       "espn_order": p.get("espn_order", i),
                       # the slot a START puts him in (STRATEGY.md "Slot by kickoff"); the chip names it
                       "call_slot": slot_of.get(p["player_id"]) if call == "START" else None})
@@ -757,4 +770,14 @@ def lineup_entry(items: list[tuple[int, str, str]], cards: list[dict], week: int
     return (f"## {day} — Week {week} lineup: {title}\n"
             f"- **Decision:** {moved}. Made from the Roster page.\n"
             f"- **Reasoning:** {calls}.\n"
+            f"- **Outcome (fill in later):**\n")
+
+
+def sit_entry(card: dict, sat: bool, week: int, day: str) -> str:
+    """journal/DECISIONS.md's entry for a sit toggled on the Roster page: who, and the call he carried then."""
+    what = "sat for the week, left out of the lineup call" if sat else "back in the lineup call"
+    call = card.get("model_call") or card["call"]
+    return (f"## {day} — Week {week} {'sit' if sat else 'unsit'}: {card['name']}\n"
+            f"- **Decision:** {card['name']} ({card['pos']}) {what}. Made from the Roster page.\n"
+            f"- **Reasoning:** the call was {call} ({card['reason']}).\n"
             f"- **Outcome (fill in later):**\n")

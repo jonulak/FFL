@@ -78,7 +78,7 @@ def card_hash(card: dict) -> str:
     news. Projections are not among them: the outlook no longer mentions them."""
     rows = [[r.get("week"), r.get("snap_pct"), r.get("tgt"), r.get("car"), r.get("rec"), r.get("pts")] for r in _rows(card)]
     return _sha([card.get("opponent"), card.get("kickoff"), bool(card.get("bye")), card.get("injury"),
-                 card.get("injury_note"), card.get("return_week"), card.get("call"), rows])
+                 card.get("injury_note"), card.get("return_week"), card.get("model_call", card.get("call")), rows])
 
 
 def fact_hash(card: dict, ctx: dict, today: date) -> str:
@@ -150,7 +150,7 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date, free_agent: bool =
     A free agent (a Waivers row) has no call: the sheet says a claim is being weighed and the Take reads
     what adding him would mean."""
     role = ("Roster status: free agent; his manager is weighing a claim on him" if free_agent
-            else f"Start/bench call (background only, do not restate): {card['call']}")
+            else f"Start/bench call (background only, do not restate): {card.get('model_call', card['call'])}")
     lines = [
         f"Week {week} fact sheet — today is {today:%A} {today.month}/{today.day}/{today.year}",
         f"Player: {card['name']}, {card['pos']}, {card['team']}; {_exp_text(card)}",

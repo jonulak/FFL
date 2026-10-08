@@ -1014,3 +1014,59 @@ def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch, tmp_path):
     assert lineup_env.post("/lineup", json={"moves": [{"player_id": 7, "to_slot": "BE"}, {"player_id": 5, "to_slot": "IR"}]}).status_code == 200
     assert api.espn_write.fake_slots() == {5: "IR", 7: "BE"}
     assert not (tmp_path / "DECISIONS.md").exists(), "a fake move is not a decision"
+
+
+@pytest.fixture
+def sit_env(client, monkeypatch, tmp_path):
+    from ffl import season
+    from tests.test_season import TWO_QB, roster
+    state = {"builds": 0}
+
+    def roster_state(week=None, flags=None):
+        state["builds"] += 1
+        rows = api.espn_season.with_sits(roster(), db.sat_ids(3))
+        return {"week": 3, "live": False, "empty_slots": [], "writes": False,
+                "cards": season.roster_cards(rows, TWO_QB, 3)}
+    monkeypatch.setattr(api.espn_season, "roster_state", roster_state)
+    monkeypatch.setattr(api.espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(api, "DECISIONS", tmp_path / "DECISIONS.md")
+    monkeypatch.setattr(api.espn_write, "writes", lambda: True)
+    client.state = state
+    return client
+
+
+def test_sit_remakes_the_call_without_an_espn_read_and_journals_it(sit_env, tmp_path):
+    sit_env.get("/roster")
+    r = sit_env.post("/roster/sit/3", json={"sat": True})   # QB C, the best QB
+    assert r.status_code == 200
+    cards = {c["player_id"]: c for c in r.json()["cards"]}
+    assert cards[3]["call"] == "SIT" and cards[3]["sat"] is True and cards[2]["call"] == "START"
+    assert sit_env.state["builds"] == 1, "the cards are re-called, not rebuilt from ESPN"
+    assert db.sat_ids(3) == {3}
+    assert "Week 3 sit: QB C" in (tmp_path / "DECISIONS.md").read_text()
+    assert {c["player_id"]: c["call"] for c in sit_env.get("/roster").json()["cards"]}[3] == "SIT", "cached as sat"
+
+
+def test_unsit_puts_him_back_and_a_repeat_is_not_journaled_twice(sit_env, tmp_path):
+    sit_env.post("/roster/sit/3", json={"sat": True})
+    sit_env.post("/roster/sit/3", json={"sat": True})
+    r = sit_env.post("/roster/sit/3", json={"sat": False})
+    assert {c["player_id"]: c["call"] for c in r.json()["cards"]}[3] == "START" and db.sat_ids(3) == set()
+    text = (tmp_path / "DECISIONS.md").read_text()
+    assert text.count("Week 3 sit: QB C") == 1 and text.count("Week 3 unsit: QB C") == 1
+
+
+def test_a_dev_api_sits_but_does_not_journal(sit_env, monkeypatch, tmp_path):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: False)
+    assert sit_env.post("/roster/sit/3", json={"sat": True}).status_code == 200
+    assert db.sat_ids(3) == {3} and not (tmp_path / "DECISIONS.md").exists()
+
+
+def test_sit_refuses_a_player_off_the_roster_and_a_running_move(sit_env):
+    assert sit_env.post("/roster/sit/999", json={"sat": True}).status_code == 404
+    api._LINEUP.acquire()
+    try:
+        assert sit_env.post("/roster/sit/3", json={"sat": True}).status_code == 409
+    finally:
+        api._LINEUP.release()
+    assert db.sat_ids(3) == set()

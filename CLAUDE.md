@@ -116,7 +116,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   for `ffl.replay`); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
   `week`/`waivers-week`) ← `data/outlook/*.json`; `calibration_snapshots` + `calibration_rows` ← `data/calibration/week-<w>.json`;
   `sigma_fits` ← `sigma.json` (latest wins, history kept; `calibrate.load_sigma` never fails); `claim_plans` ←
-  `journal/waivers/week-<n>.json`. `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held
+  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it). `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held
   across an ESPN call; the connect hook sets `busy_timeout` before `journal_mode=WAL`. `db.engine()` never creates tables: a
   missing or stale schema raises `SchemaError` (run `uv run alembic upgrade head`); a DB error on a page read 500s the page, only a missing
   row degrades to empty. Callers outside `db.py` catch `db.DBError`. Schema changes are new Alembic revisions
@@ -233,6 +233,13 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   answers 502 `moved`). Under `FFL_WRITES=0` nothing reaches ESPN: `espn_write.fake_slots()` holds the moves
   and wins over ESPN's slots in the page and the validator. `web/components/use-live.ts` ignores a refetch that
   started before a move landed (generation guard).
+  **Sit for the week** (the switch at the top of a player's swap sheet; `POST /roster/sit/{id}` `{sat}`): a row in
+  the `sits` table for ESPN's current week, so it clears at rollover. `roster_state` and my side of `week_state` mark
+  him `sat`; `optimal_lineup` leaves him out like IR, so the Roster call (chip SIT, `play_proj` 0 so the sheet never
+  offers him), the other cards' gaps and the Matchup board's by-projection swaps are all made without him.
+  `playable_proj` is untouched (the win meter reads ESPN's real lineup) and the waiver pool ignores sits (calibration
+  reads it). `model_call` is the call he would have had: the outlook hashes it, so a sit never rewrites his outlook.
+  The endpoint re-calls the cached cards (no ESPN read) under `_LINEUP`, and journals only when `espn_write.writes()`.
 
 ## Rules for working here
 - Every roster decision made in a session is appended to `journal/DECISIONS.md` (decision, reasoning, alternatives)

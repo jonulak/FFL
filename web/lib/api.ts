@@ -92,7 +92,10 @@ export type Field = "on" | "red_zone";
 export type OutlookSource = { site: string; date: string; url: string };
 export type OutlookBullet = { label: "Injury" | "Usage" | "Depth" | "Team" | "Take"; text: string; sources: OutlookSource[] };
 export type Card = Player & {
-  group: "starter" | "bench" | "ir"; call: "START" | "BENCH" | "OUT" | "BYE" | "IR";
+  group: "starter" | "bench" | "ir"; call: "START" | "BENCH" | "OUT" | "BYE" | "IR" | "SIT";
+  // sat by hand for the week (POST /roster/sit): out of the call, SIT unless a bye or injury says more; model_call
+  // is the call he would have had
+  sat: boolean; model_call: Card["call"];
   gap: number | null; close_call: boolean; reason: string;
   // ESPN's lineupLocked, the playable projection the swap gain runs on, and the usage-adjusted rest of season
   play_proj: number; locked: boolean; ros_adj: number;

@@ -6,7 +6,7 @@ import { ClientError, clientPost } from "@/app/api-client";
 import type { Card, Roster } from "@/lib/api";
 import { afterFailure, applyMoves, fillOptions, irIllegal, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
 import { type Notice, RosterRows, type SwapControl } from "./roster-cards";
-import { type SheetPick, type SheetSubject, SwapSheet } from "./swap-sheet";
+import { type SheetPick, type SheetSubject, type SitControl, SwapSheet } from "./swap-sheet";
 import { useFlip } from "./use-flip";
 import { useLive } from "./use-live";
 
@@ -31,6 +31,8 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const [optimistic, setOptimistic] = useState<Roster | null>(null);
   const [error, setError] = useState<({ id: number } & LineupFailure) | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [sitPending, setSitPending] = useState<number | null>(null);
+  const [sitError, setSitError] = useState<{ id: number; text: string } | null>(null);
   const shown = optimistic ?? data;
   // every change a move makes to the rows (the re-slot, ESPN's read-back, a refusal putting them back) plays out
   const { root, capture } = useFlip<HTMLDivElement>(shown);
@@ -42,13 +44,13 @@ export function RosterLive({ initial }: { initial: Roster }) {
     return null;
   }, [pickedCard, fill, shown.cards, shown.empty_slots]);
 
-  const clear = () => { setError(null); setNotice(null); };
+  const clear = () => { setError(null); setNotice(null); setSitError(null); };
   const pick = (c: Card) => { if (pending.length) return; clear(); setFill(null); setPicked(c.player_id); };
   const openFill = (slot: string) => { if (pending.length) return; clear(); setPicked(null); setFill(slot); };
   const close = () => { setPicked(null); setFill(null); };
 
   const move = async (p: SheetPick) => {
-    if (pending.length) return;
+    if (pending.length || sitPending != null) return;
     let moves: Move[], id: number;
     if (p.kind === "fill" && fill) {
       moves = [{ player_id: p.who.player_id, to_slot: fill }];
@@ -83,14 +85,42 @@ export function RosterLive({ initial }: { initial: Roster }) {
     }
   };
 
+  // Sit him for the week (or stand him back up): the switch and his chip flip at once; the API re-makes every call
+  // without him and its answer replaces the rows. A refusal puts him back and says why under the switch.
+  const setSat = async (c: Card, sat: boolean) => {
+    if (sitPending != null || pending.length) return;
+    setSitError(null);
+    const before = shown;
+    const call = sat ? (c.call === "START" || c.call === "BENCH" ? "SIT" : c.call) : (c.call === "SIT" ? c.model_call : c.call);
+    capture();
+    const next = { ...before, cards: before.cards.map((x) => (x.player_id === c.player_id ? { ...x, sat, call } : x)) };
+    replace(next);
+    setOptimistic(next);
+    setSitPending(c.player_id);
+    try {
+      const back = await clientPost<Roster>(`/roster/sit/${c.player_id}`, { sat });
+      capture();
+      replace(back);
+    } catch (e) {
+      capture();
+      replace(before);
+      setSitError({ id: c.player_id, text: `Not saved: ${message(e)}` });
+    } finally {
+      setOptimistic(null);
+      setSitPending(null);
+    }
+  };
+
   const reload = () => { setError(null); router.refresh(); };
   const swap: SwapControl = { picked: pickedCard, pending, error, pick, fill: openFill, reload };
+  const sit: SitControl = { pending: sitPending, error: sitError, set: setSat };
 
   return (
     <>
       <RosterRows cards={shown.cards} empty={shown.empty_slots} week={shown.week} runBusy={shown.outlook_run.running}
         open={open} setOpen={setOpen} swap={swap} notice={notice} rootRef={root} />
-      <SwapSheet subject={subject} move={move} onClose={close} blocked={irIllegal(shown.cards)} onFix={pick} />
+      <SwapSheet subject={subject} move={move} onClose={close} blocked={irIllegal(shown.cards)} onFix={pick}
+        week={shown.week} sit={sit} busy={pending.length > 0 || sitPending != null} />
     </>
   );
 }

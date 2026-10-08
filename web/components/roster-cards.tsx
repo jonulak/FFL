@@ -19,7 +19,8 @@ import { PlayerTrigger } from "./player-dialog";
 import { TeamLogo } from "./player-media";
 import { StatLine } from "./stat-line";
 
-const CALL = { START: "start", BENCH: "muted", OUT: "out", BYE: "muted", IR: "out" } as const;
+// SIT is his own hand, not a verdict: muted like BENCH.
+const CALL = { START: "start", BENCH: "muted", OUT: "out", BYE: "muted", IR: "out", SIT: "muted" } as const;
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
 const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 const GROUPS: { key: Card["group"]; title: string }[] = [
@@ -263,7 +264,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
   c: Card; week: number; runBusy: boolean; open: boolean; onOpen: (open: boolean) => void; swap: SwapControl;
   notice: string | null; illegal: boolean;
 }) {
-  const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR";
+  const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR" || c.call === "SIT";
   const live = c.game_played > 0 || c.actual > 0;
   const big = live ? c.actual : c.proj;
   const picked = swap.picked?.player_id === c.player_id;

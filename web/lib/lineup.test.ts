@@ -21,6 +21,10 @@ describe("mismatch", () => {
   it("a starter the call benches", () => expect(isMismatch({ group: "starter", call: "BENCH" })).toBe(true));
   it("a bench player the call starts", () => expect(isMismatch({ group: "bench", call: "START" })).toBe(true));
   it("agreement", () => expect(isMismatch({ group: "starter", call: "START" })).toBe(false));
+  it("a sat man ESPN still starts, not one on the bench", () => {
+    expect(isMismatch({ group: "starter", call: "SIT" })).toBe(true);
+    expect(isMismatch({ group: "bench", call: "SIT" })).toBe(false);
+  });
   it("a starter in another slot than the call's (STRATEGY.md, Slot by kickoff)", () => {
     expect(isMismatch({ group: "starter", call: "START", slot: "RB", call_slot: "RB/WR/TE" })).toBe(true);
     expect(isMismatch({ group: "starter", call: "START", slot: "RB/WR/TE", call_slot: "RB/WR/TE" })).toBe(false);

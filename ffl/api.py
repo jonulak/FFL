@@ -29,7 +29,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from . import calibrate, cbs, espn_season, espn_write, live, outlook, player_card, season
+from . import calibrate, cbs, db, espn_season, espn_write, live, outlook, player_card, season
 from . import claims as claims_mod
 from . import db
 from . import plays as plays_mod
@@ -469,6 +469,49 @@ def lineup(body: LineupIn):
             except Exception as e:  # noqa: BLE001 — ESPN took the move; say so, never show the old slots as current
                 cache.drop("roster")  # the reload this asks for must build from ESPN, not serve the pre-move page
                 raise HTTPException(502, {"source": "espn", "error": "moved in ESPN — the read-back failed, reload", "moved": True}) from e
+        return roster_()
+    finally:
+        _LINEUP.release()
+
+
+class SitIn(BaseModel):
+    sat: bool
+
+
+@app.post("/roster/sit/{player_id:int}")
+def roster_sit(player_id: int, body: SitIn):
+    """Sit him for the week, or stand him back up: the call is re-made without him (season.roster_cards) and the
+    page answers at once. Nothing reaches ESPN. Under the lineup lock, so a move's read-back and a sit never land
+    over each other."""
+    if not _LINEUP.acquire(blocking=False):
+        raise HTTPException(409, "a lineup move is running")
+    try:
+        data = _serve("roster", lambda: espn_season.roster_state(None))
+        before = next((c for c in data["cards"] if c["player_id"] == player_id), None)
+        if before is None:
+            raise HTTPException(404, f"player {player_id} is not on the roster")
+        week = data["week"]
+        if before.get("sat") != body.sat:
+            try:
+                db.put_sit(week, player_id, body.sat)
+            except db.DBError as e:
+                raise HTTPException(500, f"sit not saved: {e}") from e
+            # a dev API (FFL_WRITES=0) is not the manager deciding, as with a fake lineup move: log only
+            entry = season.sit_entry(before, body.sat, week, datetime.now().strftime("%Y-%m-%d"))
+            try:
+                if espn_write.writes():
+                    with DECISIONS.open("a") as f:
+                        f.write("\n" + entry)
+                else:
+                    log.info("sit under FFL_WRITES=0, not journaled: %s", entry)
+            except OSError as e:
+                log.warning("sit saved but not journaled: %s", e)
+        # the cards carry every player field, so the call is re-made from them without an ESPN read
+        sat = db.sat_ids(week)
+        rows = espn_season.with_sits(data["cards"], sat)
+        payload = {k: v for k, v in data.items() if k != "stale_since"}
+        cache.put("roster", {**payload, "cards": season.roster_cards(rows, espn_season.load(), week)})
+        cache.expire("week")  # the Matchup board's by-projection lineup leaves him out too
         return roster_()
     finally:
         _LINEUP.release()
