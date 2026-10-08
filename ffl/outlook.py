@@ -4,7 +4,7 @@ The call and its reason are code (season.roster_cards). This module writes the b
 injury, usage, depth, team news and a take: what the card's numbers cannot say. The fact sheet holds
 the card's non-projection facts plus news.gather's context; the CLI may search the web to check and
 extend it, and every bullet cites its sources. Nothing here runs on a GET: generate() is started by
-POST /outlook/refresh in a background thread, and the page reads data/outlook/week-<n>.json.
+POST /outlook/refresh in a background thread, and the page reads the week's entries from the DB.
 """
 from __future__ import annotations
 
@@ -16,9 +16,8 @@ import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
-from pathlib import Path
 
-from . import news
+from . import db, news
 from .config import DATA
 
 OUTLOOK_DIR = DATA / "outlook"
@@ -173,29 +172,22 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date, free_agent: bool =
     return "\n".join(lines)
 
 
-# The two stores: the Roster run's week file, and the free agents written on a click from Waivers. Kept
+# The two stores: the Roster run's entries, and the free agents written on a click from Waivers. Kept
 # apart so the hourly run's read-modify-write never meets a click's.
 ROSTER, WAIVERS = "week", "waivers-week"
 
 
-def _path(week: int, kind: str = ROSTER) -> Path:
-    return OUTLOOK_DIR / f"{kind}-{week}.json"
-
-
 def load(week: int, kind: str = ROSTER) -> dict[int, dict]:
-    """The week's entries by player id; a missing or corrupt file is an empty week."""
-    try:
-        raw = json.loads(_path(week, kind).read_text())
-        return {int(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
-    except (OSError, ValueError, AttributeError, TypeError):
-        return {}
+    """The week's entries by player id; a week with none is empty."""
+    return db.outlooks_for(week, kind)
 
 
 def save(week: int, entries: dict[int, dict], kind: str = ROSTER) -> None:
-    OUTLOOK_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = _path(week, kind).with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({str(k): v for k, v in entries.items()}, indent=1))
-    os.replace(tmp, _path(week, kind))
+    db.put_outlooks(week, kind, entries)
+
+
+def put(week: int, pid: int, entry: dict, kind: str = ROSTER) -> None:
+    db.put_outlooks(week, kind, {pid: entry})
 
 
 def attach(cards: list[dict], entries: dict[int, dict], writing: set[int] = frozenset()) -> list[dict]:
@@ -299,7 +291,7 @@ def generate(cards: list[dict], week: int, run=run_claude, gather=None, now: dat
     todo = pending(cards, entries, ctxs, today)
     counts: dict = {"generated": 0, "skipped": len(cards) - len(todo), "failed": 0, "last_failure": None,
                     "pending": len(todo)}
-    lock = threading.Lock()  # entries, counts and the file are shared by the workers
+    lock = threading.Lock()  # entries and counts are shared by the workers
 
     def one(c: dict) -> None:
         ctx = ctxs[c["player_id"]]
@@ -308,7 +300,7 @@ def generate(cards: list[dict], week: int, run=run_claude, gather=None, now: dat
         with lock:
             entries[c["player_id"]] = {"hash": fact_hash(c, ctx, today), "card_hash": card_hash(c),
                                        "bullets": bullets, "generated_at": stamp}
-            save(week, entries)
+            put(week, c["player_id"], entries[c["player_id"]])
             counts["generated"] += 1
 
     with ThreadPoolExecutor(WORKERS) as pool:
@@ -336,7 +328,7 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
     """
     if not LOCK.acquire(blocking=False):
         raise Busy("outlook refresh already running")
-    # generate() rewrites the file from what it loaded at its start, so a card written on its own
+    # generate() writes back the entries it loaded at its start, so a card written on its own
     # mid-run would be lost: the two never overlap (start_one refuses a card while LOCK is held)
     with _WLOCK:
         if writing(ROSTER):
@@ -364,7 +356,7 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
 
 
 # One player at a time, on a click: a free agent from the Waivers page, or a Roster card. Players being
-# written (to which store), and the lock that guards that map and each file's read-modify-write (the
+# written (to which store), and the lock that guards that map and each store's read-modify-write (the
 # calls run side by side, WORKERS at most).
 _WRITING: dict[int, str] = {}
 _WLOCK = threading.Lock()
@@ -401,7 +393,7 @@ def start_one(row: dict, week: int, run=run_claude, gather=None, kind: str = WAI
     """Write one player's outlook on a daemon thread: a free agent (WAIVERS, the claim-framed sheet) or a
     Roster card (ROSTER, stored with the fact hash, so the hourly run skips him until his facts move). It
     always writes: the click is the ask. Busy when he is already being written, WORKERS calls are in
-    flight, or — for a card — the full run holds the Roster file. A failed call keeps the old bullets and
+    flight, or — for a card — the full run holds the Roster entries. A failed call keeps the old bullets and
     records the reason on his entry."""
     pid = row["player_id"]
     with _WLOCK:
@@ -429,7 +421,7 @@ def start_one(row: dict, week: int, run=run_claude, gather=None, kind: str = WAI
                 entries = load(week, kind)
                 old = entries.get(pid) if isinstance(entries.get(pid), dict) else {}
                 entries[pid] = entry if "bullets" in entry else {**old, **entry}
-                save(week, entries, kind)
+                put(week, pid, entries[pid], kind)
             finally:
                 _WRITING.pop(pid, None)
 

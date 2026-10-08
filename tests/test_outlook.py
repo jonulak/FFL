@@ -196,15 +196,10 @@ def test_start_records_the_pending_count(outlook_dir):
     assert outlook.LAST["pending"] == 1
 
 
-def test_load_and_save_round_trip_and_tolerate_a_missing_or_corrupt_file(outlook_dir):
+def test_load_and_save_round_trip_and_an_empty_week(outlook_dir):
     assert outlook.load(2) == {}
     outlook.save(2, {1: {"hash": "abc", "text": "t", "generated_at": "2026-09-10T09:00"}})
     assert outlook.load(2) == {1: {"hash": "abc", "text": "t", "generated_at": "2026-09-10T09:00"}}
-    (outlook_dir / "week-3.json").write_text("{not json")
-    assert outlook.load(3) == {}
-    (outlook_dir / "week-4.json").write_text('{"abc": {"hash": "h", "text": "t"}}')
-    assert outlook.load(4) == {}, "a non-numeric key is a corrupt file, not a 500 on the next GET"
-    assert not list(outlook_dir.glob("*.tmp")), "the temp file is renamed away"
 
 
 def test_start_runs_in_the_background_under_the_lock_and_records_last(outlook_dir):
@@ -328,11 +323,10 @@ def test_free_agent_sheet_frames_the_claim_and_keeps_projections_out():
     assert "Injury, Usage, Depth, Team and Take" in sheet and "a healthy player gets no Injury bullet" in sheet
 
 
-def test_waiver_outlooks_keep_their_own_file(outlook_dir):
+def test_waiver_outlooks_keep_their_own_store(outlook_dir):
     outlook.save(5, {1: {"bullets": [TAKE]}}, kind=outlook.WAIVERS)
     assert outlook.load(5) == {}, "the roster run never sees a free agent's entry"
     assert outlook.load(5, kind=outlook.WAIVERS)[1]["bullets"] == [TAKE]
-    assert (outlook_dir / "waivers-week-5.json").exists()
 
 
 def test_start_one_writes_his_outlook_and_waiver_entry_reads_it(outlook_dir, writing):
@@ -417,6 +411,17 @@ def test_a_card_rewrite_that_fails_keeps_the_bullets_and_shows_the_reason(outloo
                       kind=outlook.ROSTER).join(5)
     a, = outlook.attach([card()], outlook.load(5))
     assert a["outlook"] == [TAKE] and "Not logged in" in a["outlook_error"]
+
+
+def test_start_one_failure_merges_error_into_old_entry(outlook_dir, writing):
+    outlook.save(5, {1: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}})
+
+    def boom(sheet):
+        raise RuntimeError("cli down")
+
+    outlook.start_one(card(), 5, run=boom, kind=outlook.ROSTER).join(5)
+    e = outlook.load(5)[1]
+    assert e["bullets"] == [TAKE] and e["error"].startswith("RuntimeError")
 
 
 def test_a_card_rewrite_and_the_full_run_never_overlap(outlook_dir, writing):

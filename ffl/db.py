@@ -315,3 +315,22 @@ def picks(season: int = SEASON) -> list[dict]:
         .order_by(draft_picks.c.overall)
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
+
+
+def put_outlooks(week: int, kind: str, entries: dict[int, dict], season: int = SEASON) -> None:
+    """Upsert each player's entry; never deletes."""
+    if not entries:
+        return
+    from datetime import datetime
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    vals = [{"season": season, "week": week, "kind": kind, "player_id": int(pid), "entry": e, "updated": now}
+            for pid, e in entries.items()]
+    with _write() as c:
+        c.execute(_upsert(outlooks, vals, ["season", "week", "kind", "player_id"], ["entry", "updated"]))
+
+
+def outlooks_for(week: int, kind: str, season: int = SEASON) -> dict[int, dict]:
+    q = sa.select(outlooks.c.player_id, outlooks.c.entry).where(
+        outlooks.c.season == season, outlooks.c.week == week, outlooks.c.kind == kind)
+    with _read() as c:
+        return {pid: e for pid, e in c.execute(q)}

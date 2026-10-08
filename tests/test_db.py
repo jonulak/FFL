@@ -130,3 +130,12 @@ def test_plays_round_trip_dedupe_and_order():
     assert db.add_plays([_play(1, 3.2)]) == 0
     assert [r["player_id"] for r in db.plays_rows(4)] == [1, 2]
     assert db.plays_rows(5) == []
+
+
+def test_outlooks_kinds_are_apart_and_upsert():
+    db.put_outlooks(5, "week", {1: {"hash": "a", "bullets": ["x"]}})
+    db.put_outlooks(5, "waivers-week", {1: {"bullets": ["fa"]}})
+    db.put_outlooks(5, "week", {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}})
+    assert db.outlooks_for(5, "week") == {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}
+    assert db.outlooks_for(5, "waivers-week") == {1: {"bullets": ["fa"]}}
+    assert db.outlooks_for(6, "week") == {}
