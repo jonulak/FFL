@@ -175,7 +175,7 @@ export type Players = {
   rows: PlayerRow[]; roster: RosterRow[];
   ros_source: "sources" | "season"; stale_since: string | null;
 };
-// GET/POST /claims: the week's "get K of N" claim groups (journal/waivers/week-<n>.json). A group gets
+// GET/POST /claims: the week's "get K of N" claim groups (the claim_plans table). A group gets
 // as many of its targets (best first) as it has rows under "make room": its cuts, first to go first,
 // plus `open` empty roster spots (only one group may use open spots, and it uses all of them).
 // A Claim is one move (the Python "Move"): an instant free-agent add (`now`) or a waiver claim.
@@ -235,7 +235,7 @@ export type TxMove = { id: string; ms: number; at: string; kind: "waiver" | "fre
 export type Transactions = { me: number; current_week: number; moves: TxMove[]; teams: Club[]; stale_since: string | null };
 // GET /player/{id}/transactions: his moves read from the side he was on (season.player_transactions),
 // newest first, then his draft pick (season.draft_entry) with round, pick in the round and overall.
-// `at` is null on a pick read from ESPN's draft (the backup when journal/draft/picks.csv is lost).
+// `at` is null on a pick read from ESPN's draft (the backup when the draft_picks table is empty).
 export type PlayerTx = {
   id: string; at: string | null; week: number; kind: TxMove["kind"] | "dropped" | "traded" | "draft";
   team_id: number; team: string; abbrev: string; logo: string;

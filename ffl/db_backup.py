@@ -27,15 +27,27 @@ def _source() -> Path:
     return Path(u.removeprefix("sqlite:///"))
 
 
+def _check_head(src: sqlite3.Connection) -> None:
+    """An empty or stale file passes integrity_check; 14 of them would prune every real snapshot."""
+    try:
+        row = src.execute("select version_num from alembic_version").fetchone()
+    except sqlite3.OperationalError:
+        row = None  # no alembic_version table: never migrated
+    current, head = row[0] if row else None, db._head()
+    if current != head:
+        raise RuntimeError(f"backup source is at schema {current!r}, code wants {head!r}: refusing to publish it")
+
+
 def backup(dest: Path, keep: int = 14, today: date | None = None) -> Path:
     name = f"ffl-{(today or date.today()).isoformat()}.db"
     dest.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         local = Path(tmp) / name
         # read-only: a missing DB must raise, not be created empty and published as tonight's snapshot
-        src = sqlite3.connect(f"file:{_source()}?mode=ro", uri=True)
+        src = sqlite3.connect(f"file:{_source()}?mode=ro", uri=True, timeout=5)
         out = sqlite3.connect(local)
         try:
+            _check_head(src)
             src.backup(out)
             ok = out.execute("PRAGMA integrity_check").fetchone()[0]
         finally:

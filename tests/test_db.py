@@ -163,3 +163,12 @@ def test_claim_plan_round_trip_and_replace():
     db.put_claim_plan({"week": 6, "groups": [{"targets": [101], "cuts": [1], "open": 0}], "submits": []})
     db.put_claim_plan({"week": 6, "groups": [], "submits": []})
     assert db.claim_plan(6) == {"week": 6, "groups": [], "submits": []}
+
+
+def test_engine_on_a_missing_sqlite_file_raises_and_creates_nothing(tmp_path, monkeypatch):
+    missing = tmp_path / "nope.db"
+    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{missing}")
+    db.reset()
+    with pytest.raises(db.SchemaError, match="alembic upgrade head"):
+        db.engine()
+    assert not missing.exists()

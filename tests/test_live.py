@@ -337,3 +337,35 @@ def test_overlay_league_keeps_a_schedule_week_without_odds():
     empty = {"starter_ids": [], "starter_teams": [], "pending_teams": [], "starters": [], "score": 0, "proj": 0}
     row = {"away": dict(empty), "home": dict(empty), "live": False, "final": False, "win_prob": None}
     assert live.overlay_league({"week": 9, "scoreboard": [row]}, {})["scoreboard"][0]["win_prob"] is None
+
+
+def test_a_failed_plays_read_leaves_the_week_unadvanced_and_retries(monkeypatch):
+    from ffl import db, plays
+
+    real, calls = db.plays_rows, []
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise db.DBError("database is locked")
+        return real(*a, **k)
+
+    monkeypatch.setattr(db, "plays_rows", flaky)
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r._refresh_roster()
+    assert r.store is None and r.week is None and r.state.error.startswith("plays store not loaded")
+    r._refresh_roster()
+    assert isinstance(r.store, plays.Store) and r.week == 1
+
+
+def test_a_recovered_plays_write_clears_only_its_own_error(monkeypatch):
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r._on_doc(copy.deepcopy(FIX))  # the baseline
+    r.state.error = "plays not saved: database is locked"
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.state.error is None
+    r.state.error = "roster refresh failed: boom"
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.state.error == "roster refresh failed: boom"

@@ -380,8 +380,12 @@ class Runner(threading.Thread):
             return
         self.roster = P.roster_index(week)
         if week.get("week") != self.week:
-            self.week = week["week"]
-            self.store = P.Store(self.week)
+            try:
+                store = P.Store(week["week"])  # before the week advances: a failed read must retry next refresh
+            except db.DBError as e:
+                self.state.error = f"plays store not loaded: {e}"
+                return
+            self.week, self.store = week["week"], store
 
     def _on_doc(self, doc: dict) -> None:
         self._refresh_roster()
@@ -395,6 +399,8 @@ class Runner(threading.Thread):
             try:
                 self.store.add(P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays,
                                                stats_before))
+                if (self.state.error or "").startswith("plays not saved"):
+                    self.state.error = None  # the write recovered; leave any other error alone
             except db.DBError as e:  # the board keeps the rows in memory; a DB hiccup must not drop the feed
                 self.state.error = f"plays not saved: {e}"
         idle = idle_for(doc)

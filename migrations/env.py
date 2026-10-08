@@ -16,6 +16,10 @@ target_metadata = db.metadata
 
 def run_migrations_online():
     eng = sa.create_engine(db.url())
+    if eng.dialect.name == "sqlite":
+        @sa.event.listens_for(eng, "connect")
+        def _busy(dbapi_conn, _rec):  # a batch migration can meet the live API's writer
+            dbapi_conn.execute("PRAGMA busy_timeout=5000")
     with eng.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
         with context.begin_transaction():

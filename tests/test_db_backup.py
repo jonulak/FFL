@@ -48,3 +48,13 @@ def test_backup_failed_publish_leaves_no_temp_file(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         db_backup.backup(tmp_path / "bk", today=date(2026, 10, 8))
     assert not list((tmp_path / "bk").glob("*")) and not list((tmp_path / "bk").glob(".*"))
+
+
+def test_backup_of_an_empty_file_is_refused_and_publishes_nothing(tmp_path, monkeypatch):
+    empty = tmp_path / "empty.db"
+    sqlite3.connect(empty).close()
+    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{empty}")
+    bk = tmp_path / "bk"
+    with pytest.raises(RuntimeError, match="schema"):
+        db_backup.backup(bk, today=date(2026, 10, 8))
+    assert not list(bk.glob("ffl-*.db")) and not list(bk.glob(".*"))

@@ -12,8 +12,8 @@ writer waits on busy_timeout instead of failing on a lock upgrade.
 from __future__ import annotations
 
 import os
+import threading
 from contextlib import contextmanager
-from pathlib import Path
 
 import sqlalchemy as sa
 from sqlalchemy import event
@@ -144,6 +144,7 @@ def url() -> str:
 
 
 _ENGINE: sa.Engine | None = None
+_ENGINE_LOCK = threading.Lock()
 
 
 def _alembic_config():
@@ -166,7 +167,7 @@ def _make_engine() -> sa.Engine:
             dbapi_conn.isolation_level = None  # we issue BEGIN ourselves (see "begin" below)
             cur = dbapi_conn.cursor()
             # busy_timeout first: the WAL switch needs a lock, and without a timeout a second connector fails at once
-            for p in ("busy_timeout=5000", "journal_mode=WAL","foreign_keys=ON", "synchronous=NORMAL"):
+            for p in ("busy_timeout=5000", "journal_mode=WAL", "foreign_keys=ON", "synchronous=NORMAL"):
                 cur.execute(f"PRAGMA {p}")
             cur.close()
 
@@ -180,22 +181,33 @@ def engine() -> sa.Engine:
     """The process's engine; the first call checks the schema is at Alembic's head."""
     global _ENGINE
     if _ENGINE is None:
-        eng = _make_engine()
-        from alembic.runtime.migration import MigrationContext
-        with eng.connect() as c:
-            current = MigrationContext.configure(c).get_current_revision()
-        if current != _head():
-            eng.dispose()
-            raise SchemaError(f"{url()} is at schema {current!r}, code wants {_head()!r}: run: uv run alembic upgrade head")
-        _ENGINE = eng
+        with _ENGINE_LOCK:  # concurrent API threads at boot must not build (and leak) two engines
+            if _ENGINE is None:
+                _ENGINE = _build_checked()
     return _ENGINE
+
+
+def _build_checked() -> sa.Engine:
+    u = url()
+    # connecting would create an empty file that looks like a DB; a missing one is a missing migration
+    if u.startswith("sqlite:///") and not os.path.exists(u.removeprefix("sqlite:///")):
+        raise SchemaError(f"{u} does not exist: run: uv run alembic upgrade head")
+    eng = _make_engine()
+    from alembic.runtime.migration import MigrationContext
+    with eng.connect() as c:
+        current = MigrationContext.configure(c).get_current_revision()
+    if current != _head():
+        eng.dispose()
+        raise SchemaError(f"{u} is at schema {current!r}, code wants {_head()!r}: run: uv run alembic upgrade head")
+    return eng
 
 
 def reset() -> None:
     global _ENGINE
-    if _ENGINE is not None:
-        _ENGINE.dispose()
-    _ENGINE = None
+    with _ENGINE_LOCK:
+        if _ENGINE is not None:
+            _ENGINE.dispose()
+        _ENGINE = None
 
 
 @contextmanager

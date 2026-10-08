@@ -3,6 +3,9 @@ import shutil
 
 import pytest
 
+# Deploy runs pytest from the main checkout: a leaked thread must fail loudly, not write to the production DB.
+os.environ.setdefault("FFL_DB_URL", "sqlite:////nonexistent/ffl-test-guard.db")
+
 # The API's lifespan starts the live-scoring socket; a test run must never open it.
 os.environ["FFL_LIVE"] = "0"
 # Nothing in a test run may write to ESPN; espn_write swaps in an in-memory store.

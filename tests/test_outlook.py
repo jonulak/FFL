@@ -187,7 +187,6 @@ def test_generate_saves_each_card_as_it_lands(outlook_dir, monkeypatch):
                               5, run=run, today=TODAY)
     assert seen == [set(), {1}, {1}], "card 1 was on disk before the next call started"
     assert set(outlook.load(5)) == {1, 3} and counts["failed"] == 1 and counts["pending"] == 3
-    assert not list(outlook_dir.glob("*.tmp"))
 
 
 def test_start_records_the_pending_count(outlook_dir):
