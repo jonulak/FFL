@@ -7,23 +7,20 @@ served, flagged, when a source is down — never a blank page on Sunday.
 
 Only these endpoints write anything: POST /refresh runs the journal sync, POST /outlook/refresh starts a background run that writes
 data/outlook/week-<n>.json, POST /waivers/outlook/{id} writes one free agent's into data/outlook/waivers-week-<n>.json,
-POST /claims saves the week's claim plan to journal/waivers/week-<n>.json (never touches ESPN), and POST /claims/submit is
+POST /claims saves the week's claim plan to the DB (never touches ESPN), and POST /claims/submit is
 the one route that writes to ESPN (instant free-agent adds + waiver claims, through ffl/espn_write.py) and journals it;
 POST /lineup writes to ESPN too (moves players between lineup slots, one transaction) and journals it.
 Every GET is read-only.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
-import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, Literal
 
@@ -34,6 +31,7 @@ from pydantic import BaseModel
 
 from . import calibrate, cbs, espn_season, espn_write, live, outlook, player_card, season
 from . import claims as claims_mod
+from . import db
 from . import plays as plays_mod
 from .config import JOURNAL
 from .journal import sync_results, sync_transactions
@@ -214,7 +212,6 @@ def health():
 
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
 
-CLAIMS_DIR = JOURNAL / "waivers"
 DECISIONS = JOURNAL / "DECISIONS.md"
 _SUBMIT = threading.Lock()  # one submit at a time: it cancels and reposts ESPN's whole claim list
 
@@ -250,30 +247,17 @@ def _roster_size() -> int:
     return int(load()["roster_size"])
 
 
-def _plan_path(week):
-    return CLAIMS_DIR / f"week-{week}.json"
-
-
 def _load_plan(week):
     # a plan the waiver run already processed reads as retired (an empty week); the next save writes that down
-    p = _plan_path(week)
-    if not p.exists():
+    plan = db.claim_plan(week)
+    if plan is None:
         return {"week": week, "groups": [], "submits": []}
-    return claims_mod.retire(json.loads(p.read_text()), espn_write.last_waiver_run())
+    return claims_mod.retire(plan, espn_write.last_waiver_run())
 
 
 def _save_plan(plan):
-    # atomic: a tmp file in the same dir, then os.replace, so a crash mid-write never leaves half a plan
     plan["saved_at"] = datetime.now().isoformat(timespec="seconds")
-    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=CLAIMS_DIR, prefix=".week-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(plan, indent=1) + "\n")
-        os.replace(tmp, _plan_path(plan["week"]))
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    db.put_claim_plan(plan)
 
 
 def _pool_rows(data):

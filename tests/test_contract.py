@@ -244,7 +244,7 @@ CLAIMS = {"week", "groups", "now", "claims", "errors", "open_spots", "status", "
           "last_submit", "edited_since_submit", "on_espn", "players"}
 
 
-def test_claims_keys(monkeypatch, tmp_path):
+def test_claims_keys(monkeypatch):
     from fastapi.testclient import TestClient
 
     from ffl import api
@@ -252,7 +252,6 @@ def test_claims_keys(monkeypatch, tmp_path):
     roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
     pool = {"WR": [{"player_id": 101, "name": "Addison", "status": "WAIVERS"}]}
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
-    monkeypatch.setattr(api, "CLAIMS_DIR", tmp_path / "waivers")
     monkeypatch.setattr(api, "_roster_size", lambda: 17)
     api.cache.clear()
     assert set(TestClient(api.app).get("/claims").json()) == CLAIMS

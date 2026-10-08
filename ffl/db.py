@@ -376,3 +376,18 @@ def latest_sigma(season: int = SEASON) -> dict | None:
     q = sa.select(sigma_fits.c.fit).where(sigma_fits.c.season == season).order_by(sigma_fits.c.fitted_at.desc()).limit(1)
     with _read() as c:
         return c.execute(q).scalar()
+
+
+def put_claim_plan(plan: dict, season: int = SEASON) -> None:
+    """The week's waiver claim plan, replaced whole (upsert by week)."""
+    from datetime import datetime
+    with _write() as c:
+        c.execute(_upsert(claim_plans, [{"season": season, "week": plan["week"], "plan": plan,
+                                         "updated": datetime.now().isoformat(timespec="seconds")}],
+                          ["season", "week"], ["plan", "updated"]))
+
+
+def claim_plan(week: int, season: int = SEASON) -> dict | None:
+    q = sa.select(claim_plans.c.plan).where(claim_plans.c.season == season, claim_plans.c.week == week)
+    with _read() as c:
+        return c.execute(q).scalar()

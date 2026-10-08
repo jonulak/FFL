@@ -156,3 +156,10 @@ def test_sigma_latest_wins_and_history_kept():
     db.put_sigma({"sigma": {"QB": 7.0}, "n": {"QB": 50}, "weeks": [1, 2]}, fitted_at="2026-09-23T07:00:00")
     db.put_sigma({"sigma": {"QB": 7.7}, "n": {"QB": 73}, "weeks": [1, 2, 3, 4]}, fitted_at="2026-10-07T07:00:00")
     assert db.latest_sigma()["sigma"]["QB"] == 7.7
+
+
+def test_claim_plan_round_trip_and_replace():
+    assert db.claim_plan(6) is None
+    db.put_claim_plan({"week": 6, "groups": [{"targets": [101], "cuts": [1], "open": 0}], "submits": []})
+    db.put_claim_plan({"week": 6, "groups": [], "submits": []})
+    assert db.claim_plan(6) == {"week": 6, "groups": [], "submits": []}

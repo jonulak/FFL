@@ -1,5 +1,4 @@
 """API glue: caching, stale fallback, validation. espn_season is stubbed; no network."""
-import json
 import threading
 import time
 from types import SimpleNamespace
@@ -8,7 +7,7 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from ffl import api
+from ffl import api, db
 
 
 @pytest.fixture
@@ -469,7 +468,6 @@ def claims_env(client, monkeypatch, tmp_path):
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
     # reads the current pool dict on every call, so a test can flip a status between load and Submit
     monkeypatch.setattr(api.espn_season, "pool_status", lambda: {r["player_id"]: {"status": r["status"], "waiver_date": None} for rows in pool.values() for r in rows})
-    monkeypatch.setattr(api, "CLAIMS_DIR", tmp_path / "waivers")
     monkeypatch.setattr(api, "DECISIONS", tmp_path / "DECISIONS.md")
     monkeypatch.setattr(api, "_roster_size", lambda: 17)
     api.espn_write._FAKE.clear()
@@ -509,7 +507,7 @@ def test_waiver_run_retires_the_submitted_plan(claims_env, monkeypatch):
     g = claims_env.get("/claims").json()
     assert g["groups"] == [] and g["last_submit"] is None and g["errors"] == []
     claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [2], "open": 0}]})
-    saved = json.loads((api.CLAIMS_DIR / "week-6.json").read_text())
+    saved = db.claim_plan(6)
     assert saved["submits"] == [] and saved["retired"][0]["groups"][0]["targets"] == [101]
     assert claims_env.get("/claims").json()["groups"][0]["targets"] == [102], "a plan saved after the run stays"
 
@@ -667,7 +665,7 @@ def test_submit_readback_failure_still_journals(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "pending_claims", down)
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert r.status_code == 200 and r.json()["error"] and r.json()["match"] is False
-    plan = json.loads((api.CLAIMS_DIR / "week-6.json").read_text())
+    plan = db.claim_plan(6)
     assert len(plan["submits"]) == 1 and plan["submits"][0]["now"] == [{"group": 0, "add": 102, "drop": 1}]
     assert "Waiver claims (from the app)" in api.DECISIONS.read_text()
 
@@ -687,7 +685,7 @@ def test_failed_cancel_keeps_app_claim_tracked(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "cancel_claim", flaky)
     r = claims_env.post("/claims/submit", json={"replace_outside": False}).json()
     assert r["error"] and r["sent"] == []
-    plan = json.loads((api.CLAIMS_DIR / "week-6.json").read_text())
+    plan = db.claim_plan(6)
     assert set(plan["submits"][-1]["ids"]) == set(old) - {old[0]}   # the first was cancelled, the rest still held
     assert old[1] in plan["submits"][-1]["ids"]
     pend = claims_env.get("/claims").json()["pending"]
@@ -722,7 +720,7 @@ def test_on_espn_checks_espn_not_the_record(claims_env):
     assert claims_env.get("/claims").json()["on_espn"] is False             # never sent
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 1}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
-    plan = json.loads((api.CLAIMS_DIR / "week-6.json").read_text())
+    plan = db.claim_plan(6)
     assert plan["submits"][-1]["match"] is True
     assert claims_env.get("/claims").json()["on_espn"] is True
     api.espn_write._FAKE.pop(1)                                             # one cancelled on ESPN's site
@@ -742,18 +740,17 @@ def test_target_on_my_roster_is_an_error(claims_env):
     assert "already on your roster" in [e["reason"] for e in claims_env.get("/claims").json()["errors"]]
 
 
-def test_save_plan_is_atomic(claims_env, monkeypatch):
+def test_save_plan_failure_keeps_the_old_plan(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
-    path = api.CLAIMS_DIR / "week-6.json"
-    good = path.read_text()
+    good = db.claim_plan(6)
 
     def crash(*a, **k):
-        raise OSError("disk full")
+        raise db.DBError("disk full")
 
-    monkeypatch.setattr(api.os, "replace", crash)
-    with pytest.raises(OSError):
-        api._save_plan({**json.loads(good), "groups": []})
-    assert path.read_text() == good and [p.name for p in api.CLAIMS_DIR.iterdir()] == ["week-6.json"]
+    monkeypatch.setattr(db, "_upsert", crash)
+    with pytest.raises(db.DBError):
+        api._save_plan({**good, "groups": []})
+    assert db.claim_plan(6) == good
 
 
 def _league_pool(monkeypatch, positions_rb=None):
