@@ -129,8 +129,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   `journal/transactions.csv` into moves. A waiver run stamps every claim with one timestamp across teams, so a
   move is (timestamp, team); a trade is every row of a timestamp holding a TRADE_* row, one side per team.
   The log is kept current three ways (`journal.sync_transactions`, locked): every `/transactions` build syncs
-  first; the Players pool build syncs when ESPN's owners disagree with the draft replayed through the log
-  (`espn_season.reconcile_log`, once per distinct disagreement); and `launchd/com.jonulak.ffl-transactions`
+  first; every fresh current-week `espn_season.box_scores` fetch (every page's rosters come through it) syncs
+  when ESPN's owners disagree with the draft replayed through the log (`reconcile_log`, once per distinct
+  disagreement); and `launchd/com.jonulak.ffl-transactions`
   POSTs `/transactions/sync` hourly at :35.
   `espn_season.transactions_state` dresses sides with the current club (teams get renamed) and players with
   pos/NFL team (`tx_player_info`: one `kona_player_info` call per 40 ids, no `limit` in the filter (ESPN 400s on

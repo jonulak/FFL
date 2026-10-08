@@ -705,6 +705,13 @@ def box_scores(lg, week: int) -> list:
     boxes = lg.box_scores(week)
     finished = week < getattr(lg, "current_week", week)
     _BOXES[week] = (math.inf if finished else time.time() + BOXES_TTL_S, lg, boxes)
+    if week == getattr(lg, "current_week", None):
+        # every page's rosters come through here: a rostered man the record never saw taken (or a
+        # drop it missed), seen by any page, syncs the transaction log
+        try:
+            reconcile_log(lg, {pid: c["team_id"] for pid, c in owners_in(boxes).items()})
+        except Exception as e:  # noqa: BLE001 — the record catching up is a side effect; the page stands without it
+            print(f"transaction reconcile failed: {e}")
     return boxes
 
 
@@ -852,9 +859,15 @@ def _boxes_by_team(lg, week: int) -> dict[int, list]:
 
 def _owners(lg, week: int) -> dict[int, dict]:
     """player_id -> the fantasy team rostering him this week, off the same box_scores fetch:
-    the Players page's owner chip. A team without a name or abbreviation leaves it None."""
+    the Players page's owner chip."""
+    return owners_in(box_scores(lg, week))
+
+
+def owners_in(boxes: list) -> dict[int, dict]:
+    """player_id -> the fantasy team holding him in these box scores. A team without a name or
+    abbreviation leaves it None."""
     out: dict[int, dict] = {}
-    for m in box_scores(lg, week):
+    for m in boxes:
         for t, lineup in ((m.home_team, m.home_lineup), (m.away_team, m.away_lineup)):
             if hasattr(t, "team_id"):
                 club = {"team_id": t.team_id, "name": getattr(t, "team_name", None) or None,
@@ -1077,10 +1090,6 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sleeper: dic
     # the Players page: every rostered player, priced as a free agent would be (worth to me);
     # my own carry no worth, measuring a man against my weakest being circular
     owners = _owners(lg, week)
-    try:  # a rostered man the record never saw taken (or a drop it missed) syncs the log now
-        reconcile_log(lg, {pid: c["team_id"] for pid, c in owners.items()})
-    except Exception as e:  # noqa: BLE001 — the record catching up is a side effect; the page stands without it
-        print(f"transaction reconcile failed: {e}")
     rostered_out: dict[str, list[dict]] = {}
     for pos in positions:
         rows = S.waiver_deltas([p for p in rostered if p["pos"] == pos], my_players,

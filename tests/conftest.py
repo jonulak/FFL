@@ -28,6 +28,15 @@ def _no_claim_fact_reads(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _transaction_log_in_tmp(monkeypatch, tmp_path):
+    """Every current-week box score fetch reconciles the transaction log (espn_season.reconcile_log);
+    a test must not append to journal/transactions.csv, nor inherit another test's reconciled state."""
+    from ffl import espn_season, journal
+    monkeypatch.setattr(journal, "TX_CSV", tmp_path / "transactions.csv")
+    monkeypatch.setattr(espn_season, "_RECONCILED", [None])
+
+
+@pytest.fixture(autouse=True)
 def _fresh_box_scores():
     """A finished week's box scores are kept for the process (espn_season.box_scores); one test's stub League
     must not answer another's."""

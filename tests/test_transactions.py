@@ -275,6 +275,34 @@ def test_ownership_drift_names_every_player_the_log_has_wrong():
     assert S.ownership_drift(expected, expected) == set()
 
 
+def test_current_week_box_scores_reconcile_the_log(monkeypatch):
+    """Every page's rosters come through box_scores: a fresh current-week fetch checks the record,
+    a finished week (or a cached answer) does not."""
+    from types import SimpleNamespace
+
+    from ffl import espn_season as E
+    t6 = SimpleNamespace(team_id=6, team_name="DLFC", team_abbrev="DL")
+    box = SimpleNamespace(home_team=t6, home_lineup=[SimpleNamespace(playerId=4241474)],
+                          away_team=0, away_lineup=[])
+    seen = []
+    monkeypatch.setattr(E, "reconcile_log", lambda lg, owners: seen.append(owners))
+    lg = SimpleNamespace(current_week=5, box_scores=lambda week: [box])
+    E.box_scores(lg, 5)
+    E.box_scores(lg, 5)  # cached
+    E.box_scores(lg, 4)  # finished week
+    assert seen == [{4241474: 6}]
+
+
+def test_box_scores_stand_when_the_reconcile_fails(monkeypatch):
+    from types import SimpleNamespace
+
+    from ffl import espn_season as E
+    monkeypatch.setattr(E, "reconcile_log", lambda lg, owners: (_ for _ in ()).throw(RuntimeError("espn down")))
+    lg = SimpleNamespace(current_week=5, box_scores=lambda week: ["box"])
+    monkeypatch.setattr(E, "owners_in", lambda boxes: {})
+    assert E.box_scores(lg, 5) == ["box"]
+
+
 def test_reconcile_syncs_once_per_disagreement(monkeypatch):
     """A gap the feed cannot close (a commissioner move it never reports) must not sync on every
     rebuild: one sync per distinct set of disagreeing players."""
