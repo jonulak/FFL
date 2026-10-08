@@ -139,3 +139,20 @@ def test_outlooks_kinds_are_apart_and_upsert():
     assert db.outlooks_for(5, "week") == {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}
     assert db.outlooks_for(5, "waivers-week") == {1: {"bullets": ["fa"]}}
     assert db.outlooks_for(6, "week") == {}
+
+
+CAL = {"player_id": 1, "name": "A", "pos": "QB", "model": 234.3, "l3": 13.7, "weight": 1.12, "games_left": 14}
+
+
+def test_snapshot_first_build_of_the_week_stands():
+    assert db.put_snapshot(4, 4, [CAL]) is True
+    assert db.put_snapshot(4, 4, [{**CAL, "model": 1.0}, {**CAL, "player_id": 2}]) is False
+    [snap] = db.snapshots()
+    assert snap == {"week": 4, "k": 4, "rows": [CAL]}, "a later build adds nothing, not even new players"
+
+
+def test_sigma_latest_wins_and_history_kept():
+    assert db.latest_sigma() is None
+    db.put_sigma({"sigma": {"QB": 7.0}, "n": {"QB": 50}, "weeks": [1, 2]}, fitted_at="2026-09-23T07:00:00")
+    db.put_sigma({"sigma": {"QB": 7.7}, "n": {"QB": 73}, "weeks": [1, 2, 3, 4]}, fitted_at="2026-10-07T07:00:00")
+    assert db.latest_sigma()["sigma"]["QB"] == 7.7

@@ -1,6 +1,6 @@
 """STRATEGY.md "Usage-adjusted ROS": K is a guess about noise, checked here rather than trusted.
 
-The pool builder writes one snapshot per ROS week (`data/calibration/week-<w>.json`: what the blend
+The pool builder writes one snapshot per ROS week (the DB's calibration tables: what the blend
 read for every player — the model, l3, the snap-weighted game count, the games left). This module
 scores those snapshots against what the players then did, per K, on the per-game rate: the blend's
 projected points per game against actual points per game since the snapshot. Run it once a few
@@ -12,34 +12,33 @@ weeks are in:
 
 The win meter (season.win_prob) is checked the same way: `winprob` fits the spread of points
 around the projection per position from every league starter-week so far into
-`data/calibration/sigma.json`, and scores the pregame odds of the games already played.
+the DB (`sigma_fits`), and scores the pregame odds of the games already played.
 
 Everything but `main` is pure; `actuals_since` and `starter_weeks` are the ESPN calls.
 """
 from __future__ import annotations
 
-import json
 import statistics
 import sys
-from pathlib import Path
 
+from . import db
 from . import season as S
-from .config import DATA
 
-CAL_DIR = DATA / "calibration"
 DEFAULT_KS = [1, 2, 3, 4, 6, 8, 12, 1000]  # 1000 is the model alone, near enough
-SIGMA_FILE = CAL_DIR / "sigma.json"
 MIN_ROWS = 10  # starter-weeks a position needs before its fitted σ replaces the fallback
 
 
-def load_sigma(path: Path = SIGMA_FILE) -> tuple[dict[str, float], str]:
-    """The win meter's fitted spread per position over the fallback table, and which it is; a
-    missing or unreadable file is the fallback, never an error (the meter still draws)."""
+def load_sigma() -> tuple[dict[str, float], str]:
+    """The win meter's fitted spread per position over the fallback table, and which it is; no fit
+    yet, or a DB error, is the fallback, never an error (the meter still draws)."""
     try:
-        fit = json.loads(path.read_text())
-        return {**S.SIGMA_FALLBACK, **{k: float(v) for k, v in fit["sigma"].items()}}, "calibrated"
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        fit = db.latest_sigma()
+    except db.DBError as e:
+        print(f"sigma unreadable, using the fallback: {e}")
+        fit = None
+    if not fit or not isinstance(fit.get("sigma"), dict):
         return dict(S.SIGMA_FALLBACK), "fallback"
+    return {**S.SIGMA_FALLBACK, **{k: float(v) for k, v in fit["sigma"].items()}}, "calibrated"
 
 
 def snapshot_rows(positions: dict[str, list[dict]], week: int) -> list[dict]:
@@ -55,15 +54,10 @@ def snapshot_rows(positions: dict[str, list[dict]], week: int) -> list[dict]:
     return rows
 
 
-def write_snapshot(path: Path, week: int, rows: list[dict]) -> bool:
+def write_snapshot(week: int, rows: list[dict]) -> bool:
     """The week's snapshot, written once: the first build of the ROS week is the one that stands
     (later builds of the same week have seen more of it). True when written."""
-    path.mkdir(parents=True, exist_ok=True)
-    out = path / f"week-{week}.json"
-    if out.exists():
-        return False
-    out.write_text(json.dumps({"week": week, "k": S.K_PRIOR, "rows": rows}, indent=0))
-    return True
+    return db.put_snapshot(week, S.K_PRIOR, rows)
 
 
 def blend(model: float, l3: float | None, weight: float, games_left: int, k: float) -> float:
@@ -91,8 +85,8 @@ def score(snapshots: list[dict], actual: dict[int, tuple[float, int]], ks: list[
     return out
 
 
-def load_snapshots(path: Path = CAL_DIR) -> list[dict]:
-    return [json.loads(p.read_text()) for p in sorted(path.glob("week-*.json"))]
+def load_snapshots() -> list[dict]:
+    return db.snapshots()
 
 
 def actuals_since(lg, ids: list[int], from_week: int, to_week: int) -> dict[int, tuple[float, int]]:
@@ -127,9 +121,8 @@ def brier(games: list[tuple[float, float]]) -> float | None:
     return round(sum((p - o) ** 2 for p, o in games) / len(games), 4) if games else None
 
 
-def write_sigma(path: Path, fit: dict, weeks: list[int]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({**fit, "weeks": weeks}, indent=2))
+def write_sigma(fit: dict, weeks: list[int]) -> None:
+    db.put_sigma({**fit, "weeks": weeks})
 
 
 def starter_weeks(lg, settings: dict, weeks: list[int]) -> tuple[list[dict], list[tuple[list[dict], list[dict]]]]:
@@ -158,7 +151,7 @@ def _winprob() -> None:
     weeks = list(range(1, lg.current_week))
     rows, games = starter_weeks(lg, load(), weeks)
     fit = fit_sigma(rows)
-    write_sigma(SIGMA_FILE, fit, weeks)
+    write_sigma(fit, weeks)
     sigma, _ = load_sigma()
     print(f"weeks {weeks[0]}..{weeks[-1]}:" if weeks else "no weeks played yet")
     for pos in sorted(fit["sigma"]):
@@ -173,7 +166,7 @@ def _winprob() -> None:
 
     scored = [(S.win_prob(pregame(a), pregame(b), sigma), result(a, b)) for a, b in games]
     print(f"Brier {brier(scored)} over {len(scored)} games (coin flip 0.25; in-sample, so optimistic)")
-    print(f"wrote {SIGMA_FILE}")
+    print("wrote the fit to the DB (sigma_fits)")
 
 
 def main(argv: list[str]) -> None:
@@ -184,7 +177,7 @@ def main(argv: list[str]) -> None:
     ks = [float(a) for a in argv] or DEFAULT_KS
     snaps = load_snapshots()
     if not snaps:
-        print(f"no snapshots in {CAL_DIR}: the pool builder writes one per ROS week")
+        print("no calibration snapshots yet: the pool builder writes one per ROS week")
         return
     lg = fresh_league()
     now = lg.current_week

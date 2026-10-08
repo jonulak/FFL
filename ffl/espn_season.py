@@ -1063,8 +1063,8 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sleeper: dic
         frees_by_pos[pos] = frees
     # what the blend read this ROS week, kept for ffl.calibrate; never a reason for the page to fail
     try:
-        calibrate.write_snapshot(calibrate.CAL_DIR, rw, calibrate.snapshot_rows(out, rw))
-    except OSError as e:
+        calibrate.write_snapshot(rw, calibrate.snapshot_rows(out, rw))
+    except db.DBError as e:
         print(f"calibration snapshot not written: {e}")
     roster = S.roster_rows(my_players, rw)
     # claim facts (ffl/claims.py): a failed read leaves the defaults, so nothing is ever added instantly

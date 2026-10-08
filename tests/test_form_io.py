@@ -2,7 +2,7 @@
 rows season.recent_form reads, and the builders carrying `form` on every player (no network)."""
 from types import SimpleNamespace
 
-from ffl import espn_season, season
+from ffl import db, espn_season, season
 from tests.test_espn_season import TWO_QB, _matchup, _stub_league, as_box, bp
 from tests.test_season import roster as season_roster
 
@@ -235,19 +235,18 @@ def test_free_agent_pool_starts_ros_from_the_next_week_once_this_weeks_games_are
     assert live["ros_week"] == 3 and live["week_over"] is False
 
 
-def test_free_agent_pool_snapshots_the_blend_once_per_ros_week(monkeypatch, tmp_path):
+def test_free_agent_pool_snapshots_the_blend_once_per_ros_week(monkeypatch):
     calls = {"box": 0, "fa": []}
     lg = _stub_league(_matchup(), calls)
     lg.current_week = 3
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    monkeypatch.setattr(espn_season.calibrate, "CAL_DIR", tmp_path)
     espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
-    assert (tmp_path / "week-3.json").exists()
-    first = (tmp_path / "week-3.json").read_text()
+    first = db.snapshots()
+    assert [s["week"] for s in first] == [3]
     espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
-    assert (tmp_path / "week-3.json").read_text() == first, "the first build of the week stands"
+    assert db.snapshots() == first, "the first build of the week stands"
 
 
 def test_a_finished_weeks_box_scores_are_read_once_for_the_process(monkeypatch):

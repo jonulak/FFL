@@ -1,8 +1,6 @@
 """STRATEGY.md "Usage-adjusted ROS": K is checked, not trusted. The pool builder snapshots what the
 blend saw each ROS week; the scorer says which K would have missed least since."""
-import json
-
-from ffl import calibrate, season
+from ffl import calibrate, db, season
 
 
 def _row(pid, model, l3, weight, games_left, pos="RB"):
@@ -17,12 +15,12 @@ def test_snapshot_rows_keep_only_what_the_blend_reads():
                     {"player_id": 2, "name": "p2", "pos": "WR", "model": 90.0, "l3": None, "weight": 0.0, "games_left": 16}]
 
 
-def test_write_snapshot_once_per_ros_week(tmp_path):
+def test_write_snapshot_once_per_ros_week():
     rows = calibrate.snapshot_rows({"RB": [_row(1, 150.0, 12.0, 2.0, 15)]}, week=3)
-    assert calibrate.write_snapshot(tmp_path, 3, rows) is True
-    assert calibrate.write_snapshot(tmp_path, 3, [{"player_id": 9}]) is False, "the first look of the week stands"
-    saved = json.loads((tmp_path / "week-3.json").read_text())
-    assert saved["week"] == 3 and saved["rows"] == rows and saved["k"] == season.K_PRIOR
+    assert calibrate.write_snapshot(3, rows) is True
+    assert calibrate.write_snapshot(3, [{"player_id": 9}]) is False, "the first look of the week stands"
+    saved = calibrate.load_snapshots()
+    assert saved == [{"week": 3, "rows": rows, "k": season.K_PRIOR}]
 
 
 def test_blend_matches_ros_adj_for_a_healthy_player():
@@ -50,15 +48,8 @@ def test_score_skips_players_without_a_window_or_without_games_since():
     assert out == [{"k": 4, "mae": None, "players": 0}]
 
 
-def test_load_sigma_falls_back_without_a_file(tmp_path):
-    assert calibrate.load_sigma(tmp_path / "nope.json") == (season.SIGMA_FALLBACK, "fallback")
-
-
-def test_load_sigma_overlays_the_fit_on_the_fallback(tmp_path):
-    f = tmp_path / "sigma.json"
-    f.write_text(json.dumps({"sigma": {"QB": 9.1}, "n": {"QB": 80}, "weeks": [1, 2, 3, 4]}))
-    sigma, source = calibrate.load_sigma(f)
-    assert source == "calibrated" and sigma["QB"] == 9.1 and sigma["TE"] == season.SIGMA_FALLBACK["TE"]
+def test_load_sigma_falls_back_without_a_fit():
+    assert calibrate.load_sigma() == (season.SIGMA_FALLBACK, "fallback")
 
 
 def test_fit_sigma_by_position_skips_thin_and_zero_proj_rows():
@@ -77,15 +68,15 @@ def test_brier():
     assert calibrate.brier([]) is None
 
 
-def test_write_sigma_round_trips_through_load_sigma(tmp_path):
-    f = tmp_path / "cal" / "sigma.json"
-    calibrate.write_sigma(f, {"sigma": {"WR": 8.2}, "n": {"WR": 120}}, [1, 2, 3])
-    sigma, source = calibrate.load_sigma(f)
-    assert source == "calibrated" and sigma["WR"] == 8.2
-    assert json.loads(f.read_text())["weeks"] == [1, 2, 3]
+def test_write_sigma_round_trips_through_load_sigma():
+    calibrate.write_sigma({"sigma": {"WR": 8.2}, "n": {"WR": 120}}, [1, 2, 3])
+    sigma, source = calibrate.load_sigma()
+    assert source == "calibrated" and sigma["WR"] == 8.2 and sigma["TE"] == season.SIGMA_FALLBACK["TE"]
+    assert db.latest_sigma()["weeks"] == [1, 2, 3]
 
 
-def test_load_sigma_survives_a_corrupt_file(tmp_path):
-    f = tmp_path / "sigma.json"
-    f.write_text("{not json")
-    assert calibrate.load_sigma(f)[1] == "fallback"
+def test_load_sigma_falls_back_on_a_db_error(monkeypatch):
+    def boom(*a, **k):
+        raise db.DBError("locked")
+    monkeypatch.setattr(db, "latest_sigma", boom)
+    assert calibrate.load_sigma()[1] == "fallback"

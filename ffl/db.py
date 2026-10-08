@@ -334,3 +334,45 @@ def outlooks_for(week: int, kind: str, season: int = SEASON) -> dict[int, dict]:
         outlooks.c.season == season, outlooks.c.week == week, outlooks.c.kind == kind)
     with _read() as c:
         return {pid: e for pid, e in c.execute(q)}
+
+
+_CAL_COLS = ("player_id", "name", "pos", "model", "l3", "weight", "games_left")
+
+
+def put_snapshot(week: int, k: float, rows: list[dict], season: int = SEASON) -> bool:
+    """The ROS week's snapshot, once: the parent row is DO NOTHING, and rows are written only when it was new."""
+    from datetime import datetime
+    with _write() as c:
+        made = c.execute(_upsert(calibration_snapshots, [{"season": season, "week": week, "k": k,
+                                 "taken_at": datetime.now().isoformat(timespec="seconds")}],
+                                 ["season", "week"], None).returning(calibration_snapshots.c.week)).all()
+        if made and rows:
+            c.execute(calibration_rows.insert(), [{"season": season, "week": week, **{x: r[x] for x in _CAL_COLS}}
+                                                  for r in rows])
+    return bool(made)
+
+
+def snapshots(season: int = SEASON) -> list[dict]:
+    """Every week's snapshot, by week, in the shape the week JSON files had."""
+    with _read() as c:
+        snaps = [{"week": w, "k": k, "rows": []} for w, k in c.execute(
+            sa.select(calibration_snapshots.c.week, calibration_snapshots.c.k)
+            .where(calibration_snapshots.c.season == season).order_by(calibration_snapshots.c.week))]
+        by_week = {s["week"]: s for s in snaps}
+        for r in c.execute(sa.select(calibration_rows).where(calibration_rows.c.season == season)
+                           .order_by(sa.text("rowid"))):
+            by_week[r.week]["rows"].append({x: getattr(r, x) for x in _CAL_COLS})
+    return snaps
+
+
+def put_sigma(fit: dict, season: int = SEASON, fitted_at: str | None = None) -> None:
+    from datetime import datetime
+    with _write() as c:
+        c.execute(sigma_fits.insert().values(season=season, fit=fit,
+                                             fitted_at=fitted_at or datetime.now().isoformat(timespec="seconds")))
+
+
+def latest_sigma(season: int = SEASON) -> dict | None:
+    q = sa.select(sigma_fits.c.fit).where(sigma_fits.c.season == season).order_by(sigma_fits.c.fitted_at.desc()).limit(1)
+    with _read() as c:
+        return c.execute(q).scalar()
