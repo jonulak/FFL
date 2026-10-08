@@ -1,4 +1,5 @@
 import os
+import shutil
 
 import pytest
 
@@ -8,6 +9,31 @@ os.environ["FFL_LIVE"] = "0"
 os.environ["FFL_WRITES"] = "0"
 # Instant free-agent adds are off by default until ffl-ut0.7 verifies them; the tests exercise that path.
 os.environ["FFL_INSTANT_ADDS"] = "1"
+
+
+@pytest.fixture(scope="session")
+def _db_template(tmp_path_factory):
+    """One migrated DB per test session (alembic upgrade head is ~0.5 s; per test it would dominate)."""
+    from alembic import command
+    from ffl import db
+    path = tmp_path_factory.mktemp("db") / "template.db"
+    mp = pytest.MonkeyPatch()
+    mp.setenv("FFL_DB_URL", f"sqlite:///{path}")
+    command.upgrade(db._alembic_config(), "head")
+    mp.undo()
+    return path
+
+
+@pytest.fixture(autouse=True)
+def _db_in_tmp(monkeypatch, tmp_path, _db_template):
+    """Every test gets its own copy of the migrated DB; nothing reaches data/ffl.db."""
+    from ffl import db
+    target = tmp_path / "ffl.db"
+    shutil.copy(_db_template, target)
+    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{target}")
+    db.reset()
+    yield
+    db.reset()
 
 
 @pytest.fixture(autouse=True)

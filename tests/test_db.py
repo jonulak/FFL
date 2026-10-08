@@ -1,0 +1,57 @@
+import sqlalchemy as sa
+import pytest
+from ffl import db
+
+
+def test_fixture_db_is_migrated_and_temp(tmp_path):
+    assert "ffl.db" in db.url() and str(tmp_path) in db.url()
+    with db._read() as c:
+        names = set(sa.inspect(c).get_table_names())
+    assert {"transactions", "draft_picks", "results", "plays", "outlooks", "calibration_snapshots",
+            "calibration_rows", "sigma_fits", "claim_plans", "alembic_version"} <= names
+
+
+def test_pragmas():
+    with db._read() as c:
+        assert c.exec_driver_sql("PRAGMA journal_mode").scalar() == "wal"
+        assert c.exec_driver_sql("PRAGMA busy_timeout").scalar() == 5000
+        assert c.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+
+
+def test_unmigrated_db_raises(monkeypatch, tmp_path):
+    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{tmp_path / 'empty.db'}")
+    db.reset()
+    with pytest.raises(db.SchemaError, match="alembic upgrade head"):
+        db.engine()
+
+
+def test_upsert_insert_then_update_then_nothing():
+    t = db.results
+    row = {"season": 2026, "week": 1, "opponent": "A", "my_score": 1.0, "opp_score": 2.0, "result": "L"}
+    with db._write() as c:
+        c.execute(db._upsert(t, [row], ["season", "week"], ["opponent", "my_score", "opp_score", "result"]))
+    with db._write() as c:
+        c.execute(db._upsert(t, [{**row, "result": "W"}], ["season", "week"], ["result"]))
+    with db._write() as c:
+        c.execute(db._upsert(t, [{**row, "result": "T"}], ["season", "week"], None))
+    with db._read() as c:
+        assert c.execute(sa.select(t.c.result)).scalars().all() == ["W"]
+
+
+def test_write_rolls_back_on_error():
+    with pytest.raises(ZeroDivisionError):
+        with db._write() as c:
+            c.execute(db.results.insert().values(season=2026, week=9, opponent="x", my_score=0, opp_score=0, result="T"))
+            1 / 0
+    with db._read() as c:
+        assert c.execute(sa.select(sa.func.count()).select_from(db.results)).scalar() == 0
+
+
+def test_write_begins_immediate():
+    seen = []
+    sa.event.listen(db.engine(), "before_cursor_execute", lambda conn, cur, stmt, *a: seen.append(stmt))
+    with db._write():
+        pass
+    with db._read() as c:
+        c.exec_driver_sql("SELECT 1")
+    assert [s for s in seen if s.startswith("BEGIN")][:2] == ["BEGIN IMMEDIATE", "BEGIN"]
