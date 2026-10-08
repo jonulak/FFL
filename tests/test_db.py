@@ -1,3 +1,5 @@
+import multiprocessing as mp
+
 import sqlalchemy as sa
 import pytest
 from ffl import db
@@ -55,3 +57,41 @@ def test_write_begins_immediate():
     with db._read() as c:
         c.exec_driver_sql("SELECT 1")
     assert [s for s in seen if s.startswith("BEGIN")][:2] == ["BEGIN IMMEDIATE", "BEGIN"]
+
+
+TX = {"id": "1788937502756-6-DROPPED-4688380", "date": "2026-09-09T03:05", "type": "DROPPED",
+      "team": "henry's Imposing Team", "player": "Cam Ward", "action": "DROPPED", "bid": 0, "reasoning": ""}
+
+
+def test_transactions_round_trip_and_dedupe():
+    assert db.add_transactions([TX]) == 1
+    assert db.add_transactions([TX]) == 0
+    [row] = db.transactions()
+    assert row == {**TX, "player_id": 4688380}
+
+
+def test_transactions_dst_player_id_negative():
+    db.add_transactions([{**TX, "id": "1788937502756-6-DROPPED--16020"}])
+    assert db.transactions()[0]["player_id"] == -16020
+
+
+def _sync_worker(url, rows, q):
+    import os
+    os.environ["FFL_DB_URL"] = url
+    from ffl import db as d
+    d.reset()
+    q.put(d.add_transactions(rows))
+
+
+def test_two_processes_same_rows_leave_one_copy():
+    rows = [{**TX, "id": f"17889375027{i:02d}-6-DROPPED-{i}"} for i in range(50)]
+    ctx = mp.get_context("spawn")
+    q = ctx.Queue()
+    procs = [ctx.Process(target=_sync_worker, args=(db.url(), rows, q)) for _ in range(2)]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(30)
+    # one batch per BEGIN IMMEDIATE transaction: one worker inserts all 50, the other finds them all
+    assert sorted([q.get(timeout=5), q.get(timeout=5)]) == [0, 50]
+    assert len(db.transactions()) == 50

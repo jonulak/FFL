@@ -1,4 +1,4 @@
-"""Sync season history from ESPN into journal/ (git-tracked).
+"""Sync season history from ESPN into the DB (transactions) and journal/ (results; git-tracked).
 
     uv run python -m ffl.journal sync        # transactions + weekly results + standings
 """
@@ -7,15 +7,14 @@ from __future__ import annotations
 import csv
 import json
 import sys
-import threading
 from types import SimpleNamespace
 
 from espn_api.football.activity import Activity
 
+from . import db
 from .config import JOURNAL, MY_TEAM_ID, SWID, league
 from .settings import load
 
-TX_CSV = JOURNAL / "transactions.csv"
 WEEKLY_CSV = JOURNAL / "results" / "weekly.csv"
 STANDINGS_MD = JOURNAL / "results" / "standings.md"
 
@@ -49,36 +48,15 @@ def _activities(lg, size: int) -> list[Activity]:
 
 
 def sync_transactions(lg):
-    # Refresh and every Transactions page build both sync; two appends reading the same `existing`
-    # would write each new row twice.
-    with _TX_LOCK:
-        return _sync_transactions(lg)
-
-
-_TX_LOCK = threading.Lock()
-
-
-def _sync_transactions(lg):
-    existing = set()
-    if TX_CSV.exists():
-        with TX_CSV.open() as f:
-            existing = {r["id"] for r in csv.DictReader(f)}
-    # header on a missing/empty file only — an existing header-only file must not get a second one
-    write_header = not TX_CSV.exists() or TX_CSV.stat().st_size == 0
-    new = 0
-    with TX_CSV.open("a", newline="") as f:
-        w = csv.writer(f)
-        if write_header:
-            w.writerow(["id", "date", "type", "team", "player", "action", "bid", "reasoning"])
-        for act in _activities(lg, size=100):
-            for team, action, player, bid in act.actions:
-                key = f"{act.date}-{team.team_id}-{action}-{getattr(player, 'playerId', player)}"
-                if key in existing:
-                    continue
-                from datetime import datetime
-                w.writerow([key, datetime.fromtimestamp(act.date / 1000).isoformat(timespec="minutes"), action, team.team_name,
-                            getattr(player, "name", player), action, bid, ""])
-                new += 1
+    from datetime import datetime
+    rows = []
+    for act in _activities(lg, size=100):
+        for team, action, player, bid in act.actions:
+            rows.append({"id": f"{act.date}-{team.team_id}-{action}-{getattr(player, 'playerId', player)}",
+                         "date": datetime.fromtimestamp(act.date / 1000).isoformat(timespec="minutes"),
+                         "type": action, "team": team.team_name, "player": getattr(player, "name", player),
+                         "action": action, "bid": bid, "reasoning": ""})
+    new = db.add_transactions(rows)  # the (season, id) key makes concurrent syncs safe
     print(f"transactions: +{new}")
     return new
 

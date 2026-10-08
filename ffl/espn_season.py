@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from . import calibrate, cbs, espn_write
+from . import calibrate, cbs, db, espn_write
 from . import season as S
 from .adp import norm_name
 from .config import JOURNAL, MY_TEAM_ID, SEASON, SWID, cookies, league, raw_league_get
@@ -1255,12 +1255,7 @@ def league_state(week: int | None = None) -> dict:
 
 
 def journal_state() -> dict:
-    from .journal import TX_CSV
-    rows = []
-    if TX_CSV.exists():
-        with TX_CSV.open() as f:
-            rows = list(csv.DictReader(f))
-    return {"transactions": rows}
+    return {"transactions": db.transactions()}
 
 
 def parse_tx_players(payload: dict) -> dict[int, dict]:

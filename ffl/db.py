@@ -31,7 +31,7 @@ def _season():
     return sa.Column("season", sa.Integer, nullable=False, default=SEASON)
 
 
-transactions = sa.Table(
+transactions_table = sa.Table(  # not `transactions`: that name is the reader below
     "transactions", metadata, _season(),
     sa.Column("id", sa.String, nullable=False),          # `{epoch ms}-{team_id}-{action}-{player_id}`, as journal.py keys it
     sa.Column("date", sa.String, nullable=False),        # ISO minutes, local
@@ -44,7 +44,7 @@ transactions = sa.Table(
     sa.Column("reasoning", sa.String, nullable=False, default=""),
     sa.PrimaryKeyConstraint("season", "id"),
 )
-sa.Index("ix_transactions_player", transactions.c.season, transactions.c.player_id)
+sa.Index("ix_transactions_player", transactions_table.c.season, transactions_table.c.player_id)
 
 draft_picks = sa.Table(
     "draft_picks", metadata, _season(),
@@ -220,3 +220,36 @@ def _upsert(table: sa.Table, rows: list[dict], keys: list[str], update: list[str
     if update is None:
         return stmt.on_conflict_do_nothing(index_elements=keys)
     return stmt.on_conflict_do_update(index_elements=keys, set_={c: stmt.excluded[c] for c in update})
+
+
+def _tx_player_id(tx_id: str) -> int | None:
+    parts = tx_id.split("-", 3)
+    try:
+        return int(parts[3]) if len(parts) == 4 else None
+    except ValueError:
+        return None
+
+
+_TX_COLS = ("id", "date", "type", "team", "player", "player_id", "action", "bid", "reasoning")
+
+
+def add_transactions(rows: list[dict], season: int = SEASON) -> int:
+    """Insert the rows not already logged (key: season, id). Returns how many were new: counted by
+    RETURNING, since rowcount is unreliable for a multi-row ON CONFLICT DO NOTHING."""
+    if not rows:
+        return 0
+    vals = [{"season": season, "id": r["id"], "date": r["date"], "type": r["type"], "team": r["team"],
+             "player": r["player"], "player_id": _tx_player_id(r["id"]), "action": r["action"],
+             "bid": int(r.get("bid") or 0), "reasoning": r.get("reasoning") or ""} for r in rows]
+    t = transactions_table
+    with _write() as c:
+        new = c.execute(_upsert(t, vals, ["season", "id"], None).returning(t.c.id)).all()
+    return len(new)
+
+
+def transactions(season: int = SEASON) -> list[dict]:
+    t = transactions_table
+    # rowid is SQLite-only (insert order = the CSV's row order); under Postgres order by date, id
+    q = sa.select(*[t.c[k] for k in _TX_COLS]).where(t.c.season == season).order_by(sa.text("rowid"))
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
