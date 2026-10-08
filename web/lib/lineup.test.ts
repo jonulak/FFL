@@ -170,13 +170,21 @@ describe("applyMoves", () => {
     expect(r.empty_slots).toEqual(["RB"]);
   });
   it("orders the rows as ESPN's read-back will (season._card_sort_key), so the move does not play out twice", () => {
-    // two FLEX starters and a bench WR ahead of both in ESPN's entries: swapped into the second FLEX, he reads
-    // first, as ESPN lists him
+    // two FLEX starters and a bench WR ahead of both in ESPN's entries: swapped into the second FLEX, he takes that
+    // row (season.reseat), not the first as his acquisition order would put him
     const f1 = c(10, "WR", "RB/WR/TE", 9, { proj: 9, name: "Flex A", espn_order: 3 }), f2 = c(11, "WR", "RB/WR/TE", 8, { proj: 8, name: "Flex B", espn_order: 4 });
     const te = c(12, "TE", "BE", 6, { proj: 6, name: "Tight", espn_order: 1 }), wr = c(13, "WR", "BE", 12, { proj: 12, name: "Wide", espn_order: 0 });
     const r = applyMoves({ cards: [f1, f2, te, wr], empty_slots: [] }, movesFor(wr, { kind: "swap", with: f2, gain: 4 }));
     // starters by slot then ESPN's order; the bench by position (WR before TE) then projection
-    expect(r.cards.map((x) => x.player_id)).toEqual([13, 10, 11, 12]);
+    expect(r.cards.map((x) => x.player_id)).toEqual([10, 13, 11, 12]);
+  });
+  it("a swap trades rows (season.reseat): in at the row the other man left, and back again", () => {
+    const puka = c(30, "WR", "RB/WR/TE", 21, { espn_order: 0 }), downs = c(31, "WR", "WR", 11, { espn_order: 12 }),
+      boston = c(32, "WR", "WR", 11, { espn_order: 13 });
+    const once = applyMoves({ cards: [puka, downs, boston], empty_slots: [] }, movesFor(boston, { kind: "swap", with: puka, gain: 0 }));
+    expect(once.cards.map((x) => [x.player_id, x.slot])).toEqual([[31, "WR"], [30, "WR"], [32, "RB/WR/TE"]]);
+    const back = applyMoves(once, movesFor(once.cards[1], { kind: "swap", with: once.cards[2], gain: 0 }));
+    expect(back.cards.map((x) => [x.player_id, x.slot])).toEqual([[31, "WR"], [32, "WR"], [30, "RB/WR/TE"]]);
   });
   it("keeps ESPN's order inside a starting slot over the projection", () => {
     const hi = c(20, "QB", "QB", 18, { proj: 18, espn_order: 5 }), lo = c(21, "QB", "QB", 15, { proj: 15, espn_order: 2 });

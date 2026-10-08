@@ -162,6 +162,20 @@ function cardOrder(a: Card, b: Card): number {
   return (b.proj ?? 0) - (a.proj ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 }
 
+// season.reseat: a player moved into a starting slot takes the row (espn_order) of the one who left it, first in for
+// first out by the order shown, so a swap trades rows instead of re-sorting by ESPN's acquisition order.
+function reseat(cards: Card[], moves: Move[]): Map<number, number> {
+  const byId = new Map(cards.map((c) => [c.player_id, c]));
+  const order = (id: number) => byId.get(id)?.espn_order ?? 0;
+  const out = new Map<number, number>();
+  for (const slot of new Set(moves.map((m) => m.to_slot).filter(starts))) {
+    const leaving = moves.filter((m) => byId.get(m.player_id)?.slot === slot).map((m) => m.player_id).sort((a, b) => order(a) - order(b));
+    const entering = moves.filter((m) => m.to_slot === slot).map((m) => m.player_id).sort((a, b) => order(a) - order(b));
+    entering.forEach((id, i) => { if (i < leaving.length) out.set(id, order(leaving[i])); });
+  }
+  return out;
+}
+
 // The page as it will be once ESPN takes `moves`, drawn before it answers: the moved cards re-slotted (their group
 // follows the slot) and the empty slots (starting and IR, as season.empty_slots) recounted against the lineup's own
 // size, which is every such slot's players plus its empties before the move. The POST's answer replaces it.
@@ -172,9 +186,11 @@ export function applyMoves<T extends { cards: Card[]; empty_slots: string[] }>(r
   for (const c of r.cards) if (sized(c.slot)) add(size, c.slot);
   for (const s of r.empty_slots) add(size, s);
   const to = new Map(moves.map((m) => [m.player_id, m.to_slot]));
+  const seat = reseat(r.cards, moves);
   const cards = r.cards.map((c) => {
     const slot = to.get(c.player_id);
-    return slot === undefined || slot === c.slot ? c : { ...c, slot, group: groupOf(slot) };
+    if (slot === undefined || slot === c.slot) return c;
+    return { ...c, slot, group: groupOf(slot), espn_order: seat.get(c.player_id) ?? c.espn_order };
   }).sort(cardOrder);
   const filled = new Map<string, number>();
   for (const c of cards) if (sized(c.slot)) add(filled, c.slot);

@@ -884,3 +884,12 @@ def test_with_espn_slots_carries_espns_order_and_falls_back_to_the_box_order():
     order = {r["player_id"]: r["espn_order"] for r in out}
     assert order[2] < order[1], "ESPN's entry order, not the box score's"
     assert order[3] > order[1], "a player ESPN's read lacks goes after, in box order"
+
+
+def test_with_espn_slots_puts_a_seated_player_in_his_seats_place():
+    rows = [{"player_id": 1, "slot": "WR"}, {"player_id": 2, "slot": "WR"}, {"player_id": 3, "slot": "RB/WR/TE"}]
+    flags = {1: {"order": 0}, 2: {"order": 13}, 3: {"order": 6}}
+    out = espn_season.with_espn_slots(rows, flags, {}, {1: 3, 3: 1, 9: 5})
+    assert {r["player_id"]: r["espn_order"] for r in out} == {1: 6, 2: 13, 3: 0}
+    gone = espn_season.with_espn_slots(rows, {1: {"order": 0}}, {}, {1: 99})
+    assert gone[0]["espn_order"] == 0, "a seat whose owner left the roster falls back to his own place"

@@ -785,3 +785,20 @@ def test_sit_entry_names_him_and_the_call_he_had():
     assert e.startswith("## 2026-10-08 — Week 5 sit: QB C\n")
     assert "the call was START (starts at QB: 22.0 vs 18.0 for QB B)" in e
     assert "Week 5 unsit: QB C" in season.sit_entry(card, False, 5, "2026-10-08")
+
+
+def test_reseat_a_swap_trades_rows_and_back_again():
+    # Nacua (entry 0) at FLEX, Downs (12) and Boston (13) at WR
+    cards = [{"player_id": 0, "espn_order": 0}, {"player_id": 12, "espn_order": 12}, {"player_id": 13, "espn_order": 13}]
+    swap = [(0, "RB/WR/TE", "WR"), (13, "WR", "RB/WR/TE")]
+    seats = season.reseat(swap, cards, {})
+    assert seats == {0: 13, 13: 0}, "Nacua takes Boston's second WR row, Boston Nacua's FLEX row"
+    # the page now shows Nacua at 13 and Boston at 0; swapping back restores both
+    cards = [{"player_id": 0, "espn_order": 13}, {"player_id": 12, "espn_order": 12}, {"player_id": 13, "espn_order": 0}]
+    assert season.reseat([(13, "RB/WR/TE", "WR"), (0, "WR", "RB/WR/TE")], cards, seats) == {13: 13, 0: 0}
+
+
+def test_reseat_leaves_the_bench_and_an_empty_slot_alone():
+    cards = [{"player_id": 1, "espn_order": 1}, {"player_id": 2, "espn_order": 2}]
+    assert season.reseat([(1, "WR", "BE")], cards, {}) == {}
+    assert season.reseat([(2, "BE", "WR")], cards, {}) == {}, "no one left the slot: he keeps his own place"

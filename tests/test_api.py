@@ -847,6 +847,11 @@ def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env
     assert "Week 3 lineup: Bench to FLEX, Flex to the bench" in (tmp_path / "DECISIONS.md").read_text()
 
 
+def test_lineup_keeps_the_row_the_moved_player_took(lineup_env):
+    assert lineup_env.post("/lineup", json=SWAP).status_code == 200
+    assert db.seat_map() == {3: 2}, "Bench stands in Flex's place in ESPN's order; Flex went to the bench"
+
+
 def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_env, monkeypatch, tmp_path):
     # FFL_WRITES=0: ESPN never moves, the fake store does; roster_state shows the fake slots, and so must the validator
     monkeypatch.setenv("FFL_WRITES", "0")

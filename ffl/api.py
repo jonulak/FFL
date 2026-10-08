@@ -456,6 +456,11 @@ def lineup(body: LineupIn):
                     log.info("fake lineup move (FFL_WRITES=0), not journaled: %s", entry)
             except OSError as e:
                 log.warning("lineup move made but not journaled: %s", e)
+            # the moved players keep the rows they took (season.reseat), before the read-back reads the seats
+            try:
+                db.put_seats(season.reseat(items, data["cards"], db.seat_map()))
+            except db.DBError as e:
+                log.warning("lineup moved but its rows not kept: %s", e)
             espn_season._BOXES.pop(data["week"], None)  # the box scores carry the slots; read them again
             cache.expire("week")  # the Matchup board shows this lineup too
             if uncertain:

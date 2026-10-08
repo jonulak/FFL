@@ -233,6 +233,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   answers 502 `moved`). Under `FFL_WRITES=0` nothing reaches ESPN: `espn_write.fake_slots()` holds the moves
   and wins over ESPN's slots in the page and the validator. `web/components/use-live.ts` ignores a refetch that
   started before a move landed (generation guard).
+  A slot's starters stand in ESPN's entry order, which is roster-acquisition order (draft, then adds) and never
+  changes on a move, so a swap would jump rows: `season.reseat` gives the moved-in player the seat of the one who
+  left (the `seats` table: player → whose place in that order he stands in), `with_espn_slots` reads it into
+  `espn_order`, and `lineup.applyMoves` mirrors it so the optimistic rows match the read-back.
   **Sit for the week** (the switch at the top of a player's swap sheet; `POST /roster/sit/{id}` `{sat}`): a row in
   the `sits` table for ESPN's current week, so it clears at rollover. `roster_state` and my side of `week_state` mark
   him `sat`; `optimal_lineup` leaves him out like IR, so the Roster call (chip SIT, `play_proj` 0 so the sheet never

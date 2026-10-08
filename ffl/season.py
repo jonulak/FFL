@@ -757,6 +757,19 @@ def lineup_moves(moves: list[dict], roster: list[dict], settings: dict) -> tuple
     return items, errs
 
 
+def reseat(items: list[tuple[int, str, str]], cards: list[dict], seats: dict[int, int]) -> dict[int, int]:
+    """A move keeps the rows: a player moved into a starting slot takes the seat of the one who left it, in the
+    order the page shows them (`espn_order`), first in for first out. Returns the new seats (player -> the player
+    whose place in ESPN's order he stands in; nobody listed stands in his own). lineup.applyMoves mirrors it."""
+    order = {c["player_id"]: c.get("espn_order", 0) for c in cards}
+    out = {}
+    for slot in {t for _, _, t in items if t not in BENCH_SLOTS}:
+        leaving = sorted((p for p, f, _ in items if f == slot), key=lambda p: order.get(p, 0))
+        entering = sorted((p for p, _, t in items if t == slot), key=lambda p: order.get(p, 0))
+        out.update({e: seats.get(l, l) for e, l in zip(entering, leaving)})
+    return out
+
+
 def lineup_entry(items: list[tuple[int, str, str]], cards: list[dict], week: int, day: str) -> str:
     """journal/DECISIONS.md's entry for moves made from the Roster page: what moved, and the call and gap each
     player carried at that moment (the reasoning is the call; a hand override says so by its chip)."""

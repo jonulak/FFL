@@ -148,6 +148,16 @@ sits = sa.Table(
     sa.PrimaryKeyConstraint("season", "week", "player_id"),
 )
 
+# Which row of a starting slot each player stands in (season.reseat): ESPN's two WR slots are one slot to it and it
+# lists them in roster-acquisition order, so a swap would jump rows. A player stands in `seat_id`'s place in that
+# order; one with no row stands in his own.
+seats = sa.Table(
+    "seats", metadata, _season(),
+    sa.Column("player_id", sa.Integer, nullable=False),
+    sa.Column("seat_id", sa.Integer, nullable=False),
+    sa.PrimaryKeyConstraint("season", "player_id"),
+)
+
 
 def url() -> str:
     return os.environ.get("FFL_DB_URL") or f"sqlite:///{DATA / 'ffl.db'}"
@@ -426,6 +436,20 @@ def put_sit(week: int, player_id: int, sat: bool, season: int = SEASON) -> None:
         else:
             c.execute(sa.delete(sits).where(sits.c.season == season, sits.c.week == week,
                                             sits.c.player_id == player_id))
+
+
+def seat_map(season: int = SEASON) -> dict[int, int]:
+    with _read() as c:
+        return dict(c.execute(sa.select(seats.c.player_id, seats.c.seat_id).where(seats.c.season == season)).all())
+
+
+def put_seats(rows: dict[int, int], season: int = SEASON) -> None:
+    """Upsert player -> seat in one transaction."""
+    if not rows:
+        return
+    with _write() as c:
+        c.execute(_upsert(seats, [{"season": season, "player_id": p, "seat_id": s} for p, s in rows.items()],
+                          ["season", "player_id"], ["seat_id"]))
 
 
 def sat_ids(week: int, season: int = SEASON) -> set[int]:

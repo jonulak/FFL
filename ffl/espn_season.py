@@ -1126,13 +1126,20 @@ def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]
     return {pid: earlier[pid] + g for pid, g in games.items()}
 
 
-def with_espn_slots(rows: list[dict], flags: dict[int, dict], fake: dict[int, str]) -> list[dict]:
+def with_espn_slots(rows: list[dict], flags: dict[int, dict], fake: dict[int, str],
+                    seats: dict[int, int] | None = None) -> list[dict]:
     """Each row's slot and lock from the fresh mRoster read (`flags`), never from the cached box score; the
     fake store's slot (FFL_WRITES=0) wins over both, and a row ESPN's read lacks keeps the slot it has, unlocked.
-    `espn_order` is his place in that read (after every player it has, in box order, when it lacks him)."""
+    `espn_order` is his seat's place in that read (season.reseat: the player whose place he took, else his own;
+    after every player it has, in box order, when it lacks him)."""
+    seats = seats or {}
+
+    def order(pid: int, i: int) -> int:
+        seat = seats.get(pid, pid)
+        return flags.get(seat if seat in flags else pid, {}).get("order", 1000 + i)
     return [{**r, "slot": fake.get(r["player_id"], flags.get(r["player_id"], {}).get("slot", r["slot"])),
              "locked": flags.get(r["player_id"], {}).get("locked", False),
-             "espn_order": flags.get(r["player_id"], {}).get("order", 1000 + i)} for i, r in enumerate(rows)]
+             "espn_order": order(r["player_id"], i)} for i, r in enumerate(rows)]
 
 
 def with_sits(rows: list[dict], sat: set[int]) -> list[dict]:
@@ -1169,7 +1176,7 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
         except Exception as e:  # noqa: BLE001 — a failed read shows every row unlocked; POST /lineup re-reads before writing
             logging.getLogger(__name__).warning("roster_flags read failed; every row shows unlocked: %s", e)
             flags = {}
-    players = with_sits(with_espn_slots(players, flags, fake), db.sat_ids(week))
+    players = with_sits(with_espn_slots(players, flags, fake, db.seat_map()), db.sat_ids(week))
     return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week),
             "empty_slots": S.empty_slots(players, settings), "writes": espn_write.writes()}
 
