@@ -9,7 +9,7 @@ pre-draft board/strategy and a live draft assistant; then in-season tracking of 
 ## Commands (always via `uv run`)
 ```
 uv run alembic upgrade head            # create / migrate the DB schema (deploy.sh runs it)
-uv run python -m ffl.db import         # old journal/ + data/ files into the DB (idempotent; deploy.sh runs it)
+uv run python -m ffl.db import         # one-time: old journal/ + data/ files into the DB (idempotent; done 2026-10-08, originals in data/pre-db/)
 uv run python -m ffl.db backup         # checked snapshot to Google Drive (launchd nightly 03:30)
 uv run python -m ffl.settings          # league settings -> data/settings.json + settings.md (run first)
 uv run python -m ffl.players           # ESPN player pool w/ league-scored projections -> data/espn_players.csv
@@ -122,8 +122,8 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   row degrades to empty. Callers outside `db.py` catch `db.DBError`. Schema changes are new Alembic revisions
   (`uv run alembic revision --autogenerate -m ...`, batch mode, under `migrations/`). `uv run python -m ffl.db import`
   (`ffl/db_import.py`) is insert-if-absent from the old files, with per-table counts and dupes; it exits 1 when short or when a
-  non-plays table has shared keys; `scripts/deploy.sh` runs `alembic upgrade head` then the import after tests and build,
-  before the restart. `uv run python -m ffl.db backup` (`ffl/db_backup.py`) takes a read-only online backup, checks it, and
+  non-plays table has shared keys (the cutover ran it 2026-10-08; the originals are in `data/pre-db/`). `scripts/deploy.sh`
+  runs `alembic upgrade head` after tests and build, before the restart. A snapshot in Drive opens only after copying it local (WAL). `uv run python -m ffl.db backup` (`ffl/db_backup.py`) takes a read-only online backup, checks it, and
   renames it into `~/Library/CloudStorage/GoogleDrive-admin@example.com/My Drive/FFL/backup/ffl-YYYY-MM-DD.db`
   (`FFL_BACKUP_DIR` overrides), keeping 14; `launchd/com.jonulak.ffl-backup` runs it nightly at 03:30. Tests run on a per-test
   copy of a session template DB built by `alembic upgrade head` (autouse fixture sets `FFL_DB_URL`), never `data/ffl.db`.
