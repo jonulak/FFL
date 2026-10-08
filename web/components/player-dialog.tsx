@@ -334,10 +334,12 @@ const PANEL = "h-(--collapsible-panel-height) overflow-hidden transition-[height
 
 // A season as a table: week, opponent (and this season, the opponent's rank), the position's stat
 // group, points, and the toggle that opens a row onto its breakdown. The table lines every stat up
-// straight down the weeks.
+// straight down the weeks. The wrapper's overflow-x-auto makes its overflow-y auto too, and the rows
+// arriving (log-in) start a few px low, so without overflow-y-hidden the entrance flashes a second
+// scrollbar beside the table and the table narrows for it until the rows settle.
 function SeasonTable({ cols, first = "Wk", ranked, children }: { cols: string[]; first?: string; ranked?: boolean; children: React.ReactNode }) {
   return (
-    <Table className="tabular-nums">
+    <Table className="tabular-nums" containerClassName="overflow-y-hidden">
       <TableHeader>
         <TableRow className={`${ROW} hover:bg-transparent`}>
           <TableHead className={`${HEAD} pl-0`}>{first}</TableHead>
