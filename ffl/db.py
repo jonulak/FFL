@@ -406,8 +406,9 @@ def insert_new(table_name: str, rows: list[dict]) -> int:
         return 0
     t = metadata.tables[table_name]
     pk = list(t.primary_key.columns)[0]
-    with _write() as c:
-        return len(c.execute(_upsert(t, rows, _KEYS[table_name], None).returning(pk)).all())
+    with _write() as c:  # batches: one multi-row VALUES would pass SQLite's bind-variable limit on a big table
+        return sum(len(c.execute(_upsert(t, rows[i:i + 500], _KEYS[table_name], None).returning(pk)).all())
+                   for i in range(0, len(rows), 500))
 
 
 def count(table_name: str, season: int = SEASON) -> int:

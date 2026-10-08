@@ -58,17 +58,14 @@ def _results(journal: Path, season: int):
 
 
 def _plays(data: Path, season: int):
-    # The old files hold repeats of the table's event key (the same frame appended twice: 39 identical, 3 that
-    # differ only in text/play_id); the DB keeps the first, so the source counts distinct keys.
-    rows = {}
+    rows = []
     for p in sorted((data / "live").glob("plays-week-*.jsonl")):
         for line in p.read_text().splitlines():
             if line.strip():
                 r = json.loads(line)
-                rows.setdefault((r["week"], r["player_id"], r["at"], r["total"]),
-                                {"season": season, "week": r["week"], "at": r["at"], "player_id": r["player_id"],
-                                 "team_id": r.get("team_id"), "total": r["total"], "body": r})
-    return len(rows), list(rows.values())
+                rows.append({"season": season, "week": r["week"], "at": r["at"], "player_id": r["player_id"],
+                             "team_id": r.get("team_id"), "total": r["total"], "body": r})
+    return len(rows), rows
 
 
 _OUTLOOK = re.compile(r"^(week|waivers-week)-(\d+)\.json$")  # anchored: `week` must not also take `waivers-week`
@@ -121,17 +118,28 @@ def run(journal: Path, data: Path, season: int) -> list[dict]:
                                   ("results", _results(journal, season)), ("plays", _plays(data, season)),
                                   ("outlooks", _outlooks(data, season)), ("sigma_fits", _sigma(data, season)),
                                   ("claim_plans", _plans(journal, season))]:
-        new = db.insert_new(table, rows)
-        report.append({"table": table, "source": source, "in_db": db.count(table, season), "new": new})
+        # first row per key wins (DO NOTHING keeps it); source counts distinct keys, dupes the rows lost to a shared key
+        distinct = {}
+        for r in rows:
+            distinct.setdefault(tuple(r[k] for k in db._KEYS[table]), r)
+        new = db.insert_new(table, list(distinct.values()))
+        report.append({"table": table, "source": len(distinct), "dupes": len(rows) - len(distinct),
+                       "in_db": db.count(table, season), "new": new})
     source, made = _calibration(data, season)       # put_snapshot per week file; rows newly written
-    report.append({"table": "calibration_rows", "source": source, "in_db": db.count("calibration_rows", season), "new": made})
+    report.append({"table": "calibration_rows", "source": source, "dupes": 0,
+                   "in_db": db.count("calibration_rows", season), "new": made})
     return report
 
 
 def main(journal: Path, data: Path, season: int) -> int:
     report = run(journal, data, season)
     for r in report:
-        print(f"{r['table']:<18} source {r['source']:>5}  in db {r['in_db']:>5}  new {r['new']:>5}")
+        print(f"{r['table']:<18} source {r['source']:>5}  dupes {r['dupes']:>3}  in db {r['in_db']:>5}  new {r['new']:>5}")
+    # the same player, second and total is one play event, so plays dupes are accepted; anywhere else a shared key is a lost row
+    lost = [r["table"] for r in report if r["dupes"] > 0 and r["table"] != "plays"]
+    if lost:
+        print(f"import: rows sharing a key in the files, only the first was kept: {', '.join(lost)}")
+        return 1
     short = [r["table"] for r in report if r["in_db"] < r["source"]]
     if short:
         print(f"import: fewer rows in the DB than in the files for {', '.join(short)}")

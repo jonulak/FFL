@@ -90,6 +90,36 @@ def test_repeated_play_lines_count_once(tree):
     assert report["plays"]["source"] == report["plays"]["in_db"] == 2
 
 
+def test_clean_tree_has_no_dupes(tree):
+    assert all(r["dupes"] == 0 for r in db_import.run(*tree, 2026))
+
+
+def test_duplicate_play_lines_are_accepted(tree, capsys):
+    journal, data = tree
+    p = data / "live" / "plays-week-1.jsonl"
+    p.write_text(p.read_text() + p.read_text())
+    assert db_import.main(journal, data, 2026) == 0
+    assert "plays" in capsys.readouterr().out
+
+
+def test_shared_key_in_picks_fails(tree, capsys):
+    journal, data = tree
+    p = journal / "draft" / "picks.csv"
+    p.write_text(p.read_text() + PICK.splitlines()[0] + "\n")
+    assert db_import.main(journal, data, 2026) == 1
+    out = capsys.readouterr().out
+    assert "draft_picks" in out.splitlines()[-1]
+    assert {r["table"]: r["dupes"] for r in db_import.run(journal, data, 2026)}["draft_picks"] == 1
+
+
+def test_insert_new_batches_past_the_bind_limit():
+    rows = [{"season": 2026, "week": 1, "at": f"t{i}", "player_id": i, "team_id": None, "total": 1.0, "body": {"i": i}}
+            for i in range(1700)]
+    assert db.insert_new("plays", rows) == 1700
+    assert db.insert_new("plays", rows) == 0
+    assert db.count("plays") == 1700
+
+
 def test_main_exit_code_follows_counts(tree, monkeypatch):
     journal, data = tree
     assert db_import.main(journal, data, 2026) == 0
