@@ -728,7 +728,7 @@ def run_socket():
                 try:
                     print(f"  reattached to {feed.reconnect()}", flush=True)
                     print("  NOTE: picks made while detached were missed — check the room's "
-                          "Pick History against journal/draft/picks.csv", flush=True)
+                          "Pick History against the draft_picks table", flush=True)
                 except Exception as e:
                     print(f"  reattach failed: {e}", flush=True)
                 continue

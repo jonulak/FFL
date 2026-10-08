@@ -96,7 +96,7 @@ def test_transactions_sync_502s_when_espn_is_down(client, monkeypatch):
 
 def test_sync_all_rebuilds_the_league(monkeypatch):
     """The League caches current_week and the records; sync_results would otherwise rewrite
-    weekly.csv truncated to whatever week the process booted in."""
+    the results table truncated to whatever week the process booted in."""
     hits = {"refresh": 0, "fresh": 0}
     monkeypatch.setattr(api.espn_season, "refresh_league",
                         lambda: hits.__setitem__("refresh", hits["refresh"] + 1))

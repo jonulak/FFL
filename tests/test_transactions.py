@@ -1,4 +1,4 @@
-"""season.group_transactions: journal/transactions.csv rows -> the Transactions page's moves.
+"""season.group_transactions: transactions-table rows -> the Transactions page's moves.
 
 A waiver run stamps every claim with one timestamp across teams, so a move is (timestamp, team);
 a trade is every TRADE_* row of one timestamp, one side per team. No network here.

@@ -1,4 +1,4 @@
-"""Claude-written weekly outlooks for the Roster page, cached per week under a hash of the facts.
+"""Claude-written weekly outlooks for the Roster page, stored per week in the DB under a hash of the facts.
 
 The call and its reason are code (season.roster_cards). This module writes the bullets under them —
 injury, usage, depth, team news and a take: what the card's numbers cannot say. The fact sheet holds
@@ -20,7 +20,7 @@ from datetime import date, datetime
 from . import db, news
 from .config import DATA
 
-OUTLOOK_DIR = DATA / "outlook"
+OUTLOOK_DIR = DATA / "outlook"  # only the neutral cwd for `claude -p` (the outlooks live in the DB)
 MODEL = "opus"
 # each call searches the web: one to two minutes, sometimes more
 TIMEOUT_S = 300

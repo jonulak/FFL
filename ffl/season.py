@@ -48,7 +48,7 @@ def playable_proj(p: dict) -> float:
 
 
 # Win probability: context beside the call, never an input to it. The spread of one full unplayed
-# game by position; ffl.calibrate fits the real ones into data/calibration/sigma.json and these
+# game by position; ffl.calibrate fits the real ones into the DB's sigma_fits and these
 # stand in for any position the file lacks.
 SIGMA_FALLBACK = {"QB": 7.5, "RB": 7.0, "WR": 7.0, "TE": 5.5, "K": 4.0, "D/ST": 5.5}
 SIGMA_DEFAULT = 6.0
@@ -574,7 +574,7 @@ def ownership_drift(espn: dict[int, int], expected: dict[int, int]) -> set[int]:
 
 
 def group_transactions(rows: list[dict], info: dict[int, dict], week1_start: date) -> list[dict]:
-    """journal/transactions.csv rows as moves, newest first. A waiver run stamps every claim with one
+    """The transactions table's rows as moves, newest first. A waiver run stamps every claim with one
     timestamp across teams, so a move is one team's rows of one timestamp (its adds and drops,
     paired); a trade is every row of a timestamp that has a TRADE_* row, one side per team, where a
     side's `added` is what it received and `dropped` what it cut to make room (what it sent is the

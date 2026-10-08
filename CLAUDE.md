@@ -8,6 +8,9 @@ pre-draft board/strategy and a live draft assistant; then in-season tracking of 
 
 ## Commands (always via `uv run`)
 ```
+uv run alembic upgrade head            # create / migrate the DB schema (deploy.sh runs it)
+uv run python -m ffl.db import         # old journal/ + data/ files into the DB (idempotent; deploy.sh runs it)
+uv run python -m ffl.db backup         # checked snapshot to Google Drive (launchd nightly 03:30)
 uv run python -m ffl.settings          # league settings -> data/settings.json + settings.md (run first)
 uv run python -m ffl.players           # ESPN player pool w/ league-scored projections -> data/espn_players.csv
 uv run python -m ffl.sleeper           # Sleeper projections rescored to league -> data/sleeper_players.csv
@@ -15,7 +18,7 @@ uv run python -m ffl.adp               # FFC 2QB + 1QB ADP -> data/adp.csv (re-r
 uv run python -m ffl.board             # merge + VORP + tiers -> data/board.csv, data/board.md
 uv run python -m ffl.browser           # headed Chrome on the draft room (cookies injected, CDP :9222)
 uv run python -m ffl.browser shot x.png  # screenshot the running Chrome window
-uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; writes journal/draft/picks.csv
+uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; writes the DB's draft_picks
 uv run python -m ffl.advise            # LIVE: the candidate table, recomputed from the raw pick feed
 uv run python -m ffl.avail WR 8        # LIVE: who is left at a position, by projection (the table hides replacement-level players)
 uv run python -m ffl.simulate 7        # dry-run the draft from a slot (opponents pick to 2QB ADP); `all` for every slot
@@ -25,9 +28,9 @@ uv run python -m ffl.ffc fetch         # FantasyFootballCalculator 10-team 2QB d
 uv run python -m ffl.practice 4        # start a League Specific Practice Draft from slot 4 (see journal/PRACTICE_DRAFT.md)
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
-uv run python -m ffl.journal sync      # in-season: transactions + weekly results + standings into journal/
-uv run python -m ffl.calibrate         # in-season: score STRATEGY.md's K (usage-adjusted ROS) against the weekly snapshots in data/calibration/
-uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (data/calibration/sigma.json) + Brier; launchd runs it Wed 07:00
+uv run python -m ffl.journal sync      # in-season: transactions + weekly results into the DB
+uv run python -m ffl.calibrate         # in-season: score STRATEGY.md's K (usage-adjusted ROS) against the weekly snapshots in the DB (calibration_*)
+uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (sigma_fits) + Brier; launchd runs it Wed 07:00
 uv run python -m ffl.pace              # in-season: who is beating his projection, every roster + the wire (write-up rules: .claude/skills/pace-report)
 uv run python -m ffl.props score       # props trial (weeks 4-6): ESPN+Sleeper vs +props MAE and the verdict (launchd pulls Thu/Sun)
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
@@ -44,7 +47,8 @@ Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + dra
 Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
 real board and pick log untouched.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
-`data/` is regenerable and gitignored. `journal/` and `STRATEGY.md` are the durable record and are committed.
+`data/` is regenerable and gitignored, except `data/ffl.db` (the season's data; see Persistence), backed up nightly to Drive.
+`journal/` and `STRATEGY.md` are the durable prose and are committed.
 
 ## Architecture notes
 - `ffl/config.py` owns env + the `League` singleton; `raw_league_get(view, ...)` hits ESPN views directly.
@@ -90,7 +94,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   (`form["weight"]`, each game = snap share ÷ that week's `season.snap_reference` median for the position's lead
   players, capped at one), the prior worth `season.K_PRIOR` (4) games. `ros_proj` stays the model mean beside
   it. K is checked, not tuned: every pool build snapshots what the blend read (`ffl/calibrate.py`,
-  `data/calibration/week-<w>.json`, once per ROS week) and `ffl.calibrate` scores the Ks against what happened.
+  the `calibration_snapshots`/`calibration_rows` tables, once per ROS week: the first build stands) and `ffl.calibrate` scores the Ks against what happened.
 - Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
   (`espn_season.game_from_stats` off espn-api's per-week `stats`; every rostered player's earlier weeks come from
   each earlier form week's box scores (`_roster_games`, so the replacement line runs on adjusted ROS too), free agents' from
@@ -106,6 +110,24 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   feed degrades to notes only and the OUT/IR constants keep pricing.
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
   is primary; `adp_1qb` is kept for comparison.
+- **Persistence** (`ffl/db.py`, SQLAlchemy Core + Alembic, no ORM; the only SQLAlchemy importer): SQLite in WAL mode at
+  `<DATA>/ffl.db` (or `FFL_DB_URL`). Tables, with the files each replaced: `transactions` ← `journal/transactions.csv`;
+  `draft_picks` ← `journal/draft/picks.csv` (real draft only: `FFL_DATA_DIR` practice runs still write `data-mock/picks.csv`
+  for `ffl.replay`); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
+  `week`/`waivers-week`) ← `data/outlook/*.json`; `calibration_snapshots` + `calibration_rows` ← `data/calibration/week-<w>.json`;
+  `sigma_fits` ← `sigma.json` (latest wins, history kept; `calibrate.load_sigma` never fails); `claim_plans` ←
+  `journal/waivers/week-<n>.json`. `season` leads every key. A write is one short `BEGIN IMMEDIATE` transaction, never held
+  across an ESPN call; the connect hook sets `busy_timeout` before `journal_mode=WAL`. `db.engine()` never creates tables: a
+  missing or stale schema raises `SchemaError` (run `uv run alembic upgrade head`); a DB error 500s the page, only a missing
+  row degrades to empty. Callers outside `db.py` catch `db.DBError`. Schema changes are new Alembic revisions
+  (`uv run alembic revision --autogenerate -m ...`, batch mode, under `migrations/`). `uv run python -m ffl.db import`
+  (`ffl/db_import.py`) is insert-if-absent from the old files, with per-table counts and dupes; it exits 1 when short or when a
+  non-plays table has shared keys; `scripts/deploy.sh` runs `alembic upgrade head` then the import after tests and build,
+  before the restart. `uv run python -m ffl.db backup` (`ffl/db_backup.py`) takes a read-only online backup, checks it, and
+  renames it into `~/Library/CloudStorage/GoogleDrive-admin@example.com/My Drive/FFL/backup/ffl-YYYY-MM-DD.db`
+  (`FFL_BACKUP_DIR` overrides), keeping 14; `launchd/com.jonulak.ffl-backup` runs it nightly at 03:30. Tests run on a per-test
+  copy of a session template DB built by `alembic upgrade head` (autouse fixture sets `FFL_DB_URL`), never `data/ffl.db`.
+  A worktree gets its own `data/ffl.db`; a dev API there needs `uv run alembic upgrade head` once.
 - **Season UI** (`web/`, Next 16 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
   components fetching the API through a `/api/*` rewrite; `ffl/season.py` is pure (lineup-optimal,
   waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production
@@ -126,9 +148,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   plain list at `/team/<id>` (`GET /team/{id}`, `espn_season.team_state`: that side of the week's box
   scores, grouped like the board, with the club and its rank; live points through `live.overlay_side`).
 - **Transactions page** (`/transactions`, `GET /transactions`): `season.group_transactions` (pure) turns
-  `journal/transactions.csv` into moves. A waiver run stamps every claim with one timestamp across teams, so a
+  the `transactions` table's rows into moves. A waiver run stamps every claim with one timestamp across teams, so a
   move is (timestamp, team); a trade is every row of a timestamp holding a TRADE_* row, one side per team.
-  The log is kept current three ways (`journal.sync_transactions`, locked): every `/transactions` build syncs
+  The log is kept current three ways (`journal.sync_transactions`; the table's `(season, id)` key dedupes, so concurrent syncs need no lock): every `/transactions` build syncs
   first; every fresh current-week `espn_season.box_scores` fetch (every page's rosters come through it) syncs
   when ESPN's owners disagree with the draft replayed through the log (`reconcile_log`, once per distinct
   disagreement); and `launchd/com.jonulak.ffl-transactions`
@@ -137,8 +159,8 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   pos/NFL team (`tx_player_info`: one `kona_player_info` call per 40 ids, no `limit` in the filter (ESPN 400s on
   it), D/ST derived from the id).
   `GET /player/{id}/transactions` is one player's slice (`season.player_transactions`) plus his draft pick
-  (`season.draft_entry` over `espn_season.draft_picks`: `journal/draft/picks.csv`, or ESPN's `League.draft` when
-  the CSV is missing, empty or unreadable). Both player dialogs render it through `PlayerRecord`
+  (`season.draft_entry` over `espn_season.draft_picks`: the `draft_picks` table, or ESPN's `League.draft` when
+  it is empty). Both player dialogs render it through `PlayerRecord`
   (`web/components/player-dialog.tsx`), the shared log + past seasons + transactions block; add a data section
   there, not to one dialog.
 - Every player dict carries `home` (True hosts, False travels, None unknown): espn-api drops the venue,
@@ -162,7 +184,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   compression gzips the stream and the browser never sees a byte. Run a second dev API with `FFL_LIVE=0`.
   The play feed (`ffl/plays.py`) is derived from the same rescoring: every points change of any league
   starter (`espn_season.league_starters`) becomes a row (fantasy `team_id`, delta, total, play text, clock)
-  appended to `data/live/plays-week-<n>.jsonl` and reloaded at boot. Rows carry no side: each board takes
+  written through to the `plays` table (`plays.Store` keeps memory, reloads at boot; a failed write shows on `/live/status` as "plays not saved"). Rows carry no side: each board takes
   its two teams' rows and `plays.for_board` sides them from its left team. Every `/week` board carries its
   game's latest five; `/plays` (`?team=` for any other game) the week.
   On field: `fastcast.possession` adds `ball`/`red_zone` (lastPlay.end: next snap's team and yards to go;
@@ -174,7 +196,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - **Win probability** (`season.win_prob`, pure; STRATEGY.md "Lineup": context, never an input to the call):
   each side's starters as posted points plus projection × the game left (`season.game_left`: the feed's quarter
   and clock, else ESPN's game_played; a starter with points and no clock carries the rest of his projection),
-  variance σ_pos² × left, P = Φ(margin/σ). σ per position from `data/calibration/sigma.json`
+  variance σ_pos² × left, P = Φ(margin/σ). σ per position from the latest `sigma_fits` row
   (`uv run python -m ffl.calibrate winprob`, which prints the pregame Brier too; `calibrate.load_sigma`), else
   `season.SIGMA_FALLBACK`. The Week payload's `win_prob` and each League row's (over the side's `starters`, the
   board's merged players, whose sum is now the tile's `proj`) are re-priced by `live.overlay_week`/`overlay_league`
@@ -188,14 +210,14 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   context — Rotowire blurbs (ESPN's public fantasy news feed, per player), Sleeper's depth order (one bulk
   dump), the teammates in scope by position with their injury status, and ESPN's per-player news stamps
   (one `kona_player_info` call). Four calls at a time, each card saved as it lands, cached in
-  `data/outlook/week-<n>.json` under a hash of the facts, the news stamps and the day (so at least daily).
+  the `outlooks` table (kind `week`) under a hash of the facts, the news stamps and the day (so at least daily).
   GETs never generate. `POST /outlook/refresh` starts a locked background run; `launchd/com.jonulak.ffl-outlook`
   curls it at five past every hour. One card is rewritten on a click (the card footer's Rewrite):
   `POST /outlook/{id}` → `outlook.start_one(kind=ROSTER)`, stored with the fact hash so the hourly run skips
   him; it and the full run refuse each other (409), since the run rewrites the file it loaded. A free agent's outlook is written only on a click (the Players row's
   "outlook" dialog): `POST /waivers/outlook/{id}` runs `outlook.start_one` (same sheet with `free_agent=True`:
-  no call, a claim-framed Take; WORKERS in flight at most) into `data/outlook/waivers-week-<n>.json`, apart
-  from the Roster file; the dialog polls `GET /waivers/outlook/{id}`. The CLI must be logged in for the launchd user (`claude -p` from a plain
+  no call, a claim-framed Take; WORKERS in flight at most) into `outlooks` with kind `waivers-week`, apart
+  from the Roster's; the dialog polls `GET /waivers/outlook/{id}`. The CLI must be logged in for the launchd user (`claude -p` from a plain
   terminal answers; from inside a Claude Code session it says "Not logged in").
   The page groups rows by ESPN's slot (lineup order, then bench, IR) with the call as chips beside it (a ring when
   ESPN's lineup and the call disagree); rows are compact, detail expands, and the name opens the shared player
@@ -214,7 +236,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 
 ## Rules for working here
 - Every roster decision made in a session is appended to `journal/DECISIONS.md` (decision, reasoning, alternatives)
-  before committing. Draft picks are logged automatically to `journal/draft/picks.csv`; add the reasoning by hand.
+  before committing. Draft picks are logged automatically to the DB's `draft_picks`; add the reasoning by hand.
 - Commit and push (`git push`) at the end of every session; the GitHub repo is the backup.
 - **Landing a worktree branch on main — only after Jonathan explicitly says to land that branch** (asking whether
   to land is fine; a finished task is not permission). A worktree session is refused git against the main checkout,
@@ -227,7 +249,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   the pane (the deploy prints `deployed <sha>`). On any failure stop and report; never fix it in his tab.
   Without his go-ahead, or outside Herdr, hand him `cd ~/Developer/FFL && scripts/land.sh <branch>`.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
-- `journal/results/` is written by `journal sync` / the UI's Refresh and is committed like the rest of `journal/`.
+- Weekly results go to the `results` table (`journal sync` / the UI's Refresh); `journal/results/` is no longer written. Standings are read live from ESPN.
 - UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`
   when one fits, and add a missing one with `pnpm dlx shadcn add <name>` (style base-nova, on `@base-ui/react`)
   rather than writing it. If shadcn has nothing that fits, use a well-tested library (Base UI primitives,

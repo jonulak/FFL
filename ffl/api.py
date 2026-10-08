@@ -6,7 +6,7 @@ Loopback only; Next.js on :3300 proxies /api/* here. Stale payloads are kept pas
 served, flagged, when a source is down — never a blank page on Sunday.
 
 Only these endpoints write anything: POST /refresh runs the journal sync, POST /outlook/refresh starts a background run that writes
-data/outlook/week-<n>.json, POST /waivers/outlook/{id} writes one free agent's into data/outlook/waivers-week-<n>.json,
+the week's outlooks to the DB, POST /waivers/outlook/{id} writes one free agent's the same way (kind waivers-week),
 POST /claims saves the week's claim plan to the DB (never touches ESPN), and POST /claims/submit is
 the one route that writes to ESPN (instant free-agent adds + waiver claims, through ffl/espn_write.py) and journals it;
 POST /lineup writes to ESPN too (moves players between lineup slots, one transaction) and journals it.
@@ -782,8 +782,8 @@ def sync_all() -> dict:
 @app.post("/transactions/sync")
 def transactions_sync():
     """The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
-    journal/transactions.csv, so the record keeps up with no page open. Through the API, not
-    `journal sync`, so one process holds the log's lock."""
+    the DB's transactions table, so the record keeps up with no page open. Concurrent syncs are
+    safe: the table's (season, id) key dedupes."""
     try:
         new = sync_transactions(espn_season.fresh_league())
     except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line
