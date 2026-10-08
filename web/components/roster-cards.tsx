@@ -62,10 +62,16 @@ const SLOT_TEXT =
 const SLOT_BOX = "flex h-7 w-full items-center justify-center rounded-md";
 // The move control's face: an outline button in miniature (hairline ink, a faint fill), firmer on hover, ink on
 // inverse while his sheet is open, as the Transactions page's pressed toggle. Focus rings the face, not the cell.
+// A player out of the slot the call wants (isMismatch) gets the face in amber, the call chip's ring colour: the
+// control that fixes it is the one that stands out.
+const FACE_INK =
+  "border-foreground/20 bg-foreground/[0.035] group-hover/slot:border-foreground/35 group-hover/slot:bg-foreground/[0.07] " +
+  "group-active/slot:bg-foreground/[0.1]";
+const FACE_OFF =
+  "border-close bg-close/25 dark:bg-close/15 " +
+  "group-hover/slot:bg-close/40 dark:group-hover/slot:bg-close/25 group-active/slot:bg-close/50";
 const SLOT_FACE =
-  `${SLOT_BOX} border border-foreground/20 bg-foreground/[0.035] transition-colors ` +
-  "group-hover/slot:border-foreground/35 group-hover/slot:bg-foreground/[0.07] " +
-  "group-active/slot:bg-foreground/[0.1] " +
+  `${SLOT_BOX} border transition-colors ` +
   "group-aria-pressed/slot:border-foreground group-aria-pressed/slot:bg-foreground group-aria-pressed/slot:text-background " +
   "group-focus-visible/slot:outline-2 group-focus-visible/slot:outline-offset-2 group-focus-visible/slot:outline-start";
 // The cell reaches into the row's padding (left and both ends) so the target is 44px wide and the row's height.
@@ -90,6 +96,7 @@ function SlotControl({ c, picked, busy, disabled, onPick }: {
   c: Card; picked: boolean; busy: boolean; disabled: boolean; onPick: () => void;
 }) {
   const tone = c.slot === "BE" || c.slot === "IR" ? "text-muted-foreground" : "text-foreground/85";
+  const off = isMismatch(c);
   if (c.locked) {
     return (
       <div className={SLOT_CELL} title="his game has started">
@@ -107,11 +114,11 @@ function SlotControl({ c, picked, busy, disabled, onPick }: {
       className={`group/slot ${SLOT_CELL} outline-none disabled:pointer-events-none`}
       aria-pressed={picked}
       aria-haspopup="dialog"
-      aria-label={picked ? `Cancel moving ${c.name}` : `Move ${c.name}`}
+      aria-label={picked ? `Cancel moving ${c.name}` : `Move ${c.name}${off ? ", not where the call has him" : ""}`}
       disabled={disabled}
       onClick={onPick}
     >
-      <span className={`${SLOT_FACE} ${SLOT_TEXT} ${tone} ${disabled && !busy ? "opacity-50" : ""}`}>
+      <span className={`${SLOT_FACE} ${SLOT_TEXT} ${off ? `${FACE_OFF} text-close-foreground dark:text-close` : `${FACE_INK} ${tone}`} ${disabled && !busy ? "opacity-50" : ""}`}>
         {busy ? <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" /> : <SlotName slot={c.slot} />}
       </span>
     </button>
@@ -275,7 +282,8 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
   const slot = slotLabel(c.slot);
   const now = useNow();
   return (
-    <li data-flip={`p${c.player_id}`} data-slot={c.slot} aria-busy={busy || undefined} className={picked ? "bg-foreground/[0.045]" : undefined}>
+    <li data-flip={`p${c.player_id}`} data-slot={c.slot} aria-busy={busy || undefined}
+      className={picked ? "bg-foreground/[0.045]" : isMismatch(c) ? "bg-close/[0.08] dark:bg-close/[0.06]" : undefined}>
       <Collapsible open={open} onOpenChange={onOpen}>
         <div className={GRID}>
           <SlotControl c={c} picked={picked} busy={busy} disabled={anyBusy} onPick={() => swap.pick(c)} />

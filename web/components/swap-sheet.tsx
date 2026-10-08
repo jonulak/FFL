@@ -7,7 +7,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Switch } from "@/components/ui/switch";
 import type { Card } from "@/lib/api";
 import { pts, shortName } from "@/lib/format";
-import { accepts, type Fill, type FillOption, gainText, slotLabel, type SwapOption, type Target } from "@/lib/lineup";
+import { accepts, type Fill, type FillOption, gainText, recommendedFill, recommendedTarget, slotLabel, type SwapOption, type Target } from "@/lib/lineup";
 import { PHONE_INSET } from "./claims-submit";
 import { CallChip, Headshot, InjuryMark, IrBlocked } from "./roster-cards";
 
@@ -85,7 +85,7 @@ function fillRows(slot: string, options: FillOption[]): Row[] {
 }
 
 // One option: the slot, who or what is there, and what the move does to the lineup's projection.
-function OptionRow({ r, onPick }: { r: Row; onPick: () => void }) {
+function OptionRow({ r, rec, onPick }: { r: Row; rec: boolean; onPick: () => void }) {
   const locked = r.pick == null;
   const who = r.who;
   let shot: ReactNode, name: ReactNode, sub: ReactNode = null;
@@ -109,10 +109,20 @@ function OptionRow({ r, onPick }: { r: Row; onPick: () => void }) {
     );
     name = r.slot === "BE" ? "To bench" : r.slot === "IR" ? "To IR" : `Empty ${slotLabel(r.slot)}`;
   }
+  // The call's move stands first in amber, the colour the row's ring already used for "ESPN differs from the call",
+  // under its own label and set off from the rest by a hairline.
+  const face = rec
+    ? "bg-close/[0.14] ring-1 ring-inset ring-close/55 hover:bg-close/[0.2] active:bg-close/[0.26]"
+    : "hover:bg-foreground/[0.05] active:bg-foreground/[0.08]";
   return (
-    <li>
-      <button type="button" onClick={onPick} disabled={locked} aria-label={r.label}
-        className="grid min-h-14 w-full grid-cols-[1.75rem_2.5rem_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-md px-2 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring active:bg-foreground/[0.08] disabled:pointer-events-none disabled:opacity-55 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_auto] md:min-h-12">
+    <li className={rec ? "mb-1.5 border-b border-foreground/10 pb-2" : undefined}>
+      {rec && (
+        <p aria-hidden className="px-2 pb-1 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-close-foreground dark:text-close">
+          The call
+        </p>
+      )}
+      <button type="button" onClick={onPick} disabled={locked} aria-label={rec ? `The call: ${r.label}` : r.label}
+        className={`grid min-h-14 w-full grid-cols-[1.75rem_2.5rem_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-md px-2 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-55 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_auto] md:min-h-12 ${face}`}>
         <span className={`${SLOT} ${r.slot === "BE" ? "text-muted-foreground" : ""}`}>{r.slot === "BE" ? "BE" : slotLabel(r.slot)}</span>
         {shot}
         <span className="min-w-0">
@@ -139,6 +149,8 @@ function Body({ subject, move, blocked, onFix, week, sit, busy, Title, Descripti
   week: number; sit: SitControl; busy: boolean; Title: typeof DialogTitle; Description: typeof DialogDescription;
 }) {
   const rows = subject.kind === "card" ? cardRows(subject.card, subject.options) : fillRows(subject.slot, subject.options);
+  // lineup.swapOptions / fillOptions put the call's move first; say so on that row
+  const rec = (subject.kind === "card" ? recommendedTarget(subject.card, subject.options) : recommendedFill(subject.slot, subject.options)) != null;
   const open = rows.filter((r) => r.pick).length;
   let header: ReactNode;
   if (subject.kind === "card") {
@@ -191,7 +203,7 @@ function Body({ subject, move, blocked, onFix, week, sit, busy, Title, Descripti
       <div className="-mx-2 min-h-0 overflow-y-auto overscroll-contain">
         {open === 0 && !block && <p className="px-2 py-3 text-sm text-muted-foreground">{none}</p>}
         <ul className="space-y-0.5">
-          {rows.map((r) => <OptionRow key={r.key} r={r} onPick={() => { if (r.pick) move(r.pick); }} />)}
+          {rows.map((r, i) => <OptionRow key={r.key} r={r} rec={i === 0 && rec} onPick={() => { if (r.pick) move(r.pick); }} />)}
         </ul>
       </div>
     </>

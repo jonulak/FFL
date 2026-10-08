@@ -77,7 +77,35 @@ const optionName = (o: SwapOption) => (o.kind === "swap" || o.kind === "locked" 
 const bySlotName = (a: SwapOption, b: SwapOption) =>
   slotRank(optionSlot(a)) - slotRank(optionSlot(b)) || optionName(a).localeCompare(optionName(b));
 
-// The swap sheet's rows: every target, best change to the lineup first (then ESPN's slot order, then name), and
+// Where the call wants him: the slot a START names (call_slot), the bench for any other call. IR is the manager's
+// business, so a player there, or a START with no slot named, has no wanted slot.
+export function wantedSlot(c: Pick<Card, "slot" | "call"> & Partial<Pick<Card, "call_slot">>): string | null {
+  if (c.slot === "IR") return null;
+  return c.call === "START" ? (c.call_slot ?? null) : "BE";
+}
+
+// The recommended move for a player out of his wanted slot: the one target that puts him there, preferring a partner
+// it also puts where the call wants him (the starter he should replace, the bench man who should take his slot), then
+// the better gain (the list is already in gain order). None for a player already in place.
+export function recommendedTarget<T extends SwapOption>(picked: Card, options: T[]): T | null {
+  const want = wantedSlot(picked);
+  if (want == null || want === picked.slot) return null;
+  let best: T | null = null, bestScore = 0;
+  for (const o of options) {
+    if (o.kind === "locked" || optionSlot(o) !== want) continue;
+    const score = o.kind === "swap" && wantedSlot(o.with) === picked.slot ? 2 : 1;
+    if (score > bestScore) [best, bestScore] = [o, score];
+  }
+  return best;
+}
+
+// An empty slot's recommended fill: the player the call puts in it who is not there yet.
+export function recommendedFill<T extends FillOption>(slot: string, options: T[]): T | null {
+  return options.find((o) => o.kind === "fill" && wantedSlot(o.who) === slot) ?? null;
+}
+
+// The swap sheet's rows: the recommended move first (recommendedTarget), then every target, best change to the
+// lineup first (then ESPN's slot order, then name), and
 // after them the partners who would be legal but whose game has started. Nothing for a locked player. While an IR
 // player has no designation (irIllegal), anyone else is offered only the move that takes his place on IR.
 export function swapOptions(cards: Card[], picked: Card, empty: string[]): SwapOption[] {
@@ -87,6 +115,8 @@ export function swapOptions(cards: Card[], picked: Card, empty: string[]): SwapO
     return targets(cards, picked, []).filter((t) => t.kind === "swap" && t.with.player_id === bad.player_id);
   }
   const open: SwapOption[] = targets(cards, picked, empty).sort((a, b) => b.gain - a.gain || bySlotName(a, b));
+  const best = recommendedTarget(picked, open);
+  if (best) open.splice(0, 0, ...open.splice(open.indexOf(best), 1));
   const byId = new Map(cards.map((c) => [c.player_id, c]));
   const shut: SwapOption[] = targets(cards.map((c) => (c.locked ? { ...c, locked: false } : c)), picked, [])
     .flatMap((t) => (t.kind === "swap" && byId.get(t.with.player_id)?.locked
@@ -109,6 +139,8 @@ export function fillOptions(cards: Card[], slot: string): FillOption[] {
   const open: FillOption[] = fit.filter((c) => !c.locked)
     .map((c) => ({ kind: "fill" as const, who: c, gain: round(worth(c, slot) - worth(c, c.slot)) }))
     .sort((a, b) => b.gain - a.gain || byName(a.who, b.who));
+  const best = recommendedFill(slot, open);
+  if (best) open.splice(0, 0, ...open.splice(open.indexOf(best), 1));
   const shut: FillOption[] = fit.filter((c) => c.locked).sort(byName).map((c) => ({ kind: "locked" as const, with: c }));
   return [...open, ...shut];
 }

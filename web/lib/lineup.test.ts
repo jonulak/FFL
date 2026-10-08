@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, afterFailure, applyMoves, fillOptions, gainText, irEligible, irIllegal, isMismatch, lineupFailure, movesFor, slotLabel, swapOptions, targets } from "./lineup";
+import { accepts, afterFailure, applyMoves, fillOptions, gainText, irEligible, irIllegal, isMismatch, lineupFailure, movesFor, recommendedTarget, slotLabel, swapOptions, targets, wantedSlot } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
@@ -118,6 +118,31 @@ describe("swapOptions", () => {
     expect(swapOptions([...all, benchWr], benchWr, []).map(key)).toEqual(["swap:2", "locked:6"]);
   });
   it("nothing for a locked player", () => expect(swapOptions(all, lockedWr, [])).toEqual([]));
+});
+
+describe("recommended move", () => {
+  const key = (o: ReturnType<typeof swapOptions>[number]) =>
+    o.kind === "swap" || o.kind === "locked" ? `${o.kind}:${o.with.player_id}` : o.kind === "slot" ? `slot:${o.slot}` : "bench";
+  // the call starts the bench WR at FLEX and benches the flex WR; the RB is in place
+  const benchWr = c(20, "WR", "BE", 8, { call: "START", call_slot: "RB/WR/TE" });
+  const flexWr = c(21, "WR", "RB/WR/TE", 9, { call: "BENCH" });
+  const other = c(22, "WR", "BE", 12, { call: "BENCH" });
+  const rbIn = c(23, "RB", "RB", 12, { call: "START", call_slot: "RB" });
+  const cards = [benchWr, flexWr, other, rbIn];
+  it("wanted slot: a START's call slot, the bench otherwise, nothing on IR", () => {
+    expect(wantedSlot(benchWr)).toBe("RB/WR/TE");
+    expect(wantedSlot(flexWr)).toBe("BE");
+    expect(wantedSlot({ slot: "IR", call: "IR" })).toBeNull();
+  });
+  it("the swap that puts both men where the call wants them comes first, above a bigger gain", () =>
+    // the bench man at 12 is the bigger gain, but the call benches him; the call's own partner leads
+    expect(swapOptions(cards, flexWr, []).map(key)).toEqual(["swap:20", "swap:22", "bench"]));
+  it("from the other side too", () => expect(swapOptions(cards, benchWr, [])[0]).toMatchObject({ kind: "swap", with: flexWr }));
+  it("an empty slot the call names is his move", () =>
+    expect(key(swapOptions([benchWr, rbIn], benchWr, ["RB/WR/TE"])[0])).toBe("slot:RB/WR/TE"));
+  it("none for a player already where the call wants him", () => expect(recommendedTarget(rbIn, swapOptions(cards, rbIn, []))).toBeNull());
+  it("a fill sheet leads with the man the call puts in that slot", () =>
+    expect(fillOptions([other, benchWr], "RB/WR/TE").map((o) => (o.kind === "fill" ? o.who.player_id : 0))).toEqual([20, 22]));
 });
 
 describe("applyMoves", () => {
