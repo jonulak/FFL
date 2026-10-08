@@ -1077,6 +1077,10 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sleeper: dic
     # the Players page: every rostered player, priced as a free agent would be (worth to me);
     # my own carry no worth, measuring a man against my weakest being circular
     owners = _owners(lg, week)
+    try:  # a rostered man the record never saw taken (or a drop it missed) syncs the log now
+        reconcile_log(lg, {pid: c["team_id"] for pid, c in owners.items()})
+    except Exception as e:  # noqa: BLE001 — the record catching up is a side effect; the page stands without it
+        print(f"transaction reconcile failed: {e}")
     rostered_out: dict[str, list[dict]] = {}
     for pos in positions:
         rows = S.waiver_deltas([p for p in rostered if p["pos"] == pos], my_players,
@@ -1285,6 +1289,23 @@ def tx_player_info(ids: set[int]) -> dict[int, dict]:
 
 
 TX_CHUNK = 40
+
+
+_RECONCILED: list = [None]  # the disagreement last synced for, so one the feed cannot close syncs once
+
+
+def reconcile_log(lg, owners: dict[int, int]) -> bool:
+    """Sync the transaction log when ESPN's rosters (player_id -> team id) disagree with what the
+    draft and the log say, so a move shows in the record as soon as any page sees its result. True
+    when it synced. A disagreement the feed cannot close (a commissioner move it never reports)
+    syncs once, not on every rebuild."""
+    from . import journal
+    drift = frozenset(S.ownership_drift(owners, S.log_owners(draft_picks(), journal_state()["transactions"])))
+    if not drift or drift == _RECONCILED[0]:
+        return False
+    _RECONCILED[0] = drift
+    journal.sync_transactions(lg)
+    return True
 
 
 def transactions_state() -> dict:

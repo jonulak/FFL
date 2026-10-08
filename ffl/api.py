@@ -795,6 +795,20 @@ def sync_all() -> dict:
     return {"transactions": True, "results": True}
 
 
+@app.post("/transactions/sync")
+def transactions_sync():
+    """The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
+    journal/transactions.csv, so the record keeps up with no page open. Through the API, not
+    `journal sync`, so one process holds the log's lock."""
+    try:
+        new = sync_transactions(espn_season.fresh_league())
+    except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line
+        raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
+    if new:
+        cache.expire("transactions")
+    return {"new": new}
+
+
 @app.post("/refresh")
 def refresh():
     # expire_all, not clear: a refresh while ESPN is down must still leave the stale payloads

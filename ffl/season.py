@@ -549,6 +549,30 @@ def parse_tx_id(tx_id: str) -> tuple[str, int, str, int] | None:
         return None
 
 
+TX_LEAVES = ("DROPPED", "TRADE_SENT")
+
+
+def log_owners(picks: list[dict], rows: list[dict]) -> dict[int, int]:
+    """player_id -> fantasy team id as the record has it: the draft, then the transaction log in
+    time order. Within one timestamp every leaving row goes before any arriving one, so a trade's
+    received row never loses to its sent row, whatever order the file holds them in."""
+    owners = {p["player_id"]: p["team_id"] for p in picks}
+    moves = sorted((int(ms), action not in TX_LEAVES, team, pid)
+                   for r in rows if (t := parse_tx_id(r.get("id", ""))) for ms, team, action, pid in [t])
+    for _, arrives, team, pid in moves:
+        if arrives:
+            owners[pid] = team
+        elif owners.get(pid) == team:
+            del owners[pid]
+    return owners
+
+
+def ownership_drift(espn: dict[int, int], expected: dict[int, int]) -> set[int]:
+    """The players whose team on ESPN is not the one the record names (rostered by someone else,
+    by nobody, or by somebody the record never saw take him)."""
+    return {pid for pid in espn.keys() | expected.keys() if espn.get(pid) != expected.get(pid)}
+
+
 def group_transactions(rows: list[dict], info: dict[int, dict], week1_start: date) -> list[dict]:
     """journal/transactions.csv rows as moves, newest first. A waiver run stamps every claim with one
     timestamp across teams, so a move is one team's rows of one timestamp (its adds and drops,

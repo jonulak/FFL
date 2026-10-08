@@ -52,7 +52,7 @@ def sync_transactions(lg):
     # Refresh and every Transactions page build both sync; two appends reading the same `existing`
     # would write each new row twice.
     with _TX_LOCK:
-        _sync_transactions(lg)
+        return _sync_transactions(lg)
 
 
 _TX_LOCK = threading.Lock()
@@ -80,6 +80,7 @@ def _sync_transactions(lg):
                             getattr(player, "name", player), action, bid, ""])
                 new += 1
     print(f"transactions: +{new}")
+    return new
 
 
 def sync_results(lg, settings):

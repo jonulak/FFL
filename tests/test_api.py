@@ -78,6 +78,23 @@ def test_refresh_502s_when_espn_is_down(client, monkeypatch):
     assert r.status_code == 502 and r.json()["detail"] == {"source": "espn", "error": "espn down"}
 
 
+def test_transactions_sync_expires_the_page_on_new_rows(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
+    monkeypatch.setattr(api, "sync_transactions", lambda lg: 2)
+    expired = []
+    monkeypatch.setattr(api.cache, "expire", expired.append)
+    r = client.post("/transactions/sync")
+    assert r.status_code == 200 and r.json() == {"new": 2} and expired == ["transactions"]
+    monkeypatch.setattr(api, "sync_transactions", lambda lg: 0)
+    assert client.post("/transactions/sync").json() == {"new": 0} and expired == ["transactions"]
+
+
+def test_transactions_sync_502s_when_espn_is_down(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
+    monkeypatch.setattr(api, "sync_transactions", lambda lg: (_ for _ in ()).throw(RuntimeError("espn down")))
+    assert client.post("/transactions/sync").status_code == 502
+
+
 def test_sync_all_rebuilds_the_league(monkeypatch):
     """The League caches current_week and the records; sync_results would otherwise rewrite
     weekly.csv truncated to whatever week the process booted in."""

@@ -250,3 +250,45 @@ def test_state_serves_the_log_when_the_sync_fails(monkeypatch):
     monkeypatch.setattr(journal, "sync_transactions", boom)
     monkeypatch.setattr(E, "tx_player_info", lambda ids: INFO)
     assert len(E.transactions_state()["moves"]) == 1
+
+
+def test_log_owners_replays_the_draft_then_the_log():
+    picks = [{"player_id": 101, "team_id": 1}, {"player_id": 102, "team_id": 2}, {"player_id": 103, "team_id": 3}]
+    rows = [row(1, 1, "DROPPED", 101, "A"), row(1, 4, "FA ADDED", 104, "D"),
+            row(2, 4, "WAIVER ADDED", 101, "A"), row(2, 4, "DROPPED", 104, "D"),
+            # a trade is one timestamp; the file may hold a received row before its sent row
+            row(3, 3, "TRADE_RECEIVED", 102, "B"), row(3, 2, "TRADE_RECEIVED", 103, "C"),
+            row(3, 2, "TRADE_SENT", 102, "B"), row(3, 3, "TRADE_SENT", 103, "C")]
+    assert S.log_owners(picks, rows) == {101: 4, 102: 3, 103: 2}
+
+
+def test_log_owners_reads_the_log_in_time_order():
+    """The log is appended per sync, newest first within one; a re-add must beat an older drop."""
+    rows = [row(5, 4, "FA ADDED", 101, "A"), row(2, 4, "DROPPED", 101, "A")]
+    assert S.log_owners([{"player_id": 101, "team_id": 4}], rows) == {101: 4}
+
+
+def test_ownership_drift_names_every_player_the_log_has_wrong():
+    expected = {101: 4, 102: 3, 103: 2}
+    espn = {101: 4, 102: 5, 105: 6}  # 102 moved on, 103 was dropped, 105 was picked up
+    assert S.ownership_drift(espn, expected) == {102, 103, 105}
+    assert S.ownership_drift(expected, expected) == set()
+
+
+def test_reconcile_syncs_once_per_disagreement(monkeypatch):
+    """A gap the feed cannot close (a commissioner move it never reports) must not sync on every
+    rebuild: one sync per distinct set of disagreeing players."""
+    from types import SimpleNamespace
+
+    from ffl import espn_season as E
+    from ffl import journal
+    synced = []
+    monkeypatch.setattr(journal, "sync_transactions", lambda lg: synced.append(1))
+    monkeypatch.setattr(E, "journal_state", lambda: {"transactions": []})
+    monkeypatch.setattr(E, "draft_picks", lambda: [{"player_id": 101, "team_id": 1}])
+    monkeypatch.setattr(E, "_RECONCILED", [None])
+    lg = SimpleNamespace()
+    assert E.reconcile_log(lg, {101: 1}) is False and synced == []
+    assert E.reconcile_log(lg, {101: 1, 105: 6}) is True and synced == [1]
+    assert E.reconcile_log(lg, {101: 1, 105: 6}) is False and synced == [1]
+    assert E.reconcile_log(lg, {105: 6}) is True and synced == [1, 1]
