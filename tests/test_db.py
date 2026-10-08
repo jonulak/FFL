@@ -92,6 +92,7 @@ def test_two_processes_same_rows_leave_one_copy():
         p.start()
     for p in procs:
         p.join(30)
+    assert [p.exitcode for p in procs] == [0, 0]
     # one batch per BEGIN IMMEDIATE transaction: one worker inserts all 50, the other finds them all
     assert sorted([q.get(timeout=5), q.get(timeout=5)]) == [0, 50]
     assert len(db.transactions()) == 50

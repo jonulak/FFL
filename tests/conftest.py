@@ -20,6 +20,9 @@ def _db_template(tmp_path_factory):
     mp = pytest.MonkeyPatch()
     mp.setenv("FFL_DB_URL", f"sqlite:///{path}")
     command.upgrade(db._alembic_config(), "head")
+    db.reset()
+    db.engine().dispose()  # the connect hook switches the file to WAL, as production runs it; copies start there
+    db.reset()
     mp.undo()
     return path
 

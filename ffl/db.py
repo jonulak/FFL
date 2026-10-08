@@ -162,7 +162,8 @@ def _make_engine() -> sa.Engine:
         def _pragmas(dbapi_conn, _rec):
             dbapi_conn.isolation_level = None  # we issue BEGIN ourselves (see "begin" below)
             cur = dbapi_conn.cursor()
-            for p in ("journal_mode=WAL", "busy_timeout=5000", "foreign_keys=ON", "synchronous=NORMAL"):
+            # busy_timeout first: the WAL switch needs a lock, and without a timeout a second connector fails at once
+            for p in ("busy_timeout=5000", "journal_mode=WAL","foreign_keys=ON", "synchronous=NORMAL"):
                 cur.execute(f"PRAGMA {p}")
             cur.close()
 
