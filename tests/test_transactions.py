@@ -209,8 +209,44 @@ def test_state_dresses_sides_with_the_current_club(monkeypatch):
     monkeypatch.setattr(E, "fresh_league", lambda: SimpleNamespace(teams=[t6], current_week=5))
     monkeypatch.setattr(E, "my_team_id", lambda lg: 7)
     monkeypatch.setattr(E, "load", lambda: {"week1_start": "2026-09-08"})
+    monkeypatch.setattr("ffl.journal.sync_transactions", lambda lg: None)
     got = E.transactions_state()
     assert got["me"] == 7 and got["current_week"] == 5
     sides = {m["sides"][0]["team_id"]: m["sides"][0] for m in got["moves"]}
     assert sides[6]["team"] == "Daejon Love Fan Club" and sides[6]["logo"] == "x.png"
     assert sides[9]["team"] == "Team 9" and sides[9]["logo"] == "", "a team gone from the league keeps the log's name"
+
+
+def _state_env(monkeypatch, rows, log):
+    from types import SimpleNamespace
+
+    from ffl import espn_season as E
+    lg = SimpleNamespace(teams=[], current_week=5)
+    monkeypatch.setattr(E, "journal_state", lambda: log.append("read") or {"transactions": rows})
+    monkeypatch.setattr(E, "fresh_league", lambda: lg)
+    monkeypatch.setattr(E, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(E, "load", lambda: {"week1_start": "2026-09-08"})
+    return E, lg
+
+
+def test_state_syncs_the_feed_before_reading_the_log(monkeypatch):
+    """A move made since the last Refresh (an FA add on a Wednesday morning) must reach the page:
+    the log is synced from ESPN's activity feed on every build, before it is read."""
+    from ffl import journal
+    log = []
+    E, lg = _state_env(monkeypatch, [], log)
+    monkeypatch.setattr(journal, "sync_transactions", lambda league: log.append(("sync", league)))
+    E.transactions_state()
+    assert log == [("sync", lg), "read"]
+
+
+def test_state_serves_the_log_when_the_sync_fails(monkeypatch):
+    from ffl import journal
+
+    def boom(league):
+        raise RuntimeError("espn down")
+
+    E, _ = _state_env(monkeypatch, [row(1, 6, "FA ADDED", -16020, "Jets D/ST")], [])
+    monkeypatch.setattr(journal, "sync_transactions", boom)
+    monkeypatch.setattr(E, "tx_player_info", lambda ids: INFO)
+    assert len(E.transactions_state()["moves"]) == 1

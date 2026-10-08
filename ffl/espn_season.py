@@ -1290,9 +1290,16 @@ TX_CHUNK = 40
 def transactions_state() -> dict:
     """The Transactions page: the journal's log grouped into moves (season.group_transactions), each
     side dressed with its fantasy team as the League page shows it (current name: teams get
-    renamed, and the log keeps the name at the time)."""
-    rows = journal_state()["transactions"]
+    renamed, and the log keeps the name at the time). The log is synced from ESPN's activity feed
+    first: it otherwise grows only on Refresh, and a move made since would be missing here and from
+    every player's record. A failed sync serves the log as it stands."""
+    from . import journal
     lg = fresh_league()
+    try:
+        journal.sync_transactions(lg)
+    except Exception as e:  # noqa: BLE001 — the log on disk is still the record; ESPN down is not a blank page
+        print(f"transaction sync failed, serving the log as it stands: {e}")
+    rows = journal_state()["transactions"]
     clubs = {t.team_id: _club(t) for t in lg.teams}
     ids = {p[3] for r in rows if (p := S.parse_tx_id(r.get("id", "")))}
     moves = S.group_transactions(rows, tx_player_info(ids), date.fromisoformat(load()["week1_start"]))

@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import json
 import sys
+import threading
 from types import SimpleNamespace
 
 from espn_api.football.activity import Activity
@@ -48,6 +49,16 @@ def _activities(lg, size: int) -> list[Activity]:
 
 
 def sync_transactions(lg):
+    # Refresh and every Transactions page build both sync; two appends reading the same `existing`
+    # would write each new row twice.
+    with _TX_LOCK:
+        _sync_transactions(lg)
+
+
+_TX_LOCK = threading.Lock()
+
+
+def _sync_transactions(lg):
     existing = set()
     if TX_CSV.exists():
         with TX_CSV.open() as f:
