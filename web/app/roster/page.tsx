@@ -25,17 +25,6 @@ export default async function Page() {
         <StaleBadge since={data.stale_since} />
         <div className="ml-auto"><OutlookButton running={run.running} /></div>
       </div>
-      <p className="max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
-        Lineup as ESPN has it · chips are the call (STRATEGY.md, Lineup) · tap a name for form and log.
-        {/* A run that died leaves the old counts standing, so report the failure instead of them. */}
-        {run.error
-          ? ` Last run failed: ${run.error}.`
-          : run.at
-            ? ` Last run ${run.at}: ${run.generated} written, ${run.skipped} unchanged, ${run.failed} failed.` +
-              // a per-card CLI failure does not kill the run, so its reason only shows up here
-              (run.failed > 0 && run.last_failure ? ` First failure: ${run.last_failure}.` : "")
-            : ""}
-      </p>
       <RosterLive initial={data} />
     </div>
   );

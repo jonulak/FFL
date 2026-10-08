@@ -205,7 +205,7 @@ A neutral shadcn field with three verdict colours and the NFL club palette doing
 
 One centred column, max 64rem (`max-w-5xl`), 12px side padding, 16px top. A sticky 48px top rule (field at 92% over a blur, bottom hairline in ink at 12%) holds the FFL wordmark, the six page tabs and the Refresh button.
 
-Roster page: title row (title, stale badge, action button pushed right, `gap-x-3`), a 12px caption, then groups spaced 28px apart. Each group is a section heading and a card grid: one column on the phone, two from `md` (768px), 12px gutters.
+Roster page: title row (title, stale badge, action button pushed right, `gap-x-3`), then groups spaced 28px apart. Each group is a section heading and a card grid: one column on the phone, two from `md` (768px), 12px gutters.
 
 Player card: a CSS grid of `5.25rem` panel column (6.25rem from `sm`, 640px) and a fluid right column, three rows (header / content / footer) with the panel spanning all three. Card spacing is 12px on the phone, 16px from `sm`. Header holds name and pos·club left, the chip stack right (aligned end, 4px gap). Content holds the matchup row, then the numbers 12px below, then the reason 8px below. Footer holds the outlook.
 
