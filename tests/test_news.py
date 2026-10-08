@@ -8,7 +8,7 @@ def clear_caches():
 
 def roto(i, type_, published):
     return {"id": i, "type": type_, "headline": f"h{i} ", "story": f"s{i}", "published": published,
-            "links": {"mobile": {"href": f"http://m.espn.go.com/wireless/story?storyId={i}"}}}
+            "playerId": 4362628, "links": {"mobile": {"href": f"http://m.espn.go.com/wireless/story?storyId={i}"}}}
 
 def test_parse_rotowire_keeps_rotowire_only_newest_first_three():
     feed = [roto(1, "Rotowire", "2026-09-28T10:00:00Z"), roto(2, "Story", "2026-09-30T10:00:00Z"),
@@ -17,7 +17,8 @@ def test_parse_rotowire_keeps_rotowire_only_newest_first_three():
     got = news.parse_rotowire({"feed": feed})
     assert [g["id"] for g in got] == ["3", "5", "1"]
     assert got[0] == {"id": "3", "headline": "h3", "story": "s3", "published": "2026-09-30T18:44:37Z",
-                      "url": "http://m.espn.go.com/wireless/story?storyId=3"}
+                      "url": "https://www.espn.com/nfl/player/_/id/4362628"}, \
+        "the feed's own link redirects to ESPN's home page; his player page carries the blurb"
     assert news.parse_rotowire({}) == [], "a player nobody has written about is an empty list"
 
 def test_fetch_rotowire_serves_last_good_then_empty(monkeypatch):

@@ -22,6 +22,8 @@ SLEEPER_PLAYERS = "https://api.sleeper.app/v1/players/nfl"
 # ESPN's own Story articles share the feed, so ask for more than are kept
 ROTOWIRE_LIMIT = 5
 ROTOWIRE_KEEP = 3
+# the feed's own link (m.espn.go.com/wireless/story) redirects to ESPN's home page; the player page shows the blurb
+PLAYER_PAGE = "https://www.espn.com/nfl/player/_/id/{pid}"
 NEWS_S = 1800
 DEPTH_S = 6 * 3600
 SLEEPER_TO_ESPN = {"WAS": "WSH"}  # Sleeper's club codes where espn-api's differ
@@ -40,7 +42,7 @@ def parse_rotowire(payload: dict) -> list[dict]:
             continue
         out.append({"id": str(it.get("id")), "headline": (it.get("headline") or "").strip(),
                     "story": (it.get("story") or "").strip(), "published": it.get("published"),
-                    "url": ((it.get("links") or {}).get("mobile") or {}).get("href")})
+                    "url": PLAYER_PAGE.format(pid=it["playerId"]) if it.get("playerId") else None})
     out.sort(key=lambda i: i["published"] or "", reverse=True)
     return out[:ROTOWIRE_KEEP]
 

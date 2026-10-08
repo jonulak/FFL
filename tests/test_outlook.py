@@ -17,7 +17,7 @@ def ctx(**kw):
             "teammates": [{"name": "Jared Goff", "pos": "QB", "rank": 1, "status": "Out",
                            "note": "Goff (thumb) won't play.", "last_news": 1790000000000}],
             "rotowire": [{"id": "64002028", "headline": "Gibbs logged a full practice.", "story": "He is fine.",
-                          "published": "2026-09-30T21:10:56Z", "url": "http://m.espn.go.com/wireless/story?storyId=64002028"}],
+                          "published": "2026-09-30T21:10:56Z", "url": "https://www.espn.com/nfl/player/_/id/4362628"}],
             "last_news": 1790000001000}
     base.update(kw)
     return base
@@ -51,7 +51,7 @@ def test_fact_sheet_has_the_news_and_no_projections():
     for s in ("Week 5", "Friday 10/2/2026", "Jahmyr Gibbs, RB, DET", "3 years in the league", "GB",
               "QUESTIONABLE", "ankle", "Week 3: 74% snaps", "17 carries", "18.4 pts",
               "1 of 3", "QB1 Jared Goff: Out", "Goff (thumb) won't play.", "9/30 Gibbs logged a full practice.",
-              "storyId=64002028", "background only", "START", "Injury, Usage, Depth, Team and Take",
+              "espn.com/nfl/player/_/id/4362628", "background only", "START", "Injury, Usage, Depth, Team and Take",
               "ten days", "https://www.espn.com/nfl/player/gamelog/_/id/1"):
         assert s in sheet, s
     for s in ("20.2", "21.4", "19.0", "320.5", "projection:", "starts at RB"):
