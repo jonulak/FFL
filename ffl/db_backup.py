@@ -32,7 +32,9 @@ def backup(dest: Path, keep: int = 14, today: date | None = None) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         local = Path(tmp) / name
-        src, out = sqlite3.connect(_source()), sqlite3.connect(local)
+        # read-only: a missing DB must raise, not be created empty and published as tonight's snapshot
+        src = sqlite3.connect(f"file:{_source()}?mode=ro", uri=True)
+        out = sqlite3.connect(local)
         try:
             src.backup(out)
             ok = out.execute("PRAGMA integrity_check").fetchone()[0]
@@ -42,8 +44,12 @@ def backup(dest: Path, keep: int = 14, today: date | None = None) -> Path:
         if ok != "ok":
             raise RuntimeError(f"backup failed integrity_check: {ok}")
         staged = dest / f".{name}.tmp"
-        shutil.copyfile(local, staged)
-        os.replace(staged, dest / name)
+        try:
+            shutil.copyfile(local, staged)
+            os.replace(staged, dest / name)
+        except BaseException:
+            staged.unlink(missing_ok=True)  # never leave a half file for the sync client
+            raise
     for old in sorted(dest.glob("ffl-*.db"))[:-keep]:
         old.unlink()
     return dest / name
