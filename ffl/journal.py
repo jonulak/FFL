@@ -1,10 +1,9 @@
-"""Sync season history from ESPN into the DB (transactions) and journal/ (results; git-tracked).
+"""Sync season history from ESPN into the DB (transactions and weekly results).
 
-    uv run python -m ffl.journal sync        # transactions + weekly results + standings
+    uv run python -m ffl.journal sync        # transactions + weekly results
 """
 from __future__ import annotations
 
-import csv
 import json
 import sys
 from types import SimpleNamespace
@@ -12,11 +11,8 @@ from types import SimpleNamespace
 from espn_api.football.activity import Activity
 
 from . import db
-from .config import JOURNAL, MY_TEAM_ID, SWID, league
+from .config import MY_TEAM_ID, SWID, league
 from .settings import load
-
-WEEKLY_CSV = JOURNAL / "results" / "weekly.csv"
-STANDINGS_MD = JOURNAL / "results" / "standings.md"
 
 
 def _my_team(lg, settings):
@@ -69,17 +65,10 @@ def sync_results(lg, settings):
             if me in (m.home_team, m.away_team):
                 mine, opp = (m.home_score, m.away_score) if m.home_team == me else (m.away_score, m.home_score)
                 other = m.away_team if m.home_team == me else m.home_team
-                rows.append([wk, other.team_name, mine, opp, "W" if mine > opp else "L" if mine < opp else "T"])
-    WEEKLY_CSV.parent.mkdir(parents=True, exist_ok=True)  # /refresh calls this without journal.main
-    with WEEKLY_CSV.open("w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["week", "opponent", "my_score", "opp_score", "result"])
-        w.writerows(rows)
-    lines = [f"# Standings (through week {lg.current_week - 1})", "", "| # | Team | W-L | PF | PA |", "|---|---|---|---|---|"]
-    for i, t in enumerate(lg.standings(), 1):
-        lines.append(f"| {i} | {t.team_name}{' (me)' if t == me else ''} | {t.wins}-{t.losses} | {t.points_for:.1f} | {t.points_against:.1f} |")
-    STANDINGS_MD.write_text("\n".join(lines) + "\n")
-    print(f"results: {len(rows)} weeks; standings written")
+                rows.append({"week": wk, "opponent": other.team_name, "my_score": mine, "opp_score": opp,
+                             "result": "W" if mine > opp else "L" if mine < opp else "T"})
+    db.put_results(rows)
+    print(f"results: {len(rows)} weeks")
 
 
 def main():

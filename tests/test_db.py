@@ -95,3 +95,10 @@ def test_two_processes_same_rows_leave_one_copy():
     # one batch per BEGIN IMMEDIATE transaction: one worker inserts all 50, the other finds them all
     assert sorted([q.get(timeout=5), q.get(timeout=5)]) == [0, 50]
     assert len(db.transactions()) == 50
+
+
+def test_results_upsert_never_deletes_later_weeks():
+    w = lambda wk, r: {"week": wk, "opponent": "X", "my_score": 1.0, "opp_score": 0.0, "result": r}
+    db.put_results([w(1, "W"), w(2, "W"), w(3, "L")])
+    db.put_results([w(1, "L")])  # a stale League that only knows week 1
+    assert [(r["week"], r["result"]) for r in db.results_rows()] == [(1, "L"), (2, "W"), (3, "L")]

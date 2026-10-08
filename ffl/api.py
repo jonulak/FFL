@@ -786,7 +786,7 @@ def waiver_outlook_write(player_id: int):
 
 def sync_all() -> dict:
     # espn_api caches current_week and the records in League.__init__; a months-old League would
-    # make sync_results rewrite journal/results/weekly.csv truncated to the boot week.
+    # make sync_results upsert stale scores for the weeks it still knows about.
     espn_season.refresh_league()
     lg = espn_season.fresh_league()
     settings = load()

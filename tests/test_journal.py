@@ -1,7 +1,6 @@
-"""journal.sync_results writes into journal/results/ even when that directory does not exist yet.
+"""journal.sync_results writes weekly results into the DB. No network here.
 
-POST /refresh calls sync_results directly (not through journal.main, which used to be the only
-thing making the directory), so a fresh checkout 500'd on FileNotFoundError. No network here.
+POST /refresh calls sync_results directly, so the results must land without journal.main.
 """
 from types import SimpleNamespace
 
@@ -13,24 +12,14 @@ def _fake_team():
                            points_for=100.0, points_against=90.0)
 
 
-def test_sync_results_creates_results_dir(monkeypatch, tmp_path):
-    team = _fake_team()
-    lg = SimpleNamespace(current_week=1, teams=[team], standings=lambda: [team],
-                         scoreboard=lambda wk: [])
-    weekly = tmp_path / "results" / "weekly.csv"
-    standings = tmp_path / "results" / "standings.md"
-    assert not weekly.parent.exists()
-    monkeypatch.setattr(journal, "WEEKLY_CSV", weekly)
-    monkeypatch.setattr(journal, "STANDINGS_MD", standings)
+def test_sync_results_writes_rows(monkeypatch):
+    me, opp = _fake_team(), SimpleNamespace(team_id=3, team_name="Them")
+    m = SimpleNamespace(home_team=me, away_team=opp, home_score=110.0, away_score=90.0)
+    lg = SimpleNamespace(current_week=2, teams=[me], standings=lambda: [me], scoreboard=lambda wk: [m])
     monkeypatch.setattr(journal, "MY_TEAM_ID", None)
     monkeypatch.setattr(journal, "SWID", "{ME}")
-    settings = {"teams": [{"id": 7, "owner_swids": ["{ME}"]}]}
-
-    journal.sync_results(lg, settings)
-
-    assert weekly.exists() and standings.exists()
-    assert weekly.read_text().startswith("week,opponent,my_score,opp_score,result")
-    assert "Me (me)" in standings.read_text()
+    journal.sync_results(lg, {"teams": [{"id": 7, "owner_swids": ["{ME}"]}]})
+    assert db.results_rows() == [{"week": 1, "opponent": "Them", "my_score": 110.0, "opp_score": 90.0, "result": "W"}]
 
 
 def test_sync_transactions_empty_feed_adds_nothing():

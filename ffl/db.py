@@ -253,3 +253,20 @@ def transactions(season: int = SEASON) -> list[dict]:
     q = sa.select(*[t.c[k] for k in _TX_COLS]).where(t.c.season == season).order_by(sa.text("rowid"))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
+
+
+_RESULT_COLS = ("week", "opponent", "my_score", "opp_score", "result")
+
+
+def put_results(rows: list[dict], season: int = SEASON) -> None:
+    """Upsert per week. A stale League that knows fewer weeks only rewrites the ones it has."""
+    if rows:
+        with _write() as c:
+            c.execute(_upsert(results, [{"season": season, **r} for r in rows], ["season", "week"],
+                              ["opponent", "my_score", "opp_score", "result"]))
+
+
+def results_rows(season: int = SEASON) -> list[dict]:
+    q = sa.select(*[results.c[k] for k in _RESULT_COLS]).where(results.c.season == season).order_by(results.c.week)
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
