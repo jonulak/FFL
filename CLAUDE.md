@@ -47,7 +47,7 @@ Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + dra
 Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
 real board and pick log untouched.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
-`data/` is regenerable and gitignored, except `data/ffl.db` (the season's data; see Persistence), backed up nightly to Drive.
+`data/` is gitignored, and everything in it is regenerable except `data/ffl.db` (the season's data; see Persistence), which is backed up nightly to Drive, not by git.
 `journal/` and `STRATEGY.md` are the durable prose and are committed.
 
 ## Architecture notes
@@ -116,9 +116,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   for `ffl.replay`); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
   `week`/`waivers-week`) ← `data/outlook/*.json`; `calibration_snapshots` + `calibration_rows` ← `data/calibration/week-<w>.json`;
   `sigma_fits` ← `sigma.json` (latest wins, history kept; `calibrate.load_sigma` never fails); `claim_plans` ←
-  `journal/waivers/week-<n>.json`. `season` leads every key. A write is one short `BEGIN IMMEDIATE` transaction, never held
+  `journal/waivers/week-<n>.json`. `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held
   across an ESPN call; the connect hook sets `busy_timeout` before `journal_mode=WAL`. `db.engine()` never creates tables: a
-  missing or stale schema raises `SchemaError` (run `uv run alembic upgrade head`); a DB error 500s the page, only a missing
+  missing or stale schema raises `SchemaError` (run `uv run alembic upgrade head`); a DB error on a page read 500s the page, only a missing
   row degrades to empty. Callers outside `db.py` catch `db.DBError`. Schema changes are new Alembic revisions
   (`uv run alembic revision --autogenerate -m ...`, batch mode, under `migrations/`). `uv run python -m ffl.db import`
   (`ffl/db_import.py`) is insert-if-absent from the old files, with per-table counts and dupes; it exits 1 when short or when a
@@ -214,7 +214,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   GETs never generate. `POST /outlook/refresh` starts a locked background run; `launchd/com.jonulak.ffl-outlook`
   curls it at five past every hour. One card is rewritten on a click (the card footer's Rewrite):
   `POST /outlook/{id}` → `outlook.start_one(kind=ROSTER)`, stored with the fact hash so the hourly run skips
-  him; it and the full run refuse each other (409), since the run rewrites the file it loaded. A free agent's outlook is written only on a click (the Players row's
+  him; it and the full run refuse each other (409), since a full run started before the click would write its own older card over the newer single one. A free agent's outlook is written only on a click (the Players row's
   "outlook" dialog): `POST /waivers/outlook/{id}` runs `outlook.start_one` (same sheet with `free_agent=True`:
   no call, a claim-framed Take; WORKERS in flight at most) into `outlooks` with kind `waivers-week`, apart
   from the Roster's; the dialog polls `GET /waivers/outlook/{id}`. The CLI must be logged in for the launchd user (`claude -p` from a plain
