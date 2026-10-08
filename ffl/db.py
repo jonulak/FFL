@@ -271,3 +271,25 @@ def results_rows(season: int = SEASON) -> list[dict]:
     q = sa.select(*[results.c[k] for k in _RESULT_COLS]).where(results.c.season == season).order_by(results.c.week)
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
+
+
+_PICK_COLS = ("overall", "round", "pick", "team_id", "team", "player_id", "player", "pos", "nfl",
+              "adp_2qb", "board_rank_at_pick", "proj", "ts")
+
+
+def put_picks(rows: list[dict], season: int = SEASON) -> None:
+    """Upsert per overall pick. team and player are NOT NULL: the watcher can hand over None for a team it
+    does not know."""
+    if rows:
+        rows = [{"season": season, **{k: r.get(k) for k in _PICK_COLS}} for r in rows]
+        for r in rows:
+            r["team"], r["player"] = r["team"] or "", r["player"] or ""
+        with _write() as c:
+            c.execute(_upsert(draft_picks, rows, ["season", "overall"], [k for k in _PICK_COLS if k != "overall"]))
+
+
+def picks(season: int = SEASON) -> list[dict]:
+    q = sa.select(*[draft_picks.c[k] for k in _PICK_COLS]).where(draft_picks.c.season == season) \
+        .order_by(draft_picks.c.overall)
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]

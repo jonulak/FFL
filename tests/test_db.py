@@ -103,3 +103,19 @@ def test_results_upsert_never_deletes_later_weeks():
     db.put_results([w(1, "W"), w(2, "W"), w(3, "L")])
     db.put_results([w(1, "L")])  # a stale League that only knows week 1
     assert [(r["week"], r["result"]) for r in db.results_rows()] == [(1, "L"), (2, "W"), (3, "L")]
+
+
+PICK = {"overall": 1, "round": 1, "pick": 1, "team_id": 6, "team": "henry's Imposing Team", "player_id": 3918298,
+        "player": "Josh Allen", "pos": "QB", "nfl": "BUF", "adp_2qb": 1.9, "board_rank_at_pick": 4.0,
+        "proj": 360.8, "ts": "2026-09-07T19:00:10"}
+
+
+def test_picks_keep_every_column_and_upsert():
+    db.put_picks([PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}])
+    db.put_picks([PICK])
+    assert db.picks()[0] == PICK and len(db.picks()) == 2
+
+
+def test_picks_nullable_numbers():
+    db.put_picks([{**PICK, "adp_2qb": None, "board_rank_at_pick": None, "proj": None}])
+    assert db.picks()[0]["adp_2qb"] is None

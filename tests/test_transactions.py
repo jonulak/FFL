@@ -125,22 +125,19 @@ def test_draft_entry_keeps_the_logged_name_for_a_team_gone():
     assert S.draft_entry(PICKS, 101, {})["team"] == "henry's Imposing Team"
 
 
-def test_draft_picks_read_the_csv(monkeypatch, tmp_path):
+def test_draft_picks_read_the_db(monkeypatch):
+    from ffl import db
     from ffl import espn_season as E
-    (tmp_path / "draft").mkdir()
-    (tmp_path / "draft" / "picks.csv").write_text(
-        "overall,round,pick,team_id,team,player_id,player,pos,nfl,adp_2qb,board_rank_at_pick,proj,ts\n"
-        "24,3,4,6,henry's Imposing Team,101,Drake London,WR,ATL,20,21,200,2026-09-07T19:40:00\n")
-    monkeypatch.setattr(E, "JOURNAL", tmp_path)
+    db.put_picks([{**r, "player": "", "pos": None, "nfl": None, "adp_2qb": None, "board_rank_at_pick": None,
+                   "proj": None, "ts": r["at"]} for r in PICKS])
     monkeypatch.setattr(E, "fresh_league", lambda: (_ for _ in ()).throw(AssertionError("no ESPN call")))
     assert E.draft_picks() == PICKS
 
 
-def test_draft_picks_fall_back_to_espn_when_the_csv_is_lost(monkeypatch, tmp_path):
+def test_draft_picks_fall_back_to_espn_when_the_db_is_empty(monkeypatch):
     from types import SimpleNamespace
 
     from ffl import espn_season as E
-    monkeypatch.setattr(E, "JOURNAL", tmp_path)  # no draft/picks.csv here
     t = SimpleNamespace(team_id=6, team_name="Daejon Love Fan Club")
     draft = [SimpleNamespace(playerId=7, round_num=1, round_pick=1, team=t),
              SimpleNamespace(playerId=101, round_num=1, round_pick=2, team=t)]
@@ -148,18 +145,6 @@ def test_draft_picks_fall_back_to_espn_when_the_csv_is_lost(monkeypatch, tmp_pat
     got = E.draft_picks()
     assert got[1] == {"overall": 2, "round": 1, "pick": 2, "team_id": 6, "team": "Daejon Love Fan Club",
                       "player_id": 101, "at": None}
-
-
-def test_draft_picks_fall_back_on_an_empty_csv(monkeypatch, tmp_path):
-    from types import SimpleNamespace
-
-    from ffl import espn_season as E
-    (tmp_path / "draft").mkdir()
-    (tmp_path / "draft" / "picks.csv").write_text("overall,round,pick,team_id,team,player_id,player\n")
-    monkeypatch.setattr(E, "JOURNAL", tmp_path)
-    t = SimpleNamespace(team_id=6, team_name="T")
-    monkeypatch.setattr(E, "fresh_league", lambda: SimpleNamespace(draft=[SimpleNamespace(playerId=5, round_num=1, round_pick=1, team=t)]))
-    assert [p["player_id"] for p in E.draft_picks()] == [5]
 
 
 def test_player_info_reads_kona_and_derives_a_dst(monkeypatch):

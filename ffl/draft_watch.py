@@ -5,7 +5,8 @@ candidate table for my next pick.
     uv run python -m ffl.draft_watch once       # single REST snapshot (pre-draft sanity check)
     uv run python -m ffl.draft_watch rest       # REST polling loop (post-draft recap only)
 
-Outputs: data/draft_state.json (full state), journal/draft/picks.csv (append-only pick log), stdout.
+Outputs: data/draft_state.json (full state), the DB's draft_picks (real draft) or
+data-mock/picks.csv (FFL_DATA_DIR runs), stdout.
 ESPN's REST mDraftDetail view is useless *during* a live draft — every slot stays at
 playerId -1 until the draft finishes — so live mode reads the draft room's websocket
 over CDP instead (see ffl/draft_socket.py). REST stays for pre-draft checks; whether it backfills after a draft is unverified.
@@ -31,11 +32,13 @@ import numpy as np
 import pandas as pd
 
 from . import board as board_mod
-from .config import DATA, JOURNAL, MY_TEAM_ID, SWID, raw_league_get
+from . import db
+from .config import DATA, MY_TEAM_ID, SWID, raw_league_get
 
 POLL_S = 5
 # a mock/practice run (FFL_DATA_DIR set) must not pollute the real draft log
-PICKS_CSV = (DATA / "picks.csv") if os.environ.get("FFL_DATA_DIR") else (JOURNAL / "draft" / "picks.csv")
+# (ffl.replay and PRACTICE_DRAFT.md read that CSV); the real draft's log is the DB
+PICKS_CSV = (DATA / "picks.csv") if os.environ.get("FFL_DATA_DIR") else None
 STATE = DATA / "draft_state.json"
 NEED_WEIGHT = {"starter_open": 1.35, "flex_open": 1.1, "unstartable": 0.15}
 POSITIONS = ["QB", "RB", "WR", "TE", "D/ST", "K"]
@@ -524,10 +527,11 @@ class Watcher:
         from . import rollout as rollout_mod  # here, not at the top: rollout imports this module
         self.rollout_mod = rollout_mod if rollout_mod.enabled() else None
         self._roll_gen = 0
-        PICKS_CSV.parent.mkdir(parents=True, exist_ok=True)
-        if not PICKS_CSV.exists():
-            with PICKS_CSV.open("w", newline="") as f:
-                csv.writer(f).writerow(["overall", "round", "pick", "team_id", "team", "player_id", "player", "pos", "nfl", "adp_2qb", "board_rank_at_pick", "proj", "ts"])
+        if PICKS_CSV:
+            PICKS_CSV.parent.mkdir(parents=True, exist_ok=True)
+            if not PICKS_CSV.exists():
+                with PICKS_CSV.open("w", newline="") as f:
+                    csv.writer(f).writerow(["overall", "round", "pick", "team_id", "team", "player_id", "player", "pos", "nfl", "adp_2qb", "board_rank_at_pick", "proj", "ts"])
 
     def my_slot(self) -> int | str:
         return self.order.index(self.me) + 1 if self.me in self.order else "?"
@@ -560,22 +564,35 @@ class Watcher:
                                   drafted_ids={p["playerId"] for p in picks[:self.seen]})
             pre_rank = pre.set_index("player_id").board_rank
             adp_by_id = bd.set_index("player_id").adp
-            with PICKS_CSV.open("a", newline="") as f:
-                w = csv.writer(f)
-                for p in picks[self.seen:]:
-                    pid = p["playerId"]
-                    row = self.id_to_row.loc[pid] if pid in self.id_to_row.index else None
-                    name = row["name"] if row is not None else f"id{pid}"
-                    pos = row["pos"] if row is not None else "?"
-                    br, a = pre_rank.get(pid), adp_by_id.get(pid)
-                    tag = " <== ME" if p["teamId"] == self.me else ""
-                    print(f"[{datetime.now():%H:%M:%S}] {p['roundId']}.{p['roundPickNumber']:02d} (#{p['overallPickNumber']}) "
-                          f"{self.teams.get(p['teamId'],{}).get('abbrev','?'):>5} -> {name} ({pos}) "
-                          f"board#{br if pd.notna(br) else '-'} adp {a if pd.notna(a) else '-'}{tag}", flush=True)
-                    w.writerow([p["overallPickNumber"], p["roundId"], p["roundPickNumber"], p["teamId"],
-                                self.teams.get(p["teamId"], {}).get("name"), pid, name, pos,
-                                row["team"] if row is not None else "", a, br,
-                                row["proj"] if row is not None else "", datetime.now().isoformat(timespec="seconds")])
+            new_rows, csv_rows = [], []
+            for p in picks[self.seen:]:
+                pid = p["playerId"]
+                row = self.id_to_row.loc[pid] if pid in self.id_to_row.index else None
+                name = row["name"] if row is not None else f"id{pid}"
+                pos = row["pos"] if row is not None else "?"
+                br, a = pre_rank.get(pid), adp_by_id.get(pid)
+                tag = " <== ME" if p["teamId"] == self.me else ""
+                print(f"[{datetime.now():%H:%M:%S}] {p['roundId']}.{p['roundPickNumber']:02d} (#{p['overallPickNumber']}) "
+                      f"{self.teams.get(p['teamId'],{}).get('abbrev','?'):>5} -> {name} ({pos}) "
+                      f"board#{br if pd.notna(br) else '-'} adp {a if pd.notna(a) else '-'}{tag}", flush=True)
+                new_rows.append({
+                    "overall": p["overallPickNumber"], "round": p["roundId"], "pick": p["roundPickNumber"],
+                    "team_id": p["teamId"], "team": self.teams.get(p["teamId"], {}).get("name"),
+                    "player_id": pid, "player": name, "pos": pos,
+                    "nfl": row["team"] if row is not None else None,
+                    "adp_2qb": float(a) if pd.notna(a) else None,
+                    "board_rank_at_pick": float(br) if pd.notna(br) else None,
+                    "proj": float(row["proj"]) if row is not None else None,
+                    "ts": datetime.now().isoformat(timespec="seconds")})
+                # the CSV keeps the raw values it always had ("" for a missing nfl/proj, nan/"" for adp/rank)
+                csv_rows.append([p["overallPickNumber"], p["roundId"], p["roundPickNumber"], p["teamId"],
+                                 new_rows[-1]["team"], pid, name, pos, row["team"] if row is not None else "", a, br,
+                                 row["proj"] if row is not None else "", new_rows[-1]["ts"]])
+            if PICKS_CSV:
+                with PICKS_CSV.open("a", newline="") as f:
+                    csv.writer(f).writerows(csv_rows)
+            else:
+                db.put_picks(new_rows)
             self.seen = len(picks)
 
         current = len(picks) + offset + 1  # offset = picks made before we attached
