@@ -380,7 +380,7 @@ class Runner(threading.Thread):
         self.roster = P.roster_index(week)
         if week.get("week") != self.week:
             self.week = week["week"]
-            self.store = P.Store(P.week_path(self.week))
+            self.store = P.Store(self.week)
 
     def _on_doc(self, doc: dict) -> None:
         self._refresh_roster()

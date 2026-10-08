@@ -234,9 +234,7 @@ def test_state_records_the_week_its_points_belong_to():
     assert st.week == 2
 
 
-def test_runner_tags_the_points_with_the_week_of_the_roster_it_scored(monkeypatch, tmp_path):
-    from ffl import plays
-    monkeypatch.setattr(plays, "PLAYS_DIR", tmp_path)
+def test_runner_tags_the_points_with_the_week_of_the_roster_it_scored(monkeypatch):
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
     current = {"week": 1}
     r = live.Runner(state=live.State(), settings={"scoring": []},

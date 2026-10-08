@@ -223,6 +223,25 @@ def _upsert(table: sa.Table, rows: list[dict], keys: list[str], update: list[str
     return stmt.on_conflict_do_update(index_elements=keys, set_={c: stmt.excluded[c] for c in update})
 
 
+def add_plays(rows: list[dict], season: int = SEASON) -> int:
+    """Insert the play-feed rows not already stored (key: season, week, player, at, total). Returns how
+    many were new."""
+    if not rows:
+        return 0
+    vals = [{"season": season, "week": r["week"], "at": r["at"], "player_id": r["player_id"],
+             "team_id": r.get("team_id"), "total": r["total"], "body": r} for r in rows]
+    with _write() as c:
+        stmt = _upsert(plays, vals, ["season", "week", "player_id", "at", "total"], None).returning(plays.c.id)
+        return len(c.execute(stmt).all())
+
+
+def plays_rows(week: int, season: int = SEASON) -> list[dict]:
+    """One week's play-feed rows, oldest first."""
+    q = sa.select(plays.c.body).where(plays.c.season == season, plays.c.week == week).order_by(plays.c.id)
+    with _read() as c:
+        return list(c.execute(q).scalars())
+
+
 def _tx_player_id(tx_id: str) -> int | None:
     parts = tx_id.split("-", 3)
     try:

@@ -11,7 +11,7 @@ only the fallback (stat corrections, a yardage band). A play names the defenders
 D/ST, so a D/ST row is matched by what moved in its stat row instead: a sack takes the newest
 remembered play the other club ran that reads "sacked", a turnover "INTERCEPTED" or
 "RECOVERED by", points allowed the other club's newest scoring play (`DEFENCE_TEXT`).
-Events are appended to a JSONL file per week under data/live/ and reloaded at boot, so a deploy mid-slate does not empty the feed.
+Events are written to the plays table (ffl/db.py) and a week's are reloaded at boot, so a deploy mid-slate does not empty the feed.
 
 Every matchup's starters are followed, so every board has a feed. A row carries the fantasy
 team it scored for (`team_id`), not a side: a team plays one game a week, so a board takes the
@@ -19,14 +19,10 @@ rows of its two teams (`Store.latest(teams=)`) and `for_board` says which side e
 """
 from __future__ import annotations
 
-import json
 import threading
 from datetime import datetime
-from pathlib import Path
 
-from .config import DATA
-
-PLAYS_DIR = DATA / "live"
+from . import db
 
 
 def roster_index(league: dict) -> dict[int, dict]:
@@ -160,25 +156,20 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
 
 
 class Store:
-    """The week's events, newest last in memory, appended to `path` as they happen."""
+    """The week's events, newest last in memory (the live path reads it every few seconds),
+    written through to the DB as they happen and reloaded from it at boot."""
 
-    def __init__(self, path: Path):
-        self.path = path
-        self.rows: list[dict] = []
+    def __init__(self, week: int):
+        self.week = week
         self._lock = threading.Lock()
-        if path.exists():
-            with path.open() as f:
-                self.rows = [json.loads(line) for line in f if line.strip()]
+        self.rows: list[dict] = db.plays_rows(week)
 
     def add(self, rows: list[dict]) -> None:
         if not rows:
             return
         with self._lock:
+            db.add_plays(rows)
             self.rows.extend(rows)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a") as f:
-                for r in rows:
-                    f.write(json.dumps(r) + "\n")
 
     def latest(self, n: int | None = None, teams: set[int] | None = None) -> list[dict]:
         """Newest first; with `teams`, only the rows scored for those fantasy teams (one board)."""
@@ -187,7 +178,3 @@ class Store:
         if teams is not None:
             rows = [r for r in rows if r.get("team_id") in teams]
         return rows[:n] if n else rows
-
-
-def week_path(week: int) -> Path:
-    return PLAYS_DIR / f"plays-week-{week}.jsonl"

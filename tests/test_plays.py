@@ -2,7 +2,7 @@
 import json
 from datetime import datetime
 
-from ffl import plays
+from ffl import db, plays
 
 LEAGUE = {"week": 1, "games": [[{"team_id": 7, "lineup": [{"player_id": 1, "name": "Me QB", "pos": "QB", "team": "SF"}]},
                                 {"team_id": 3, "lineup": [{"player_id": 2, "name": "Their WR", "pos": "WR", "team": "CHI"}]}],
@@ -26,9 +26,13 @@ def test_for_board_sides_rows_by_the_left_team():
     assert [r["side"] for r in plays.for_board(rows, 3)] == ["opp", "me"], "another game reads from its own left"
 
 
-def test_store_latest_filters_to_one_boards_teams(tmp_path):
-    st = plays.Store(tmp_path / "p.jsonl")
-    st.add([{"at": "a", "team_id": 7}, {"at": "b", "team_id": 5}, {"at": "c", "team_id": 3}, {"at": "d", "team_id": 5}])
+def _row(at, team_id, total=1.0, delta=1.0, week=1):
+    return {"at": at, "week": week, "player_id": 1, "team_id": team_id, "total": total, "delta": delta}
+
+
+def test_store_latest_filters_to_one_boards_teams():
+    st = plays.Store(1)
+    st.add([_row("a", 7), _row("b", 5), _row("c", 3), _row("d", 5)])
     assert [r["at"] for r in st.latest(teams={7, 3})] == ["c", "a"]
     assert [r["at"] for r in st.latest(1, teams={5})] == ["d"]
 
@@ -47,25 +51,20 @@ def test_events_from_skips_unmoved_and_unknown_players():
     assert rows == []
 
 
-def test_store_appends_and_reloads_newest_first(tmp_path):
-    path = tmp_path / "plays-week-1.jsonl"
-    st = plays.Store(path)
-    st.add([{"at": "a", "delta": 1.0}, {"at": "b", "delta": 2.0}])
-    st.add([{"at": "c", "delta": 3.0}])
+def test_store_appends_and_reloads_newest_first():
+    st = plays.Store(1)
+    st.add([_row("a", 7, 1.0), _row("b", 7, 3.0)])
+    st.add([_row("c", 7, 6.0)])
     assert [r["at"] for r in st.latest(2)] == ["c", "b"]
-    again = plays.Store(path)
+    again = plays.Store(1)  # a fresh boot reads the DB
     assert [r["at"] for r in again.latest()] == ["c", "b", "a"]
-    assert len(path.read_text().splitlines()) == 3
+    assert again.latest() == st.latest()
+    assert plays.Store(2).latest() == [], "another week's feed is separate"
 
 
-def test_store_add_nothing_writes_nothing(tmp_path):
-    path = tmp_path / "plays-week-1.jsonl"
-    plays.Store(path).add([])
-    assert not path.exists()
-
-
-def test_week_path_is_under_data_live():
-    assert plays.week_path(3).name == "plays-week-3.jsonl" and plays.week_path(3).parent.name == "live"
+def test_store_add_nothing_writes_nothing():
+    plays.Store(1).add([])
+    assert db.plays_rows(1) == []
 
 
 # The stats patch for a play arrives a frame or three after the play text, by which time the

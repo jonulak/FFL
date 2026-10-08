@@ -119,3 +119,14 @@ def test_picks_keep_every_column_and_upsert():
 def test_picks_nullable_numbers():
     db.put_picks([{**PICK, "adp_2qb": None, "board_rank_at_pick": None, "proj": None}])
     assert db.picks()[0]["adp_2qb"] is None
+
+
+def _play(pid, total, at="2026-10-01T20:29:28", team=3):
+    return {"at": at, "week": 4, "player_id": pid, "team_id": team, "delta": 0.6, "total": total, "text": "x"}
+
+
+def test_plays_round_trip_dedupe_and_order():
+    assert db.add_plays([_play(1, 3.2), _play(2, 1.0)]) == 2
+    assert db.add_plays([_play(1, 3.2)]) == 0
+    assert [r["player_id"] for r in db.plays_rows(4)] == [1, 2]
+    assert db.plays_rows(5) == []
