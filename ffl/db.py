@@ -391,3 +391,44 @@ def claim_plan(week: int, season: int = SEASON) -> dict | None:
     q = sa.select(claim_plans.c.plan).where(claim_plans.c.season == season, claim_plans.c.week == week)
     with _read() as c:
         return c.execute(q).scalar()
+
+
+_KEYS = {"transactions": ["season", "id"], "draft_picks": ["season", "overall"], "results": ["season", "week"],
+         "plays": ["season", "week", "player_id", "at", "total"],
+         "outlooks": ["season", "week", "kind", "player_id"], "sigma_fits": ["season", "fitted_at"],
+         "claim_plans": ["season", "week"]}
+
+
+def insert_new(table_name: str, rows: list[dict]) -> int:
+    """Insert the rows not already present (DO NOTHING on the table's key); returns how many were new.
+    Rows carry their own season. For the file import, which must never overwrite."""
+    if not rows:
+        return 0
+    t = metadata.tables[table_name]
+    pk = list(t.primary_key.columns)[0]
+    with _write() as c:
+        return len(c.execute(_upsert(t, rows, _KEYS[table_name], None).returning(pk)).all())
+
+
+def count(table_name: str, season: int = SEASON) -> int:
+    t = metadata.tables[table_name]
+    with _read() as c:
+        return c.execute(sa.select(sa.func.count()).select_from(t).where(t.c.season == season)).scalar()
+
+
+def main(argv: list[str]) -> int:
+    cmd = argv[0] if argv else ""
+    if cmd == "import":
+        from . import db_import
+        from .config import JOURNAL
+        return db_import.main(JOURNAL, DATA, SEASON)
+    if cmd == "backup":
+        from . import db_backup
+        return db_backup.main(argv[1:])
+    print("usage: python -m ffl.db import | backup [dest_dir]")
+    return 2
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main(sys.argv[1:]))
