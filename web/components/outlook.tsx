@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import type { Card, CardOutlook, OutlookBullet } from "@/lib/api";
+import { minutesSince, shortAge } from "@/lib/format";
 import { Ago } from "./local-time";
 
 // One block per label: the label as a small heading over its text, so the sentence gets the card's full
@@ -149,4 +150,37 @@ export function Outlook({ c, runBusy }: { c: Card; runBusy: boolean }) {
       </div>
     </div>
   );
+}
+
+// How old his outlook is, for the collapsed row: the short age under the disclosure chevron, so a glance down the
+// list says which to recheck. Amber once the card's facts have changed since it was written (the stamp's "facts
+// changed since"), red when the last rewrite failed, a spinner while one is being written; nothing before the first.
+export function outlookAge(c: Card, now: number): { age: string; tone: "fresh" | "stale" | "failed" } | null {
+  if (!c.outlook?.length || !c.outlook_at) return null;
+  return { age: shortAge(minutesSince(c.outlook_at, now)), tone: c.outlook_error ? "failed" : c.outlook_stale ? "stale" : "fresh" };
+}
+
+const AGE_TONE = { fresh: "text-muted-foreground", stale: "text-close-foreground dark:text-close", failed: "text-out" } as const;
+
+export function OutlookAge({ c, now }: { c: Card; now: number }) {
+  if (c.outlook_running) return <LoaderCircle aria-hidden className="size-3 animate-spin stroke-[2.5] text-muted-foreground motion-reduce:animate-none" />;
+  const a = outlookAge(c, now);
+  if (!a) return null;
+  return (
+    <span aria-hidden suppressHydrationWarning
+      className={`font-display text-[0.6875rem] font-semibold leading-none tracking-[0.04em] tabular-nums ${AGE_TONE[a.tone]}`}>
+      {a.age}
+    </span>
+  );
+}
+
+const UNIT = { m: "minutes", h: "hours", d: "days" } as const;
+
+// The same, read out on the chevron's label.
+export function outlookAgeLabel(c: Card, now: number): string {
+  if (c.outlook_running) return ", outlook being written";
+  const a = outlookAge(c, now);
+  if (!a) return "";
+  const when = a.age === "now" ? "just now" : `${a.age.slice(0, -1)} ${UNIT[a.age.slice(-1) as keyof typeof UNIT]} ago`;
+  return `, outlook written ${when}${a.tone === "stale" ? ", facts changed since" : a.tone === "failed" ? ", last rewrite failed" : ""}`;
 }

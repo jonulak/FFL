@@ -244,6 +244,7 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 ### Outlook (Collapsible)
 - **Laptop:** paragraph in muted body, 68ch max, stamp beneath.
 - **Phone:** the stamp is the trigger (min 32px tall, 12px text) with a lucide `ChevronDown` that rotates 180°; the panel animates height over 300ms on `cubic-bezier(0.16, 1, 0.3, 1)`. No fade is stacked on top. The Roster page's other motion is the lineup move (Overview, Motion).
+- **Age on the collapsed row:** under each row's disclosure chevron, inside the same button, the outlook's short age (`now`, `12m`, `3h`, `2d`) in Barlow 600 at 0.6875rem, tabular: muted when current, amber (the "facts changed since" colour) once the card's facts have moved on, red when the last rewrite failed, a 12px spinner while one is being written, nothing before the first. It runs on one page-wide minute clock (`useNow`, shared with the stamp's "ago"), so a page left open stays true.
 
 ### Section Heading
 - Condensed uppercase title, muted count, hairline (`bg-foreground/12`) filling the rest of the line, baseline-aligned.

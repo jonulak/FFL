@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aheadLabel, expLabel, formCell, formItems, injuryLabel, oppTrend, injuryTone, ordinal, pts, record, signed } from "./format";
+import { aheadLabel, expLabel, formCell, formItems, injuryLabel, oppTrend, injuryTone, minutesSince, ordinal, pts, record, shortAge, signed } from "./format";
 
 describe("standings", () => {
   it("sets a record with ties only when there are any", () => {
@@ -77,5 +77,16 @@ describe("exp and ahead", () => {
     expect(aheadLabel(ahead, 2)).toBe("Harvey OUT · wk 3, Dobbins Q");
     expect(aheadLabel(ahead, 3)).toBe("Harvey OUT, Dobbins Q");
     expect(aheadLabel([], 3)).toBeNull();
+  });
+});
+
+describe("outlook age", () => {
+  const at = Date.parse("2026-10-08T12:00:00Z");
+  it("whole minutes, never negative", () => {
+    expect(minutesSince("2026-10-08T11:58:30Z", at)).toBe(1);
+    expect(minutesSince("2026-10-08T12:03:00Z", at)).toBe(0);
+  });
+  it("the short form a 36px column holds", () => {
+    expect([0, 12, 59, 60, 179, 47 * 60, 48 * 60, 5 * 1440].map(shortAge)).toEqual(["now", "12m", "59m", "1h", "2h", "47h", "2d", "5d"]);
   });
 });

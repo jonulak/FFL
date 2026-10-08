@@ -13,8 +13,8 @@ import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
 import { irIllegal, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure } from "@/lib/lineup";
 import { NAME_LINK } from "@/lib/player-log";
 import { headshotUrl, team } from "@/lib/teams";
-import { Kickoff } from "./local-time";
-import { Outlook } from "./outlook";
+import { Kickoff, useNow } from "./local-time";
+import { Outlook, OutlookAge, outlookAgeLabel } from "./outlook";
 import { PlayerTrigger } from "./player-dialog";
 import { TeamLogo } from "./player-media";
 import { StatLine } from "./stat-line";
@@ -272,6 +272,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
   // while his sheet is open the sheet says it
   const error = swap.error?.id === c.player_id && !picked ? swap.error : null;
   const slot = slotLabel(c.slot);
+  const now = useNow();
   return (
     <li data-flip={`p${c.player_id}`} data-slot={c.slot} aria-busy={busy || undefined} className={picked ? "bg-foreground/[0.045]" : undefined}>
       <Collapsible open={open} onOpenChange={onOpen}>
@@ -317,10 +318,12 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
           </div>
           <div className={CTL}>
             <CollapsibleTrigger
-              render={<Button variant="ghost" size="icon" className={`group/chev -my-2.5 ${ACTION} md:my-0`} />}
-              aria-label={`${open ? "Hide" : "Show"} ${c.name}'s reason and outlook`}
+              render={<Button variant="ghost" size="icon" className={`group/chev -my-2.5 flex-col gap-0.5 ${ACTION} md:my-0`} />}
+              aria-label={`${open ? "Hide" : "Show"} ${c.name}'s reason and outlook${outlookAgeLabel(c, now)}`}
             >
               <ChevronDown aria-hidden className="transition-transform duration-300 ease-(--ease-arrive) group-data-[panel-open]/chev:rotate-180" />
+              {/* the outlook's age, so the collapsed list says which to recheck */}
+              <OutlookAge c={c} now={now} />
             </CollapsibleTrigger>
           </div>
           {error && <Failure f={error} reload={swap.reload} />}

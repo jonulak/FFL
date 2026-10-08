@@ -113,3 +113,15 @@ export function formItems(f: Form): FormItem[] {
 export function injuryLabel(status: string, returnWeek: number | null, week: number): string {
   return returnWeek != null && returnWeek > week ? `${status} · wk ${returnWeek}` : status;
 }
+
+// Whole minutes since `iso`, never negative (a stamp a little ahead of this clock reads as now).
+export function minutesSince(iso: string, at: number): number {
+  return Math.max(0, Math.floor((at - new Date(iso).getTime()) / 60_000));
+}
+
+// The short age a narrow column holds: "now", "12m", "3h", "2d".
+export function shortAge(mins: number): string {
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  return mins < 48 * 60 ? `${Math.floor(mins / 60)}h` : `${Math.floor(mins / 1440)}d`;
+}

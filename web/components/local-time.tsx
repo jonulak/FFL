@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import type { GameState, Player } from "@/lib/api";
+import { minutesSince, shortAge } from "@/lib/format";
 import { TeamLogo } from "./player-media";
 
 // Once the game is on, the clock and quarter stand where the kickoff time was; "Final" after.
@@ -110,12 +111,30 @@ export function Clock({ iso }: { iso: string }) {
   return <span suppressHydrationWarning>{new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>;
 }
 
+// One clock for every age on the page, ticking once a minute while anything reads it, so a page left open on the
+// phone keeps telling the truth about how old its outlooks are. The server renders the time of its request; the
+// client takes over on hydration.
+const boot = Date.now();
+let now = boot;
+const readers = new Set<() => void>();
+let ticker: ReturnType<typeof setInterval> | null = null;
+function subscribe(onTick: () => void) {
+  readers.add(onTick);
+  if (!ticker) {
+    const tick = () => { now = Date.now(); readers.forEach((r) => r()); };
+    tick();
+    ticker = setInterval(tick, 60_000);
+  }
+  return () => {
+    readers.delete(onTick);
+    if (readers.size === 0 && ticker) { clearInterval(ticker); ticker = null; }
+  };
+}
+export function useNow(): number {
+  return useSyncExternalStore(subscribe, () => now, () => boot);
+}
+
 export function Ago({ iso }: { iso: string }) {
-  // The clock is impure, so read it once in a state initialiser rather than in the render body
-  // (react-hooks/purity): the age is fixed for the life of the render, which is what a
-  // server-rendered page wants anyway.
-  const [now] = useState(() => Date.now());
-  const mins = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60_000));
-  const text = mins < 60 ? `${mins}m ago` : mins < 48 * 60 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`;
-  return <span suppressHydrationWarning>{text}</span>;
+  const age = shortAge(minutesSince(iso, useNow()));
+  return <span suppressHydrationWarning>{age === "now" ? "just now" : `${age} ago`}</span>;
 }
