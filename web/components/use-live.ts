@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { clientGet } from "@/app/api-client";
 import { generation } from "@/lib/generation";
 
-// A page's data kept live: the server render hands us `initial`; while the API says games are
-// on we listen to its /live event stream and refetch `path` on every tick (a tick means a
-// player's points moved on ESPN's feed). If the stream cannot be opened the browser keeps
-// retrying it, and a slow 60 s poll stands in so the page still moves. A server re-render
+// A page's data kept live: the server render hands us `initial`; we always listen to the API's
+// /live event stream and refetch `path` on every tick (a tick means a player's points, or a
+// game's status, moved on ESPN's feed), so a page opened before kickoff goes live with the first
+// game. An idle stream is a keepalive every 15 s. While the API says games are on, a slow 60 s
+// poll also stands in, since the browser only retries a stream that cannot be opened. A server re-render
 // (router.refresh(), navigation) hands us a fresh `initial`, adopted during render.
 const POLL_MS = 60_000;
 
@@ -36,8 +37,8 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
   const [now, setNow] = useState(() => Date.now());
 
   const { live } = data;
+  const refetchRef = useRef<() => void>(() => {});
   useEffect(() => {
-    if (!live) return;
     let closed = false;
     let inflight = false;
     let again = false;
@@ -57,6 +58,7 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
         .catch(() => {})
         .finally(() => { inflight = false; if (again && !closed) { again = false; refetch(); } });
     };
+    refetchRef.current = refetch;
     const es = new EventSource("/api/live");
     let first = true;
     es.onmessage = () => {
@@ -64,16 +66,25 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
       if (first) { first = false; return; }
       refetch();
     };
-    const poll = setInterval(refetch, POLL_MS);
-    const onVisible = () => { if (document.visibilityState === "visible") refetch(); };
-    document.addEventListener("visibilitychange", onVisible);
     return () => {
       closed = true;
+      refetchRef.current = () => {};
       es.close();
+    };
+  }, [path]);
+
+  // the fallback poll, and a refetch on coming back to the tab, only while games are on
+  useEffect(() => {
+    if (!live) return;
+    const tick = () => refetchRef.current();
+    const poll = setInterval(tick, POLL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
       clearInterval(poll);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [live, path]);
+  }, [live]);
 
   // A fresher payload the page got some other way (a POST that answers with it) becomes the data, and the
   // one a back/forward navigation resumes from.
