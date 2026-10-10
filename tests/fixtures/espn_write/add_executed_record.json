@@ -1,0 +1,37 @@
+{
+ "bidAmount": 0,
+ "executionType": "EXECUTE",
+ "id": "64e20120-cab2-4814-ad7d-6c928885b204",
+ "isActingAsTeamOwner": false,
+ "isLeagueManager": false,
+ "isPending": false,
+ "items": [
+  {
+   "fromLineupSlotId": -1,
+   "fromTeamId": 0,
+   "isKeeper": false,
+   "overallPickNumber": 0,
+   "playerId": 4596334,
+   "toLineupSlotId": 20,
+   "toTeamId": 7,
+   "type": "ADD"
+  },
+  {
+   "fromLineupSlotId": 20,
+   "fromTeamId": 7,
+   "isKeeper": false,
+   "overallPickNumber": 0,
+   "playerId": 4880281,
+   "toLineupSlotId": -1,
+   "toTeamId": 0,
+   "type": "DROP"
+  }
+ ],
+ "memberId": "{SWID}",
+ "proposedDate": 1791604013516,
+ "rating": 0,
+ "scoringPeriodId": 5,
+ "status": "EXECUTED",
+ "teamId": 7,
+ "type": "FREEAGENT"
+}
