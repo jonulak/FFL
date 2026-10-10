@@ -451,7 +451,7 @@ def claims_submit(body: SubmitIn):
                     log.warning("claims not recorded: %s", e)
             refs += [r for r in map(_record, map(_mark_fake, claims_mod.free_add_rows(res["now"], names, data["week"]))) if r]
         elif res["now"] or res["sent"]:
-            log.info("claims under FFL_WRITES=0, not recorded")
+            log.info("claims not recorded (FFL_WRITES=0 without FFL_RECORD_FAKE=1)")
         if res["now"]:
             # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
             # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
@@ -537,7 +537,7 @@ def lineup(body: LineupIn):
             except requests.RequestException:  # ESPN may have executed it before the connection died
                 uncertain = True
             # recorded the moment ESPN may have taken the move, whatever the read-back does; a fake move
-            # (FFL_WRITES=0) is not a decision, so it only goes to the log
+            # (FFL_WRITES=0) is recorded only under FFL_RECORD_FAKE=1 (_records), else it only goes to the log
             entry = season.lineup_entry(items, data["cards"], data["week"])
             if uncertain:
                 entry["facts"]["uncertain"] = True
@@ -545,7 +545,7 @@ def lineup(body: LineupIn):
             if _records():
                 ref = _record(_mark_fake(entry))
             else:
-                log.info("fake lineup move (FFL_WRITES=0), not recorded: %s", entry["title"])
+                log.info("fake lineup move not recorded (FFL_WRITES=0 without FFL_RECORD_FAKE=1): %s", entry["title"])
             # the moved players keep the rows they took (season.reseat), before the read-back reads the seats
             try:
                 db.put_seats(season.reseat(items, data["cards"], db.seat_map()))
@@ -592,12 +592,12 @@ def roster_sit(player_id: int, body: SitIn):
                 db.put_sit(week, player_id, body.sat)
             except db.DBError as e:
                 raise HTTPException(500, f"sit not saved: {e}") from e
-            # a dev API (FFL_WRITES=0) is not the manager deciding, as with a fake lineup move: log only
+            # a fake sit (FFL_WRITES=0) is recorded only under FFL_RECORD_FAKE=1 (_records), else it only goes to the log
             entry = season.sit_entry(before, body.sat, week)
             if _records():
                 ref = _record(_mark_fake(entry))
             else:
-                log.info("sit under FFL_WRITES=0, not recorded: %s", entry["title"])
+                log.info("sit not recorded (FFL_WRITES=0 without FFL_RECORD_FAKE=1): %s", entry["title"])
         # the cards carry every player field, so the call is re-made from them without an ESPN read
         sat = db.sat_ids(week)
         rows = espn_season.with_sits(data["cards"], sat)

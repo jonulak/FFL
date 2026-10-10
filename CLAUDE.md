@@ -47,7 +47,8 @@ Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + dra
 
 ## Config
 `.env` (gitignored): `LEAGUE_ID`, `ESPN_S2`, `SWID`, `SEASON`, optional `MY_TEAM_ID` (auto-detected from SWID).
-Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing. `FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.
+Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing.
+`FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.
 Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
 real board and pick log untouched.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
@@ -250,7 +251,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   offers him), the other cards' gaps and the Matchup board's by-projection swaps are all made without him.
   `playable_proj` is untouched (the win meter reads ESPN's real lineup) and the waiver pool ignores sits (calibration
   reads it). `model_call` is the call he would have had: the outlook hashes it, so a sit never rewrites his outlook.
-  The endpoint re-calls the cached cards (no ESPN read) under `_LINEUP`, and records only when `espn_write.writes()` (its answer carries `decision: {id, needs_rationale}`). `POST /claims/submit` answers `decisions: [...]` (the claims row and each free add). `POST /roster/sit/{id}` is the same `decision` answer as `/lineup`.
+  The endpoint re-calls the cached cards (no ESPN read) under `_LINEUP`, and records only when writes are real or `FFL_RECORD_FAKE=1` on a dev API (its answer carries `decision: {id, needs_rationale}`). `POST /claims/submit` answers `decisions: [...]` (the claims row and each free add). `POST /roster/sit/{id}` is the same `decision` answer as `/lineup`.
 
 ## Rules for working here
 - Every roster decision made in a session is recorded with `uv run python -m ffl.decisions add` (kind, title, decision, rationale preset or Other + note, alternatives, exit conditions) before committing; outcomes later with `ffl.decisions outcome <id>`. The app records its own moves (lineup, sit, claims, free adds) and the Decisions page asks for the reason. journal/DECISIONS.md is frozen history (to 2026-10-10), imported into the `decisions` table.
