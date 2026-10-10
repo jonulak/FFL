@@ -7,8 +7,11 @@ take parsed inputs and `at`; the I/O is at the bottom. FFL_NOTIFY=0 sends nothin
 """
 from __future__ import annotations
 
+import json
 import logging
-from datetime import datetime
+import os
+import re
+from datetime import datetime, timedelta
 
 from . import db
 
@@ -80,3 +83,161 @@ def waiver_notices(run: str | None, prev_run: str | None, pending: list[dict], m
     parts = ([f"Won {', '.join(map(name, won))}."] if won else []) + ([f"Lost {', '.join(map(name, lost))}."] if lost else [])
     return [{"key": f"waivers:{run}", "kind": "waivers", "title": f"Waivers: {len(won)} of {len(pending)} claims won",
              "body": " ".join(parts), "url": "/transactions", "created_at": at}]
+
+
+DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "quiet": ["23:00", "07:00"]}
+MAX_AGE = timedelta(hours=24)
+BODY_MAX = 180
+_HM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def prefs() -> dict:
+    return {**DEFAULT_PREFS, **db.get_state("prefs", {})}
+
+
+def put_prefs(p: dict) -> dict:
+    merged = {**prefs(), **{k: v for k, v in p.items() if k in DEFAULT_PREFS}}
+    q = merged["quiet"]
+    if not (isinstance(q, list) and len(q) == 2 and all(isinstance(s, str) and _HM.match(s) for s in q)):
+        raise ValueError(f"quiet must be two HH:MM times, got {q!r}")
+    for k in ("move", "injury", "waivers"):
+        merged[k] = bool(merged[k])
+    db.put_state("prefs", merged)
+    return merged
+
+
+def in_quiet(t: datetime, quiet: list[str]) -> bool:
+    """Inside [start, end) local; a window across midnight wraps; start == end is no quiet hours."""
+    start, end, hm = quiet[0], quiet[1], t.strftime("%H:%M")
+    if start == end:
+        return False
+    return start <= hm < end if start < end else hm >= start or hm < end
+
+
+def _join(bodies: list[str]) -> str:
+    """'; '-joined, cut to BODY_MAX with '… +N more' naming what was left out."""
+    for n in range(len(bodies), 0, -1):
+        rest = len(bodies) - n
+        s = "; ".join(bodies[:n]) + (f"… +{rest} more" if rest else "")
+        if len(s) <= BODY_MAX:
+            return s
+    return bodies[0][:BODY_MAX - 12] + f"… +{len(bodies) - 1} more"
+
+
+def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict[str, list[str]]]:
+    """The pushes this flush sends, and the notices it only marks (switched off, or older than MAX_AGE)."""
+    marks: dict[str, list[str]] = {"off": [], "expired": []}
+    live = []
+    for n in unsent:
+        if t - datetime.fromisoformat(n["created_at"]) > MAX_AGE:
+            marks["expired"].append(n["key"])
+        elif not prefs.get("move" if n["kind"] == "trade" else n["kind"], True):
+            marks["off"].append(n["key"])
+        else:
+            live.append(n)
+    pushes = []
+    moves = [n for n in live if n["kind"] == "move"]
+    if moves:
+        pushes.append({"keys": [n["key"] for n in moves], "title": f"{len(moves)} league move{'s' if len(moves) > 1 else ''}",
+                       "body": _join([n["body"] for n in moves]), "url": "/transactions", "tag": "moves"})
+    trades = [n for n in live if n["kind"] == "trade"]
+    if trades:
+        pushes.append({"keys": [n["key"] for n in trades], "title": "Trade",
+                       "body": _join([n["body"] for n in trades]), "url": "/transactions", "tag": "trade"})
+    for n in live:
+        if n["kind"] not in ("move", "trade"):
+            pushes.append({"keys": [n["key"]], "title": n["title"], "body": n["body"], "url": n["url"], "tag": n["key"]})
+    return pushes, marks
+
+
+def deliver(push: dict, subs: list[dict], send) -> tuple[bool, list[str]]:
+    """Send to every device. Accepted when any device took it; a 404/410 names a dead subscription."""
+    payload = {k: push[k] for k in ("title", "body", "url", "tag")}
+    ok, dead = False, []
+    for sub in subs:
+        try:
+            send(sub, payload)
+            ok = True
+        except Exception as e:  # noqa: BLE001 — pywebpush raises WebPushException; anything else is the network
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status in (404, 410):
+                dead.append(sub["endpoint"])
+            else:
+                log.warning("notify: push to %s failed: %s", sub["endpoint"][:40], e)
+    return ok, dead
+
+
+def webpush_sender(sub: dict, payload: dict) -> None:
+    from pywebpush import webpush
+    webpush(subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]}, data=json.dumps(payload),
+            vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
+            vapid_claims={"sub": os.environ.get("VAPID_SUBJECT", "mailto:admin@example.com")}, ttl=24 * 3600)
+
+
+def sender():
+    """The real sender, or None when FFL_NOTIFY=0 or the VAPID key is missing (a dev/worktree API never pushes)."""
+    if os.environ.get("FFL_NOTIFY", "1") == "0" or not os.environ.get("VAPID_PRIVATE_KEY"):
+        return None
+    return webpush_sender
+
+
+def _send_all(pushes: list[dict], send, at: str) -> int:
+    subs, sent = db.subscriptions(), 0
+    for push in pushes:
+        ok, dead = deliver(push, subs, send)
+        for ep in dead:
+            db.drop_subscription(ep)
+        subs = [s for s in subs if s["endpoint"] not in dead]
+        if ok:
+            db.mark_notices(push["keys"], "sent", at)
+            sent += 1
+    return sent
+
+
+def flush(t: datetime | None = None, send=None) -> dict:
+    """Send the queue: nothing in quiet hours; switched-off and stale notices are marked, the rest grouped and pushed."""
+    send = send or sender()
+    if send is None:
+        return {"disabled": True}
+    t = t or datetime.now().astimezone()
+    p, unsent = prefs(), db.unsent_notices()
+    if in_quiet(t, p["quiet"]):
+        return {"held": len(unsent)}
+    pushes, marks = plan(unsent, p, t)
+    at = t.isoformat(timespec="seconds")
+    for outcome, keys in marks.items():
+        db.mark_notices(keys, outcome, at)
+    return {"sent": _send_all(pushes, send, at), "pushes": len(pushes), **{k: len(v) for k, v in marks.items()}}
+
+
+def send_test(send=None) -> dict:
+    """Settings' Send test: straight to every device, whatever the hour; not queued."""
+    send = send or sender()
+    if send is None:
+        return {"disabled": True}
+    push = {"keys": [], "title": "FFL", "body": "Notifications are on for this device.", "url": "/settings", "tag": "test"}
+    subs = db.subscriptions()
+    ok, dead = deliver(push, subs, send)
+    for ep in dead:
+        db.drop_subscription(ep)
+    return {"devices": len(subs) - len(dead), "accepted": ok}
+
+
+def vapid_keys() -> tuple[str, str]:
+    """A fresh P-256 pair as Web Push wants them: (public, private), both base64url without padding."""
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    key = ec.generate_private_key(ec.SECP256R1())
+    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+    pub = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    return b64(pub), b64(key.private_numbers().private_value.to_bytes(32, "big"))
+
+
+if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["keys"]:
+        pub, priv = vapid_keys()
+        print(f"VAPID_PUBLIC_KEY={pub}\nVAPID_PRIVATE_KEY={priv}\nVAPID_SUBJECT=mailto:admin@example.com")
+    else:
+        print("usage: python -m ffl.notify keys")

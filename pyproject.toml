@@ -12,6 +12,7 @@ dependencies = [
     "pandas>=3.0.5",
     "playwright>=1.62.0",
     "python-dotenv>=1.2.3",
+    "pywebpush>=2.5.0",
     "requests>=2.34.2",
     "sqlalchemy>=2.1.4",
     "tabulate>=0.10.0",

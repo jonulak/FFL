@@ -10,6 +10,8 @@ os.environ.setdefault("FFL_DB_URL", "sqlite:////nonexistent/ffl-test-guard.db")
 os.environ["FFL_LIVE"] = "0"
 # Nothing in a test run may write to ESPN; espn_write swaps in an in-memory store.
 os.environ["FFL_WRITES"] = "0"
+# Nothing in a test run may push to a phone; flush tests pass a fake sender.
+os.environ["FFL_NOTIFY"] = "0"
 # Instant free-agent adds are off by default until ffl-ut0.7 verifies them; the tests exercise that path.
 os.environ["FFL_INSTANT_ADDS"] = "1"
 
