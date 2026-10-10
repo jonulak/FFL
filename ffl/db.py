@@ -191,6 +191,35 @@ notify_state = sa.Table(
     sa.PrimaryKeyConstraint("season", "key"),
 )
 
+# The decision journal (was journal/DECISIONS.md): every lineup move, sit, claims submit and free add the app makes,
+# and what sessions record through `python -m ffl.decisions`. rationale NULL = still needs one (the Decisions page
+# lists it as open); a list of preset keys (ffl.decisions.PRESETS) otherwise. import_key is set only on rows the
+# one-time import made from the markdown file (`<heading>#<n>`), so re-running it inserts nothing.
+decisions_table = sa.Table(
+    "decisions", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    _season(),
+    sa.Column("at", sa.String, nullable=False),          # ISO seconds with offset (app/session); YYYY-MM-DD (import)
+    sa.Column("week", sa.Integer),
+    sa.Column("kind", sa.String, nullable=False),        # lineup|sit|unsit|claims|free_add|trade|draft|note
+    sa.Column("source", sa.String, nullable=False),      # app|session|import
+    sa.Column("title", sa.String, nullable=False),
+    sa.Column("decision", sa.String, nullable=False, default=""),
+    sa.Column("facts", sa.JSON),
+    sa.Column("rationale", sa.JSON),
+    sa.Column("rationale_note", sa.String),
+    sa.Column("followed_call", sa.Boolean),
+    sa.Column("alternatives", sa.String),
+    sa.Column("exit_conditions", sa.String),
+    sa.Column("outcome", sa.String),
+    sa.Column("outcome_at", sa.String),
+    sa.Column("body", sa.String),
+    sa.Column("player_ids", sa.JSON),
+    sa.Column("import_key", sa.String),
+    sa.UniqueConstraint("season", "import_key", name="uq_decisions_import"),
+)
+sa.Index("ix_decisions_week_kind", decisions_table.c.season, decisions_table.c.week, decisions_table.c.kind)
+
 
 def url() -> str:
     return os.environ.get("FFL_DB_URL") or f"sqlite:///{DATA / 'ffl.db'}"
@@ -562,10 +591,54 @@ def put_state(key: str, value, season: int = SEASON) -> None:
         c.execute(_upsert(notify_state, [{"season": season, "key": key, "value": value}], ["season", "key"], ["value"]))
 
 
+def _decision_out(r) -> dict:
+    return dict(r._mapping)
+
+
+def add_decision(row: dict, season: int = SEASON) -> int:
+    with _write() as c:
+        return c.execute(sa.insert(decisions_table).values({**row, "season": season}).returning(decisions_table.c.id)).scalar()
+
+
+def put_week_claims(week: int, row: dict, season: int = SEASON) -> dict:
+    """The week's app claims row: a resubmit replaces what was sent, keeping the rationale and outcome given since."""
+    t = decisions_table
+    keep = {"rationale", "rationale_note", "outcome", "outcome_at"}
+    with _write() as c:
+        old = c.execute(sa.select(t.c.id, t.c.rationale).where(t.c.season == season, t.c.week == week, t.c.kind == "claims",
+                                                                t.c.source == "app")).first()
+        if old is None:
+            i = c.execute(sa.insert(t).values({**row, "season": season, "week": week}).returning(t.c.id)).scalar()
+            return {"id": i, "needs_rationale": row.get("rationale") is None}
+        c.execute(sa.update(t).where(t.c.id == old.id).values({k: v for k, v in row.items() if k not in keep}))
+        return {"id": old.id, "needs_rationale": old.rationale is None}
+
+
+def update_decision(id: int, fields: dict, season: int = SEASON) -> dict | None:
+    t = decisions_table
+    with _write() as c:
+        if not c.execute(sa.update(t).where(t.c.season == season, t.c.id == id).values(fields)).rowcount:
+            return None
+        return _decision_out(c.execute(sa.select(t).where(t.c.id == id)).one())
+
+
+def decision(id: int, season: int = SEASON) -> dict | None:
+    t = decisions_table
+    with _read() as c:
+        r = c.execute(sa.select(t).where(t.c.season == season, t.c.id == id)).first()
+    return _decision_out(r) if r else None
+
+
+def decisions(season: int = SEASON) -> list[dict]:
+    t = decisions_table
+    with _read() as c:
+        return [_decision_out(r) for r in c.execute(sa.select(t).where(t.c.season == season).order_by(t.c.at.desc(), t.c.id.desc()))]
+
+
 _KEYS = {"transactions": ["season", "id"], "draft_picks": ["season", "overall"], "results": ["season", "week"],
          "plays": ["season", "week", "player_id", "at", "total"],
          "outlooks": ["season", "week", "kind", "player_id"], "sigma_fits": ["season", "fitted_at"],
-         "claim_plans": ["season", "week"]}
+         "claim_plans": ["season", "week"], "decisions": ["season", "import_key"]}
 
 
 def insert_new(table_name: str, rows: list[dict]) -> int:

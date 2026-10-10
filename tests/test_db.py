@@ -172,3 +172,39 @@ def test_engine_on_a_missing_sqlite_file_raises_and_creates_nothing(tmp_path, mo
     with pytest.raises(db.SchemaError, match="alembic upgrade head"):
         db.engine()
     assert not missing.exists()
+
+
+def _row(**kw):
+    return {"at": "2026-10-10T12:00:00-04:00", "week": 6, "kind": "lineup", "source": "app", "title": "Week 6 lineup: A to FLEX",
+            "decision": "A (WR) BE → FLEX", "facts": {"moves": []}, "rationale": None, "player_ids": [1, 2], **kw}
+
+
+def test_add_decision_round_trips_json_and_orders_newest_first():
+    a = db.add_decision(_row())
+    b = db.add_decision(_row(at="2026-10-10T13:00:00-04:00", rationale=["followed_call"], followed_call=True))
+    rows = db.decisions()
+    assert [r["id"] for r in rows] == [b, a]
+    assert rows[0]["rationale"] == ["followed_call"] and rows[1]["rationale"] is None
+    assert rows[1]["player_ids"] == [1, 2] and rows[1]["facts"] == {"moves": []}
+    assert db.decision(a)["title"] == "Week 6 lineup: A to FLEX"
+    assert db.decision(9999) is None
+
+
+def test_update_decision_sets_only_the_fields_given():
+    i = db.add_decision(_row())
+    after = db.update_decision(i, {"rationale": ["matchup"], "rationale_note": "DAL run D"})
+    assert after["rationale"] == ["matchup"] and after["rationale_note"] == "DAL run D" and after["title"].startswith("Week 6")
+    assert db.update_decision(9999, {"outcome": "x"}) is None
+
+
+def test_week_claims_row_updates_in_place_and_keeps_the_rationale():
+    first = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", decision="(1) get 1 of 1: A; cut B",
+                                       facts={"submits": 1}))
+    assert first["needs_rationale"] is True
+    db.update_decision(first["id"], {"rationale": ["best_ros"]})
+    second = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", decision="(1) get 1 of 1: C; cut B",
+                                        facts={"submits": 2}))
+    assert second == {"id": first["id"], "needs_rationale": False}
+    row = db.decision(first["id"])
+    assert row["decision"].endswith("C; cut B") and row["rationale"] == ["best_ros"] and row["facts"] == {"submits": 2}
+    assert db.put_week_claims(7, _row(kind="claims", week=7))["id"] != first["id"]
