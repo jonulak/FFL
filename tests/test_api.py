@@ -1104,6 +1104,35 @@ ROSTER_KEYS = ["transactions", "roster", "waivers", "week:current", "week:5:3", 
                "starters:current"]
 
 
+def test_a_build_a_move_drops_partway_is_not_installed():
+    """A page whose build began before a move read the rosters from before it: once the move drops the page, that
+    build must not install itself (a first build or a revalidate), or the rewarm finds it fresh and serves it."""
+    c = api.Cache(120)
+
+    def before_the_move():
+        c.drop_prefixes(("roster",))      # the move lands while this build runs
+        return {"old": True}
+    payload, _ = c.get_or_build("roster", before_the_move)
+    assert payload == {"old": True} and not c.has("roster"), "the caller gets it; the cache does not keep it"
+
+    c.get_or_build("roster", lambda: {"n": 1})
+    c._d["roster"].expires = 0.0
+    c._d["roster"].fn = before_the_move
+    c.get_or_build("roster", before_the_move)  # stale: serves n=1 and revalidates behind
+    c.join()
+    assert not c.has("roster"), "the revalidate that the move overtook leaves the key dropped"
+
+
+def test_every_rewarm_thread_is_joined():
+    c = api.Cache(120)
+    gate = threading.Event()
+    api._start_rewarm(c, [("a", lambda: gate.wait(2) or {"a": 1}, 120.0)])
+    api._start_rewarm(c, [("b", lambda: {"b": 1}, 120.0)])
+    gate.set()
+    c.join()
+    assert c.has("a") and c.has("b")
+
+
 def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypatch):
     """A move changes rosters, the pool, the boards and the log: every page built before it is stale. Whichever
     path logged it (the tick, a page build, the reconcile), each such page is dropped (never served once more from

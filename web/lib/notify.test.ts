@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isHm, isMovesTick, noticeState, openRequest, pushSupport, urlBase64ToUint8Array } from "./notify";
+import { isHm, movesStep, noticeState, openRequest, pushSupport, urlBase64ToUint8Array } from "./notify";
 
-describe("isMovesTick", () => {
-  it("is the /live stream's move event, not a points tick", () => {
-    expect(isMovesTick("m3")).toBe(true);
-    expect(isMovesTick("17")).toBe(false);
-    expect(isMovesTick("")).toBe(false);
-    expect(isMovesTick(undefined)).toBe(false);
+describe("movesStep", () => {
+  it("takes the first count it sees as the baseline", () => {
+    expect(movesStep(null, "17 m3")).toEqual({ moves: 3, refresh: false });
+  });
+  it("refreshes when the count moves: a move tick, or a reconnect after one was missed", () => {
+    expect(movesStep(3, "m4")).toEqual({ moves: 4, refresh: true });
+    expect(movesStep(3, "20 m4")).toEqual({ moves: 4, refresh: true });
+  });
+  it("ignores points ticks and a reconnect with nothing missed", () => {
+    expect(movesStep(3, "18")).toEqual({ moves: 3, refresh: false });
+    expect(movesStep(3, "18 m3")).toEqual({ moves: 3, refresh: false });
+    expect(movesStep(null, "18")).toEqual({ moves: null, refresh: false });
+    expect(movesStep(3, undefined)).toEqual({ moves: 3, refresh: false });
   });
 });
 

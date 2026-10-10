@@ -6,8 +6,15 @@ export function urlBase64ToUint8Array(s: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
-// The /live stream's league-move event (`data: m<n>`, ffl/live.py stream_lines), apart from its points ticks.
-export const isMovesTick = (data: unknown) => typeof data === "string" && data.startsWith("m");
+// The /live stream carries a league-move count: `m<n>` on a move, and `<version> m<n>` as each connection's opening
+// message (ffl/live.py stream_open). A page not on the live hook refreshes when the count moves past the one it
+// last saw — on the move tick, or on the reconnect after the phone slept through it. Points ticks never count.
+export function movesStep(last: number | null, data: unknown): { moves: number | null; refresh: boolean } {
+  const m = typeof data === "string" ? /(?:^| )m(\d+)$/.exec(data) : null;
+  if (!m) return { moves: last, refresh: false };
+  const moves = Number(m[1]);
+  return { moves, refresh: last !== null && moves !== last };
+}
 
 // A notification tap arrives as the worker's {type: "open", url} message (web/public/sw.js): the page navigates
 // itself, since iOS's Home Screen app ignores the worker's own navigate()/openWindow(). Same-origin only.
@@ -22,7 +29,7 @@ export function openRequest(data: unknown, origin: string): string | null {
   }
 }
 
-export type PushEnv ={ hasServiceWorker: boolean; hasPushManager: boolean; standalone: boolean; ios: boolean };
+export type PushEnv = { hasServiceWorker: boolean; hasPushManager: boolean; standalone: boolean; ios: boolean };
 
 // iOS offers Web Push only to a Home Screen app (16.4+): in Safari proper PushManager is missing.
 export function pushSupport(env: PushEnv): "unsupported" | "needs-install" | "ready" {

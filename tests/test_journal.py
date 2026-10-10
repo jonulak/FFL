@@ -60,3 +60,18 @@ def test_sync_transactions_resolves_dropped_players_locally():
     rows = db.transactions()
     assert [(r["id"], r["player"]) for r in rows] == [("1788937502756-6-DROPPED-4688380", "Cam Ward"),
                                                       ("1788937502756-6-WAIVER ADDED-5083754", "Ryan Flournoy")]
+
+
+def test_a_failing_listener_never_fails_the_sync(monkeypatch):
+    """The rows are logged before the listeners run: one that raises (the API's page refresh) is logged, and the
+    sync still answers its new rows, so the tick and /transactions/sync do not report a failed sync."""
+    topics = {"topics": [{"date": 1788937502756, "messages": [{"messageTypeId": 180, "to": 6, "targetId": 5083754, "from": 0}]}]}
+    team = SimpleNamespace(team_id=6, team_name="Henry", roster=[])
+    lg = SimpleNamespace(year=2026, player_map={5083754: "Ryan Flournoy", "Ryan Flournoy": 5083754},
+                         get_team_data=lambda tid: team,
+                         espn_request=SimpleNamespace(league_get=lambda extend="", params=None, headers=None: topics))
+
+    def boom(rows):
+        raise RuntimeError("listener down")
+    monkeypatch.setattr(journal, "ON_NEW_ROWS", [boom])
+    assert len(journal.sync_transactions(lg)) == 1

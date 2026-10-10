@@ -901,3 +901,20 @@ def test_parse_roster_flags_carries_injury_and_name_when_espn_says_them():
         {"playerId": 2, "playerPoolEntry": {}}]}}]}
     f = espn_season.parse_roster_flags(doc, 7)
     assert f[1]["injury"] == "OUT" and f[1]["name"] == "A B" and "injury" not in f[2] and "name" not in f[2]
+
+
+def test_box_scores_a_move_overtakes_are_not_kept(monkeypatch):
+    """A fetch that began before a move (forget_current_boxes) read the rosters from before it: the caller gets
+    them, the 60 s cache does not keep them for every other page."""
+    monkeypatch.setattr(espn_season, "_BOXES", {})
+    monkeypatch.setattr(espn_season, "reconcile_log", lambda lg, owners: False)
+
+    def fetch(week):
+        espn_season.forget_current_boxes()  # the move lands mid-fetch
+        return []
+    lg = SimpleNamespace(current_week=5, box_scores=fetch)
+    assert espn_season.box_scores(lg, 5) == []
+    assert 5 not in espn_season._BOXES
+    lg2 = SimpleNamespace(current_week=5, box_scores=lambda week: [])
+    espn_season.box_scores(lg2, 5)
+    assert 5 in espn_season._BOXES, "an ordinary fetch is kept"

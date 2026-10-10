@@ -16,6 +16,7 @@ Every GET is read-only.
 """
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 import threading
@@ -66,6 +67,9 @@ class Cache:
         self._d: dict[str, Entry] = {}
         self._lock = threading.Lock()
         self._threads: dict[str, threading.Thread] = {}
+        # bumped by drop_prefixes (a league move): a build that began before it read the rosters from before it,
+        # so it hands its payload to its caller but never installs it
+        self._gen = 0
 
     def get_or_build(self, key: str, fn: Callable[[], object], ttl: float | None = None):
         now = time.time()
@@ -76,13 +80,15 @@ class Cache:
         if hit:
             self._revalidate(key)
             return hit.payload, self._stale(hit)
+        gen = self._gen
         try:
             payload = fn()
         except Exception as e:  # noqa: BLE001 — a first build with nothing to fall back on
             src = "sleeper" if "sleeper" in repr(e).lower() else "espn"
             raise HTTPException(status_code=502, detail={"source": src, "error": str(e)})
         with self._lock:
-            self._d[key] = Entry(now + (ttl or self.ttl), now, payload, fn, ttl or self.ttl)
+            if self._gen == gen:
+                self._d[key] = Entry(now + (ttl or self.ttl), now, payload, fn, ttl or self.ttl)
         return payload, None
 
     @staticmethod
@@ -104,7 +110,7 @@ class Cache:
             hit = self._d.get(key)
         if hit is None:
             return
-        started = time.time()
+        started, gen = time.time(), self._gen
         try:
             payload = hit.fn()
         except Exception as e:  # noqa: BLE001 — any source failure keeps the stale payload
@@ -113,6 +119,8 @@ class Cache:
             return
         now = time.time()
         with self._lock:
+            if self._gen != gen:
+                return  # a league move dropped the pages while this build ran; its read is from before it
             cur = self._d.get(key)
             if cur is not None and cur.built_at > started:
                 return  # something was installed (put) while this build ran; its read is older
@@ -159,6 +167,7 @@ class Cache:
     def drop_prefixes(self, prefixes: tuple[str, ...]) -> list[tuple[str, Callable[[], object], float]]:
         """Forget every key that is a prefix or `prefix:...`; returns (key, builder, ttl) of each, to rebuild."""
         with self._lock:
+            self._gen += 1
             keys = [k for k in self._d if any(k == p or k.startswith(p + ":") for p in prefixes)]
             return [(k, e.fn, e.ttl) for k in keys for e in [self._d.pop(k)]]
 
@@ -184,19 +193,30 @@ def on_new_rows(rows: list[dict]) -> None:
     stale: not expire, which serves the old page once while it rebuilds, so a move notice's link would open the
     page from before the move. Then rebuild them behind and tick /live's moves, so an open page refetches."""
     espn_season.forget_current_boxes()
-    dropped = cache.drop_prefixes(MOVE_KEYS)
-    t = threading.Thread(target=_rewarm, args=(dropped,), daemon=True, name="cache-moves")
-    with cache._lock:
-        cache._threads["moves"] = t  # cache.join() waits for it (tests)
+    _start_rewarm(cache, cache.drop_prefixes(MOVE_KEYS))
+
+
+_REWARMS = itertools.count()
+
+
+def _start_rewarm(c: Cache, dropped: list[tuple[str, Callable[[], object], float]]) -> None:
+    """Rebuild the dropped pages on a thread, then tick /live's moves. Each move gets its own thread, all of them
+    in the cache's thread table so join() waits for every one; a second move's drop stops the first's builds from
+    installing (Cache._gen), and its own rewarm builds them again."""
+    t = threading.Thread(target=_rewarm, args=(c, dropped), daemon=True, name="cache-moves")
+    with c._lock:
+        for k in [k for k, th in c._threads.items() if k.startswith("moves:") and not th.is_alive()]:
+            del c._threads[k]
+        c._threads[f"moves:{next(_REWARMS)}"] = t
     t.start()
 
 
-def _rewarm(dropped: list[tuple[str, Callable[[], object], float]]) -> None:
+def _rewarm(c: Cache, dropped: list[tuple[str, Callable[[], object], float]]) -> None:
     for key, fn, ttl in dropped:
         if key.split(":", 1)[0] in REWARM_SKIP:
             continue
         try:
-            cache.get_or_build(key, fn, ttl)
+            c.get_or_build(key, fn, ttl)
         except HTTPException as e:  # a source down: the page builds inline on its next open instead
             print(f"rebuild of {key} after a move failed: {e.detail}")
     live.STATE.moved()
@@ -687,7 +707,7 @@ def live_stream():
     page refetches its GET on either; Transactions and Players refresh on a move only."""
     def gen():
         seen = (live.STATE.version, live.STATE.moves)
-        yield f"retry: 3000\ndata: {seen[0]}\n\n"
+        yield live.stream_open(seen)
         while True:
             cur = live.STATE.wait_for_tick(seen, timeout=15.0)
             lines = live.stream_lines(seen, cur)

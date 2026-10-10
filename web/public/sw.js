@@ -24,32 +24,43 @@ self.addEventListener("push", (event) => {
 
 // The page a tap asked for, until a page confirms it landed ("opened"). iOS's Home Screen app ignores
 // WindowClient.navigate() and may cold-start at start_url whatever openWindow() was given, so the page navigates
-// itself: every open window is told now, and a page that loads within REPLAY_MS says hello and is told then.
+// itself: every open window is told now, and a page that says hello within REPLAY_MS (on load, or on coming back
+// to the foreground) is told then. The click's waitUntil stays open until then, so the browser does not stop this
+// worker, and `pending` with it, before the page asks.
 const REPLAY_MS = 30_000;
 let pending = null;
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = new URL(event.notification.data?.url || "/", self.location.origin).href;
-  pending = { url, at: Date.now() };
+  const asked = new URL(event.notification.data?.url || "/", self.location.origin);
+  const url = asked.origin === self.location.origin ? asked.href : new URL("/", self.location.origin).href;
+  let landed;
+  const done = new Promise((resolve) => { landed = resolve; });
+  pending = { url, at: Date.now(), landed };
+  setTimeout(landed, REPLAY_MS);
   event.waitUntil(
     (async () => {
       const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      if (wins.length === 0) return self.clients.openWindow(url);
-      for (const w of wins) w.postMessage({ type: "open", url });
-      try {
-        await wins[0].focus();
-      } catch {
-        // focus() needs the click's user activation; the message has been sent either way
+      if (wins.length === 0) await self.clients.openWindow(url);
+      else {
+        for (const w of wins) w.postMessage({ type: "open", url });
+        try {
+          await wins[0].focus();
+        } catch {
+          // focus() needs the click's user activation; the message has been sent either way
+        }
       }
+      await done;
     })(),
   );
 });
 
 self.addEventListener("message", (event) => {
   const type = event.data?.type;
-  if (type === "opened") pending = null;
-  else if (type === "hello" && pending && Date.now() - pending.at < REPLAY_MS) {
+  if (type === "opened" && pending) {
+    pending.landed();
+    pending = null;
+  } else if (type === "hello" && pending && Date.now() - pending.at < REPLAY_MS) {
     event.source?.postMessage({ type: "open", url: pending.url });
   }
 });

@@ -128,6 +128,12 @@ def test_a_move_wakes_the_stream_without_touching_the_points_version():
     assert st.wait_for_tick((1, 1), timeout=0.05) == (1, 1), "timeout returns the current tick"
 
 
+def test_the_stream_opens_with_both_counts():
+    """One opening message (a live page skips exactly one), carrying the moves count, so a page that reconnects
+    after the phone slept can tell a move happened while it was away."""
+    assert live.stream_open((17, 3)) == "retry: 3000\ndata: 17 m3\n\n"
+
+
 def test_stream_lines_name_a_move_apart_from_points():
     assert live.stream_lines((3, 0), (3, 1)) == ["data: m1\n\n"]
     assert live.stream_lines((3, 1), (4, 1)) == ["data: 4\n\n"]

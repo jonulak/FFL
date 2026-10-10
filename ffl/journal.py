@@ -62,7 +62,10 @@ def sync_transactions(lg):
     notify.enqueue_moves(new)
     if new:
         for fn in ON_NEW_ROWS:
-            fn(new)
+            try:
+                fn(new)
+            except Exception as e:  # noqa: BLE001 — the rows are logged; a listener's failure is not the sync's
+                print(f"transactions: listener {getattr(fn, '__name__', fn)} failed: {e}")
     print(f"transactions: +{len(new)}")
     return new
 

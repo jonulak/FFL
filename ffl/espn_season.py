@@ -687,8 +687,12 @@ BOXES_TTL_S = 60
 _BOXES: dict[int, tuple[float, object, list]] = {}  # week -> (expires_at, the League fetched from, box scores)
 
 
+_BOXES_EPOCH = [0]  # bumped by forget_current_boxes: a fetch that began before the bump does not keep its boxes
+
+
 def forget_current_boxes() -> None:
     """Drop the current week's box scores (a league move changed its rosters); finished weeks never change."""
+    _BOXES_EPOCH[0] += 1
     for week in [w for w, hit in list(_BOXES.items()) if hit[0] != math.inf]:  # a builder thread may be adding
         _BOXES.pop(week, None)
 
@@ -707,9 +711,11 @@ def box_scores(lg, week: int) -> list:
     hit = _BOXES.get(week)
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):
         return hit[2]
+    epoch = _BOXES_EPOCH[0]
     boxes = lg.box_scores(week)
     finished = week < getattr(lg, "current_week", week)
-    _BOXES[week] = (math.inf if finished else time.time() + BOXES_TTL_S, lg, boxes)
+    if finished or _BOXES_EPOCH[0] == epoch:  # a move during the fetch: these may be from before it
+        _BOXES[week] = (math.inf if finished else time.time() + BOXES_TTL_S, lg, boxes)
     if week == getattr(lg, "current_week", None):
         # every page's rosters come through here: a rostered man the record never saw taken (or a
         # drop it missed), seen by any page, syncs the transaction log

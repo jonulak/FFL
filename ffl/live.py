@@ -100,6 +100,12 @@ class State:
                     "error": self.error, "players": len(self.points), "week": self.week}
 
 
+def stream_open(cur: tuple[int, int]) -> str:
+    """The /live stream's first message: both counts in one (a live page skips exactly one opening message), so a
+    page that reconnects after the phone slept sees the moves count moved while it was away."""
+    return f"retry: 3000\ndata: {cur[0]} m{cur[1]}\n\n"
+
+
 def stream_lines(seen: tuple[int, int], cur: tuple[int, int]) -> list[str]:
     """The /live events between two (version, moves) ticks: `data: m<n>` for a move (the Transactions and Players
     pages refresh only on these), `data: <version>` for points. Live pages refetch on either."""
