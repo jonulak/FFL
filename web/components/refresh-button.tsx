@@ -1,5 +1,6 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { clientPost } from "@/app/api-client";
@@ -28,10 +29,11 @@ export function RefreshButton() {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
       {err && <span className="max-w-40 truncate text-xs text-destructive">{err}</span>}
-      <Button size="sm" variant="outline" onClick={go} disabled={busy}>
-        {busy ? "Refreshing…" : "Refresh"}
+      <Button size="icon-sm" variant="ghost" onClick={go} disabled={busy} aria-label={busy ? "Refreshing" : "Refresh"}
+              title="Refresh" className="max-sm:size-11">
+        <RefreshCw className={busy ? "animate-spin" : undefined} />
       </Button>
     </div>
   );

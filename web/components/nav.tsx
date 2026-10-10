@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { NavLinks } from "@/components/nav-links";
 import { RefreshButton } from "@/components/refresh-button";
+import { SettingsLink } from "@/components/settings-link";
 
-// The board's top rule: wordmark, a hairline, the page tabs, Refresh pushed to the right edge.
+// The board's top rule: wordmark, a hairline, the page tabs, Refresh and the Settings gear pushed to the right edge.
 // The header is the field at 92% over a blur so the cards slide under it; its bottom rule is
 // ink at 12%, the same hairline the section headings run.
 export function Nav() {
@@ -14,7 +15,7 @@ export function Nav() {
         </Link>
         <span aria-hidden className="my-3.5 w-px shrink-0 bg-foreground/12" />
         <NavLinks />
-        <div className="ml-auto flex shrink-0 items-center pl-2"><RefreshButton /></div>
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-2"><RefreshButton /><SettingsLink /></div>
       </div>
     </header>
   );
