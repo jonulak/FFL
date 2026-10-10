@@ -38,12 +38,19 @@ export function DecisionSettings() {
     <Card>
       <CardHeader><CardTitle>Decisions</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {SWITCHES.map(([k, label, hint]) => (
-          <Label key={k} className="flex items-center justify-between gap-4">
-            <span><span className="font-medium">{label}</span><span className="block text-xs text-muted-foreground">{hint}</span></span>
-            <Switch checked={prefs[k]} onCheckedChange={(v) => save({ [k]: v })} disabled={busy} />
-          </Label>
-        ))}
+        {SWITCHES.map(([k, label, hint]) => {
+          // no page, no logging (the server holds `log` off with it): the switch shows it and stays put
+          const held = k === "log" && !prefs.page;
+          return (
+            <Label key={k} className="flex items-center justify-between gap-4">
+              <span>
+                <span className="font-medium">{label}</span>
+                <span className="block text-xs text-muted-foreground">{held ? "Off while the Decisions page is off" : hint}</span>
+              </span>
+              <Switch checked={prefs[k]} onCheckedChange={(v) => save({ [k]: v })} disabled={busy || held} />
+            </Label>
+          );
+        })}
         {msg && <p role="status" className="text-sm">{msg}</p>}
       </CardContent>
     </Card>

@@ -926,6 +926,14 @@ def test_logging_off_in_settings_records_no_move(lineup_env):
     assert lineup_env.get("/decisions/prefs").json() == {"log": False, "page": True}, "a refused change leaves the switches"
 
 
+def test_turning_the_decisions_page_off_turns_logging_off(lineup_env):
+    assert lineup_env.post("/decisions/prefs", json={"page": False}).json() == {"log": False, "page": False}
+    assert lineup_env.post("/decisions/prefs", json={"log": True}).json() == {"log": False, "page": False}, "no logging without the page"
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 200 and r.json()["decision"] is None and db.decisions() == []
+    assert lineup_env.post("/decisions/prefs", json={"page": True, "log": True}).json() == {"log": True, "page": True}
+
+
 def test_unreadable_decision_prefs_never_fail_a_move(lineup_env, monkeypatch, caplog):
     def broken(key, default=None):
         raise db.sa.exc.OperationalError("select", {}, Exception("disk I/O error"))

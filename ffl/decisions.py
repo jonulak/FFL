@@ -35,12 +35,13 @@ DEFAULT_PREFS = {"log": True, "page": True}
 
 
 def merge_prefs(stored: dict, change: dict) -> dict:
-    """The stored switches with a change laid over; unknown keys are dropped, a non-bool refused (ValueError)."""
+    """The stored switches with a change laid over; unknown keys are dropped, a non-bool refused (ValueError).
+    No page, no logging: the page is where a logged decision's reason and outcome are kept up."""
     merged = {**DEFAULT_PREFS, **{k: v for k, v in {**stored, **change}.items() if k in DEFAULT_PREFS}}
     for k, v in merged.items():
         if not isinstance(v, bool):
             raise ValueError(f"{k} must be true or false, got {v!r}")
-    return merged
+    return {**merged, "log": merged["log"] and merged["page"]}
 
 
 def preset_keys(kind: str) -> set[str]:
