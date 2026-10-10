@@ -8,8 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import type { Notice, NotifyConfig, NotifyPrefs } from "@/lib/api";
-import { isHm, noticeState, pushSupport, readPushEnv, urlBase64ToUint8Array } from "@/lib/notify";
+import type { NotifyConfig, NotifyPrefs } from "@/lib/api";
+import { isHm, pushSupport, readPushEnv, urlBase64ToUint8Array } from "@/lib/notify";
 
 const KINDS = [["move", "League moves", "Adds, drops and trades, batched per sync"],
                ["injury", "My starter hurt", "OUT, Doubtful or IR before his game locks"],
@@ -25,7 +25,7 @@ function swReady(): Promise<ServiceWorkerRegistration> {
   ]);
 }
 
-export function NotifySettings({ config, recent }: { config: NotifyConfig; recent: Notice[] }) {
+export function NotifySettings({ config }: { config: NotifyConfig }) {
   const router = useRouter();
   const [prefs, setPrefs] = useState<NotifyPrefs>(config.prefs);
   // the browser's push capability: null on the server and the first client render, then fixed
@@ -138,22 +138,6 @@ export function NotifySettings({ config, recent }: { config: NotifyConfig; recen
             </Fragment>
           ))}
           <span className="text-muted-foreground">held, then sent together</span>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Recent notices</CardTitle></CardHeader>
-        <CardContent>
-          {recent.length === 0 ? <p className="text-sm text-muted-foreground">None yet.</p> : (
-            <ul className="divide-y divide-foreground/8 text-sm">
-              {recent.map((n) => (
-                <li key={n.key} className="flex items-baseline gap-3 py-1.5">
-                  <span className="min-w-0 flex-1 truncate"><span className="font-medium">{n.title}</span> · {n.body}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{noticeState(n)} · {n.created_at.slice(5, 16).replace("T", " ")}</span>
-                </li>
-              ))}
-            </ul>
-          )}
         </CardContent>
       </Card>
     </div>

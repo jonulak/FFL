@@ -1,5 +1,3 @@
-import type { Notice } from "@/lib/api";
-
 // The VAPID public key arrives base64url; PushManager.subscribe wants the raw bytes.
 export function urlBase64ToUint8Array(s: string): Uint8Array<ArrayBuffer> {
   const b64 = (s + "=".repeat((4 - (s.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
@@ -49,8 +47,3 @@ export function readPushEnv(): PushEnv {
 }
 
 export const isHm = (s: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
-
-export function noticeState(n: Notice): string {
-  if (!n.sent_at) return "held";
-  return { sent: "sent", off: "switched off", expired: "too old" }[n.outcome ?? ""] ?? n.outcome ?? "";
-}

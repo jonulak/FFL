@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isHm, movesStep, noticeState, openRequest, pushSupport, urlBase64ToUint8Array } from "./notify";
+import { isHm, movesStep, openRequest, pushSupport, urlBase64ToUint8Array } from "./notify";
 
 describe("movesStep", () => {
   it("takes the first count it sees as the baseline", () => {
@@ -55,12 +55,3 @@ describe("isHm", () => {
   });
 });
 
-describe("noticeState", () => {
-  const n = { key: "k", kind: "move", title: "t", body: "b", url: "/", created_at: "x", sent_at: null, outcome: null };
-  it("names the state", () => {
-    expect(noticeState(n)).toBe("held");
-    expect(noticeState({ ...n, sent_at: "y", outcome: "sent" })).toBe("sent");
-    expect(noticeState({ ...n, sent_at: "y", outcome: "off" })).toBe("switched off");
-    expect(noticeState({ ...n, sent_at: "y", outcome: "expired" })).toBe("too old");
-  });
-});
