@@ -250,16 +250,20 @@ def check_injuries() -> int:
     return db.add_notices(injury_notices(flags, week, now()))
 
 
-def check_waivers() -> int:
+def check_waivers(synced: bool = True) -> int:
     """Compare ESPN's last waiver run with the one seen before; on a new run, the claims pending at the last tick are
-    won (my WAIVER ADDED rows since the previous run) or lost. Then remember this run and today's pending claims."""
+    won (my WAIVER ADDED rows after the previous run) or lost. Then remember this run and today's pending claims.
+    Nothing is touched when the run is unreadable, or when it is new and the log did not sync this tick (its
+    WAIVER ADDED rows would be missing and every win would read as a loss): the next tick decides."""
     from . import espn_season, espn_write, season
     run, prev = espn_write.last_waiver_run(), db.get_state("waiver_run")
+    if run is None or (run != prev and not synced):
+        return 0
     pending = db.get_state("pending_claims", [])
     lg = espn_season.fresh_league()
     me = espn_season.my_team_id(lg)
     my_adds = {r["player_id"] for r in db.transactions() if r["action"] == "WAIVER ADDED"
-               and (t := season.parse_tx_id(r["id"])) and t[1] == me and (prev is None or r["date"] >= prev[:16])}
+               and (t := season.parse_tx_id(r["id"])) and t[1] == me and (prev is None or r["date"] > prev[:16])}
     names = {c["add"]: lg.player_map.get(c["add"]) for c in pending if isinstance(lg.player_map.get(c["add"]), str)}
     n = db.add_notices(waiver_notices(run, prev, pending, my_adds, names, now()))
     if run:
@@ -274,7 +278,8 @@ def tick() -> dict:
     from . import espn_season, journal
     out: dict = {}
     steps = (("moves", lambda: len(journal.sync_transactions(espn_season.fresh_league()))),
-             ("injuries", check_injuries), ("waivers", check_waivers))
+             ("injuries", check_injuries),
+             ("waivers", lambda: check_waivers(synced=not isinstance(out.get("moves"), dict))))
     for name, fn in steps:
         try:
             out[name] = fn()
