@@ -205,8 +205,8 @@ decisions_table = sa.Table(
     sa.Column("source", sa.String, nullable=False),      # app|session|import
     sa.Column("title", sa.String, nullable=False),
     sa.Column("decision", sa.String, nullable=False, default=""),
-    sa.Column("facts", sa.JSON),
-    sa.Column("rationale", sa.JSON),
+    sa.Column("facts", sa.JSON(none_as_null=True)),
+    sa.Column("rationale", sa.JSON(none_as_null=True)),
     sa.Column("rationale_note", sa.String),
     sa.Column("followed_call", sa.Boolean),
     sa.Column("alternatives", sa.String),
@@ -214,7 +214,7 @@ decisions_table = sa.Table(
     sa.Column("outcome", sa.String),
     sa.Column("outcome_at", sa.String),
     sa.Column("body", sa.String),
-    sa.Column("player_ids", sa.JSON),
+    sa.Column("player_ids", sa.JSON(none_as_null=True)),
     sa.Column("import_key", sa.String),
     sa.UniqueConstraint("season", "import_key", name="uq_decisions_import"),
 )

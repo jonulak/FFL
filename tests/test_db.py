@@ -208,3 +208,12 @@ def test_week_claims_row_updates_in_place_and_keeps_the_rationale():
     row = db.decision(first["id"])
     assert row["decision"].endswith("C; cut B") and row["rationale"] == ["best_ros"] and row["facts"] == {"submits": 2}
     assert db.put_week_claims(7, _row(kind="claims", week=7))["id"] != first["id"]
+
+
+def test_none_in_a_json_column_is_sql_null():
+    i = db.add_decision(_row(rationale=None, facts=None, player_ids=None))
+    with db.engine().connect() as c:
+        assert c.execute(sa.text("SELECT count(*) FROM decisions WHERE rationale IS NULL AND id = :i"), {"i": i}).scalar() == 1
+        assert c.execute(sa.text("SELECT count(*) FROM decisions WHERE facts IS NULL AND player_ids IS NULL AND id = :i"),
+                         {"i": i}).scalar() == 1
+    assert db.decision(i)["rationale"] is None
