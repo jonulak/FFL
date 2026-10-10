@@ -38,6 +38,7 @@ def tree(tmp_path):
         {"player_id": 2, "name": "B", "pos": "RB", "model": 10.0, "l3": None, "weight": 0.0, "games_left": 10}]}))
     (data / "calibration" / "sigma.json").write_text(json.dumps(
         {"sigma": {"QB": 7.0}, "n": {"QB": 30}, "weeks": [1, 2, 3, 4]}))
+    (journal / "DECISIONS.md").write_text("## 2026-09-22 — Week 3 waiver claims: Boston\n- **Decision:** claim Boston\n")
     return journal, data
 
 
@@ -46,6 +47,7 @@ def test_import_every_store_and_counts(tree):
     report = {r["table"]: r for r in db_import.run(journal, data, 2026)}
     assert all(r["in_db"] >= r["source"] > 0 for r in report.values()), report
     assert report["outlooks"]["source"] == 2 and report["plays"]["source"] == 2
+    assert report["decisions"]["source"] == 1 and db.count("decisions", 2026) == 1
     assert db.transactions()[0]["player_id"] == 4688380
     assert db.transactions()[1]["bid"] == 12
     assert db.picks()[0] == {"overall": 1, "round": 1, "pick": 1, "team_id": 6, "team": "henry's Imposing Team",
@@ -125,3 +127,12 @@ def test_main_exit_code_follows_counts(tree, monkeypatch):
     assert db_import.main(journal, data, 2026) == 0
     monkeypatch.setattr(db, "count", lambda table, season=2026: 0)
     assert db_import.main(journal, data, 2026) == 1
+
+
+def test_decisions_import_is_idempotent(tmp_path):
+    from tests.test_decisions import SAMPLE
+    (tmp_path / "DECISIONS.md").write_text(SAMPLE)
+    first = {r["table"]: r for r in db_import.run(tmp_path, tmp_path, 2026)}["decisions"]
+    assert (first["source"], first["new"], first["dupes"]) == (5, 5, 0)
+    again = {r["table"]: r for r in db_import.run(tmp_path, tmp_path, 2026)}["decisions"]
+    assert again["new"] == 0 and db.count("decisions", 2026) == 5

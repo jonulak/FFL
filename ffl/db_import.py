@@ -112,12 +112,19 @@ def _plans(journal: Path, season: int):
     return len(rows), rows
 
 
+def _decisions(journal: Path, season: int):
+    from . import decisions
+    p = journal / "DECISIONS.md"
+    rows = [{"season": season, **r} for r in decisions.parse_journal(p.read_text())] if p.exists() else []
+    return len(rows), rows
+
+
 def run(journal: Path, data: Path, season: int) -> list[dict]:
     report = []
     for table, (source, rows) in [("transactions", _transactions(journal, season)), ("draft_picks", _picks(journal, season)),
                                   ("results", _results(journal, season)), ("plays", _plays(data, season)),
                                   ("outlooks", _outlooks(data, season)), ("sigma_fits", _sigma(data, season)),
-                                  ("claim_plans", _plans(journal, season))]:
+                                  ("claim_plans", _plans(journal, season)), ("decisions", _decisions(journal, season))]:
         # first row per key wins (DO NOTHING keeps it); source counts distinct keys, dupes the rows lost to a shared key
         distinct = {}
         for r in rows:
