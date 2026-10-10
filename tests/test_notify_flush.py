@@ -153,3 +153,18 @@ def test_prefs_reject_non_bool_switches():
     with pytest.raises(ValueError):
         notify.put_prefs({"move": "false"})
     assert notify.prefs() == notify.DEFAULT_PREFS
+
+
+def test_two_moves_by_one_team_collapse_into_one_fragment():
+    unsent = [_n("move:1", body="Bears +Isiah Pacheco"), _n("move:2", body="Lions +Z"), _n("move:3", body="Bears −Jaylen Wright")]
+    (push,), _ = notify.plan(unsent, notify.DEFAULT_PREFS, T)
+    assert push["title"] == "3 league moves" and push["body"] == "Bears +Isiah Pacheco −Jaylen Wright; Lions +Z"
+    assert push["keys"] == ["move:1", "move:2", "move:3"]
+
+
+def test_more_count_is_rows_left_out_not_teams():
+    unsent = [_n(f"move:{i}", body=f"Team{i // 2} {'+' if i % 2 == 0 else '−'}Somebody Longname{i}") for i in range(40)]
+    (push,), _ = notify.plan(unsent, notify.DEFAULT_PREFS, T)
+    assert len(push["body"]) <= 180
+    shown = push["body"].split("… +")[0].count("Somebody")
+    assert push["body"].endswith(f"… +{40 - shown} more")

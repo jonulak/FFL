@@ -85,6 +85,13 @@ def test_waiver_first_sight_or_same_run_or_no_claims_is_silent():
     assert notify.waiver_notices("2026-10-08T03:12:00", "2026-10-01T03:10:00", [], set(), NAMES, AT) == []
 
 
+def test_waiver_claim_still_pending_is_neither_won_nor_lost():
+    run = ("2026-10-08T03:12:00", "2026-10-01T03:10:00")
+    out = notify.waiver_notices(*run, PENDING, {11}, NAMES, AT, still_pending={"b"})
+    assert out[0]["title"] == "Waivers: 1 of 1 claims won" and out[0]["body"] == "Won Ray Davis."
+    assert notify.waiver_notices(*run, PENDING, set(), NAMES, AT, still_pending={"a", "b"}) == []
+
+
 def test_waiver_unknown_name_falls_back_to_the_id():
     out = notify.waiver_notices("r2", "r1", [{"id": "a", "add": 99, "drop": None, "priority": 1}], set(), {}, AT)
     assert out[0]["body"] == "Lost player 99." and out[0]["title"] == "Waivers: 0 of 1 claims won"

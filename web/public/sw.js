@@ -2,6 +2,8 @@
 // and takes it to the notice's page, or opens one.
 
 // Take over the page that registered us: an uncontrolled window cannot be navigate()d from here.
+// A new worker takes over without waiting for every window to close.
+self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener("push", (event) => {
@@ -15,7 +17,7 @@ self.addEventListener("push", (event) => {
   }
   event.waitUntil(
     self.registration.showNotification(d.title || "FFL", {
-      body: d.body || "", tag: d.tag, icon: "/icon-192.png", badge: "/icon-192.png", data: { url: d.url || "/" },
+      body: d.body || "", tag: d.tag, renotify: Boolean(d.tag), icon: "/icon-192.png", badge: "/icon-192.png", data: { url: d.url || "/" },
     }),
   );
 });

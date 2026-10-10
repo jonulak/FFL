@@ -25,8 +25,9 @@ def test_check_injuries_reads_my_roster(monkeypatch, lg):
 def test_check_waivers_seeds_then_reports(monkeypatch, lg):
     runs = iter(["2026-10-01T03:10:00", "2026-10-01T03:10:00", "2026-10-08T03:12:00"])
     monkeypatch.setattr(espn_write, "last_waiver_run", lambda: next(runs))
-    monkeypatch.setattr(espn_write, "pending_claims",
-                        lambda: [{"id": "a", "add": 11, "drop": None, "priority": 1}, {"id": "b", "add": 12, "drop": None, "priority": 2}])
+    both = [{"id": "a", "add": 11, "drop": None, "priority": 1}, {"id": "b", "add": 12, "drop": None, "priority": 2}]
+    snaps = iter([both, both, []])
+    monkeypatch.setattr(espn_write, "pending_claims", lambda: next(snaps))
     assert notify.check_waivers() == 0            # first sight: seeds the run and the snapshot
     assert notify.check_waivers() == 0            # same run
     db.add_transactions([{"id": "1791000000000-7-WAIVER ADDED-11", "date": "2026-10-08T03:12", "type": "WAIVER ADDED",
@@ -89,8 +90,52 @@ def test_new_run_waits_for_the_log_to_sync(monkeypatch, lg):
 def test_a_win_from_the_previous_run_is_not_counted_again(monkeypatch, lg):
     runs = iter(["2026-10-01T03:10:00", "2026-10-08T03:12:00"])
     monkeypatch.setattr(espn_write, "last_waiver_run", lambda: next(runs))
-    monkeypatch.setattr(espn_write, "pending_claims", lambda: _claims(11))
+    snaps = iter([_claims(11), []])
+    monkeypatch.setattr(espn_write, "pending_claims", lambda: next(snaps))
     notify.check_waivers()
     db.add_transactions(_adds((1790000000000, 7, 11, "2026-10-01T03:10")))   # won last run; claimed again, lost now
     assert notify.check_waivers() == 1
     assert [n for n in db.unsent_notices() if n["kind"] == "waivers"][0]["body"] == "Lost Ray Davis."
+
+
+def test_a_run_that_leaves_my_claim_pending_sends_nothing(monkeypatch, lg):
+    runs = iter(["2026-10-01T03:10:00", "2026-10-02T03:10:00"])
+    monkeypatch.setattr(espn_write, "last_waiver_run", lambda: next(runs))
+    monkeypatch.setattr(espn_write, "pending_claims", lambda: _claims(11))
+    notify.check_waivers()
+    assert notify.check_waivers() == 0                       # a run on another day did not process the claim
+    assert [n for n in db.unsent_notices() if n["kind"] == "waivers"] == []
+    assert db.get_state("waiver_run") == "2026-10-02T03:10:00" and db.get_state("pending_claims") == _claims(11)
+
+
+def test_only_the_resolved_claim_is_reported(monkeypatch, lg):
+    runs = iter(["2026-10-01T03:10:00", "2026-10-08T03:12:00"])
+    snaps = iter([_claims(11, 12), _claims(12)])
+    monkeypatch.setattr(espn_write, "last_waiver_run", lambda: next(runs))
+    monkeypatch.setattr(espn_write, "pending_claims", lambda: next(snaps))
+    notify.check_waivers()
+    db.add_transactions(_adds((1791000000000, 7, 11, "2026-10-08T03:12")))
+    assert notify.check_waivers() == 1
+    (w,) = [n for n in db.unsent_notices() if n["kind"] == "waivers"]
+    assert w["title"] == "Waivers: 1 of 1 claims won" and w["body"] == "Won Ray Davis."
+    assert db.get_state("pending_claims") == _claims(12)
+
+
+def test_pending_claims_raising_stores_nothing_and_the_next_tick_reports(monkeypatch, lg):
+    runs = iter(["2026-10-01T03:10:00", "2026-10-08T03:12:00", "2026-10-08T03:12:00"])
+    snaps = iter([_claims(11), espn_write.WriteError(503, "espn down"), _claims(12)])
+
+    def pending():
+        s = next(snaps)
+        if isinstance(s, Exception):
+            raise s
+        return s
+    monkeypatch.setattr(espn_write, "last_waiver_run", lambda: next(runs))
+    monkeypatch.setattr(espn_write, "pending_claims", pending)
+    notify.check_waivers()
+    db.add_transactions(_adds((1791000000000, 7, 11, "2026-10-08T03:12")))
+    with pytest.raises(espn_write.WriteError):
+        notify.check_waivers()
+    assert db.get_state("waiver_run") == "2026-10-01T03:10:00" and db.get_state("pending_claims") == _claims(11)
+    assert notify.check_waivers() == 1
+    assert [n for n in db.unsent_notices() if n["kind"] == "waivers"][0]["body"] == "Won Ray Davis."

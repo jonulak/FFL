@@ -69,10 +69,15 @@ def injury_notices(flags: dict[int, dict], week: int, at: str) -> list[dict]:
 
 
 def waiver_notices(run: str | None, prev_run: str | None, pending: list[dict], my_adds: set[int],
-                   names: dict[int, str], at: str) -> list[dict]:
+                   names: dict[int, str], at: str, still_pending: frozenset[str] | set[str] = frozenset()) -> list[dict]:
     """One notice when ESPN's waiver run moved past the one last seen: the claims pending before it, won (my team added
-    the player) or lost. Silent the first time a run is seen (nothing to compare), and with no claims pending."""
-    if run is None or prev_run is None or run == prev_run or not pending:
+    the player) or lost. A claim whose id is still pending (this league's waivers clear on more than one day) was not
+    processed by that run: neither won nor lost, and not counted. Silent the first time a run is seen (nothing to
+    compare), with no claims pending, and when none of them resolved."""
+    if run is None or prev_run is None or run == prev_run:
+        return []
+    pending = [c for c in pending if c["id"] not in still_pending]
+    if not pending:
         return []
 
     def name(pid: int) -> str:
@@ -115,16 +120,32 @@ def in_quiet(t: datetime, quiet: list[str]) -> bool:
     return start <= hm < end if start < end else hm >= start or hm < end
 
 
-def _join(bodies: list[str]) -> str:
-    """'; '-joined, cut to BODY_MAX with '… +N more' naming what was left out."""
+def _join(bodies: list[str], weights: list[int] | None = None) -> str:
+    """'; '-joined, cut to BODY_MAX with '… +N more' naming what was left out (N counts `weights`, default one each)."""
+    w = weights or [1] * len(bodies)
     for n in range(len(bodies), 0, -1):
-        rest = len(bodies) - n
+        rest = sum(w[n:])
         s = "; ".join(bodies[:n]) + (f"… +{rest} more" if rest else "")
         if len(s) <= BODY_MAX:
             return s
     if len(bodies) == 1:
         return _cap(bodies[0])
-    return bodies[0][:BODY_MAX - 12] + f"… +{len(bodies) - 1} more"
+    return bodies[0][:BODY_MAX - 12] + f"… +{sum(w[1:])} more"
+
+
+_MOVE = re.compile(r"^(.+?) ([+−].+)$")
+
+
+def _by_team(bodies: list[str]) -> tuple[list[str], list[int]]:
+    """'Bears +A' and 'Bears −B' become one 'Bears +A −B' fragment, teams in first-seen order, with each fragment's row
+    count. A body that is not '<team> <+|−><player>' stays a fragment of its own."""
+    frags: dict[str, list[str]] = {}
+    for i, b in enumerate(bodies):
+        m = _MOVE.match(b)
+        team, signed = (m[1], m[2]) if m else (f"\0{i}", b)
+        frags.setdefault(team, []).append(signed)
+    return ([v[0] if k.startswith("\0") else f"{k} {' '.join(v)}" for k, v in frags.items()],
+            [len(v) for v in frags.values()])
 
 
 def _cap(s: str) -> str:
@@ -154,7 +175,7 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
     moves = [n for n in live if n["kind"] == "move"]
     if moves:
         pushes.append({"keys": [n["key"] for n in moves], "title": f"{len(moves)} league move{'s' if len(moves) > 1 else ''}",
-                       "body": _join([n["body"] for n in moves]), "url": "/transactions", "tag": "moves"})
+                       "body": _join(*_by_team([n["body"] for n in moves])), "url": "/transactions", "tag": "moves"})
     trades = [n for n in live if n["kind"] == "trade"]
     if trades:
         pushes.append({"keys": [n["key"] for n in trades], "title": "Trade",
@@ -260,15 +281,15 @@ def check_waivers(synced: bool = True) -> int:
     if run is None or (run != prev and not synced):
         return 0
     pending = db.get_state("pending_claims", [])
+    fresh = espn_write.pending_claims()   # before the notice, and a raise stores nothing: the next tick retries
     lg = espn_season.fresh_league()
     me = espn_season.my_team_id(lg)
     my_adds = {r["player_id"] for r in db.transactions() if r["action"] == "WAIVER ADDED"
                and (t := season.parse_tx_id(r["id"])) and t[1] == me and (prev is None or r["date"] > prev[:16])}
     names = {c["add"]: lg.player_map.get(c["add"]) for c in pending if isinstance(lg.player_map.get(c["add"]), str)}
-    n = db.add_notices(waiver_notices(run, prev, pending, my_adds, names, now()))
-    if run:
-        db.put_state("waiver_run", run)
-    db.put_state("pending_claims", espn_write.pending_claims())
+    n = db.add_notices(waiver_notices(run, prev, pending, my_adds, names, now(), {c["id"] for c in fresh}))
+    db.put_state("waiver_run", run)
+    db.put_state("pending_claims", fresh)
     return n
 
 
