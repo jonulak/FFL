@@ -158,6 +158,39 @@ seats = sa.Table(
     sa.PrimaryKeyConstraint("season", "player_id"),
 )
 
+# Web Push: one row per installed device (the browser's PushSubscription). A 404/410 from the push service deletes it.
+push_subscriptions = sa.Table(
+    "push_subscriptions", metadata,
+    sa.Column("endpoint", sa.String, primary_key=True),
+    sa.Column("keys", sa.JSON, nullable=False),          # {p256dh, auth}
+    sa.Column("ua", sa.String, nullable=False, default=""),
+    sa.Column("created_at", sa.String, nullable=False),
+)
+
+# The notification outbox (ffl/notify.py): every detector inserts if absent on key, so an event is one notice however
+# often it is seen, across restarts. sent_at stays NULL until the flush delivers it or marks it off/expired.
+notices = sa.Table(
+    "notices", metadata, _season(),
+    sa.Column("key", sa.String, nullable=False),         # move:<tx id> / injury:<week>:<pid>:<status> / waivers:<run>
+    sa.Column("kind", sa.String, nullable=False),        # move / trade / injury / waivers
+    sa.Column("title", sa.String, nullable=False),
+    sa.Column("body", sa.String, nullable=False),
+    sa.Column("url", sa.String, nullable=False),
+    sa.Column("created_at", sa.String, nullable=False),
+    sa.Column("sent_at", sa.String),
+    sa.Column("outcome", sa.String),                     # sent / off / expired
+    sa.PrimaryKeyConstraint("season", "key"),
+)
+sa.Index("ix_notices_unsent", notices.c.season, notices.c.sent_at)
+
+# notify's prefs and detector memory (last waiver run, the pending-claims snapshot), one JSON value per key.
+notify_state = sa.Table(
+    "notify_state", metadata, _season(),
+    sa.Column("key", sa.String, nullable=False),
+    sa.Column("value", sa.JSON, nullable=False),
+    sa.PrimaryKeyConstraint("season", "key"),
+)
+
 
 def url() -> str:
     return os.environ.get("FFL_DB_URL") or f"sqlite:///{DATA / 'ffl.db'}"
@@ -456,6 +489,76 @@ def sat_ids(week: int, season: int = SEASON) -> set[int]:
     q = sa.select(sits.c.player_id).where(sits.c.season == season, sits.c.week == week)
     with _read() as c:
         return set(c.execute(q).scalars())
+
+
+def _now() -> str:
+    from datetime import datetime
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def put_subscription(endpoint: str, keys: dict, ua: str = "") -> None:
+    """One device's push subscription; the same endpoint again replaces its keys (browsers rotate them)."""
+    with _write() as c:
+        c.execute(_upsert(push_subscriptions, [{"endpoint": endpoint, "keys": keys, "ua": ua, "created_at": _now()}],
+                          ["endpoint"], ["keys", "ua"]))
+
+
+def drop_subscription(endpoint: str) -> None:
+    with _write() as c:
+        c.execute(sa.delete(push_subscriptions).where(push_subscriptions.c.endpoint == endpoint))
+
+
+def subscriptions() -> list[dict]:
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(sa.select(push_subscriptions))]
+
+
+def add_notices(rows: list[dict], season: int = SEASON) -> int:
+    """Queue the notices not already known (key: season, key). Returns how many were new."""
+    if not rows:
+        return 0
+    vals = [{"season": season, **{k: r[k] for k in ("key", "kind", "title", "body", "url", "created_at")}} for r in rows]
+    with _write() as c:
+        return len(c.execute(_upsert(notices, vals, ["season", "key"], None).returning(notices.c.key)).all())
+
+
+_NOTICE_COLS = ("key", "kind", "title", "body", "url", "created_at", "sent_at", "outcome")
+
+
+def unsent_notices(season: int = SEASON) -> list[dict]:
+    t = notices
+    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(t.c.season == season, t.c.sent_at.is_(None))
+         .order_by(t.c.created_at, t.c.key))
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
+
+
+def mark_notices(keys: list[str], outcome: str, at: str, season: int = SEASON) -> None:
+    if not keys:
+        return
+    with _write() as c:
+        c.execute(sa.update(notices).where(notices.c.season == season, notices.c.key.in_(keys))
+                  .values(sent_at=at, outcome=outcome))
+
+
+def recent_notices(limit: int = 20, season: int = SEASON) -> list[dict]:
+    t = notices
+    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(t.c.season == season)
+         .order_by(t.c.created_at.desc(), t.c.key.desc()).limit(limit))
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
+
+
+def get_state(key: str, default=None, season: int = SEASON):
+    q = sa.select(notify_state.c.value).where(notify_state.c.season == season, notify_state.c.key == key)
+    with _read() as c:
+        v = c.execute(q).scalar()
+    return default if v is None else v
+
+
+def put_state(key: str, value, season: int = SEASON) -> None:
+    with _write() as c:
+        c.execute(_upsert(notify_state, [{"season": season, "key": key, "value": value}], ["season", "key"], ["value"]))
 
 
 _KEYS = {"transactions": ["season", "id"], "draft_picks": ["season", "overall"], "results": ["season", "week"],
