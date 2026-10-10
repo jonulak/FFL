@@ -4,6 +4,14 @@ export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 // component must not hold the page open waiting for it.
 export const API_TIMEOUT_MS = 20_000;
 
+// ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
+export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; quiet: [string, string] };
+export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
+export type Notice = {
+  key: string; kind: string; title: string; body: string; url: string;
+  created_at: string; sent_at: string | null; outcome: string | null;
+};
+
 export class ApiError extends Error {
   constructor(public status: number, public source: string, message: string) {
     super(message);

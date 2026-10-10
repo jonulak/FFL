@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [{ source: "/waivers", destination: "/players", permanent: true }];
   },
+  // the service worker must never be served from a cache, or a fix to it never reaches the phone
+  async headers() {
+    return [{ source: "/sw.js", headers: [
+      { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+      { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+    ] }];
+  },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API}/:path*` }];
   },
