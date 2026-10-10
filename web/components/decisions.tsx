@@ -76,12 +76,16 @@ function Row({ d, presets, onEdit }: { d: Decision; presets: Presets; onEdit: ()
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="space-y-3 px-3 pb-3 text-sm sm:px-4">
-            {d.decision && <p className="whitespace-pre-line">{d.decision}</p>}
-            {moves.length > 0 && <ul className="space-y-0.5">{moves.map((m) => <MoveLine key={m.player_id} m={m} />)}</ul>}
-            {d.facts?.uncertain === true && <p className="text-close-foreground dark:text-close">ESPN did not answer; check the move happened</p>}
-            {d.alternatives && <Labelled label="Alternatives">{d.alternatives}</Labelled>}
-            {d.exit_conditions && <Labelled label="Exit conditions">{d.exit_conditions}</Labelled>}
-            {d.body && <Markdown text={d.body} />}
+            {/* an imported entry's body is the whole markdown entry, its decision and alternatives included: shown alone */}
+            {d.body ? <Markdown text={d.body} /> : (
+              <>
+                {d.decision && <p className="whitespace-pre-line">{d.decision}</p>}
+                {moves.length > 0 && <ul className="space-y-0.5">{moves.map((m) => <MoveLine key={m.player_id} m={m} />)}</ul>}
+                {d.facts?.uncertain === true && <p className="text-close-foreground dark:text-close">ESPN did not answer; check the move happened</p>}
+                {d.alternatives && <Labelled label="Alternatives">{d.alternatives}</Labelled>}
+                {d.exit_conditions && <Labelled label="Exit conditions">{d.exit_conditions}</Labelled>}
+              </>
+            )}
             <Button variant="outline" size="sm" onClick={onEdit}>Edit</Button>
           </div>
         </CollapsibleContent>

@@ -210,6 +210,19 @@ def test_week_claims_row_updates_in_place_and_keeps_the_rationale():
     assert db.put_week_claims(7, _row(kind="claims", week=7))["id"] != first["id"]
 
 
+def test_week_claims_row_is_per_plan_generation():
+    # after Wednesday's run the week's plan is retired and a new one starts (same ESPN week): its claims are a new decision
+    ran = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", facts={"submits": 1, "gen": 0}))
+    db.update_decision(ran["id"], {"rationale": ["best_ros"], "outcome": "won A"})
+    fresh = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", decision="(1) get 1 of 1: C; cut B",
+                                       facts={"submits": 1, "gen": 1}))
+    assert fresh["id"] != ran["id"] and fresh["needs_rationale"] is True
+    assert db.decision(ran["id"])["outcome"] == "won A" and db.decision(ran["id"])["facts"]["gen"] == 0
+    again = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", facts={"submits": 2, "gen": 1}))
+    assert again == {"id": fresh["id"], "needs_rationale": True}
+    assert len([r for r in db.decisions() if r["kind"] == "claims"]) == 2
+
+
 def test_none_in_a_json_column_is_sql_null():
     i = db.add_decision(_row(rationale=None, facts=None, player_ids=None))
     with db.engine().connect() as c:

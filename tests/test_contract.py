@@ -6,6 +6,7 @@ mirrors a type in `web/lib/api.ts` — Player, Side, LineupEntry, Swap, WaiverRo
 and the two must change together. No network: the standings row is built from a fake league object.
 """
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -255,3 +256,26 @@ def test_claims_keys(monkeypatch):
     monkeypatch.setattr(api, "_roster_size", lambda: 17)
     api.cache.clear()
     assert set(TestClient(api.app).get("/claims").json()) == CLAIMS
+
+
+# web/lib/api.ts: type Decision / type Decisions (GET /decisions; POST /decisions/{id} answers one Decision)
+DECISION = {"id", "at", "week", "kind", "source", "title", "decision", "facts", "rationale", "rationale_note",
+            "followed_call", "alternatives", "exit_conditions", "outcome", "outcome_at", "body", "player_ids"}
+DECISIONS = {"decisions", "weeks"}
+
+
+def test_decision_keys():
+    from fastapi.testclient import TestClient
+
+    from ffl import api, db
+
+    i = db.add_decision({"at": "2026-10-10T12:00:00-04:00", "week": 6, "kind": "lineup", "source": "app",
+                         "title": "Week 6 lineup: A to FLEX", "decision": "A (WR) BE → FLEX", "rationale": None})
+    client = TestClient(api.app)
+    body = client.get("/decisions").json()
+    assert set(body) == DECISIONS and set(body["decisions"][0]) == DECISION
+    assert set(client.post(f"/decisions/{i}", json={"outcome": "won"}).json()) == DECISION
+    # the TypeScript type, read from the file, so the set above cannot drift from it either
+    ts = (Path(__file__).parent.parent / "web" / "lib" / "api.ts").read_text()
+    block = ts[ts.index("export type Decision = {"):]
+    assert set(re.findall(r"(\w+):", block[:block.index("};")])) == DECISION

@@ -19,11 +19,25 @@ export function formError(key: string | null, note: string, outcome?: string | n
   return null;
 }
 
+// Whether the form's reason differs from the one stored, compared as the server stores it (first key, trimmed note).
+// An unchanged reason is not sent, so a stored one today's rule would refuse (an imported Other with no note) still
+// takes an outcome.
+export function changedReason(initial: Partial<Pick<Decision, "rationale" | "rationale_note">>, key: string | null, note: string): boolean {
+  return key !== (initial.rationale?.[0] ?? null) || note.trim() !== (initial.rationale_note ?? "").trim();
+}
+
 // What a move's answer asks of the page: the dialog for a reason, a toast for one recorded as the call, or nothing
 // (a dev API, or a record the DB refused: the move stands either way).
 export function askFor(ref: DecisionRef | null | undefined): "dialog" | "toast" | null {
   if (!ref) return null;
   return ref.needs_rationale ? "dialog" : "toast";
+}
+
+// Which of a claims submit's rows the one reason form writes: the first that still needs a reason is the form's own
+// row, and only the others that need one get the copy, so a resubmit never overwrites a reason already given.
+export function claimsWhyTargets(refs: DecisionRef[]): { first: DecisionRef; rest: DecisionRef[] } | null {
+  const [first, ...rest] = refs.filter((r) => r.needs_rationale);
+  return first ? { first, rest } : null;
 }
 
 // What the claims form says once the reason is saved: the claims row's own save stands, and a free-add row whose

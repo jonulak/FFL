@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { Decision, Presets } from "@/lib/api";
-import { formError } from "@/lib/decisions";
+import { changedReason, formError } from "@/lib/decisions";
 import { PHONE_ACTION } from "./claims-submit";
 
 // The reasons offered per kind, asked once per page load and shared by every form on it.
@@ -44,12 +44,15 @@ export function RationaleForm({ decision, presets, withOutcome = false, onSaved,
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
-    const bad = formError(key, note, withOutcome ? outcome : undefined);
+    // only a changed reason is checked and sent: an outcome-only Edit of a stored reason saves as it stands
+    const changed = changedReason(decision, key, note);
+    const bad = changed || key == null ? formError(key, note, withOutcome ? outcome : undefined) : null;
     if (bad) return setError(bad);
     setSaving(true);
     setError(null);
     try {
-      onSaved(await clientPost<Decision>(`/decisions/${decision.id}`, { rationale: key ? [key] : null, note, ...(withOutcome ? { outcome } : {}) }));
+      onSaved(await clientPost<Decision>(`/decisions/${decision.id}`, {
+        ...(changed ? { rationale: key ? [key] : null, note } : {}), ...(withOutcome ? { outcome } : {}) }));
     } catch (e) {
       setError(e instanceof ClientError ? e.message : "Could not save");
       setSaving(false);

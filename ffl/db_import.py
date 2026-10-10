@@ -9,7 +9,7 @@ from __future__ import annotations
 import csv
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from . import db
@@ -112,10 +112,14 @@ def _plans(journal: Path, season: int):
     return len(rows), rows
 
 
-def _decisions(journal: Path, season: int):
-    from . import decisions
+def _decisions(journal: Path, data: Path, season: int):
+    from . import decisions, season as season_mod
     p = journal / "DECISIONS.md"
-    rows = [{"season": season, **r} for r in decisions.parse_journal(p.read_text())] if p.exists() else []
+    # an in-season entry with no "Week N" in its title takes its date's week; with no week1_start it stays weekless
+    s = data / "settings.json"
+    w1 = json.loads(s.read_text()).get("week1_start") if s.exists() else None
+    week_of = (lambda day: season_mod.week_of(date.fromisoformat(day), date.fromisoformat(w1))) if w1 else None
+    rows = [{"season": season, **r} for r in decisions.parse_journal(p.read_text(), week_of)] if p.exists() else []
     return len(rows), rows
 
 
@@ -124,7 +128,7 @@ def run(journal: Path, data: Path, season: int) -> list[dict]:
     for table, (source, rows) in [("transactions", _transactions(journal, season)), ("draft_picks", _picks(journal, season)),
                                   ("results", _results(journal, season)), ("plays", _plays(data, season)),
                                   ("outlooks", _outlooks(data, season)), ("sigma_fits", _sigma(data, season)),
-                                  ("claim_plans", _plans(journal, season)), ("decisions", _decisions(journal, season))]:
+                                  ("claim_plans", _plans(journal, season)), ("decisions", _decisions(journal, data, season))]:
         # first row per key wins (DO NOTHING keeps it); source counts distinct keys, dupes the rows lost to a shared key
         distinct = {}
         for r in rows:

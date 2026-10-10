@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askFor, byWeek, formError, needsRationale, reasonText, savedNote } from "./decisions";
+import { askFor, byWeek, changedReason, claimsWhyTargets, formError, needsRationale, reasonText, savedNote } from "./decisions";
 import type { Decision } from "./api";
 
 const P = { lineup: [{ key: "followed_call", label: "Followed the call" }, { key: "matchup", label: "Matchup" }, { key: "other", label: "Other" }] };
@@ -25,11 +25,29 @@ describe("decisions", () => {
     expect(formError(null, "", "it worked")).toBeNull();
     expect(formError("matchup", "", "")).toBeNull();
   });
+  it("tells a changed reason from the one stored", () => {
+    const other = { rationale: ["other"], rationale_note: null };
+    expect(changedReason(other, "other", "")).toBe(false);
+    expect(changedReason(other, "other", "  ")).toBe(false);
+    expect(changedReason(other, "other", "gut")).toBe(true);
+    expect(changedReason(other, "matchup", "")).toBe(true);
+    expect(changedReason({ rationale: ["matchup"], rationale_note: "DAL" }, "matchup", "DAL ")).toBe(false);
+    expect(changedReason({ rationale: null, rationale_note: null }, null, "")).toBe(false);
+    expect(changedReason({ rationale: null, rationale_note: null }, "matchup", "")).toBe(true);
+    expect(changedReason({}, "matchup", "")).toBe(true);
+  });
   it("asks for a reason only when the move was not the call", () => {
     expect(askFor({ id: 1, needs_rationale: true })).toBe("dialog");
     expect(askFor({ id: 1, needs_rationale: false })).toBe("toast");
     expect(askFor(null)).toBeNull();
     expect(askFor(undefined)).toBeNull();
+  });
+  it("asks the claims reason only of the rows that still need one", () => {
+    const r = (id: number, needs_rationale: boolean) => ({ id, needs_rationale });
+    expect(claimsWhyTargets([r(1, true), r(2, true), r(3, false)])).toEqual({ first: r(1, true), rest: [r(2, true)] });
+    expect(claimsWhyTargets([r(1, false), r(2, true), r(3, true)])).toEqual({ first: r(2, true), rest: [r(3, true)] });
+    expect(claimsWhyTargets([r(1, false)])).toBeNull();
+    expect(claimsWhyTargets([])).toBeNull();
   });
   it("says when a free-add copy of the reason failed", () => {
     expect(savedNote(0)).toBe("Saved");

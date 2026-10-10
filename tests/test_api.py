@@ -528,6 +528,21 @@ def test_waiver_run_retires_the_submitted_plan(claims_env, monkeypatch):
     assert claims_env.get("/claims").json()["groups"][0]["targets"] == [102], "a plan saved after the run stays"
 
 
+def test_a_plan_after_the_waiver_run_is_a_new_claims_decision(claims_env, monkeypatch):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: True)
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    ran = claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"][0]
+    db.update_decision(ran["id"], {"rationale": ["best_ros"]})
+    api.espn_write._FAKE.clear()                               # the run processed the claims
+    monkeypatch.setattr(api.espn_write, "_FAKE_LAST_RUN", "2999-01-01T00:00:00")
+    claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [2], "open": 0}]})
+    fresh = claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"]
+    assert fresh[0]["id"] != ran["id"] and fresh[0]["needs_rationale"] is True
+    rows = {r["id"]: r for r in db.decisions()}
+    assert "Addison" in rows[ran["id"]]["decision"] and rows[ran["id"]]["rationale"] == ["best_ros"]
+    assert "Mims" in rows[fresh[0]["id"]]["decision"] and rows[fresh[0]["id"]]["facts"]["gen"] == 1
+
+
 def test_submit_free_agent_is_instant(claims_env):
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"          # Mims cleared waivers
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
@@ -1267,6 +1282,16 @@ def test_edit_refuses_a_reason_from_another_kind_or_an_empty_other(client):
     assert r.status_code == 422 and "not a lineup reason" in r.json()["detail"]["error"]
     assert client.post(f"/decisions/{i}", json={"rationale": ["other"], "note": " "}).status_code == 422
     assert client.post("/decisions/9999", json={"outcome": "x"}).status_code == 404
+
+
+def test_an_unchanged_reason_is_not_revalidated(client):
+    # imported rows can hold Other with no note: the form sends the reason back unchanged with an outcome
+    i = _dec(source="import", rationale=["other"], rationale_note=None)
+    r = client.post(f"/decisions/{i}", json={"rationale": ["other"], "note": None, "outcome": "x"})
+    assert r.status_code == 200 and r.json()["outcome"] == "x" and r.json()["rationale"] == ["other"]
+    assert r.json()["rationale_note"] is None
+    j = _dec(rationale=["matchup"])
+    assert client.post(f"/decisions/{j}", json={"rationale": ["other"], "note": " "}).status_code == 422, "a changed one is"
 
 
 def test_player_transactions_carry_his_decisions(client, monkeypatch):

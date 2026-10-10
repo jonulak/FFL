@@ -147,8 +147,9 @@ def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True):
     return errs
 
 
-def decision_row(groups, names, status, week, submits):
-    """The week's claims row in the decisions table (db.put_week_claims keeps one per week, updated by each submit)."""
+def decision_row(groups, names, status, week, submits, gen=0):
+    """The plan's claims row in the decisions table (db.put_week_claims keeps one per week and plan generation `gen`,
+    the count of plans the waiver run retired this week, updated by each submit)."""
     def nm(i):
         return names.get(i, str(i)) + (" (FA, added now)" if status.get(i) == FREE else "")
 
@@ -162,7 +163,7 @@ def decision_row(groups, names, status, week, submits):
     ids = list(dict.fromkeys(p for g in groups for p in g["targets"] + g["cuts"]))
     return {"at": decisions.now_iso(), "week": week, "kind": "claims", "source": "app",
             "title": f"Week {week} waiver claims", "decision": "; ".join(parts),
-            "facts": {"groups": groups, "submits": submits}, "rationale": None, "player_ids": ids}
+            "facts": {"groups": groups, "submits": submits, "gen": gen}, "rationale": None, "player_ids": ids}
 
 
 def free_add_rows(now, names, week):

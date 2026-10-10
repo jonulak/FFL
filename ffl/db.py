@@ -592,7 +592,8 @@ def put_state(key: str, value, season: int = SEASON) -> None:
 
 
 def _decision_out(r) -> dict:
-    return dict(r._mapping)
+    # season is implied by the read and import_key is the import's own dedupe key: neither is part of a decision
+    return {k: v for k, v in r._mapping.items() if k not in ("season", "import_key")}
 
 
 def add_decision(row: dict, season: int = SEASON) -> int:
@@ -601,12 +602,16 @@ def add_decision(row: dict, season: int = SEASON) -> int:
 
 
 def put_week_claims(week: int, row: dict, season: int = SEASON) -> dict:
-    """The week's app claims row: a resubmit replaces what was sent, keeping the rationale and outcome given since."""
+    """The app claims row of the week's plan generation (facts.gen, the plans the waiver run retired before it): a
+    resubmit replaces what was sent, keeping the rationale and outcome given since. A plan started after Wednesday's
+    run is the same ESPN week but a new decision, so it gets its own row and never inherits the run's reason."""
     t = decisions_table
     keep = {"rationale", "rationale_note", "outcome", "outcome_at"}
+    gen = (row.get("facts") or {}).get("gen", 0)
     with _write() as c:
-        old = c.execute(sa.select(t.c.id, t.c.rationale).where(t.c.season == season, t.c.week == week, t.c.kind == "claims",
-                                                                t.c.source == "app")).first()
+        rows = c.execute(sa.select(t.c.id, t.c.rationale, t.c.facts).where(
+            t.c.season == season, t.c.week == week, t.c.kind == "claims", t.c.source == "app")).all()
+        old = next((r for r in rows if (r.facts or {}).get("gen", 0) == gen), None)
         if old is None:
             i = c.execute(sa.insert(t).values({**row, "season": season, "week": week}).returning(t.c.id)).scalar()
             return {"id": i, "needs_rationale": row.get("rationale") is None}

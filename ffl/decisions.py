@@ -26,6 +26,7 @@ _TRADE = [("need", "Positional need"), ("sell_high", "Sell high"), ("buy_low", "
 PRESETS = {"lineup": _LINEUP, "sit": _LINEUP, "unsit": _LINEUP, "claims": _ROSTER, "free_add": _ROSTER, "trade": _TRADE,
            "draft": [("other", "Other")], "note": [("other", "Other")]}
 
+DRAFT_DAY = "2026-09-07"  # entries on or before it are the draft era, which has no fantasy week
 _BENCH = {"BE", "IR"}  # season.BENCH_SLOTS; kept here so this module imports nothing
 
 
@@ -60,7 +61,7 @@ def _kind(day: str, title: str) -> str:
     if title == _APP_CLAIMS:
         return "claims"
     t = title.lower()
-    if day <= "2026-09-07":
+    if day <= DRAFT_DAY:
         return "draft"
     if "waiver claims" in t:
         return "claims"
@@ -71,8 +72,10 @@ def _kind(day: str, title: str) -> str:
     return "note"
 
 
-def parse_journal(text: str) -> list[dict]:
-    """journal/DECISIONS.md's entries as decisions rows (the one-time import; db_import inserts them if absent)."""
+def parse_journal(text: str, week_of=None) -> list[dict]:
+    """journal/DECISIONS.md's entries as decisions rows (the one-time import; db_import inserts them if absent).
+    `week_of(day)` gives an in-season entry the fantasy week of its date when its title names none (db_import passes
+    one off settings' week1_start); without it, or for a draft-era entry, only a title's "Week N" sets the week."""
     entries, cur = [], None
     for line in text.splitlines():
         if line.startswith("## "):
@@ -104,8 +107,11 @@ def parse_journal(text: str) -> list[dict]:
         if reasoning == "(add by hand)":
             reasoning = None
         seen[e["head"]] = seen.get(e["head"], 0) + 1
-        week = re.search(r"Week (\d+)", e["title"])
-        rows.append({"at": e["day"], "week": int(week[1]) if week else None, "kind": _kind(e["day"], e["title"]),
+        if week := re.search(r"Week (\d+)", e["title"]):
+            week = int(week[1])
+        elif week_of is not None and e["day"] > DRAFT_DAY:
+            week = week_of(e["day"])
+        rows.append({"at": e["day"], "week": week, "kind": _kind(e["day"], e["title"]),
                      "source": "import", "title": e["title"], "decision": f.get("decision") or "",
                      "rationale": None if app else ["other"], "rationale_note": None if app else reasoning,
                      "facts": {"calls": reasoning} if app and reasoning else None,
@@ -199,9 +205,11 @@ def main(argv: list[str]) -> int:
         if row is None:
             return fail(f"no decision {args.id}")
         keys = args.keys.split(",")
-        if err := validate_rationale(row["kind"], keys, args.note):
+        # no --note keeps the note already there (and Other is checked against it)
+        note = row["rationale_note"] if args.note is None else args.note
+        if err := validate_rationale(row["kind"], keys, note):
             return fail(err)
-        db.update_decision(args.id, {"rationale": keys, "rationale_note": args.note})
+        db.update_decision(args.id, {"rationale": keys} | ({} if args.note is None else {"rationale_note": args.note}))
         return 0
     rows = db.decisions()
     if args.cmd == "show":

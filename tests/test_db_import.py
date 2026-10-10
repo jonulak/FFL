@@ -136,3 +136,10 @@ def test_decisions_import_is_idempotent(tmp_path):
     assert (first["source"], first["new"], first["dupes"]) == (5, 5, 0)
     again = {r["table"]: r for r in db_import.run(tmp_path, tmp_path, 2026)}["decisions"]
     assert again["new"] == 0 and db.count("decisions", 2026) == 5
+
+
+def test_decisions_import_dates_in_season_entries_with_settings_week1(tmp_path):
+    (tmp_path / "DECISIONS.md").write_text("## 2026-10-02 — Drop Waller, add Mayer\n- **Decision:** add Mayer\n")
+    (tmp_path / "settings.json").write_text(json.dumps({"week1_start": "2026-09-08"}))
+    db_import.run(tmp_path, tmp_path, 2026)
+    assert [r["week"] for r in db.decisions(2026)] == [4]

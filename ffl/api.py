@@ -447,7 +447,7 @@ def claims_submit(body: SubmitIn):
             if res["sent"]:
                 try:
                     refs.append(db.put_week_claims(data["week"], _mark_fake(claims_mod.decision_row(
-                        submitted, names, status, data["week"], len(plan["submits"])))))
+                        submitted, names, status, data["week"], len(plan["submits"]), len(plan.get("retired", []))))))
                 except db.DBError as e:
                     log.warning("claims not recorded: %s", e)
             refs += [r for r in map(_record, map(_mark_fake, claims_mod.free_add_rows(res["now"], names, data["week"]))) if r]
@@ -837,9 +837,13 @@ def decision_edit(decision_id: int, body: DecisionEdit):
     if "rationale" in sent or "note" in sent:
         keys = body.rationale if "rationale" in sent else row["rationale"]
         note = body.note if "note" in sent else row["rationale_note"]
-        if err := decisions_mod.validate_rationale(row["kind"], keys, note):
-            raise HTTPException(422, {"error": err})
-        fields |= {"rationale": keys or None, "rationale_note": (note or "").strip() or None}
+        reason = {"rationale": keys or None, "rationale_note": (note or "").strip() or None}
+        # the form sends the reason back with an outcome; one already stored stands as it is (imported rows hold
+        # Other with no note, which today's rule refuses), so only a changed reason is checked and written
+        if reason != {k: row[k] for k in reason}:
+            if err := decisions_mod.validate_rationale(row["kind"], keys, note):
+                raise HTTPException(422, {"error": err})
+            fields |= reason
     if "outcome" in sent:
         text = (body.outcome or "").strip() or None
         fields |= {"outcome": text, "outcome_at": decisions_mod.now_iso() if text else None}

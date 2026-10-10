@@ -108,6 +108,15 @@ def test_singular_exit_condition_label_lands_in_exit_conditions():
     assert row["exit_conditions"] == "drop him after two quiet games"
 
 
+def test_an_in_season_entry_without_week_in_its_title_takes_its_dates_week():
+    text = ("## 2026-09-06 — Pre-draft strategy set\n- **Decision:** RB/WR first\n\n"
+            "## 2026-10-02 — Drop Waller, add Mayer\n- **Decision:** add Mayer\n\n"
+            "## 2026-10-08 — Week 5 sit: David Montgomery\n- **Decision:** sat\n")
+    week = {"2026-10-02": 4}.__getitem__  # the only in-season date without a title week
+    assert [r["week"] for r in D.parse_journal(text, week)] == [None, 4, 5], "draft-era stays weekless; a title's week stands"
+    assert [r["week"] for r in D.parse_journal(text)] == [None, None, 5], "no week function, no derived week"
+
+
 def test_validate_rationale():
     assert D.validate_rationale("lineup", ["matchup"], None) is None
     assert D.validate_rationale("lineup", None, None) is None
@@ -127,6 +136,9 @@ def test_cli_add_rationale_outcome_list_export(capsys):
     assert db.decision(row["id"])["outcome"] == "8.4 in his first start" and db.decision(row["id"])["outcome_at"]
     assert D.main(["rationale", str(row["id"]), "other", "--note", "Jonathan's read"]) == 0
     assert db.decision(row["id"])["rationale_note"] == "Jonathan's read"
+    assert D.main(["rationale", str(row["id"]), "injury_fill,other"]) == 0, "Other keeps the note it has"
+    assert db.decision(row["id"])["rationale"] == ["injury_fill", "other"]
+    assert db.decision(row["id"])["rationale_note"] == "Jonathan's read", "no --note leaves the note as it was"
     capsys.readouterr()
     assert D.main(["list", "--open"]) == 0 and "Week 6 add: Tucker" not in capsys.readouterr().out
     assert D.main(["export"]) == 0
