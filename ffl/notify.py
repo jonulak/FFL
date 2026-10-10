@@ -238,6 +238,56 @@ def send_test(send=None) -> dict:
     return {"devices": len(subs) - len(dead), "accepted": ok}
 
 
+# --- I/O: the tick (POST /notify/tick, every 15 min from launchd/com.jonulak.ffl-notify) ---
+
+def check_injuries() -> int:
+    """My starters off one fresh mRoster read; queues the ones OUT/Doubtful/IR before their lock."""
+    from . import espn_season
+    lg = espn_season.fresh_league()
+    doc = espn_season.raw_league_get("mRoster")
+    flags = espn_season.parse_roster_flags(doc, espn_season.my_team_id(lg))
+    week = int(doc.get("scoringPeriodId") or lg.current_week)
+    return db.add_notices(injury_notices(flags, week, now()))
+
+
+def check_waivers() -> int:
+    """Compare ESPN's last waiver run with the one seen before; on a new run, the claims pending at the last tick are
+    won (my WAIVER ADDED rows since the previous run) or lost. Then remember this run and today's pending claims."""
+    from . import espn_season, espn_write, season
+    run, prev = espn_write.last_waiver_run(), db.get_state("waiver_run")
+    pending = db.get_state("pending_claims", [])
+    lg = espn_season.fresh_league()
+    me = espn_season.my_team_id(lg)
+    my_adds = {r["player_id"] for r in db.transactions() if r["action"] == "WAIVER ADDED"
+               and (t := season.parse_tx_id(r["id"])) and t[1] == me and (prev is None or r["date"] >= prev[:16])}
+    names = {c["add"]: lg.player_map.get(c["add"]) for c in pending if isinstance(lg.player_map.get(c["add"]), str)}
+    n = db.add_notices(waiver_notices(run, prev, pending, my_adds, names, now()))
+    if run:
+        db.put_state("waiver_run", run)
+    db.put_state("pending_claims", espn_write.pending_claims())
+    return n
+
+
+def tick() -> dict:
+    """Sync the log (moves queue themselves), check injuries and waivers, flush. A step that fails is reported and
+    the rest still run: an ESPN outage must not hold back notices already queued."""
+    from . import espn_season, journal
+    out: dict = {}
+    steps = (("moves", lambda: len(journal.sync_transactions(espn_season.fresh_league()))),
+             ("injuries", check_injuries), ("waivers", check_waivers))
+    for name, fn in steps:
+        try:
+            out[name] = fn()
+        except Exception as e:  # noqa: BLE001 — reported in the response, which is the launchd log line
+            log.warning("notify: %s failed: %s", name, e)
+            out[name] = {"error": str(e)}
+    try:
+        out["flush"] = flush()
+    except db.DBError as e:
+        out["flush"] = {"error": str(e)}
+    return out
+
+
 def vapid_keys() -> tuple[str, str]:
     """A fresh P-256 pair as Web Push wants them: (public, private), both base64url without padding."""
     import base64

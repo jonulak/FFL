@@ -10,6 +10,8 @@ the week's outlooks to the DB, POST /waivers/outlook/{id} writes one free agent'
 POST /claims saves the week's claim plan to the DB (never touches ESPN), and POST /claims/submit is
 the one route that writes to ESPN (instant free-agent adds + waiver claims, through ffl/espn_write.py) and journals it;
 POST /lineup writes to ESPN too (moves players between lineup slots, one transaction) and journals it.
+POST /notify/subscribe, /notify/unsubscribe and /notify/prefs write the DB's notify tables; POST /notify/tick syncs
+the log and sends push notifications; POST /notify/test sends one.
 Every GET is read-only.
 """
 from __future__ import annotations
@@ -29,7 +31,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from . import calibrate, cbs, db, espn_season, espn_write, live, outlook, player_card, season
+from . import calibrate, cbs, db, espn_season, espn_write, live, notify, outlook, player_card, season
 from . import claims as claims_mod
 from . import db
 from . import plays as plays_mod
@@ -839,6 +841,74 @@ def transactions_sync():
     if new:
         cache.expire("transactions")
     return {"new": len(new)}
+
+
+# --- push notifications (ffl/notify.py): the 15-minute tick, the device subscriptions, the Settings page ---
+
+_NOTIFY = threading.Lock()  # one tick at a time: two would read the same unsent notices and push them twice
+
+
+class SubscriptionIn(BaseModel):
+    endpoint: str
+    keys: dict[str, str]
+    ua: str = ""
+
+
+class EndpointIn(BaseModel):
+    endpoint: str
+
+
+@app.get("/notify/config")
+def notify_config():
+    return {"public_key": os.environ.get("VAPID_PUBLIC_KEY"), "enabled": notify.sender() is not None,
+            "prefs": notify.prefs(), "devices": len(db.subscriptions())}
+
+
+@app.post("/notify/subscribe")
+def notify_subscribe(body: SubscriptionIn):
+    db.put_subscription(body.endpoint, body.keys, body.ua)
+    return {"ok": True}
+
+
+@app.post("/notify/unsubscribe")
+def notify_unsubscribe(body: EndpointIn):
+    db.drop_subscription(body.endpoint)
+    return {"ok": True}
+
+
+@app.post("/notify/prefs")
+def notify_prefs(body: dict):
+    try:
+        return notify.put_prefs(body)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/notify/test")
+def notify_test():
+    out = notify.send_test()
+    if out.get("disabled"):
+        raise HTTPException(status_code=503, detail="notifications are off on this API (FFL_NOTIFY=0 or no VAPID key)")
+    return out
+
+
+@app.get("/notify/recent")
+def notify_recent():
+    return {"notices": db.recent_notices()}
+
+
+@app.post("/notify/tick")
+def notify_tick():
+    """launchd/com.jonulak.ffl-notify every 15 minutes: sync, detect, flush (notify.tick)."""
+    if not _NOTIFY.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="a notify tick is already running")
+    try:
+        out = notify.tick()
+    finally:
+        _NOTIFY.release()
+    if isinstance(out.get("moves"), int) and out["moves"]:
+        cache.expire("transactions")
+    return out
 
 
 @app.post("/refresh")

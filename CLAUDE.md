@@ -35,6 +35,8 @@ uv run python -m ffl.pace              # in-season: who is beating his projectio
 uv run python -m ffl.props score       # props trial (weeks 4-6): ESPN+Sleeper vs +props MAE and the verdict (launchd pulls Thu/Sun)
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
 curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (launchd does this hourly)
+curl -X POST 127.0.0.1:8300/notify/tick   # sync + injury/waiver checks + push flush (launchd every 15 min)
+uv run python -m ffl.notify keys       # one-time: VAPID keys for .env
 curl 127.0.0.1:8300/live/status        # the live-scoring feed: connected?, version, players scored (FFL_LIVE=0 keeps a dev API off it)
 cd web && pnpm dev                     # season UI on :3301 against the API above
 scripts/deploy.sh                      # rebuild + restart the launchd agents (post-merge hook runs it)
@@ -44,6 +46,7 @@ Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + dra
 
 ## Config
 `.env` (gitignored): `LEAGUE_ID`, `ESPN_S2`, `SWID`, `SEASON`, optional `MY_TEAM_ID` (auto-detected from SWID).
+Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing.
 Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
 real board and pick log untouched.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
@@ -147,6 +150,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - A fantasy team's name (standings, the Matchup scorebug, Transactions sides) opens its roster as a
   plain list at `/team/<id>` (`GET /team/{id}`, `espn_season.team_state`: that side of the week's box
   scores, grouped like the board, with the club and its rank; live points through `live.overlay_side`).
+- **Push notifications** (`ffl/notify.py`): detectors (new transaction rows, my starters' injuries, waiver-run results) →
+  `notices` outbox (`key` = dedupe) → `/notify/tick` flush (quiet hours, moves batched, 24 h drop; one tick at a time, 409
+  otherwise) → pywebpush → `web/public/sw.js`; `/settings` holds the device, switches and quiet window.
 - **Transactions page** (`/transactions`, `GET /transactions`): `season.group_transactions` (pure) turns
   the `transactions` table's rows into moves. A waiver run stamps every claim with one timestamp across teams, so a
   move is (timestamp, team); a trade is every row of a timestamp holding a TRADE_* row, one side per team.

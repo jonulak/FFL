@@ -1075,3 +1075,37 @@ def test_sit_refuses_a_player_off_the_roster_and_a_running_move(sit_env):
     finally:
         api._LINEUP.release()
     assert db.sat_ids(3) == set()
+
+
+def test_notify_routes(client, monkeypatch):
+    monkeypatch.setenv("VAPID_PUBLIC_KEY", "PUB")
+    cfg = client.get("/notify/config").json()
+    assert cfg["public_key"] == "PUB" and cfg["prefs"]["move"] is True and cfg["enabled"] is False
+    sub = {"endpoint": "https://push/x", "keys": {"p256dh": "k", "auth": "a"}, "ua": "iPhone"}
+    assert client.post("/notify/subscribe", json=sub).status_code == 200
+    assert client.get("/notify/config").json()["devices"] == 1
+    assert client.post("/notify/prefs", json={"injury": False}).json()["injury"] is False
+    assert client.post("/notify/prefs", json={"quiet": ["99:00", "07:00"]}).status_code == 422
+    assert client.post("/notify/unsubscribe", json={"endpoint": "https://push/x"}).status_code == 200
+    assert client.get("/notify/recent").json() == {"notices": []}
+
+
+def test_notify_test_503s_when_disabled(client):
+    assert client.post("/notify/test").status_code == 503
+
+
+def test_notify_tick_expires_transactions_on_new_moves(client, monkeypatch):
+    monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 2, "flush": {"disabled": True}})
+    expired = []
+    monkeypatch.setattr(api.cache, "expire", expired.append)
+    assert client.post("/notify/tick").json()["moves"] == 2 and expired == ["transactions"]
+
+
+def test_notify_tick_409s_while_another_runs(client, monkeypatch):
+    monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
+    assert api._NOTIFY.acquire(blocking=False)
+    try:
+        assert client.post("/notify/tick").status_code == 409
+    finally:
+        api._NOTIFY.release()
+    assert client.post("/notify/tick").status_code == 200
