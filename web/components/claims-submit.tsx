@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { clientPost } from "@/app/api-client";
 import type { Claim, DecisionRef, Presets, SubmitResult } from "@/lib/api";
+import { savedNote } from "@/lib/decisions";
 import { atMost, processDay, submitSummary, type SubmitFailure } from "@/lib/claims";
 import { ClaimName } from "./claim-name";
 import { SubmitError, useClaims } from "./claims-context";
@@ -104,26 +105,26 @@ function Outcome({ r, verdict, name }: { r: SubmitResult; verdict: { ok: boolean
 // One reason for the whole submit: the claims row (or, with no claims, the first add) takes the form and the
 // other rows of the same submit are given the same reason. No Later here; Done leaves them open.
 function ClaimsWhy({ refs, presets }: { refs: DecisionRef[]; presets: Presets | null }) {
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
   const [first, ...rest] = refs;
   if (!presets) return null;
   return (
     <section className="space-y-1.5">
       <h3 className={SUB}>Why these claims?</h3>
       {saved
-        ? <p className="text-sm text-muted-foreground">Saved</p>
+        ? <p className="text-sm text-muted-foreground">{saved}</p>
         : <RationaleForm decision={{ id: first.id, kind: "claims", rationale: null, rationale_note: null, outcome: null }} presets={presets}
             onSaved={async (d) => {
               const body = { rationale: d.rationale, note: d.rationale_note ?? "" };
               // the form's own save stands whatever happens to the rest; a failed copy stays open on the Decisions page
-              await Promise.allSettled(rest.map((r) => clientPost(`/decisions/${r.id}`, body)));
-              setSaved(true);
+              const copies = await Promise.allSettled(rest.map((r) => clientPost(`/decisions/${r.id}`, body)));
+              setSaved(savedNote(copies.filter((c) => c.status === "rejected").length));
             }} />}
     </section>
   );
 }
 
-type Frozen ={ title: string; planned: number; outside: Set<string> };
+type Frozen = { title: string; planned: number; outside: Set<string> };
 
 // The review: what will be sent, then what ESPN held. The desk's dialog hosts it, and so does the
 // phone's claims sheet as its second step (`phone`: Back to the claims, the phone's footer at

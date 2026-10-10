@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askFor, byWeek, formError, needsRationale, reasonText } from "./decisions";
+import { askFor, byWeek, formError, needsRationale, reasonText, savedNote } from "./decisions";
 import type { Decision } from "./api";
 
 const P = { lineup: [{ key: "followed_call", label: "Followed the call" }, { key: "matchup", label: "Matchup" }, { key: "other", label: "Other" }] };
@@ -30,6 +30,11 @@ describe("decisions", () => {
     expect(askFor({ id: 1, needs_rationale: false })).toBe("toast");
     expect(askFor(null)).toBeNull();
     expect(askFor(undefined)).toBeNull();
+  });
+  it("says when a free-add copy of the reason failed", () => {
+    expect(savedNote(0)).toBe("Saved");
+    expect(savedNote(1)).toBe("Saved. 1 add still needs a reason (Decisions page)");
+    expect(savedNote(2)).toBe("Saved. 2 adds still need a reason (Decisions page)");
   });
   it("groups newest week first, weekless last", () => {
     expect(byWeek([d({ id: 1, week: 5 }), d({ id: 2, week: null }), d({ id: 3, week: 6 })]).map((g) => g.week)).toEqual([6, 5, null]);

@@ -39,7 +39,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const [sitError, setSitError] = useState<{ id: number; text: string } | null>(null);
   const shown = optimistic ?? data;
   const presets = usePresets();
-  const [asking, setAsking] = useState<(DecisionRef & { kind: string; title: string }) | null>(null);
+  const [asking, setAsking] = useState<(DecisionRef & { kind: string; title: string; rationale?: string[] }) | null>(null);
   // every change a move makes to the rows (the re-slot, ESPN's read-back, a refusal putting them back) plays out
   const { root, capture } = useFlip<HTMLDivElement>(shown);
 
@@ -61,7 +61,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const ask = (ref: DecisionRef | null | undefined, kind: string, dialogTitle: string, title: string) => {
     const what = askFor(ref);
     if (what === "dialog") setAsking({ ...ref!, kind, title: dialogTitle });
-    else if (what === "toast") toast("Logged: followed the call", { action: { label: "Edit", onClick: () => setAsking({ ...ref!, kind, title }) } });
+    else if (what === "toast") toast("Logged: followed the call", { action: { label: "Edit", onClick: () => setAsking({ ...ref!, kind, title, rationale: ["followed_call"] }) } });
   };
 
   const move = async (p: SheetPick) => {

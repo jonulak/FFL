@@ -26,6 +26,13 @@ export function askFor(ref: DecisionRef | null | undefined): "dialog" | "toast" 
   return ref.needs_rationale ? "dialog" : "toast";
 }
 
+// What the claims form says once the reason is saved: the claims row's own save stands, and a free-add row whose
+// copy failed is named so "Saved" is not read as all of them.
+export function savedNote(failedCopies: number): string {
+  if (failedCopies === 0) return "Saved";
+  return `Saved. ${failedCopies} add${failedCopies === 1 ? " still needs" : "s still need"} a reason (Decisions page)`;
+}
+
 // Newest week first; rows with no week (draft-era, notes) last under "Season".
 export function byWeek(rows: Decision[]): { week: number | null; rows: Decision[] }[] {
   const groups = new Map<number | null, Decision[]>();
