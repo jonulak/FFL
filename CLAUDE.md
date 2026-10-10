@@ -29,6 +29,7 @@ uv run python -m ffl.practice 4        # start a League Specific Practice Draft 
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results into the DB
+uv run python -m ffl.decisions list --open   # decisions still needing a rationale or outcome; add / outcome / rationale / show / export
 uv run python -m ffl.calibrate         # in-season: score STRATEGY.md's K (usage-adjusted ROS) against the weekly snapshots in the DB (calibration_*)
 uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (sigma_fits) + Brier; launchd runs it Wed 07:00
 uv run python -m ffl.pace              # in-season: who is beating his projection, every roster + the wire (write-up rules: .claude/skills/pace-report)
@@ -46,7 +47,7 @@ Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + dra
 
 ## Config
 `.env` (gitignored): `LEAGUE_ID`, `ESPN_S2`, `SWID`, `SEASON`, optional `MY_TEAM_ID` (auto-detected from SWID).
-Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing.
+Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing. `FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.
 Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
 real board and pick log untouched.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
@@ -119,7 +120,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   for `ffl.replay`); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
   `week`/`waivers-week`) ← `data/outlook/*.json`; `calibration_snapshots` + `calibration_rows` ← `data/calibration/week-<w>.json`;
   `sigma_fits` ← `sigma.json` (latest wins, history kept; `calibrate.load_sigma` never fails); `claim_plans` ←
-  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it). `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held
+  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `decisions` ← `journal/DECISIONS.md` (frozen; `ffl.decisions` parses it on import; app rows carry `facts` and a rationale of preset keys, NULL = open). `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held
   across an ESPN call; the connect hook sets `busy_timeout` before `journal_mode=WAL`. `db.engine()` never creates tables: a
   missing or stale schema raises `SchemaError` (run `uv run alembic upgrade head`); a DB error on a page read 500s the page, only a missing
   row degrades to empty. Callers outside `db.py` catch `db.DBError`. Schema changes are new Alembic revisions
@@ -232,9 +233,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   **`POST /lineup`** is the one-tap swap (`ffl/espn_write.py` is the only code that writes to ESPN): it re-reads
   mRoster for slots and locks, refuses when ESPN's week (`pending_state`) differs from the page's (and drops the
   cached League and page so Reload sees the new week), takes the non-blocking `_LINEUP` lock (409 when held),
-  validates with `season.lineup_moves`, sends ESPN's ROSTER/LINEUP transaction (`espn_write.move_lineup`), appends
-  `season.lineup_entry` to `journal/DECISIONS.md` as soon as ESPN may have taken it (a timeout journals it as
-  uncertain and answers 502 `moved`), then reads the page back (`roster_state`) into the cache with `Cache.put`
+  validates with `season.lineup_moves`, sends ESPN's ROSTER/LINEUP transaction (`espn_write.move_lineup`), records
+  `season.lineup_entry` in the `decisions` table as soon as ESPN may have taken it (a timeout records it as
+  uncertain and answers 502 `moved`; the answer carries `decision: {id, needs_rationale}`, and a move that follows the call is recorded with rationale `followed_call`, otherwise open), then reads the page back (`roster_state`) into the cache with `Cache.put`
   (its generation guard stops an older in-flight rebuild landing over it; a failed read-back drops the key and
   answers 502 `moved`). Under `FFL_WRITES=0` nothing reaches ESPN: `espn_write.fake_slots()` holds the moves
   and wins over ESPN's slots in the page and the validator. `web/components/use-live.ts` ignores a refetch that
@@ -249,11 +250,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   offers him), the other cards' gaps and the Matchup board's by-projection swaps are all made without him.
   `playable_proj` is untouched (the win meter reads ESPN's real lineup) and the waiver pool ignores sits (calibration
   reads it). `model_call` is the call he would have had: the outlook hashes it, so a sit never rewrites his outlook.
-  The endpoint re-calls the cached cards (no ESPN read) under `_LINEUP`, and journals only when `espn_write.writes()`.
+  The endpoint re-calls the cached cards (no ESPN read) under `_LINEUP`, and records only when `espn_write.writes()` (its answer carries `decision: {id, needs_rationale}`). `POST /claims/submit` answers `decisions: [...]` (the claims row and each free add). `POST /roster/sit/{id}` is the same `decision` answer as `/lineup`.
 
 ## Rules for working here
-- Every roster decision made in a session is appended to `journal/DECISIONS.md` (decision, reasoning, alternatives)
-  before committing. Draft picks are logged automatically to the DB's `draft_picks`; add the reasoning by hand.
+- Every roster decision made in a session is recorded with `uv run python -m ffl.decisions add` (kind, title, decision, rationale preset or Other + note, alternatives, exit conditions) before committing; outcomes later with `ffl.decisions outcome <id>`. The app records its own moves (lineup, sit, claims, free adds) and the Decisions page asks for the reason. journal/DECISIONS.md is frozen history (to 2026-10-10), imported into the `decisions` table.
 - Commit and push (`git push`) at the end of every session; the GitHub repo is the backup.
 - **Landing a worktree branch on main — only after Jonathan explicitly says to land that branch** (asking whether
   to land is fine; a finished task is not permission). A worktree session is refused git against the main checkout,
