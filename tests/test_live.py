@@ -114,6 +114,27 @@ def test_state_version_ticks_only_on_change_and_wakes_waiters():
     assert st.wait_for_change(2, timeout=0.05) == 2, "timeout returns the current version"
 
 
+def test_a_move_wakes_the_stream_without_touching_the_points_version():
+    """A logged move ticks `moves`, never `version`: the runner reads version == 0 as "first checkpoint, a
+    baseline", and a move before kickoff must not turn that checkpoint into a burst of plays."""
+    st = live.State()
+    got = []
+    t = threading.Thread(target=lambda: got.append(st.wait_for_tick((0, 0), timeout=5)))
+    t.start()
+    st.moved()
+    t.join(2)
+    assert got == [(0, 1)] and st.version == 0
+    assert st.update({1: 2.0}) and st.wait_for_tick((0, 1), timeout=0.05) == (1, 1)
+    assert st.wait_for_tick((1, 1), timeout=0.05) == (1, 1), "timeout returns the current tick"
+
+
+def test_stream_lines_name_a_move_apart_from_points():
+    assert live.stream_lines((3, 0), (3, 1)) == ["data: m1\n\n"]
+    assert live.stream_lines((3, 1), (4, 1)) == ["data: 4\n\n"]
+    assert live.stream_lines((3, 1), (4, 2)) == ["data: m2\n\n", "data: 4\n\n"]
+    assert live.stream_lines((3, 1), (3, 1)) == []
+
+
 def test_state_first_update_always_ticks_even_when_empty():
     st = live.State()
     assert st.update({}) and st.version == 1

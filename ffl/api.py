@@ -156,6 +156,12 @@ class Cache:
         with self._lock:
             self._d.pop(key, None)
 
+    def drop_prefixes(self, prefixes: tuple[str, ...]) -> list[tuple[str, Callable[[], object], float]]:
+        """Forget every key that is a prefix or `prefix:...`; returns (key, builder, ttl) of each, to rebuild."""
+        with self._lock:
+            keys = [k for k in self._d if any(k == p or k.startswith(p + ":") for p in prefixes)]
+            return [(k, e.fn, e.ttl) for k in keys for e in [self._d.pop(k)]]
+
     def expire_all(self):
         with self._lock:
             for e in self._d.values():
@@ -167,9 +173,36 @@ class Cache:
 
 
 cache = Cache(TTL)
-# Any sync that logs a move drops the Transactions page, so the next open builds it fresh. Not expire: an expired
-# entry is served once while it rebuilds, and the first open after a move notice would show the page before it.
-journal.ON_NEW_ROWS.append(lambda rows: cache.drop("transactions"))
+# The pages a league move makes stale: the log, every roster (mine, a team's, the boards'), the pool, the live
+# starters, a player's card (owner, record). Logos, the draft and finished weeks' box scores never change.
+MOVE_KEYS = ("transactions", "roster", "waivers", "week", "league", "team", "starters", "player")
+REWARM_SKIP = ("player",)  # one card per player ever opened: built again on its next open, not all at once
+
+
+def on_new_rows(rows: list[dict]) -> None:
+    """A sync logged a move, whichever path ran it (the tick, a page build, the reconcile). Drop every page it makes
+    stale: not expire, which serves the old page once while it rebuilds, so a move notice's link would open the
+    page from before the move. Then rebuild them behind and tick /live's moves, so an open page refetches."""
+    espn_season.forget_current_boxes()
+    dropped = cache.drop_prefixes(MOVE_KEYS)
+    t = threading.Thread(target=_rewarm, args=(dropped,), daemon=True, name="cache-moves")
+    with cache._lock:
+        cache._threads["moves"] = t  # cache.join() waits for it (tests)
+    t.start()
+
+
+def _rewarm(dropped: list[tuple[str, Callable[[], object], float]]) -> None:
+    for key, fn, ttl in dropped:
+        if key.split(":", 1)[0] in REWARM_SKIP:
+            continue
+        try:
+            cache.get_or_build(key, fn, ttl)
+        except HTTPException as e:  # a source down: the page builds inline on its next open instead
+            print(f"rebuild of {key} after a move failed: {e.detail}")
+    live.STATE.moved()
+
+
+journal.ON_NEW_ROWS.append(on_new_rows)
 
 
 @asynccontextmanager
@@ -649,18 +682,17 @@ def player(player_id: int):
 
 @app.get("/live")
 def live_stream():
-    """Server-sent events: one `data: <version>` line whenever live points change, and a comment
-    every 15 s so the proxy keeps the connection open. The page refetches its GET on a tick."""
+    """Server-sent events: `data: <version>` whenever live points change, `data: m<n>` when a league move was
+    logged (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live
+    page refetches its GET on either; Transactions and Players refresh on a move only."""
     def gen():
-        seen = live.STATE.version
-        yield f"retry: 3000\ndata: {seen}\n\n"
+        seen = (live.STATE.version, live.STATE.moves)
+        yield f"retry: 3000\ndata: {seen[0]}\n\n"
         while True:
-            v = live.STATE.wait_for_change(seen, timeout=15.0)
-            if v != seen:
-                seen = v
-                yield f"data: {v}\n\n"
-            else:
-                yield ": keepalive\n\n"
+            cur = live.STATE.wait_for_tick(seen, timeout=15.0)
+            lines = live.stream_lines(seen, cur)
+            seen = cur
+            yield from lines or [": keepalive\n\n"]
     return StreamingResponse(gen(), media_type="text/event-stream",
                              # no-transform: Next's compression would otherwise gzip the stream and hold it in a
                              # buffer the browser never sees a byte of

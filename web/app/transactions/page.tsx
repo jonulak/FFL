@@ -1,4 +1,5 @@
 import { ErrorCard } from "@/components/error-card";
+import { RefreshOnMoves } from "@/components/refresh-on-moves";
 import { TransactionsView } from "@/components/transactions";
 import { apiGet, type Transactions } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
@@ -13,5 +14,10 @@ export default async function Page() {
   } catch (e) {
     return <ErrorCard {...errorFields(e)} />;
   }
-  return <TransactionsView data={d} />;
+  return (
+    <>
+      <RefreshOnMoves />
+      <TransactionsView data={d} />
+    </>
+  );
 }

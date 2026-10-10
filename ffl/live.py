@@ -39,6 +39,7 @@ class State:
 
     def __init__(self):
         self.version = 0
+        self.moves = 0  # logged league moves (moved()); the stream sends them as `data: m<n>`
         self.points: dict[int, float] = {}
         self.games: dict[str, dict] = {}  # team -> {status, quarter, clock, score} (fastcast.game_states)
         self.stats: dict[int, dict] = {}  # player -> raw stat row (fastcast.player_stats)
@@ -74,6 +75,19 @@ class State:
             self.cond.notify_all()
             return True
 
+    def moved(self) -> None:
+        """A move was logged (api.on_new_rows, once its pages are rebuilt): wake the stream so open pages refetch.
+        Its own counter: `version` is the points' and the runner reads 0 there as its first checkpoint."""
+        with self.cond:
+            self.moves += 1
+            self.cond.notify_all()
+
+    def wait_for_tick(self, seen: tuple[int, int], timeout: float) -> tuple[int, int]:
+        """Block until (version, moves) moves past `seen` or `timeout` elapses; returns the current pair."""
+        with self.cond:
+            self.cond.wait_for(lambda: (self.version, self.moves) != seen, timeout=timeout)
+            return self.version, self.moves
+
     def wait_for_change(self, seen: int, timeout: float) -> int:
         """Block until `version` moves past `seen` or `timeout` elapses; returns the version."""
         with self.cond:
@@ -84,6 +98,17 @@ class State:
         with self.cond:
             return {"version": self.version, "at": self.at, "connected": self.connected,
                     "error": self.error, "players": len(self.points), "week": self.week}
+
+
+def stream_lines(seen: tuple[int, int], cur: tuple[int, int]) -> list[str]:
+    """The /live events between two (version, moves) ticks: `data: m<n>` for a move (the Transactions and Players
+    pages refresh only on these), `data: <version>` for points. Live pages refetch on either."""
+    out = []
+    if cur[1] != seen[1]:
+        out.append(f"data: m{cur[1]}\n\n")
+    if cur[0] != seen[0]:
+        out.append(f"data: {cur[0]}\n\n")
+    return out
 
 
 def _sans_clock(games: dict[str, dict]) -> dict[str, tuple]:

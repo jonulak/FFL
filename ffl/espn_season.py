@@ -687,6 +687,12 @@ BOXES_TTL_S = 60
 _BOXES: dict[int, tuple[float, object, list]] = {}  # week -> (expires_at, the League fetched from, box scores)
 
 
+def forget_current_boxes() -> None:
+    """Drop the current week's box scores (a league move changed its rosters); finished weeks never change."""
+    for week in [w for w, hit in list(_BOXES.items()) if hit[0] != math.inf]:  # a builder thread may be adding
+        _BOXES.pop(week, None)
+
+
 def box_scores(lg, week: int) -> list:
     """lg.box_scores(week), shared by every builder for BOXES_TTL_S.
 

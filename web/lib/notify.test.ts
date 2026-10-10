@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { isHm, noticeState, openRequest, pushSupport, urlBase64ToUint8Array } from "./notify";
+import { isHm, isMovesTick, noticeState, openRequest, pushSupport, urlBase64ToUint8Array } from "./notify";
+
+describe("isMovesTick", () => {
+  it("is the /live stream's move event, not a points tick", () => {
+    expect(isMovesTick("m3")).toBe(true);
+    expect(isMovesTick("17")).toBe(false);
+    expect(isMovesTick("")).toBe(false);
+    expect(isMovesTick(undefined)).toBe(false);
+  });
+});
 
 describe("openRequest", () => {
   const origin = "https://macbook-pro.tailnet.ts.net:3300";

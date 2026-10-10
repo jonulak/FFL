@@ -6,6 +6,9 @@ export function urlBase64ToUint8Array(s: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
+// The /live stream's league-move event (`data: m<n>`, ffl/live.py stream_lines), apart from its points ticks.
+export const isMovesTick = (data: unknown) => typeof data === "string" && data.startsWith("m");
+
 // A notification tap arrives as the worker's {type: "open", url} message (web/public/sw.js): the page navigates
 // itself, since iOS's Home Screen app ignores the worker's own navigate()/openWindow(). Same-origin only.
 export function openRequest(data: unknown, origin: string): string | null {

@@ -69,3 +69,18 @@ def _fresh_box_scores():
     espn_season._BOXES.clear()
     yield
     espn_season._BOXES.clear()
+
+
+@pytest.fixture(autouse=True)
+def _empty_api_cache():
+    """The API's page cache is process-wide, and a logged move rebuilds every page in it (api.on_new_rows): a test
+    that syncs a move must not rebuild pages another test cached with builders that no longer stub ESPN."""
+    import sys
+    api = sys.modules.get("ffl.api")
+    if api is not None:
+        api.cache.clear()
+    yield
+    api = sys.modules.get("ffl.api")
+    if api is not None:
+        api.cache.join()
+        api.cache.clear()

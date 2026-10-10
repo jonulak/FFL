@@ -1092,21 +1092,48 @@ def test_notify_test_503s_when_disabled(client):
     assert client.post("/notify/test").status_code == 503
 
 
-def test_a_sync_that_logs_moves_drops_the_transactions_page(client):
-    """A move notice links to /transactions: the first open after it must build fresh, not serve the
-    page from before the move once (cache.expire) — whichever path the sync ran on."""
-    from ffl import journal
+def _move_lg():
     topics = {"topics": [{"date": 1788937502756, "messages": [{"messageTypeId": 180, "to": 6, "targetId": 5083754, "from": 0}]}]}
     team = SimpleNamespace(team_id=6, team_name="Henry", roster=[])
-    lg = SimpleNamespace(year=2026, player_map={5083754: "Ryan Flournoy", "Ryan Flournoy": 5083754},
-                         get_team_data=lambda tid: team,
-                         espn_request=SimpleNamespace(league_get=lambda extend="", params=None, headers=None: topics))
-    api.cache.get_or_build("transactions", lambda: {"moves": []})
-    journal.sync_transactions(lg)
-    assert not api.cache.has("transactions")
-    api.cache.get_or_build("transactions", lambda: {"moves": ["fresh"]})
-    journal.sync_transactions(lg)          # nothing new: the page stays
-    assert api.cache.has("transactions")
+    return SimpleNamespace(year=2026, player_map={5083754: "Ryan Flournoy", "Ryan Flournoy": 5083754},
+                           get_team_data=lambda tid: team,
+                           espn_request=SimpleNamespace(league_get=lambda extend="", params=None, headers=None: topics))
+
+
+ROSTER_KEYS = ["transactions", "roster", "waivers", "week:current", "week:5:3", "league:current", "team:3",
+               "starters:current"]
+
+
+def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypatch):
+    """A move changes rosters, the pool, the boards and the log: every page built before it is stale. Whichever
+    path logged it (the tick, a page build, the reconcile), each such page is dropped (never served once more from
+    before the move), rebuilt behind, and the /live stream says "moves" so an open page refetches."""
+    import math
+    from ffl import espn_season, journal, live
+    built = {}
+
+    def builder(key):
+        def fn():
+            built[key] = built.get(key, 0) + 1
+            return {"key": key, "n": built[key]}
+        return fn
+    for key in ROSTER_KEYS + ["player:9", "logo:3", "draft_picks"]:
+        api.cache.get_or_build(key, builder(key))
+    monkeypatch.setattr(espn_season, "_BOXES", {4: (math.inf, None, ["done"]), 5: (9e18, None, ["now"])})
+    monkeypatch.setattr(live, "STATE", live.State())
+
+    journal.sync_transactions(_move_lg())
+    api.cache.join()
+
+    assert all(built[k] == 2 for k in ROSTER_KEYS), built          # rebuilt behind the move
+    assert built["player:9"] == 1 and not api.cache.has("player:9")  # dropped, built on its next open
+    assert built["logo:3"] == built["draft_picks"] == 1 and api.cache.has("logo:3")
+    assert list(espn_season._BOXES) == [4], "the current week's box scores are refetched, finished weeks kept"
+    assert live.STATE.moves == 1 and live.STATE.version == 0
+
+    journal.sync_transactions(_move_lg())  # nothing new: nothing rebuilt, no tick
+    api.cache.join()
+    assert built["roster"] == 2 and live.STATE.moves == 1
 
 
 def test_notify_tick_409s_while_another_runs(client, monkeypatch):

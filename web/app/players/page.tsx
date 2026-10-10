@@ -1,6 +1,7 @@
 import { ErrorCard } from "@/components/error-card";
 import { FaToggle } from "@/components/fa-toggle";
 import { PosTabs } from "@/components/pos-tabs";
+import { RefreshOnMoves } from "@/components/refresh-on-moves";
 import { StaleBadge } from "@/components/stale-badge";
 import { WaiverSearch } from "@/components/waiver-search";
 import { WaiverTable } from "@/components/waiver-table";
@@ -52,6 +53,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
   );
   return (
     <div className={`space-y-5 ${claims ? "max-lg:pb-28" : ""}`}>
+      <RefreshOnMoves />
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
           Players
