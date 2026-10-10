@@ -36,7 +36,6 @@ from . import calibrate, cbs, db, espn_season, espn_write, live, notify, outlook
 from . import claims as claims_mod
 from . import db
 from . import plays as plays_mod
-from .config import JOURNAL
 from . import journal
 from .journal import sync_results, sync_transactions
 from .settings import load
@@ -276,7 +275,6 @@ def health():
 
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
 
-DECISIONS = JOURNAL / "DECISIONS.md"
 _SUBMIT = threading.Lock()  # one submit at a time: it cancels and reposts ESPN's whole claim list
 
 
@@ -442,17 +440,25 @@ def claims_submit(body: SubmitIn):
         submitted = plan["groups"]
         plan["groups"] = claims_mod.consume(submitted, res["now"])  # landed adds are on the roster now
         _save_plan(plan)
-        if res["now"] or res["sent"]:
+        refs = []
+        if _records() and (res["now"] or res["sent"]):
             names = {i: r["name"] for i, r in _pool_rows(data).items()} | {r["player_id"]: r["name"] for r in roster}
-            with DECISIONS.open("a") as f:
-                f.write("\n" + claims_mod.decision_entry(submitted, names, datetime.now().strftime("%Y-%m-%d"), status))
+            if res["sent"]:
+                try:
+                    refs.append(db.put_week_claims(data["week"], _mark_fake(claims_mod.decision_row(
+                        submitted, names, status, data["week"], len(plan["submits"])))))
+                except db.DBError as e:
+                    log.warning("claims not recorded: %s", e)
+            refs += [r for r in map(_record, map(_mark_fake, claims_mod.free_add_rows(res["now"], names, data["week"]))) if r]
+        elif res["now"] or res["sent"]:
+            log.info("claims under FFL_WRITES=0, not recorded")
         if res["now"]:
             # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
             # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
             espn_season._BOXES.clear()
             cache.expire_all()
             cache.rebuild("waivers", "roster", "week:current", "league:current")
-        return res
+        return {**res, "decisions": refs}
     finally:
         _SUBMIT.release()
 
@@ -467,6 +473,24 @@ class LineupIn(BaseModel):
 
 
 _LINEUP = threading.Lock()  # one move at a time: the answer is read back from ESPN, and two would read each other's half
+
+
+def _records() -> bool:
+    """Real writes record their decisions; a dev API does only under FFL_RECORD_FAKE=1 (a worktree test server, own DB)."""
+    return espn_write.writes() or os.environ.get("FFL_RECORD_FAKE") == "1"
+
+
+def _mark_fake(row: dict) -> dict:
+    return row if espn_write.writes() else {**row, "title": "[fake] " + row["title"], "facts": {**(row.get("facts") or {}), "fake": True}}
+
+
+def _record(row: dict) -> dict | None:
+    """Store a decision the app just made; the move stands whatever the DB says, so a failure is a warning and no ref."""
+    try:
+        return {"id": db.add_decision(row), "needs_rationale": row["rationale"] is None}
+    except db.DBError as e:
+        log.warning("decision not recorded (%s): %s", row["title"], e)
+        return None
 
 
 def _espn_error(e: espn_write.WriteError) -> HTTPException:
@@ -503,6 +527,7 @@ def lineup(body: LineupIn):
         items, errs = season.lineup_moves([m.model_dump() for m in body.moves], roster, espn_season.load())
         if errs:
             raise HTTPException(409, {"errors": errs})
+        ref = None
         if items:
             uncertain = False
             try:
@@ -511,19 +536,16 @@ def lineup(body: LineupIn):
                 raise _espn_error(e)
             except requests.RequestException:  # ESPN may have executed it before the connection died
                 uncertain = True
-            # journaled the moment ESPN may have taken the move, whatever the read-back does; a fake move
+            # recorded the moment ESPN may have taken the move, whatever the read-back does; a fake move
             # (FFL_WRITES=0) is not a decision, so it only goes to the log
-            try:
-                entry = season.lineup_entry(items, data["cards"], data["week"], datetime.now().strftime("%Y-%m-%d"))
-                if uncertain:
-                    entry += "\n- ESPN did not answer; the move may not have happened — check ESPN."
-                if espn_write.writes():
-                    with DECISIONS.open("a") as f:
-                        f.write("\n" + entry)
-                else:
-                    log.info("fake lineup move (FFL_WRITES=0), not journaled: %s", entry)
-            except OSError as e:
-                log.warning("lineup move made but not journaled: %s", e)
+            entry = season.lineup_entry(items, data["cards"], data["week"])
+            if uncertain:
+                entry["facts"]["uncertain"] = True
+                entry["decision"] += " — ESPN did not answer; the move may not have happened, check ESPN"
+            if _records():
+                ref = _record(_mark_fake(entry))
+            else:
+                log.info("fake lineup move (FFL_WRITES=0), not recorded: %s", entry["title"])
             # the moved players keep the rows they took (season.reseat), before the read-back reads the seats
             try:
                 db.put_seats(season.reseat(items, data["cards"], db.seat_map()))
@@ -542,7 +564,7 @@ def lineup(body: LineupIn):
             except Exception as e:  # noqa: BLE001 — ESPN took the move; say so, never show the old slots as current
                 cache.drop("roster")  # the reload this asks for must build from ESPN, not serve the pre-move page
                 raise HTTPException(502, {"source": "espn", "error": "moved in ESPN — the read-back failed, reload", "moved": True}) from e
-        return roster_()
+        return {**roster_(), "decision": ref}
     finally:
         _LINEUP.release()
 
@@ -564,28 +586,25 @@ def roster_sit(player_id: int, body: SitIn):
         if before is None:
             raise HTTPException(404, f"player {player_id} is not on the roster")
         week = data["week"]
+        ref = None
         if before.get("sat") != body.sat:
             try:
                 db.put_sit(week, player_id, body.sat)
             except db.DBError as e:
                 raise HTTPException(500, f"sit not saved: {e}") from e
             # a dev API (FFL_WRITES=0) is not the manager deciding, as with a fake lineup move: log only
-            entry = season.sit_entry(before, body.sat, week, datetime.now().strftime("%Y-%m-%d"))
-            try:
-                if espn_write.writes():
-                    with DECISIONS.open("a") as f:
-                        f.write("\n" + entry)
-                else:
-                    log.info("sit under FFL_WRITES=0, not journaled: %s", entry)
-            except OSError as e:
-                log.warning("sit saved but not journaled: %s", e)
+            entry = season.sit_entry(before, body.sat, week)
+            if _records():
+                ref = _record(_mark_fake(entry))
+            else:
+                log.info("sit under FFL_WRITES=0, not recorded: %s", entry["title"])
         # the cards carry every player field, so the call is re-made from them without an ESPN read
         sat = db.sat_ids(week)
         rows = espn_season.with_sits(data["cards"], sat)
         payload = {k: v for k, v in data.items() if k != "stale_since"}
         cache.put("roster", {**payload, "cards": season.roster_cards(rows, espn_season.load(), week)})
         cache.expire("week")  # the Matchup board's by-projection lineup leaves him out too
-        return roster_()
+        return {**roster_(), "decision": ref}
     finally:
         _LINEUP.release()
 

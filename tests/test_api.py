@@ -459,14 +459,13 @@ def test_players_search_spans_every_position(client, monkeypatch):
 
 
 @pytest.fixture
-def claims_env(client, monkeypatch, tmp_path):
+def claims_env(client, monkeypatch):
     roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
     pool = {"WR": [{"player_id": 101, "name": "Addison", "status": "WAIVERS"}, {"player_id": 102, "name": "Mims", "status": "WAIVERS"}],
             "D/ST": [{"player_id": -16020, "name": "Vikings D/ST", "status": "WAIVERS"}]}
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
     # reads the current pool dict on every call, so a test can flip a status between load and Submit
     monkeypatch.setattr(api.espn_season, "pool_status", lambda: {r["player_id"]: {"status": r["status"], "waiver_date": None} for rows in pool.values() for r in rows})
-    monkeypatch.setattr(api, "DECISIONS", tmp_path / "DECISIONS.md")
     monkeypatch.setattr(api, "_roster_size", lambda: 17)
     api.espn_write._FAKE.clear()
     api.espn_write._FAKE_ADDS.clear()
@@ -488,13 +487,32 @@ def test_plan_roundtrip_dst(claims_env):
     assert claims_env.get("/claims").json()["groups"] == [g]
 
 
-def test_submit_happy_path_and_decision(claims_env):
+def test_submit_happy_path_and_decision(claims_env, monkeypatch):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: True)
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 1}]})
     r = claims_env.post("/claims/submit", json={"replace_outside": False}).json()
     assert r["match"] and len(r["sent"]) == 4 and r["now"] == []
     g = claims_env.get("/claims").json()
     assert g["edited_since_submit"] is False and all(p["from_app"] for p in g["pending"])
-    assert "Waiver claims (from the app)" in api.DECISIONS.read_text()
+    assert _titles() == ["Week 6 waiver claims"]
+    assert r["decisions"] == [{"id": db.decisions()[0]["id"], "needs_rationale": True}]
+
+
+def test_a_resubmit_updates_the_weeks_claims_row_and_keeps_its_rationale(claims_env, monkeypatch):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: True)
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    first = claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"][0]
+    db.update_decision(first["id"], {"rationale": ["best_ros"]})
+    claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [1], "open": 0}]})
+    again = claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"]
+    assert again == [{"id": first["id"], "needs_rationale": False}]
+    assert len(db.decisions()) == 1 and "Mims" in db.decisions()[0]["decision"]
+
+
+def test_a_dev_api_submit_records_no_decision(claims_env):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    assert claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"] == []
+    assert db.decisions() == []
 
 
 def test_waiver_run_retires_the_submitted_plan(claims_env, monkeypatch):
@@ -672,6 +690,7 @@ def test_edit_after_submit_flags(claims_env):
 
 
 def test_submit_readback_failure_still_journals(claims_env, monkeypatch):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: True)
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
 
@@ -683,7 +702,7 @@ def test_submit_readback_failure_still_journals(claims_env, monkeypatch):
     assert r.status_code == 200 and r.json()["error"] and r.json()["match"] is False
     plan = db.claim_plan(6)
     assert len(plan["submits"]) == 1 and plan["submits"][0]["now"] == [{"group": 0, "add": 102, "drop": 1}]
-    assert "Waiver claims (from the app)" in api.DECISIONS.read_text()
+    assert db.decisions(), "the landed add is recorded"
 
 
 def test_failed_cancel_keeps_app_claim_tracked(claims_env, monkeypatch):
@@ -823,7 +842,7 @@ def test_claims_never_see_a_rostered_player(monkeypatch):
 
 
 @pytest.fixture
-def lineup_env(client, monkeypatch, tmp_path):
+def lineup_env(client, monkeypatch):
     cards = [{"player_id": 3, "name": "Bench", "pos": "RB", "slot": "BE", "call": "START", "gap": 1.4, "group": "bench", "locked": False},
              {"player_id": 2, "name": "Flex", "pos": "WR", "slot": "RB/WR/TE", "call": "BENCH", "gap": -1.4, "group": "starter", "locked": False}]
     state = {"slots": {3: "BE", 2: "RB/WR/TE"}, "locked": set(), "period": 3, "builds": 0, "flag_reads": 0}
@@ -845,7 +864,6 @@ def lineup_env(client, monkeypatch, tmp_path):
     sent = []
     monkeypatch.setattr(api.espn_write, "move_lineup",
                         lambda items, week: sent.append((items, week)) or state["slots"].update({p: t for p, _, t in items}))
-    monkeypatch.setattr(api, "DECISIONS", tmp_path / "DECISIONS.md")
     client.state, client.sent = state, sent
     return client
 
@@ -855,12 +873,33 @@ SWAP = {"moves": [{"player_id": 3, "to_slot": "RB/WR/TE"}, {"player_id": 2, "to_
 ORIGINAL_MOVE_LINEUP = api.espn_write.move_lineup
 
 
-def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env, tmp_path):
+def _titles():
+    return [r["title"] for r in db.decisions()]
+
+
+def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env):
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 200
     assert lineup_env.sent == [([(3, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], 3)]
     assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {3: "RB/WR/TE", 2: "BE"}, "read back, not echoed"
-    assert "Week 3 lineup: Bench to FLEX, Flex to the bench" in (tmp_path / "DECISIONS.md").read_text()
+    assert _titles() == ["Week 3 lineup: Bench to FLEX, Flex to the bench"]
+    assert r.json()["decision"] == {"id": db.decisions()[0]["id"], "needs_rationale": False}, "Bench START in, Flex BENCH out: the call"
+
+
+def test_a_decision_the_db_cannot_take_never_fails_the_move(lineup_env, monkeypatch, caplog):
+    def broken(row, season=None):
+        raise db.sa.exc.OperationalError("insert", {}, Exception("disk I/O error"))
+    monkeypatch.setattr(api.db, "add_decision", broken)
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 200 and r.json()["decision"] is None and "not recorded" in caplog.text
+
+
+def test_a_test_server_can_record_fake_moves(lineup_env, monkeypatch):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: False)
+    monkeypatch.setenv("FFL_RECORD_FAKE", "1")
+    r = lineup_env.post("/lineup", json=SWAP)
+    row = db.decisions()[0]
+    assert row["title"].startswith("[fake] Week 3 lineup") and row["facts"]["fake"] is True and r.json()["decision"]["id"] == row["id"]
 
 
 def test_lineup_keeps_the_row_the_moved_player_took(lineup_env):
@@ -868,7 +907,7 @@ def test_lineup_keeps_the_row_the_moved_player_took(lineup_env):
     assert db.seat_map() == {3: 2}, "Bench stands in Flex's place in ESPN's order; Flex went to the bench"
 
 
-def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_env, monkeypatch, tmp_path):
+def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_env, monkeypatch):
     # FFL_WRITES=0: ESPN never moves, the fake store does; roster_state shows the fake slots, and so must the validator
     monkeypatch.setenv("FFL_WRITES", "0")
     monkeypatch.setattr(api.espn_write, "_FAKE_SLOTS", {})
@@ -883,7 +922,7 @@ def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_en
     assert r.status_code == 200
     assert api.espn_write.fake_slots() == {3: "BE", 2: "RB/WR/TE"}, "the second move ran from the first one's slots"
     assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {3: "BE", 2: "RB/WR/TE"}
-    assert not (tmp_path / "DECISIONS.md").exists(), "a fake move is not a decision: logged, never journaled"
+    assert db.decisions() == [], "a fake move is not a decision: logged, never journaled"
 
 
 def test_lineup_read_back_reuses_the_flags_it_read_with_the_moves_applied(lineup_env):
@@ -894,11 +933,11 @@ def test_lineup_read_back_reuses_the_flags_it_read_with_the_moves_applied(lineup
     assert {i: f["slot"] for i, f in lineup_env.state["readback_flags"].items()} == {3: "RB/WR/TE", 2: "BE"}
 
 
-def test_lineup_fake_move_logs_instead_of_journaling(lineup_env, monkeypatch, tmp_path, caplog):
+def test_lineup_fake_move_logs_instead_of_journaling(lineup_env, monkeypatch, caplog):
     monkeypatch.setattr(api.espn_write, "writes", lambda: False)
     with caplog.at_level("INFO", logger=api.log.name):
         assert lineup_env.post("/lineup", json=SWAP).status_code == 200
-    assert not (tmp_path / "DECISIONS.md").exists()
+    assert db.decisions() == []
     assert "Week 3 lineup: Bench to FLEX" in caplog.text
 
 
@@ -962,23 +1001,23 @@ def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):
     assert {c["player_id"]: c["slot"] for c in g.json()["cards"]} == {3: "RB/WR/TE", 2: "BE"}, "rebuilt, not the cached pre-move page"
 
 
-def test_lineup_read_back_failure_still_journals_the_move(lineup_env, monkeypatch, tmp_path):
+def test_lineup_read_back_failure_still_journals_the_move(lineup_env, monkeypatch):
     real = api.espn_season.roster_state
     monkeypatch.setattr(api.espn_season, "roster_state",
                         lambda week=None, flags=None: (_ for _ in ()).throw(RuntimeError("espn down")) if lineup_env.sent else real(week))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["moved"] is True and len(lineup_env.sent) == 1
-    assert "Week 3 lineup: Bench to FLEX, Flex to the bench" in (tmp_path / "DECISIONS.md").read_text()
+    assert _titles() == ["Week 3 lineup: Bench to FLEX, Flex to the bench"]
 
 
-def test_lineup_timeout_may_have_moved_so_it_says_so_journals_it_and_drops_the_page(lineup_env, monkeypatch, tmp_path):
+def test_lineup_timeout_may_have_moved_so_it_says_so_journals_it_and_drops_the_page(lineup_env, monkeypatch):
     def slow(items, week):
         raise api.requests.Timeout("15s")
     lineup_env.get("/roster")
     monkeypatch.setattr(api.espn_write, "move_lineup", slow)
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["moved"] is True and "did not answer" in r.json()["detail"]["error"]
-    assert "may not have happened" in (tmp_path / "DECISIONS.md").read_text()
+    assert db.decisions()[0]["facts"]["uncertain"] is True
     assert not api.cache.has("roster")
 
 
@@ -1009,7 +1048,7 @@ def test_cache_put_beats_a_revalidate_that_started_before_it():
     assert c._d["k"].payload == "new"
 
 
-def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch, tmp_path):
+def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch):
     # FFL_WRITES=0: the IR occupant to the bench and an Out bench player onto IR, through the fake store, and back
     monkeypatch.setenv("FFL_WRITES", "0")
     monkeypatch.setattr(api.espn_write, "_FAKE_SLOTS", {})
@@ -1034,11 +1073,11 @@ def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch, tmp_path):
     assert r.status_code == 409 and r.json()["detail"]["errors"] == ["IR: 2 players for 1 spots"]
     assert lineup_env.post("/lineup", json={"moves": [{"player_id": 7, "to_slot": "BE"}, {"player_id": 5, "to_slot": "IR"}]}).status_code == 200
     assert api.espn_write.fake_slots() == {5: "IR", 7: "BE"}
-    assert not (tmp_path / "DECISIONS.md").exists(), "a fake move is not a decision"
+    assert db.decisions() == [], "a fake move is not a decision"
 
 
 @pytest.fixture
-def sit_env(client, monkeypatch, tmp_path):
+def sit_env(client, monkeypatch):
     from ffl import season
     from tests.test_season import TWO_QB, roster
     state = {"builds": 0}
@@ -1050,13 +1089,12 @@ def sit_env(client, monkeypatch, tmp_path):
                 "cards": season.roster_cards(rows, TWO_QB, 3)}
     monkeypatch.setattr(api.espn_season, "roster_state", roster_state)
     monkeypatch.setattr(api.espn_season, "load", lambda: TWO_QB)
-    monkeypatch.setattr(api, "DECISIONS", tmp_path / "DECISIONS.md")
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)
     client.state = state
     return client
 
 
-def test_sit_remakes_the_call_without_an_espn_read_and_journals_it(sit_env, tmp_path):
+def test_sit_remakes_the_call_without_an_espn_read_and_journals_it(sit_env):
     sit_env.get("/roster")
     r = sit_env.post("/roster/sit/3", json={"sat": True})   # QB C, the best QB
     assert r.status_code == 200
@@ -1064,23 +1102,22 @@ def test_sit_remakes_the_call_without_an_espn_read_and_journals_it(sit_env, tmp_
     assert cards[3]["call"] == "SIT" and cards[3]["sat"] is True and cards[2]["call"] == "START"
     assert sit_env.state["builds"] == 1, "the cards are re-called, not rebuilt from ESPN"
     assert db.sat_ids(3) == {3}
-    assert "Week 3 sit: QB C" in (tmp_path / "DECISIONS.md").read_text()
+    assert _titles() == ["Week 3 sit: QB C"] and r.json()["decision"]["needs_rationale"] is True
     assert {c["player_id"]: c["call"] for c in sit_env.get("/roster").json()["cards"]}[3] == "SIT", "cached as sat"
 
 
-def test_unsit_puts_him_back_and_a_repeat_is_not_journaled_twice(sit_env, tmp_path):
+def test_unsit_puts_him_back_and_a_repeat_is_not_journaled_twice(sit_env):
     sit_env.post("/roster/sit/3", json={"sat": True})
-    sit_env.post("/roster/sit/3", json={"sat": True})
+    assert sit_env.post("/roster/sit/3", json={"sat": True}).json()["decision"] is None
     r = sit_env.post("/roster/sit/3", json={"sat": False})
     assert {c["player_id"]: c["call"] for c in r.json()["cards"]}[3] == "START" and db.sat_ids(3) == set()
-    text = (tmp_path / "DECISIONS.md").read_text()
-    assert text.count("Week 3 sit: QB C") == 1 and text.count("Week 3 unsit: QB C") == 1
+    assert sorted(_titles()) == ["Week 3 sit: QB C", "Week 3 unsit: QB C"]
 
 
-def test_a_dev_api_sits_but_does_not_journal(sit_env, monkeypatch, tmp_path):
+def test_a_dev_api_sits_but_does_not_journal(sit_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "writes", lambda: False)
     assert sit_env.post("/roster/sit/3", json={"sat": True}).status_code == 200
-    assert db.sat_ids(3) == {3} and not (tmp_path / "DECISIONS.md").exists()
+    assert db.sat_ids(3) == {3} and db.decisions() == []
 
 
 def test_sit_refuses_a_player_off_the_roster_and_a_running_move(sit_env):
