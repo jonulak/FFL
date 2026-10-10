@@ -26,18 +26,36 @@ export function changedReason(initial: Partial<Pick<Decision, "rationale" | "rat
   return key !== (initial.rationale?.[0] ?? null) || note.trim() !== (initial.rationale_note ?? "").trim();
 }
 
-// What a move's answer asks of the page: the dialog for a reason, a toast for one recorded as the call, or nothing
-// (a dev API, or a record the DB refused: the move stands either way).
-export function askFor(ref: DecisionRef | null | undefined): "dialog" | "toast" | null {
-  if (!ref) return null;
-  return ref.needs_rationale ? "dialog" : "toast";
+// Whether a move followed the app's call, worked out at the tap so the reason dialog (or the toast) opens before ESPN
+// answers. The server records by the same rule (ffl/decisions.py followed_lineup / followed_sit); both run
+// tests/fixtures/followed_call.json. A START lands in a starting slot, anything else off them.
+const BENCH = new Set(["BE", "IR"]);
+
+export function followedLineup(moves: { player_id: number; to_slot: string }[], cards: { player_id: number; call: string }[]): boolean {
+  const call = new Map(cards.map((c) => [c.player_id, c.call]));
+  return moves.every((m) => (call.get(m.player_id) === "START") === !BENCH.has(m.to_slot));
 }
 
-// Which of a claims submit's rows the one reason form writes: the first that still needs a reason is the form's own
-// row, and only the others that need one get the copy, so a resubmit never overwrites a reason already given.
-export function claimsWhyTargets(refs: DecisionRef[]): { first: DecisionRef; rest: DecisionRef[] } | null {
-  const [first, ...rest] = refs.filter((r) => r.needs_rationale);
-  return first ? { first, rest } : null;
+// Sitting a player the call starts goes against it; standing one back up, or sitting a bench player, does not.
+export function followedSit(card: { call: string; model_call?: string | null }, sat: boolean): boolean {
+  return !sat || (card.model_call || card.call) !== "START";
+}
+
+// A promise settled from outside: the reason form opens at the tap holding one, and the move's answer hands it the
+// rows to save to (resolve), or the move failed (reject).
+export function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
+  let resolve!: (v: T) => void, reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  promise.catch(() => {}); // a move that fails before anyone saved is not an unhandled rejection
+  return { promise, resolve, reject };
+}
+
+// Which of a claims submit's rows the one reason form writes (the first takes the form, the rest the copy). Only those
+// still needing a reason, so a resubmit never overwrites one already given, and the form leaves once the answer says
+// none does (`needed`). A reason saved before the answer then still lands, on every row of the submit.
+export function whyRows(refs: DecisionRef[]): { ids: number[]; needed: boolean } {
+  const open = refs.filter((r) => r.needs_rationale);
+  return open.length ? { ids: open.map((r) => r.id), needed: true } : { ids: refs.map((r) => r.id), needed: false };
 }
 
 // What the claims form says once the reason is saved: the claims row's own save stands, and a free-add row whose

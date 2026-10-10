@@ -1,8 +1,8 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useState } from "react";
-import { clientGet, clientPost, ClientError } from "@/app/api-client";
+import { useEffect, useId, useState } from "react";
+import { clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,14 +29,18 @@ export function usePresets(): Presets | null {
 // Why a decision was made: one preset, a note, and (on the Decisions page's Edit) how it turned
 // out. No dialog chrome, so the move sheets and the dialog can both hold it. A failed save keeps
 // every field as typed and says why under the buttons.
-export function RationaleForm({ decision, presets, withOutcome = false, onSaved, onLater }: {
-  decision: Pick<Decision, "id" | "kind"> & Partial<Pick<Decision, "rationale" | "rationale_note" | "outcome">>;
+// A move's prompt opens at the tap, before its row exists: `targets` then settles with the rows the
+// answer recorded (the first takes the form, the rest the same reason), and a Save pressed sooner waits for it.
+export function RationaleForm({ decision, targets, presets, withOutcome = false, onSaved, onLater }: {
+  decision: Pick<Decision, "kind"> & Partial<Pick<Decision, "id" | "rationale" | "rationale_note" | "outcome">>;
+  targets?: Promise<number[]>;
   presets: Presets;
   withOutcome?: boolean;
-  onSaved: (d: Decision) => void;
+  onSaved: (d: Decision, failedCopies: number) => void;
   onLater?: () => void;
 }) {
   const options = presets[decision.kind] ?? [];
+  const uid = useId();
   const [key, setKey] = useState<string | null>(decision.rationale?.[0] ?? null);
   const [note, setNote] = useState(decision.rationale_note ?? "");
   const [outcome, setOutcome] = useState(decision.outcome ?? "");
@@ -51,10 +55,15 @@ export function RationaleForm({ decision, presets, withOutcome = false, onSaved,
     setSaving(true);
     setError(null);
     try {
-      onSaved(await clientPost<Decision>(`/decisions/${decision.id}`, {
-        ...(changed ? { rationale: key ? [key] : null, note } : {}), ...(withOutcome ? { outcome } : {}) }));
+      const [id, ...rest] = targets ? await targets : decision.id != null ? [decision.id] : [];
+      if (id == null) throw new Error("Not recorded, so there is nothing to save it to");
+      const body = { ...(changed ? { rationale: key ? [key] : null, note } : {}), ...(withOutcome ? { outcome } : {}) };
+      const row = await clientPost<Decision>(`/decisions/${id}`, body);
+      // the form's own row stands whatever happens to the copies; a failed copy stays open on the Decisions page
+      const copies = await Promise.allSettled(rest.map((r) => clientPost(`/decisions/${r}`, body)));
+      onSaved(row, copies.filter((c) => c.status === "rejected").length);
     } catch (e) {
-      setError(e instanceof ClientError ? e.message : "Could not save");
+      setError(e instanceof Error ? e.message : "Could not save");
       setSaving(false);
     }
   }
@@ -70,13 +79,13 @@ export function RationaleForm({ decision, presets, withOutcome = false, onSaved,
         </SelectContent>
       </Select>
       <div className="space-y-1.5">
-        <Label htmlFor={`note-${decision.id}`}>{key === "other" ? "Note" : "Add a note (optional)"}</Label>
-        <Textarea id={`note-${decision.id}`} value={note} onChange={(e) => { setNote(e.target.value); setError(null); }} />
+        <Label htmlFor={`note-${uid}`}>{key === "other" ? "Note" : "Add a note (optional)"}</Label>
+        <Textarea id={`note-${uid}`} value={note} onChange={(e) => { setNote(e.target.value); setError(null); }} />
       </div>
       {withOutcome && (
         <div className="space-y-1.5">
-          <Label htmlFor={`outcome-${decision.id}`}>Outcome</Label>
-          <Textarea id={`outcome-${decision.id}`} value={outcome} onChange={(e) => setOutcome(e.target.value)} />
+          <Label htmlFor={`outcome-${uid}`}>Outcome</Label>
+          <Textarea id={`outcome-${uid}`} value={outcome} onChange={(e) => setOutcome(e.target.value)} />
         </div>
       )}
       <div className="flex gap-2">

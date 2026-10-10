@@ -7,9 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { clientPost } from "@/app/api-client";
-import type { Claim, DecisionRef, Presets, SubmitResult } from "@/lib/api";
-import { claimsWhyTargets, savedNote } from "@/lib/decisions";
+import type { Claim, Presets, SubmitResult } from "@/lib/api";
+import { deferred, savedNote, whyRows } from "@/lib/decisions";
 import { atMost, processDay, submitSummary, type SubmitFailure } from "@/lib/claims";
 import { ClaimName } from "./claim-name";
 import { SubmitError, useClaims } from "./claims-context";
@@ -102,26 +101,20 @@ function Outcome({ r, verdict, name }: { r: SubmitResult; verdict: { ok: boolean
   );
 }
 
-// One reason for the whole submit: the claims row (or, with no claims, the first add) takes the form and the
-// other rows of the same submit are given the same reason. No Later here; Done leaves them open.
-function ClaimsWhy({ refs, presets }: { refs: DecisionRef[]; presets: Presets | null }) {
+// One reason for the whole submit, asked from the moment Send is pressed rather than after ESPN's minute: the rows
+// arrive with the answer (`targets`, see whyRows), the first takes the form and the others the same reason.
+// No Later here; Done leaves them open on the Decisions page.
+function ClaimsWhy({ targets, presets }: { targets: Promise<number[]>; presets: Presets | null }) {
   const [saved, setSaved] = useState<string | null>(null);
-  const targets = claimsWhyTargets(refs);
-  if (!presets || !targets) return null;
-  const { first, rest } = targets;
+  if (!presets) return null;
   return (
     <section className="space-y-1.5">
       <h3 className={SUB}>Why these claims?</h3>
       {saved
         ? <p className="text-sm text-muted-foreground">{saved}</p>
-        // kind "claims" even when the first open row is a free add: the two kinds offer the same reasons
-        : <RationaleForm decision={{ id: first.id, kind: "claims", rationale: null, rationale_note: null, outcome: null }} presets={presets}
-            onSaved={async (d) => {
-              const body = { rationale: d.rationale, note: d.rationale_note ?? "" };
-              // the form's own save stands whatever happens to the rest; a failed copy stays open on the Decisions page
-              const copies = await Promise.allSettled(rest.map((r) => clientPost(`/decisions/${r.id}`, body)));
-              setSaved(savedNote(copies.filter((c) => c.status === "rejected").length));
-            }} />}
+        // kind "claims" even when the first row is a free add: the two kinds offer the same reasons
+        : <RationaleForm decision={{ kind: "claims" }} targets={targets} presets={presets}
+            onSaved={(_, failed) => setSaved(savedNote(failed))} />}
     </section>
   );
 }
@@ -158,14 +151,24 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
   const [loading, setLoading] = useState(true);
   useEffect(() => { void refresh(true).finally(() => setLoading(false)); }, [refresh]);
 
+  // The reason form, up while the submit runs: `rows` settles with the answer's rows (whyRows), `needed` says
+  // whether any of them still wants a reason (null until the answer), and the form leaves when none does.
+  const [why, setWhy] = useState<{ rows: ReturnType<typeof deferred<number[]>>; needed: boolean | null } | null>(null);
   const send = async () => {
     setFault(null);
     setFrozen({ title, planned: data.claims.length, outside: replaceOutside ? new Set() : new Set(outside.map((c) => c.id)) });
+    const rows = deferred<number[]>();
+    setWhy({ rows, needed: null });
     try {
       const r = await submit(replaceOutside, data.now);
+      const w = whyRows(r.decisions ?? []);
+      rows.resolve(w.ids);
+      setWhy(w.needed ? { rows, needed: true } : null);
       setResult(r);
       if (r.now.length) router.refresh(); // the roster changed: the table's comparisons and the pool
     } catch (e) {
+      rows.reject(e);
+      setWhy(null);
       const f: SubmitFailure = e instanceof SubmitError ? e.failure : { kind: "other", error: e instanceof Error ? e.message : String(e) };
       setFault(f);
       if (f.kind === "changed") {
@@ -184,6 +187,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
     setResult(null);
     setFault(null);
     setFrozen(null);
+    setWhy(null);
     setLoading(false);
   };
 
@@ -250,7 +254,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
             </ul>
           </div>
         )}
-        {result?.decisions?.some((d) => d.needs_rationale) && <ClaimsWhy refs={result.decisions} presets={presets} />}
+        {why && <ClaimsWhy targets={why.rows.promise} presets={presets} />}
         {fault && <Failure f={fault} name={name} />}
       </div>
       {/* PHONE_INSET, written out: Tailwind only generates a variant it can read in the source */}

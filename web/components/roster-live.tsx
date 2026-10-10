@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { ClientError, clientPost } from "@/app/api-client";
 import { toast } from "sonner";
 import type { Card, DecisionRef, Roster } from "@/lib/api";
-import { askFor } from "@/lib/decisions";
+import { deferred, followedLineup, followedSit } from "@/lib/decisions";
 import { afterFailure, applyMoves, fillOptions, irIllegal, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
 import { RationaleDialog } from "./rationale-dialog";
 import { usePresets } from "./rationale-form";
@@ -39,7 +39,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const [sitError, setSitError] = useState<{ id: number; text: string } | null>(null);
   const shown = optimistic ?? data;
   const presets = usePresets();
-  const [asking, setAsking] = useState<(DecisionRef & { kind: string; title: string; rationale?: string[] }) | null>(null);
+  const [asking, setAsking] = useState<{ kind: string; title: string; targets: Promise<number[]>; rationale?: string[] } | null>(null);
   // every change a move makes to the rows (the re-slot, ESPN's read-back, a refusal putting them back) plays out
   const { root, capture } = useFlip<HTMLDivElement>(shown);
 
@@ -56,12 +56,28 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const close = () => { setPicked(null); setFill(null); };
 
   const names = (ids: number[]) => ids.map((i) => shown.cards.find((c) => c.player_id === i)?.name).join(", ");
-  // The reason for a move: a dialog when it was not the call, a toast (with Edit) when it was. The sheet is
-  // already closed by the time the answer lands.
-  const ask = (ref: DecisionRef | null | undefined, kind: string, dialogTitle: string, title: string) => {
-    const what = askFor(ref);
-    if (what === "dialog") setAsking({ ...ref!, kind, title: dialogTitle });
-    else if (what === "toast") toast("Logged: followed the call", { action: { label: "Edit", onClick: () => setAsking({ ...ref!, kind, title, rationale: ["followed_call"] }) } });
+  // The reason for a move, asked at the tap rather than after ESPN's answer: a dialog when it goes against the call,
+  // a toast (with Edit) when it follows it. The answer then settles the prompt (`settle`): it hands the form the row
+  // it recorded, opens the dialog after all if the server judged the move differently, and on a failed or
+  // unrecorded move takes the prompt down (the move's own error says why under the row).
+  const ask = (kind: string, followed: boolean, dialogTitle: string, title: string) => {
+    const row = deferred<number[]>();
+    const prompt = { kind, targets: row.promise };
+    const edit = () => setAsking({ ...prompt, title, rationale: ["followed_call"] });
+    const toastId = followed ? toast("Logged: followed the call", { action: { label: "Edit", onClick: edit } }) : null;
+    if (!followed) setAsking({ ...prompt, title: dialogTitle });
+    const drop = () => {
+      if (toastId != null) toast.dismiss(toastId);
+      setAsking((a) => (a?.targets === row.promise ? null : a));
+    };
+    return {
+      settle(ref: DecisionRef | null | undefined) {
+        if (!ref) { row.resolve([]); drop(); return; }
+        row.resolve([ref.id]);
+        if (followed && ref.needs_rationale) { if (toastId != null) toast.dismiss(toastId); setAsking({ ...prompt, title: dialogTitle }); }
+      },
+      fail(e: unknown) { row.reject(e); drop(); },
+    };
   };
 
   const move = async (p: SheetPick) => {
@@ -83,14 +99,17 @@ export function RosterLive({ initial }: { initial: Roster }) {
     setPending(moves.map((m) => m.player_id));
     close();
     clear();
+    const who = names(moves.map((m) => m.player_id));
+    const prompt = ask("lineup", followedLineup(moves, before.cards), `Why move ${who}?`, who);
     try {
       const back = await clientPost<Roster>("/lineup", { moves }, MOVE_MS);
       capture();
       replace(back);
-      ask(back.decision, "lineup", `Why move ${names(moves.map((m) => m.player_id))}?`, names(moves.map((m) => m.player_id)));
+      prompt.settle(back.decision);
       // a dev API with FFL_WRITES=0 answers as if ESPN had taken it; never let that read as ESPN
       setNotice(back.writes ? null : { id, text: "fake write (FFL_WRITES=0)" });
     } catch (e) {
+      prompt.fail(e);
       const f = e instanceof ClientError ? lineupFailure(e.status, e.body, e.message) : lineupFailure(null, null, message(e));
       capture();
       replace(afterFailure(f, before, next));
@@ -113,13 +132,15 @@ export function RosterLive({ initial }: { initial: Roster }) {
     replace(next);
     setOptimistic(next);
     setSitPending(c.player_id);
+    const title = `${sat ? "Sit" : "Unsit"} ${c.name}`;
+    const prompt = ask(sat ? "sit" : "unsit", followedSit(c, sat), title, title);
     try {
       const back = await clientPost<Roster>(`/roster/sit/${c.player_id}`, { sat });
       capture();
       replace(back);
-      const title = `${sat ? "Sit" : "Unsit"} ${c.name}`;
-      ask(back.decision, sat ? "sit" : "unsit", title, title);
+      prompt.settle(back.decision);
     } catch (e) {
+      prompt.fail(e);
       capture();
       replace(before);
       setSitError({ id: c.player_id, text: `Not saved: ${message(e)}` });

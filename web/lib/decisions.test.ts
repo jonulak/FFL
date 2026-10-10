@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { askFor, byWeek, changedReason, claimsWhyTargets, formError, needsRationale, reasonText, savedNote } from "./decisions";
+import { byWeek, changedReason, deferred, followedLineup, followedSit, formError, needsRationale, reasonText, savedNote, whyRows } from "./decisions";
 import type { Decision } from "./api";
 
 const P = { lineup: [{ key: "followed_call", label: "Followed the call" }, { key: "matchup", label: "Matchup" }, { key: "other", label: "Other" }] };
@@ -36,18 +37,13 @@ describe("decisions", () => {
     expect(changedReason({ rationale: null, rationale_note: null }, "matchup", "")).toBe(true);
     expect(changedReason({}, "matchup", "")).toBe(true);
   });
-  it("asks for a reason only when the move was not the call", () => {
-    expect(askFor({ id: 1, needs_rationale: true })).toBe("dialog");
-    expect(askFor({ id: 1, needs_rationale: false })).toBe("toast");
-    expect(askFor(null)).toBeNull();
-    expect(askFor(undefined)).toBeNull();
-  });
   it("asks the claims reason only of the rows that still need one", () => {
     const r = (id: number, needs_rationale: boolean) => ({ id, needs_rationale });
-    expect(claimsWhyTargets([r(1, true), r(2, true), r(3, false)])).toEqual({ first: r(1, true), rest: [r(2, true)] });
-    expect(claimsWhyTargets([r(1, false), r(2, true), r(3, true)])).toEqual({ first: r(2, true), rest: [r(3, true)] });
-    expect(claimsWhyTargets([r(1, false)])).toBeNull();
-    expect(claimsWhyTargets([])).toBeNull();
+    expect(whyRows([r(1, true), r(2, true), r(3, false)])).toEqual({ ids: [1, 2], needed: true });
+    expect(whyRows([r(1, false), r(2, true)])).toEqual({ ids: [2], needed: true });
+    // nothing open (a resubmit whose rows already have a reason): the form leaves, a reason saved early lands on all
+    expect(whyRows([r(1, false), r(2, false)])).toEqual({ ids: [1, 2], needed: false });
+    expect(whyRows([])).toEqual({ ids: [], needed: false });
   });
   it("says when a free-add copy of the reason failed", () => {
     expect(savedNote(0)).toBe("Saved");
@@ -57,4 +53,26 @@ describe("decisions", () => {
   it("groups newest week first, weekless last", () => {
     expect(byWeek([d({ id: 1, week: 5 }), d({ id: 2, week: null }), d({ id: 3, week: 6 })]).map((g) => g.week)).toEqual([6, 5, null]);
   });
+  // the server's rule (ffl/decisions.py), run over the fixture tests/test_decisions.py runs too
+  it("knows at the tap whether a move followed the call", () => {
+    const f = JSON.parse(readFileSync(new URL("../../tests/fixtures/followed_call.json", import.meta.url), "utf8")) as Fixture;
+    const by = new Map(f.cards.map((c) => [c.player_id, c]));
+    for (const c of f.lineup)
+      expect(followedLineup(c.moves.map(([player_id, , to_slot]) => ({ player_id, to_slot })), f.cards), c.why).toBe(c.followed);
+    for (const c of f.sit) expect(followedSit(by.get(c.player_id)!, c.sat), c.why).toBe(c.followed);
+  });
+  it("hands the row ids over when the answer lands", async () => {
+    const ids = deferred<number[]>();
+    setTimeout(() => ids.resolve([7]), 0);
+    await expect(ids.promise).resolves.toEqual([7]);
+    const failed = deferred<number[]>();
+    failed.reject(new Error("refused"));
+    await expect(failed.promise).rejects.toThrow("refused");
+  });
 });
+
+type Fixture = {
+  cards: { player_id: number; call: string; model_call: string }[];
+  lineup: { moves: [number, string, string][]; followed: boolean; why: string }[];
+  sit: { player_id: number; sat: boolean; followed: boolean; why: string }[];
+};

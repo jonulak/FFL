@@ -1,0 +1,23 @@
+{
+  "_": "Shared by tests/test_decisions.py and web/lib/decisions.test.ts: the Roster page decides at the tap (dialog or toast) with the same rule the server records by (decisions.followed_lineup / followed_sit).",
+  "cards": [
+    {"player_id": 1, "call": "START", "model_call": "START"},
+    {"player_id": 2, "call": "BENCH", "model_call": "BENCH"},
+    {"player_id": 3, "call": "OUT", "model_call": "OUT"},
+    {"player_id": 4, "call": "IR", "model_call": "IR"},
+    {"player_id": 5, "call": "SIT", "model_call": "START"}
+  ],
+  "lineup": [
+    {"moves": [[1, "WR", "RB/WR/TE"], [2, "RB/WR/TE", "WR"]], "followed": false, "why": "a BENCH call into a start"},
+    {"moves": [[1, "BE", "WR"], [2, "WR", "BE"]], "followed": true, "why": "the call's lineup"},
+    {"moves": [[1, "WR", "RB/WR/TE"]], "followed": true, "why": "a START shuffled between starting slots"},
+    {"moves": [[3, "BE", "IR"], [4, "IR", "BE"]], "followed": true, "why": "OUT to IR, IR activated to the bench"},
+    {"moves": [[1, "WR", "BE"]], "followed": false, "why": "benching a START"}
+  ],
+  "sit": [
+    {"player_id": 1, "sat": true, "followed": false, "why": "sitting a START"},
+    {"player_id": 2, "sat": true, "followed": true, "why": "sitting a BENCH player"},
+    {"player_id": 3, "sat": true, "followed": true, "why": "sitting an OUT player"},
+    {"player_id": 5, "sat": false, "followed": true, "why": "standing him back up"}
+  ]
+}
