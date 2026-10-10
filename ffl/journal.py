@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from espn_api.football.activity import Activity
 
-from . import db
+from . import db, notify
 from .config import MY_TEAM_ID, SWID, league
 from .settings import load
 
@@ -53,7 +53,8 @@ def sync_transactions(lg):
                          "type": action, "team": team.team_name, "player": getattr(player, "name", player),
                          "action": action, "bid": bid, "reasoning": ""})
     new = db.add_transactions(rows)  # the (season, id) key makes concurrent syncs safe
-    print(f"transactions: +{new}")
+    notify.enqueue_moves(new)
+    print(f"transactions: +{len(new)}")
     return new
 
 

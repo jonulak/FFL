@@ -838,7 +838,7 @@ def transactions_sync():
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
     if new:
         cache.expire("transactions")
-    return {"new": new}
+    return {"new": len(new)}
 
 
 @app.post("/refresh")

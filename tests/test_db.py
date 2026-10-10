@@ -64,8 +64,8 @@ TX = {"id": "1788937502756-6-DROPPED-4688380", "date": "2026-09-09T03:05", "type
 
 
 def test_transactions_round_trip_and_dedupe():
-    assert db.add_transactions([TX]) == 1
-    assert db.add_transactions([TX]) == 0
+    assert db.add_transactions([TX]) == [{**TX, "player_id": 4688380}]
+    assert db.add_transactions([TX]) == []
     [row] = db.transactions()
     assert row == {**TX, "player_id": 4688380}
 
@@ -80,7 +80,7 @@ def _sync_worker(url, rows, q):
     os.environ["FFL_DB_URL"] = url
     from ffl import db as d
     d.reset()
-    q.put(d.add_transactions(rows))
+    q.put(len(d.add_transactions(rows)))
 
 
 def test_two_processes_same_rows_leave_one_copy():

@@ -321,18 +321,19 @@ def _tx_player_id(tx_id: str) -> int | None:
 _TX_COLS = ("id", "date", "type", "team", "player", "player_id", "action", "bid", "reasoning")
 
 
-def add_transactions(rows: list[dict], season: int = SEASON) -> int:
-    """Insert the rows not already logged (key: season, id). Returns how many were new: counted by
-    RETURNING, since rowcount is unreliable for a multi-row ON CONFLICT DO NOTHING."""
+def add_transactions(rows: list[dict], season: int = SEASON) -> list[dict]:
+    """Insert the rows not already logged (key: season, id). Returns the rows that were new, as
+    transactions() shapes them: found by RETURNING, since rowcount is unreliable for a multi-row
+    ON CONFLICT DO NOTHING. notify queues a notice for each."""
     if not rows:
-        return 0
+        return []
     vals = [{"season": season, "id": r["id"], "date": r["date"], "type": r["type"], "team": r["team"],
              "player": r["player"], "player_id": _tx_player_id(r["id"]), "action": r["action"],
              "bid": int(r.get("bid") or 0), "reasoning": r.get("reasoning") or ""} for r in rows]
     t = transactions_table
     with _write() as c:
-        new = c.execute(_upsert(t, vals, ["season", "id"], None).returning(t.c.id)).all()
-    return len(new)
+        new = c.execute(_upsert(t, vals, ["season", "id"], None).returning(*[t.c[k] for k in _TX_COLS])).all()
+    return [dict(r._mapping) for r in new]
 
 
 def transactions(season: int = SEASON) -> list[dict]:

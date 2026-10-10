@@ -79,12 +79,12 @@ def test_refresh_502s_when_espn_is_down(client, monkeypatch):
 
 def test_transactions_sync_expires_the_page_on_new_rows(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
-    monkeypatch.setattr(api, "sync_transactions", lambda lg: 2)
+    monkeypatch.setattr(api, "sync_transactions", lambda lg: [{}, {}])
     expired = []
     monkeypatch.setattr(api.cache, "expire", expired.append)
     r = client.post("/transactions/sync")
     assert r.status_code == 200 and r.json() == {"new": 2} and expired == ["transactions"]
-    monkeypatch.setattr(api, "sync_transactions", lambda lg: 0)
+    monkeypatch.setattr(api, "sync_transactions", lambda lg: [])
     assert client.post("/transactions/sync").json() == {"new": 0} and expired == ["transactions"]
 
 
