@@ -170,12 +170,16 @@ def test_empty_group_rejected():
     assert any("nothing to make room" in r for r in errs([{"targets": [101], "cuts": [], "open": 0}]))
 
 
-def test_decision_entry():
-    e = C.decision_entry([{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}],
-                         {101: "Addison", 102: "Mims", 103: "Doubs", 1: "Shaheed", 2: "Lockett"}, "2026-10-06", {102: FA})
-    assert e.startswith("## 2026-10-06 — Waiver claims (from the app)")
-    assert "get 2 of 3: Addison, Mims (FA, added now), Doubs; cut Shaheed, Lockett" in e
-    assert "**Reasoning:** (add by hand)" in e
+def test_decision_row_and_free_adds():
+    names = {101: "Addison", 102: "Mims", 103: "Doubs", 1: "Shaheed", 2: "Lockett"}
+    r = C.decision_row([{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}], names, {102: FA}, 6, 2)
+    assert (r["kind"], r["title"], r["week"], r["rationale"]) == ("claims", "Week 6 waiver claims", 6, None)
+    assert r["decision"] == "(1) get 2 of 3: Addison, Mims (FA, added now), Doubs; cut Shaheed, Lockett"
+    assert r["facts"]["submits"] == 2 and r["player_ids"] == [101, 102, 103, 1, 2]
+    adds = C.free_add_rows([{"group": 0, "add": 102, "drop": 1}], names, 6)
+    assert [(a["kind"], a["title"], a["player_ids"], a["rationale"]) for a in adds] == [
+        ("free_add", "Week 6 add: Mims, drop Shaheed", [102, 1], None)]
+    assert C.free_add_rows([{"group": 0, "add": 102, "drop": None}], names, 6)[0]["title"] == "Week 6 add: Mims"
 
 
 class FakeW:

@@ -8,6 +8,8 @@ the rows left. A no-drop claim lands while the roster has room, so open spots be
 of them; otherwise another group's no-drop claim could fill a spot this group counted on."""
 from __future__ import annotations
 
+from . import decisions
+
 FREE = "FREEAGENT"
 
 
@@ -145,34 +147,35 @@ def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True):
     return errs
 
 
-def decision_entry(groups, names, day, status):
-    """Format a decision entry for journal/DECISIONS.md."""
+def decision_row(groups, names, status, week, submits):
+    """The week's claims row in the decisions table (db.put_week_claims keeps one per week, updated by each submit)."""
     def nm(i):
-        name = names.get(i, str(i))
-        if status.get(i) == FREE:
-            name += " (FA, added now)"
-        return name
-
-    def cut(i):
-        return names.get(i, str(i))
+        return names.get(i, str(i)) + (" (FA, added now)" if status.get(i) == FREE else "")
 
     parts = []
     for i, g in enumerate(groups):
-        targets_str = ", ".join(map(nm, g["targets"]))
-        cuts_str = ", ".join(map(cut, g["cuts"])) or "none"
-        cap = capacity(g)
-        num_targets = len(g["targets"])
-        part = f"({i + 1}) get {cap} of {num_targets}: {targets_str}; cut {cuts_str}"
+        part = (f"({i + 1}) get {capacity(g)} of {len(g['targets'])}: {', '.join(map(nm, g['targets']))}; "
+                f"cut {', '.join(names.get(c, str(c)) for c in g['cuts']) or 'none'}")
         if g.get("open"):
             part += f" + {g['open']} open spot(s)"
         parts.append(part)
+    ids = list(dict.fromkeys(p for g in groups for p in g["targets"] + g["cuts"]))
+    return {"at": decisions.now_iso(), "week": week, "kind": "claims", "source": "app",
+            "title": f"Week {week} waiver claims", "decision": "; ".join(parts),
+            "facts": {"groups": groups, "submits": submits}, "rationale": None, "player_ids": ids}
 
-    header = f"## {day} — Waiver claims (from the app)"
-    decision = "- **Decision:** " + "; ".join(parts)
-    reasoning = "- **Reasoning:** (add by hand)"
-    outcome = "- **Outcome (fill in later):**"
 
-    return "\n".join([header, decision, reasoning, outcome, ""])
+def free_add_rows(now, names, week):
+    """One decisions row per free agent a submit added on the spot."""
+    out = []
+    for m in now:
+        title = f"Week {week} add: {names.get(m['add'], str(m['add']))}"
+        if m.get("drop") is not None:
+            title += f", drop {names.get(m['drop'], str(m['drop']))}"
+        out.append({"at": decisions.now_iso(), "week": week, "kind": "free_add", "source": "app", "title": title,
+                    "decision": title.split(": ", 1)[1], "facts": {"move": m}, "rationale": None,
+                    "player_ids": [m["add"]] + ([m["drop"]] if m.get("drop") is not None else [])})
+    return out
 
 
 def matches(claims, pending):

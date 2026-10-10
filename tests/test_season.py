@@ -746,10 +746,15 @@ def test_lineup_moves_names_a_player_not_on_the_roster():
 def test_lineup_entry_records_each_move_with_the_call():
     cards = [{"player_id": 3, "name": "Bench", "pos": "RB", "call": "START", "gap": 1.4},
              {"player_id": 2, "name": "Flex", "pos": "WR", "call": "BENCH", "gap": -1.4}]
-    e = season.lineup_entry([(3, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], cards, 5, "2026-10-07")
-    assert e.startswith("## 2026-10-07 — Week 5 lineup: Bench to FLEX, Flex to the bench\n")
-    assert "- **Decision:** Bench (RB) BE → FLEX; Flex (WR) FLEX → BE. Made from the Roster page." in e
-    assert "Bench: call START, gap +1.4" in e and "Flex: call BENCH, gap −1.4" in e
+    e = season.lineup_entry([(3, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], cards, 5)
+    assert e["title"] == "Week 5 lineup: Bench to FLEX, Flex to the bench"
+    assert e["decision"] == "Bench (RB) BE → FLEX; Flex (WR) FLEX → BE"
+    assert (e["kind"], e["source"], e["week"], e["player_ids"]) == ("lineup", "app", 5, [3, 2])
+    assert e["facts"]["moves"][0] == {"player_id": 3, "name": "Bench", "pos": "RB", "from": "BE", "to": "RB/WR/TE",
+                                      "call": "START", "gap": 1.4}
+    assert e["followed_call"] is True and e["rationale"] == ["followed_call"]
+    against = season.lineup_entry([(3, "RB/WR/TE", "BE"), (2, "BE", "RB/WR/TE")], cards, 5)
+    assert against["followed_call"] is False and against["rationale"] is None
 
 
 def test_a_sat_player_is_left_out_of_the_call_and_the_roster_is_called_without_him():
@@ -779,12 +784,14 @@ def test_sitting_nobody_changes_nothing():
 
 
 def test_sit_entry_names_him_and_the_call_he_had():
-    card = {"name": "QB C", "pos": "QB", "call": "START", "model_call": "START",
+    card = {"player_id": 7, "name": "QB C", "pos": "QB", "call": "START", "model_call": "START",
             "reason": "starts at QB: 22.0 vs 18.0 for QB B"}
-    e = season.sit_entry(card, True, 5, "2026-10-08")
-    assert e.startswith("## 2026-10-08 — Week 5 sit: QB C\n")
-    assert "the call was START (starts at QB: 22.0 vs 18.0 for QB B)" in e
-    assert "Week 5 unsit: QB C" in season.sit_entry(card, False, 5, "2026-10-08")
+    e = season.sit_entry(card, True, 5)
+    assert (e["kind"], e["title"], e["player_ids"]) == ("sit", "Week 5 sit: QB C", [7])
+    assert e["facts"] == {"call": "START", "reason": "starts at QB: 22.0 vs 18.0 for QB B"}
+    assert e["rationale"] is None, "sitting a START is against the call"
+    u = season.sit_entry({**card, "call": "SIT"}, False, 5)
+    assert (u["kind"], u["title"], u["rationale"]) == ("unsit", "Week 5 unsit: QB C", ["followed_call"])
 
 
 def test_reseat_a_swap_trades_rows_and_back_again():

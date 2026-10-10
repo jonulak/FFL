@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from . import decisions
 from .board import bench_depth, starter_counts
 from .draft_watch import SEASON_WEEKS, _is_flex
 
@@ -770,27 +771,28 @@ def reseat(items: list[tuple[int, str, str]], cards: list[dict], seats: dict[int
     return out
 
 
-def lineup_entry(items: list[tuple[int, str, str]], cards: list[dict], week: int, day: str) -> str:
-    """journal/DECISIONS.md's entry for moves made from the Roster page: what moved, and the call and gap each
-    player carried at that moment (the reasoning is the call; a hand override says so by its chip)."""
+def lineup_entry(items: list[tuple[int, str, str]], cards: list[dict], week: int) -> dict:
+    """The decisions row for moves made from the Roster page: what moved, and the call and gap each player carried
+    at that moment. A move that follows the call is recorded as such; any other is left for a rationale."""
     by = {c["player_id"]: c for c in cards}
     where = lambda s: "the bench" if s == "BE" else slot_label(s)  # noqa: E731
-    title = ", ".join(f"{by[p]['name']} to {where(t)}" for p, _, t in items)
-    moved = "; ".join(f"{by[p]['name']} ({by[p]['pos']}) {slot_label(f)} → {slot_label(t)}" for p, f, t in items)
-    calls = "; ".join(f"{by[p]['name']}: call {by[p]['call']}" + (
-        f", gap {'+' if by[p]['gap'] >= 0 else '−'}{abs(by[p]['gap']):.1f}" if by[p].get("gap") is not None else "")
-        for p, _, _ in items)
-    return (f"## {day} — Week {week} lineup: {title}\n"
-            f"- **Decision:** {moved}. Made from the Roster page.\n"
-            f"- **Reasoning:** {calls}.\n"
-            f"- **Outcome (fill in later):**\n")
+    followed = decisions.followed_lineup(items, cards)
+    return {"at": decisions.now_iso(), "week": week, "kind": "lineup", "source": "app",
+            "title": f"Week {week} lineup: " + ", ".join(f"{by[p]['name']} to {where(t)}" for p, _, t in items),
+            "decision": "; ".join(f"{by[p]['name']} ({by[p]['pos']}) {slot_label(f)} → {slot_label(t)}" for p, f, t in items),
+            "facts": {"moves": [{"player_id": p, "name": by[p]["name"], "pos": by[p]["pos"], "from": f, "to": t,
+                                 "call": by[p]["call"], "gap": by[p].get("gap")} for p, f, t in items]},
+            "followed_call": followed, "rationale": ["followed_call"] if followed else None,
+            "player_ids": [p for p, _, _ in items]}
 
 
-def sit_entry(card: dict, sat: bool, week: int, day: str) -> str:
-    """journal/DECISIONS.md's entry for a sit toggled on the Roster page: who, and the call he carried then."""
+def sit_entry(card: dict, sat: bool, week: int) -> dict:
+    """The decisions row for a sit toggled on the Roster page: who, and the call he carried then."""
+    kind = "sit" if sat else "unsit"
+    followed = decisions.followed_sit(card, sat)
     what = "sat for the week, left out of the lineup call" if sat else "back in the lineup call"
-    call = card.get("model_call") or card["call"]
-    return (f"## {day} — Week {week} {'sit' if sat else 'unsit'}: {card['name']}\n"
-            f"- **Decision:** {card['name']} ({card['pos']}) {what}. Made from the Roster page.\n"
-            f"- **Reasoning:** the call was {call} ({card['reason']}).\n"
-            f"- **Outcome (fill in later):**\n")
+    return {"at": decisions.now_iso(), "week": week, "kind": kind, "source": "app",
+            "title": f"Week {week} {kind}: {card['name']}", "decision": f"{card['name']} ({card['pos']}) {what}",
+            "facts": {"call": card.get("model_call") or card["call"], "reason": card["reason"]},
+            "followed_call": followed, "rationale": ["followed_call"] if followed else None,
+            "player_ids": [card["player_id"]]}
