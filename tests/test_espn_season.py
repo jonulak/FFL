@@ -893,3 +893,11 @@ def test_with_espn_slots_puts_a_seated_player_in_his_seats_place():
     assert {r["player_id"]: r["espn_order"] for r in out} == {1: 6, 2: 13, 3: 0}
     gone = espn_season.with_espn_slots(rows, {1: {"order": 0}}, {}, {1: 99})
     assert gone[0]["espn_order"] == 0, "a seat whose owner left the roster falls back to his own place"
+
+
+def test_parse_roster_flags_carries_injury_and_name_when_espn_says_them():
+    doc = {"teams": [{"id": 7, "roster": {"entries": [
+        {"playerId": 1, "lineupSlotId": 2, "playerPoolEntry": {"player": {"injuryStatus": "OUT", "fullName": "A B"}}},
+        {"playerId": 2, "playerPoolEntry": {}}]}}]}
+    f = espn_season.parse_roster_flags(doc, 7)
+    assert f[1]["injury"] == "OUT" and f[1]["name"] == "A B" and "injury" not in f[2] and "name" not in f[2]

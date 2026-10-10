@@ -979,16 +979,21 @@ _SLOT_NAME = {i: n for n, i in espn_write.SLOT_ID.items()}
 def parse_roster_flags(doc: dict, team_id: int) -> dict[int, dict]:
     """mRoster -> {id: {droppable, locked, slot, order}} for one team (slot = ESPN's lineup slot name, left out when unknown;
     order = his place in ESPN's entries, the order its Matchup tab lists a slot's players in). ESPN marks an undroppable
-    player (droppable false) and one whose game has started (lineupLocked); anything unsaid is droppable/unlocked."""
+    player (droppable false) and one whose game has started (lineupLocked); anything unsaid is droppable/unlocked.
+    injury (ESPN's injuryStatus) and name (fullName) ride along when the document carries them."""
     team = next((t for t in doc.get("teams", []) if t["id"] == team_id), None)
     out = {}
     for i, e in enumerate((team or {}).get("roster", {}).get("entries", [])):
         pe = e.get("playerPoolEntry") or {}
-        out[int(e["playerId"])] = {"droppable": (pe.get("player") or {}).get("droppable") is not False,
+        player = pe.get("player") or {}
+        out[int(e["playerId"])] = {"droppable": player.get("droppable") is not False,
                                    "locked": bool(pe.get("lineupLocked")), "order": i}
         slot = _SLOT_NAME.get(e.get("lineupSlotId"))
         if slot:
             out[int(e["playerId"])]["slot"] = slot
+        for key, src in (("injury", "injuryStatus"), ("name", "fullName")):
+            if player.get(src):
+                out[int(e["playerId"])][key] = player[src]
     return out
 
 
