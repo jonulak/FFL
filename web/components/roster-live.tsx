@@ -3,8 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ClientError, clientPost } from "@/app/api-client";
-import type { Card, Roster } from "@/lib/api";
+import { toast } from "sonner";
+import type { Card, DecisionRef, Roster } from "@/lib/api";
+import { askFor } from "@/lib/decisions";
 import { afterFailure, applyMoves, fillOptions, irIllegal, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
+import { RationaleDialog } from "./rationale-dialog";
+import { usePresets } from "./rationale-form";
 import { type Notice, RosterRows, type SwapControl } from "./roster-cards";
 import { type SheetPick, type SheetSubject, type SitControl, SwapSheet } from "./swap-sheet";
 import { useFlip } from "./use-flip";
@@ -34,6 +38,8 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const [sitPending, setSitPending] = useState<number | null>(null);
   const [sitError, setSitError] = useState<{ id: number; text: string } | null>(null);
   const shown = optimistic ?? data;
+  const presets = usePresets();
+  const [asking, setAsking] = useState<(DecisionRef & { kind: string; title: string }) | null>(null);
   // every change a move makes to the rows (the re-slot, ESPN's read-back, a refusal putting them back) plays out
   const { root, capture } = useFlip<HTMLDivElement>(shown);
 
@@ -48,6 +54,15 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const pick = (c: Card) => { if (pending.length) return; clear(); setFill(null); setPicked(c.player_id); };
   const openFill = (slot: string) => { if (pending.length) return; clear(); setPicked(null); setFill(slot); };
   const close = () => { setPicked(null); setFill(null); };
+
+  const names = (ids: number[]) => ids.map((i) => shown.cards.find((c) => c.player_id === i)?.name).join(", ");
+  // The reason for a move: a dialog when it was not the call, a toast (with Edit) when it was. The sheet is
+  // already closed by the time the answer lands.
+  const ask = (ref: DecisionRef | null | undefined, kind: string, dialogTitle: string, title: string) => {
+    const what = askFor(ref);
+    if (what === "dialog") setAsking({ ...ref!, kind, title: dialogTitle });
+    else if (what === "toast") toast("Logged: followed the call", { action: { label: "Edit", onClick: () => setAsking({ ...ref!, kind, title }) } });
+  };
 
   const move = async (p: SheetPick) => {
     if (pending.length || sitPending != null) return;
@@ -72,6 +87,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
       const back = await clientPost<Roster>("/lineup", { moves }, MOVE_MS);
       capture();
       replace(back);
+      ask(back.decision, "lineup", `Why move ${names(moves.map((m) => m.player_id))}?`, names(moves.map((m) => m.player_id)));
       // a dev API with FFL_WRITES=0 answers as if ESPN had taken it; never let that read as ESPN
       setNotice(back.writes ? null : { id, text: "fake write (FFL_WRITES=0)" });
     } catch (e) {
@@ -101,6 +117,8 @@ export function RosterLive({ initial }: { initial: Roster }) {
       const back = await clientPost<Roster>(`/roster/sit/${c.player_id}`, { sat });
       capture();
       replace(back);
+      const title = `${sat ? "Sit" : "Unsit"} ${c.name}`;
+      ask(back.decision, sat ? "sit" : "unsit", title, title);
     } catch (e) {
       capture();
       replace(before);
@@ -121,6 +139,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
         open={open} setOpen={setOpen} swap={swap} notice={notice} rootRef={root} />
       <SwapSheet subject={subject} move={move} onClose={close} blocked={irIllegal(shown.cards)} onFix={pick}
         week={shown.week} sit={sit} busy={pending.length > 0 || sitPending != null} />
+      <RationaleDialog decision={asking} presets={presets} onClose={() => setAsking(null)} />
     </>
   );
 }

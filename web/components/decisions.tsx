@@ -115,7 +115,7 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
   const [seen, setSeen] = useState(data.decisions);
   if (seen !== data.decisions) { setSeen(data.decisions); setRows(data.decisions); }
 
-  const kinds = Object.keys(KIND_LABEL).filter((k) => data.decisions.some((r) => r.kind === k) || filters.kind === k);
+  const kinds = Object.keys(KIND_LABEL);
   const go = (next: Partial<Filters>) => router.push(href({ ...filters, ...next }), { scroll: false });
   const groups = byWeek(rows);
 
@@ -157,7 +157,11 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
       ))}
 
       <RationaleDialog decision={editing} presets={presets} withOutcome onClose={() => setEditing(null)}
-        onSaved={(saved) => setRows((rs) => rs.map((r) => (r.id === saved.id ? saved : r)))} />
+        onSaved={(saved) => {
+          setRows((rs) => rs.map((r) => (r.id === saved.id ? saved : r)));
+          // the Open view is a server filter: re-ask so a row given its reason leaves it
+          router.refresh();
+        }} />
     </div>
   );
 }

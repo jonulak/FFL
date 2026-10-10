@@ -44,7 +44,7 @@ export function RationaleForm({ decision, presets, withOutcome = false, onSaved,
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
-    const bad = formError(key, note);
+    const bad = formError(key, note, withOutcome ? outcome : undefined);
     if (bad) return setError(bad);
     setSaving(true);
     setError(null);

@@ -1,4 +1,4 @@
-import type { Decision, Presets } from "./api";
+import type { Decision, DecisionRef, Presets } from "./api";
 
 export const KIND_LABEL: Record<string, string> = { lineup: "Lineup", sit: "Sit", unsit: "Unsit", claims: "Claims",
   free_add: "Add", trade: "Trade", draft: "Draft", note: "Note" };
@@ -12,9 +12,18 @@ export function reasonText(d: Pick<Decision, "kind" | "rationale" | "rationale_n
 }
 
 // The form's own check, the server's rule (decisions.validate_rationale) mirrored so Save says why before a round trip.
-export function formError(key: string | null, note: string): string | null {
+// A reason is required; the Decisions page's Edit may instead record an outcome alone (pass `outcome` there).
+export function formError(key: string | null, note: string, outcome?: string | null): string | null {
+  if (key == null && !outcome?.trim()) return "Pick a reason";
   if (key === "other" && !note.trim()) return "Say why under Other";
   return null;
+}
+
+// What a move's answer asks of the page: the dialog for a reason, a toast for one recorded as the call, or nothing
+// (a dev API, or a record the DB refused: the move stands either way).
+export function askFor(ref: DecisionRef | null | undefined): "dialog" | "toast" | null {
+  if (!ref) return null;
+  return ref.needs_rationale ? "dialog" : "toast";
 }
 
 // Newest week first; rows with no week (draft-era, notes) last under "Season".

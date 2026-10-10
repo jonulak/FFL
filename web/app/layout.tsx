@@ -4,6 +4,7 @@ import "./globals.css";
 import { Nav } from "@/components/nav";
 import { PlayerDialogProvider } from "@/components/player-dialog";
 import { SwRegister } from "@/components/sw-register";
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {/* the Players page with its claims dock gets 86rem from `xl`, so the table still fits beside it */}
           <main className="mx-auto max-w-5xl px-3 py-4 xl:has-[[data-claims-dock]]:max-w-[86rem]">{children}</main>
         </PlayerDialogProvider>
+        <Toaster position="bottom-center" />
       </body>
     </html>
   );
