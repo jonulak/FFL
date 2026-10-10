@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from . import calibrate, cbs, db, espn_season, espn_write, live, notify, outlook, player_card, season
 from . import claims as claims_mod
 from . import db
+from . import decisions as decisions_mod
 from . import plays as plays_mod
 from . import journal
 from .journal import sync_results, sync_transactions
@@ -804,6 +805,47 @@ def transactions():
     return _serve("transactions", espn_season.transactions_state)
 
 
+@app.get("/decisions")
+def decisions_(week: int | None = None, kind: str | None = None, open_: bool = Query(False, alias="open")):
+    """The decision journal, newest first: the app's moves and what sessions recorded, filtered for the page."""
+    rows = db.decisions()
+    weeks = sorted({r["week"] for r in rows if r["week"] is not None}, reverse=True)
+    rows = [r for r in rows if (week is None or r["week"] == week) and (kind is None or r["kind"] == kind)
+            and (not open_ or r["rationale"] is None or r["outcome"] is None)]
+    return {"decisions": rows, "weeks": weeks}
+
+
+@app.get("/decisions/presets")
+def decision_presets():
+    return {k: [{"key": key, "label": label} for key, label in v] for k, v in decisions_mod.PRESETS.items()}
+
+
+class DecisionEdit(BaseModel):
+    rationale: list[str] | None = None
+    note: str | None = None
+    outcome: str | None = None
+
+
+@app.post("/decisions/{decision_id:int}")
+def decision_edit(decision_id: int, body: DecisionEdit):
+    """Give a decision its reason (presets, or Other with a note) and, later, its outcome. Only the fields sent change."""
+    row = db.decision(decision_id)
+    if row is None:
+        raise HTTPException(404, f"no decision {decision_id}")
+    sent = body.model_fields_set
+    fields = {}
+    if "rationale" in sent or "note" in sent:
+        keys = body.rationale if "rationale" in sent else row["rationale"]
+        note = body.note if "note" in sent else row["rationale_note"]
+        if err := decisions_mod.validate_rationale(row["kind"], keys, note):
+            raise HTTPException(422, {"error": err})
+        fields |= {"rationale": keys or None, "rationale_note": (note or "").strip() or None}
+    if "outcome" in sent:
+        text = (body.outcome or "").strip() or None
+        fields |= {"outcome": text, "outcome_at": decisions_mod.now_iso() if text else None}
+    return db.update_decision(decision_id, fields) if fields else row
+
+
 @app.get("/player/{player_id}/transactions")
 def player_transactions(player_id: int):
     """One player's moves this season (the season modal's Transactions section), off the cached
@@ -816,7 +858,12 @@ def player_transactions(player_id: int):
     except Exception as e:  # noqa: BLE001 — HTTPException from the cache included
         print(f"draft pick unavailable for {player_id}: {e}")
         pick = None
-    return {"history": history + ([pick] if pick else []), "stale_since": data["stale_since"]}
+    try:  # a section, like the draft row: a journal that cannot be read leaves the moves standing
+        mine = [d for d in db.decisions() if player_id in (d["player_ids"] or [])]
+    except db.DBError as e:
+        log.warning("decisions unavailable for %s: %s", player_id, e)
+        mine = []
+    return {"history": history + ([pick] if pick else []), "decisions": mine, "stale_since": data["stale_since"]}
 
 
 DRAFT_TTL = 24 * 3600.0  # the draft is over; the record does not move

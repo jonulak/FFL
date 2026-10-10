@@ -1228,3 +1228,51 @@ def test_notify_tick_409s_while_another_runs(client, monkeypatch):
     finally:
         api._NOTIFY.release()
     assert client.post("/notify/tick").status_code == 200
+
+
+# decisions: the journal's list, presets, edit, and a player's decisions on his transactions
+def _dec(**kw):
+    row = {"at": "2026-10-10T12:00:00-04:00", "week": 6, "kind": "lineup", "source": "app", "title": "Week 6 lineup: A to FLEX",
+           "decision": "A (WR) BE → FLEX", "rationale": None, "player_ids": [11, 12], **kw}
+    return db.add_decision(row)
+
+
+def test_decisions_list_filters(client):
+    a = _dec()
+    b = _dec(at="2026-10-03T12:00:00-04:00", week=5, kind="claims", title="Week 5 waiver claims", rationale=["best_ros"], outcome="hit")
+    body = client.get("/decisions").json()
+    assert [r["id"] for r in body["decisions"]] == [a, b] and body["weeks"] == [6, 5]
+    assert [r["id"] for r in client.get("/decisions?week=5").json()["decisions"]] == [b]
+    assert [r["id"] for r in client.get("/decisions?kind=lineup").json()["decisions"]] == [a]
+    assert [r["id"] for r in client.get("/decisions?open=1").json()["decisions"]] == [a]
+
+
+def test_presets_are_served_per_kind(client):
+    p = client.get("/decisions/presets").json()
+    assert p["lineup"][0] == {"key": "followed_call", "label": "Followed the call"} and p["claims"][-1]["key"] == "other"
+
+
+def test_edit_a_decision(client):
+    i = _dec()
+    r = client.post(f"/decisions/{i}", json={"rationale": ["other"], "note": "gut on the matchup"})
+    assert r.status_code == 200 and r.json()["rationale"] == ["other"] and r.json()["rationale_note"] == "gut on the matchup"
+    r = client.post(f"/decisions/{i}", json={"outcome": "won the flex by 6"})
+    assert r.json()["outcome"] == "won the flex by 6" and r.json()["outcome_at"] and r.json()["rationale"] == ["other"], "untouched"
+    assert client.post(f"/decisions/{i}", json={"outcome": ""}).json()["outcome"] is None
+
+
+def test_edit_refuses_a_reason_from_another_kind_or_an_empty_other(client):
+    i = _dec()
+    r = client.post(f"/decisions/{i}", json={"rationale": ["best_ros"]})
+    assert r.status_code == 422 and "not a lineup reason" in r.json()["detail"]["error"]
+    assert client.post(f"/decisions/{i}", json={"rationale": ["other"], "note": " "}).status_code == 422
+    assert client.post("/decisions/9999", json={"outcome": "x"}).status_code == 404
+
+
+def test_player_transactions_carry_his_decisions(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "transactions_state", lambda: {"moves": [], "teams": [], "stale_since": None})
+    monkeypatch.setattr(api.espn_season, "draft_picks", lambda: [])
+    api.cache.clear()
+    i = _dec()
+    _dec(player_ids=[99])
+    assert [d["id"] for d in client.get("/player/11/transactions").json()["decisions"]] == [i]
