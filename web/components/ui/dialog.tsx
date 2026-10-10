@@ -45,14 +45,29 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  initialFocus,
+  ref,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
 }) {
+  // Focus lands on the panel itself unless a dialog says otherwise. Our dialogs open from app
+  // state (after the log's hold), not a Base UI trigger, so Base UI cannot tell a tap opened them
+  // and focuses the first button inside without preventScroll. On iOS, once the page is scrolled
+  // far enough to collapse the toolbar, the scroll lock does not hold and that focus pans the
+  // viewport, carrying the fixed dialog off screen. The panel is focused with preventScroll.
+  const panel = React.useRef<HTMLDivElement | null>(null)
+  const setRef = React.useCallback((el: HTMLDivElement | null) => {
+    panel.current = el
+    if (typeof ref === "function") ref(el)
+    else if (ref) ref.current = el
+  }, [ref])
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Popup
+        ref={setRef}
+        initialFocus={initialFocus ?? panel}
         data-slot="dialog-content"
         className={cn(
           // Transitions on Base UI's starting/ending styles rather than keyframes, so a tap that
