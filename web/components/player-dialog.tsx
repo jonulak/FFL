@@ -12,7 +12,8 @@ import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { OppRank, PlayerLog, PlayerTx, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
+import type { Decision, OppRank, PlayerLog, PlayerTx, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
+import { reasonText } from "@/lib/decisions";
 import { ordinal, pts } from "@/lib/format";
 import { cells, columns, hasSnaps, NAME_LINK, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
 import { volumeText } from "@/lib/box";
@@ -24,6 +25,7 @@ import { ClubLogo } from "./club-logo";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
 import { TeamLogo } from "./player-media";
 import { SeasonFacts } from "./season-facts";
+import { usePresets } from "./rationale-form";
 import { StaleBadge } from "./stale-badge";
 
 // The season modal: tap a player anywhere outside a matchup view and his game log opens over the
@@ -40,14 +42,17 @@ const HOLD_MS = 180;
 
 // `history`: his moves (the draft pick included), asked for in the same tap so they land with the
 // log (the API answers from cached payloads). A failure is no history: the section is left out.
-export type LogFetch = { promise: Promise<PlayerLog>; log?: PlayerLog; history: Promise<PlayerTx[]> };
+// `decisions` are the journal rows that name him, from the same answer.
+export type LogFetch = { promise: Promise<PlayerLog>; log?: PlayerLog; history: Promise<PlayerTx[]>; decisions: Promise<Decision[]> };
 type Shown = { seed: PlayerSeed; fetch: LogFetch };
 
 // A tap's request for the log and the history, with `log` set as soon as it lands.
 export function fetchLog(id: number): LogFetch {
+  const tx = clientGet<{ history: PlayerTx[]; decisions?: Decision[] }>(`/player/${id}/transactions`);
   const fetch: LogFetch = {
     promise: clientGet<PlayerLog>(`/player/${id}`),
-    history: clientGet<{ history: PlayerTx[] }>(`/player/${id}/transactions`).then((d) => d.history, () => []),
+    history: tx.then((d) => d.history, () => []),
+    decisions: tx.then((d) => d.decisions ?? [], () => []),
   };
   // registered before any race on it, so `log` is set by the time the race settles
   fetch.promise.then((log) => { fetch.log = log; }, () => {});
@@ -159,21 +164,53 @@ function FormSection({ p }: { p: PlayerSeed }) {
 // shows in both.
 export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Load; retry: () => void; fetch: LogFetch; className?: string }) {
   const [moves, setMoves] = useState<PlayerTx[]>([]);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   useEffect(() => {
     let current = true;
     void fetch.history.then((h) => current && setMoves(h));
+    void fetch.decisions.then((d) => current && setDecisions(d));
     return () => { current = false; };
   }, [fetch]);
   // under the seasons, once they are in: above the skeleton it would be pushed down by the log
   const history = load.state === "ready" && moves.length > 0;
   // Both inside the grow: the moves land with the log, and outside it their height arrived in one
   // frame, enough to snap the Matchup breakdown (its week already above) to the dialog's cap.
-  const grow = useGrow(`${load.state}${history ? "+moves" : ""}`);
+  const logged = load.state === "ready" && decisions.length > 0;
+  const grow = useGrow(`${load.state}${history ? "+moves" : ""}${logged ? "+decisions" : ""}`);
   return (
     <div ref={grow} className="overflow-hidden">
       <LogBody load={load} retry={retry} className={className} />
       {history && <History moves={moves} />}
+      {logged && <Decisions rows={decisions} />}
     </div>
+  );
+}
+
+// The journal rows that name him: what was decided and why, each linking to its week on the
+// Decisions page (which closes the modal). Never decided on: no section.
+function Decisions({ rows }: { rows: Decision[] }) {
+  const presets = usePresets();
+  return (
+    <section aria-labelledby="season-decisions" className="log-in space-y-1.5 px-4 pt-2 pb-5">
+      <Heading id="season-decisions" title="Decisions" note={String(rows.length)} />
+      <ul className="divide-y divide-foreground/10">
+        {rows.map((d) => {
+          const reason = presets ? reasonText(d, presets) : null;
+          const to = d.week != null ? `/decisions?week=${d.week}` : "/decisions";
+          return (
+            <li key={d.id} className="flex items-start gap-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <DialogClose nativeButton={false} render={<Link href={to} />} className={`block rounded-sm text-left font-medium leading-snug outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${NAME_LINK}`}>{d.title}</DialogClose>
+                {d.rationale == null
+                  ? <Badge variant="warn" className="mt-0.5">Needs a reason</Badge>
+                  : reason && <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{reason}</p>}
+              </div>
+              <time dateTime={d.at} className="shrink-0 text-xs tabular-nums text-muted-foreground">{d.at.slice(0, 10)}</time>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

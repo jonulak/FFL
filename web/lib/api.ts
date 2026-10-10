@@ -122,7 +122,7 @@ export type OutlookRun = {
   error: string | null; last_failure: string | null; pending: number | null;
 };
 export type Roster = { week: number; live: boolean; cards: Card[]; empty_slots: string[]; writes: boolean;
-  outlook_run: OutlookRun; stale_since: string | null };
+  outlook_run: OutlookRun; stale_since: string | null; decision?: DecisionRef | null };
 export type OutlookStarted = { started: boolean; pending: number | null };
 export type LineupEntry = { slot: string; player_id: number | null; name: string; proj: number };
 export type Swap = { slot: string; out: string; in: string; gain: number };
@@ -213,7 +213,7 @@ export type Claims = {
 // is empty for that reason, not because ESPN holds nothing.
 export type SubmitResult = {
   now: Claim[]; now_failed: (Claim & { error: string })[]; sent: (Claim & { id: string })[];
-  pending: { id: string; add: number; drop: number | null; priority?: number | null }[]; match: boolean; error: string | null; readback_failed: boolean;
+  pending: { id: string; add: number; drop: number | null; priority?: number | null }[]; match: boolean; error: string | null; readback_failed: boolean; decisions?: DecisionRef[];
 };
 // A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
 export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
@@ -295,3 +295,15 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   }
   return handle<T>(r);
 }
+
+// The decision journal (GET /decisions). rationale: preset keys, null = still needs a reason.
+export type Decision = {
+  id: number; at: string; week: number | null; kind: string; source: "app" | "session" | "import"; title: string; decision: string;
+  facts: Record<string, unknown> | null; rationale: string[] | null; rationale_note: string | null; followed_call: boolean | null;
+  alternatives: string | null; exit_conditions: string | null; outcome: string | null; outcome_at: string | null;
+  body: string | null; player_ids: number[] | null;
+};
+export type Decisions = { decisions: Decision[]; weeks: number[] };
+export type Presets = Record<string, { key: string; label: string }[]>;
+// What a move's answer carries: the row just recorded, and whether to ask for its reason.
+export type DecisionRef = { id: number; needs_rationale: boolean };
