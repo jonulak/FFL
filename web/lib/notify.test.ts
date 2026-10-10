@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isHm, noticeState, pushSupport, urlBase64ToUint8Array } from "./notify";
+import { isHm, noticeState, openRequest, pushSupport, urlBase64ToUint8Array } from "./notify";
+
+describe("openRequest", () => {
+  const origin = "https://macbook-pro.tailnet.ts.net:3300";
+  it("takes the worker's open message to an in-app path", () => {
+    expect(openRequest({ type: "open", url: `${origin}/transactions` }, origin)).toBe("/transactions");
+    expect(openRequest({ type: "open", url: `${origin}/team/3?week=5#x` }, origin)).toBe("/team/3?week=5#x");
+  });
+  it("ignores other messages, other origins and junk", () => {
+    expect(openRequest({ type: "hello" }, origin)).toBeNull();
+    expect(openRequest({ type: "open", url: "https://evil.example/transactions" }, origin)).toBeNull();
+    expect(openRequest({ type: "open", url: 42 }, origin)).toBeNull();
+    expect(openRequest(null, origin)).toBeNull();
+  });
+});
 
 describe("urlBase64ToUint8Array", () => {
   it("decodes base64url without padding", () => {

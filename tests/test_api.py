@@ -77,15 +77,13 @@ def test_refresh_502s_when_espn_is_down(client, monkeypatch):
     assert r.status_code == 502 and r.json()["detail"] == {"source": "espn", "error": "espn down"}
 
 
-def test_transactions_sync_expires_the_page_on_new_rows(client, monkeypatch):
+def test_transactions_sync_answers_the_new_count(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
     monkeypatch.setattr(api, "sync_transactions", lambda lg: [{}, {}])
-    expired = []
-    monkeypatch.setattr(api.cache, "expire", expired.append)
     r = client.post("/transactions/sync")
-    assert r.status_code == 200 and r.json() == {"new": 2} and expired == ["transactions"]
+    assert r.status_code == 200 and r.json() == {"new": 2}
     monkeypatch.setattr(api, "sync_transactions", lambda lg: [])
-    assert client.post("/transactions/sync").json() == {"new": 0} and expired == ["transactions"]
+    assert client.post("/transactions/sync").json() == {"new": 0}
 
 
 def test_transactions_sync_502s_when_espn_is_down(client, monkeypatch):
@@ -1094,11 +1092,21 @@ def test_notify_test_503s_when_disabled(client):
     assert client.post("/notify/test").status_code == 503
 
 
-def test_notify_tick_expires_transactions_on_new_moves(client, monkeypatch):
-    monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 2, "flush": {"disabled": True}})
-    expired = []
-    monkeypatch.setattr(api.cache, "expire", expired.append)
-    assert client.post("/notify/tick").json()["moves"] == 2 and expired == ["transactions"]
+def test_a_sync_that_logs_moves_drops_the_transactions_page(client):
+    """A move notice links to /transactions: the first open after it must build fresh, not serve the
+    page from before the move once (cache.expire) — whichever path the sync ran on."""
+    from ffl import journal
+    topics = {"topics": [{"date": 1788937502756, "messages": [{"messageTypeId": 180, "to": 6, "targetId": 5083754, "from": 0}]}]}
+    team = SimpleNamespace(team_id=6, team_name="Henry", roster=[])
+    lg = SimpleNamespace(year=2026, player_map={5083754: "Ryan Flournoy", "Ryan Flournoy": 5083754},
+                         get_team_data=lambda tid: team,
+                         espn_request=SimpleNamespace(league_get=lambda extend="", params=None, headers=None: topics))
+    api.cache.get_or_build("transactions", lambda: {"moves": []})
+    journal.sync_transactions(lg)
+    assert not api.cache.has("transactions")
+    api.cache.get_or_build("transactions", lambda: {"moves": ["fresh"]})
+    journal.sync_transactions(lg)          # nothing new: the page stays
+    assert api.cache.has("transactions")
 
 
 def test_notify_tick_409s_while_another_runs(client, monkeypatch):

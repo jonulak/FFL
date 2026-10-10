@@ -7,12 +7,18 @@ from __future__ import annotations
 import json
 import sys
 from types import SimpleNamespace
+from typing import Callable
 
 from espn_api.football.activity import Activity
 
 from . import db, notify
 from .config import MY_TEAM_ID, SWID, league
 from .settings import load
+
+
+# Called with the rows a sync logged, whichever path ran it (the hourly tick, a page build, the box-score reconcile):
+# the API drops its cached Transactions page here, so a move notice's link never opens the page from before the move.
+ON_NEW_ROWS: list[Callable[[list[dict]], None]] = []
 
 
 def _my_team(lg, settings):
@@ -54,6 +60,9 @@ def sync_transactions(lg):
                          "action": action, "bid": bid, "reasoning": ""})
     new = db.add_transactions(rows)  # the (season, id) key makes concurrent syncs safe
     notify.enqueue_moves(new)
+    if new:
+        for fn in ON_NEW_ROWS:
+            fn(new)
     print(f"transactions: +{len(new)}")
     return new
 

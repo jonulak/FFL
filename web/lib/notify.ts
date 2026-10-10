@@ -6,7 +6,20 @@ export function urlBase64ToUint8Array(s: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
-export type PushEnv = { hasServiceWorker: boolean; hasPushManager: boolean; standalone: boolean; ios: boolean };
+// A notification tap arrives as the worker's {type: "open", url} message (web/public/sw.js): the page navigates
+// itself, since iOS's Home Screen app ignores the worker's own navigate()/openWindow(). Same-origin only.
+export function openRequest(data: unknown, origin: string): string | null {
+  const d = data as { type?: unknown; url?: unknown } | null;
+  if (!d || d.type !== "open" || typeof d.url !== "string") return null;
+  try {
+    const u = new URL(d.url, origin);
+    return u.origin === origin ? u.pathname + u.search + u.hash : null;
+  } catch {
+    return null;
+  }
+}
+
+export type PushEnv ={ hasServiceWorker: boolean; hasPushManager: boolean; standalone: boolean; ios: boolean };
 
 // iOS offers Web Push only to a Home Screen app (16.4+): in Safari proper PushManager is missing.
 export function pushSupport(env: PushEnv): "unsupported" | "needs-install" | "ready" {

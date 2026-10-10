@@ -36,6 +36,7 @@ from . import claims as claims_mod
 from . import db
 from . import plays as plays_mod
 from .config import JOURNAL
+from . import journal
 from .journal import sync_results, sync_transactions
 from .settings import load
 
@@ -166,6 +167,9 @@ class Cache:
 
 
 cache = Cache(TTL)
+# Any sync that logs a move drops the Transactions page, so the next open builds it fresh. Not expire: an expired
+# entry is served once while it rebuilds, and the first open after a move notice would show the page before it.
+journal.ON_NEW_ROWS.append(lambda rows: cache.drop("transactions"))
 
 
 @asynccontextmanager
@@ -838,9 +842,7 @@ def transactions_sync():
         new = sync_transactions(espn_season.fresh_league())
     except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
-    if new:
-        cache.expire("transactions")
-    return {"new": len(new)}
+    return {"new": len(new)}  # new rows already dropped the Transactions page (journal.ON_NEW_ROWS)
 
 
 # --- push notifications (ffl/notify.py): the 15-minute tick, the device subscriptions, the Settings page ---
@@ -906,8 +908,6 @@ def notify_tick():
         out = notify.tick()
     finally:
         _NOTIFY.release()
-    if isinstance(out.get("moves"), int) and out["moves"]:
-        cache.expire("transactions")
     return out
 
 

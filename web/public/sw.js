@@ -22,23 +22,34 @@ self.addEventListener("push", (event) => {
   );
 });
 
+// The page a tap asked for, until a page confirms it landed ("opened"). iOS's Home Screen app ignores
+// WindowClient.navigate() and may cold-start at start_url whatever openWindow() was given, so the page navigates
+// itself: every open window is told now, and a page that loads within REPLAY_MS says hello and is told then.
+const REPLAY_MS = 30_000;
+let pending = null;
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  pending = { url, at: Date.now() };
   event.waitUntil(
     (async () => {
+      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      if (wins.length === 0) return self.clients.openWindow(url);
+      for (const w of wins) w.postMessage({ type: "open", url });
       try {
-        const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-        for (const w of wins) {
-          if ("focus" in w) {
-            await w.focus();
-            return await w.navigate(url);
-          }
-        }
+        await wins[0].focus();
       } catch {
-        // navigate() rejects on a window we do not control: open one instead
+        // focus() needs the click's user activation; the message has been sent either way
       }
-      return self.clients.openWindow(url);
     })(),
   );
+});
+
+self.addEventListener("message", (event) => {
+  const type = event.data?.type;
+  if (type === "opened") pending = null;
+  else if (type === "hello" && pending && Date.now() - pending.at < REPLAY_MS) {
+    event.source?.postMessage({ type: "open", url: pending.url });
+  }
 });
