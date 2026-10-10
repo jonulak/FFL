@@ -10,6 +10,7 @@ the week's outlooks to the DB, POST /waivers/outlook/{id} writes one free agent'
 POST /claims saves the week's claim plan to the DB (never touches ESPN), and POST /claims/submit is
 the one route that writes to ESPN (instant free-agent adds + waiver claims, through ffl/espn_write.py) and journals it;
 POST /lineup writes to ESPN too (moves players between lineup slots, one transaction) and journals it.
+POST /decisions/{id} gives a decision its reason and outcome; POST /decisions/prefs sets the Settings switches.
 POST /notify/subscribe, /notify/unsubscribe and /notify/prefs write the DB's notify tables; POST /notify/tick syncs
 the log and sends push notifications; POST /notify/test sends one.
 Every GET is read-only.
@@ -452,7 +453,7 @@ def claims_submit(body: SubmitIn):
                     log.warning("claims not recorded: %s", e)
             refs += [r for r in map(_record, map(_mark_fake, claims_mod.free_add_rows(res["now"], names, data["week"]))) if r]
         elif res["now"] or res["sent"]:
-            log.info("claims not recorded (FFL_WRITES=0 without FFL_RECORD_FAKE=1)")
+            log.info("claims not recorded (logging off, or FFL_WRITES=0 without FFL_RECORD_FAKE=1)")
         if res["now"]:
             # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
             # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
@@ -476,9 +477,19 @@ class LineupIn(BaseModel):
 _LINEUP = threading.Lock()  # one move at a time: the answer is read back from ESPN, and two would read each other's half
 
 
+def _decision_prefs() -> dict:
+    """The Settings switches; read after ESPN took a move, so a DB error falls back to the defaults, never a 500."""
+    try:
+        return decisions_mod.merge_prefs(db.get_state("decision_prefs", {}), {})
+    except (db.DBError, ValueError) as e:
+        log.warning("decision prefs unreadable, defaults used: %s", e)
+        return dict(decisions_mod.DEFAULT_PREFS)
+
+
 def _records() -> bool:
-    """Real writes record their decisions; a dev API does only under FFL_RECORD_FAKE=1 (a worktree test server, own DB)."""
-    return espn_write.writes() or os.environ.get("FFL_RECORD_FAKE") == "1"
+    """Real writes record their decisions unless logging is off in Settings; a dev API records only under
+    FFL_RECORD_FAKE=1 (a worktree test server, own DB)."""
+    return (espn_write.writes() or os.environ.get("FFL_RECORD_FAKE") == "1") and _decision_prefs()["log"]
 
 
 def _mark_fake(row: dict) -> dict:
@@ -538,7 +549,7 @@ def lineup(body: LineupIn):
             except requests.RequestException:  # ESPN may have executed it before the connection died
                 uncertain = True
             # recorded the moment ESPN may have taken the move, whatever the read-back does; a fake move
-            # (FFL_WRITES=0) is recorded only under FFL_RECORD_FAKE=1 (_records), else it only goes to the log
+            # (FFL_WRITES=0) is recorded only under FFL_RECORD_FAKE=1, and nothing with logging off (_records)
             entry = season.lineup_entry(items, data["cards"], data["week"])
             if uncertain:
                 entry["facts"]["uncertain"] = True
@@ -546,7 +557,7 @@ def lineup(body: LineupIn):
             if _records():
                 ref = _record(_mark_fake(entry))
             else:
-                log.info("fake lineup move not recorded (FFL_WRITES=0 without FFL_RECORD_FAKE=1): %s", entry["title"])
+                log.info("lineup move not recorded (logging off, or FFL_WRITES=0 without FFL_RECORD_FAKE=1): %s", entry["title"])
             # the moved players keep the rows they took (season.reseat), before the read-back reads the seats
             try:
                 db.put_seats(season.reseat(items, data["cards"], db.seat_map()))
@@ -593,12 +604,12 @@ def roster_sit(player_id: int, body: SitIn):
                 db.put_sit(week, player_id, body.sat)
             except db.DBError as e:
                 raise HTTPException(500, f"sit not saved: {e}") from e
-            # a fake sit (FFL_WRITES=0) is recorded only under FFL_RECORD_FAKE=1 (_records), else it only goes to the log
+            # a fake sit (FFL_WRITES=0) is recorded only under FFL_RECORD_FAKE=1, and nothing with logging off (_records)
             entry = season.sit_entry(before, body.sat, week)
             if _records():
                 ref = _record(_mark_fake(entry))
             else:
-                log.info("sit not recorded (FFL_WRITES=0 without FFL_RECORD_FAKE=1): %s", entry["title"])
+                log.info("sit not recorded (logging off, or FFL_WRITES=0 without FFL_RECORD_FAKE=1): %s", entry["title"])
         # the cards carry every player field, so the call is re-made from them without an ESPN read
         sat = db.sat_ids(week)
         rows = espn_season.with_sits(data["cards"], sat)
@@ -818,6 +829,22 @@ def decisions_(week: int | None = None, kind: str | None = None, open_: bool = Q
 @app.get("/decisions/presets")
 def decision_presets():
     return {k: [{"key": key, "label": label} for key, label in v] for k, v in decisions_mod.PRESETS.items()}
+
+
+@app.get("/decisions/prefs")
+def decision_prefs():
+    return _decision_prefs()
+
+
+@app.post("/decisions/prefs")
+def decision_prefs_set(body: dict):
+    """Settings: `log` off stops the app recording its moves (and asking why); `page` off hides the Decisions page."""
+    try:
+        merged = decisions_mod.merge_prefs(db.get_state("decision_prefs", {}), body)
+    except ValueError as e:
+        raise HTTPException(422, {"error": str(e)}) from e
+    db.put_state("decision_prefs", merged)
+    return merged
 
 
 class DecisionEdit(BaseModel):

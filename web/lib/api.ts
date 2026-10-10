@@ -307,3 +307,6 @@ export type Decisions = { decisions: Decision[]; weeks: number[] };
 export type Presets = Record<string, { key: string; label: string }[]>;
 // What a move's answer carries: the row just recorded, and whether to ask for its reason.
 export type DecisionRef = { id: number; needs_rationale: boolean };
+// The Settings switches (GET/POST /decisions/prefs): `log` records the app's moves and asks why; `page` shows the Decisions page.
+export type DecisionPrefs = { log: boolean; page: boolean };
+export const DEFAULT_DECISION_PREFS: DecisionPrefs = { log: true, page: true };

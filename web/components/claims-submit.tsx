@@ -12,6 +12,7 @@ import { deferred, savedNote, whyRows } from "@/lib/decisions";
 import { atMost, processDay, submitSummary, type SubmitFailure } from "@/lib/claims";
 import { ClaimName } from "./claim-name";
 import { SubmitError, useClaims } from "./claims-context";
+import { useDecisionPrefs } from "./decision-prefs";
 import { RationaleForm, usePresets } from "./rationale-form";
 
 const SUB = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
@@ -128,6 +129,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
   const { data, groups, player, status, submit, submitting, refresh } = useClaims();
   const router = useRouter();
   const presets = usePresets();
+  const { log } = useDecisionPrefs();
   const [replaceOutside, setReplaceOutside] = useState(false);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [fault, setFault] = useState<SubmitFailure | null>(null);
@@ -158,12 +160,13 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
     setFault(null);
     setFrozen({ title, planned: data.claims.length, outside: replaceOutside ? new Set() : new Set(outside.map((c) => c.id)) });
     const rows = deferred<number[]>();
-    setWhy({ rows, needed: null });
+    // with logging off in Settings the server records nothing, so the form never opens
+    if (log) setWhy({ rows, needed: null });
     try {
       const r = await submit(replaceOutside, data.now);
       const w = whyRows(r.decisions ?? []);
       rows.resolve(w.ids);
-      setWhy(w.needed ? { rows, needed: true } : null);
+      setWhy(log && w.needed ? { rows, needed: true } : null);
       setResult(r);
       if (r.now.length) router.refresh(); // the roster changed: the table's comparisons and the pool
     } catch (e) {

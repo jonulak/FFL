@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { useDecisionPrefs } from "./decision-prefs";
 
-const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], ["/transactions", "Transactions"], ["/decisions", "Decisions"], ["/players", "Players"]] as const;
+const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], ["/transactions", "Transactions"], ["/players", "Players"], ["/decisions", "Decisions"]] as const;
 
 // The page tabs, set like the chyron of a broadcast board: condensed caps, letterspaced, the
 // current page in full ink with a bar under it, the rest stepped back. On a phone the strip
@@ -12,6 +13,7 @@ const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], [
 export function NavLinks() {
   const path = usePathname();
   const current = useRef<HTMLAnchorElement>(null);
+  const { page } = useDecisionPrefs(); // the Decisions tab goes with the page (Settings)
   useEffect(() => {
     // centred, not nearest: nearest parks the tab under the strip's fade at the right edge
     current.current?.scrollIntoView({ inline: "center", block: "nearest" });
@@ -21,7 +23,7 @@ export function NavLinks() {
       aria-label="Pages"
       className="-mx-1 flex min-w-0 items-stretch overflow-x-auto px-1 [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)] sm:[mask-image:none]"
     >
-      {LINKS.map(([href, label]) => {
+      {LINKS.filter(([href]) => page || href !== "/decisions").map(([href, label]) => {
         const active = href === "/" ? path === "/" : path.startsWith(href);
         return (
           <Link

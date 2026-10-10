@@ -22,6 +22,7 @@ import { clubLogoSrc } from "@/lib/teams";
 import { HISTORY_LABEL, historyDetail, historyWhen } from "@/lib/transactions";
 import { BoxTable } from "./box-table";
 import { ClubLogo } from "./club-logo";
+import { useDecisionPrefs } from "./decision-prefs";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
 import { TeamLogo } from "./player-media";
 import { SeasonFacts } from "./season-facts";
@@ -175,7 +176,8 @@ export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Loa
   const history = load.state === "ready" && moves.length > 0;
   // Both inside the grow: the moves land with the log, and outside it their height arrived in one
   // frame, enough to snap the Matchup breakdown (its week already above) to the dialog's cap.
-  const logged = load.state === "ready" && decisions.length > 0;
+  // the section links into the Decisions page, so it goes when the page is turned off in Settings
+  const logged = useDecisionPrefs().page && load.state === "ready" && decisions.length > 0;
   const grow = useGrow(`${load.state}${history ? "+moves" : ""}${logged ? "+decisions" : ""}`);
   return (
     <div ref={grow} className="overflow-hidden">

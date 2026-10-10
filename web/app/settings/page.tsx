@@ -1,3 +1,4 @@
+import { DecisionSettings } from "@/components/decision-prefs";
 import { ErrorCard } from "@/components/error-card";
 import { NotifySettings } from "@/components/notify-settings";
 import { apiGet, type Notice, type NotifyConfig } from "@/lib/api";
@@ -16,6 +17,7 @@ export default async function Page() {
     <div className="space-y-5">
       <h1 className="font-display text-4xl font-bold leading-none tracking-tight">Settings</h1>
       <NotifySettings config={config} recent={recent.notices} />
+      <DecisionSettings />
     </div>
   );
 }

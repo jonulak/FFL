@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import type { Card, DecisionRef, Roster } from "@/lib/api";
 import { deferred, followedLineup, followedSit } from "@/lib/decisions";
 import { afterFailure, applyMoves, fillOptions, irIllegal, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
+import { useDecisionPrefs } from "./decision-prefs";
 import { RationaleDialog } from "./rationale-dialog";
 import { usePresets } from "./rationale-form";
 import { type Notice, RosterRows, type SwapControl } from "./roster-cards";
@@ -16,6 +17,8 @@ import { useLive } from "./use-live";
 
 // The write moves players in ESPN and reads the lineup back: give it the claims submit's minute, not a GET's 20 s.
 const MOVE_MS = 60_000;
+// The "Why?" dialog opens once the rows' re-slot has played (use-flip: an 80 ms beat, then at most 560 ms).
+const ASK_DELAY_MS = 700;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Only the rows go live: the page header (outlook run, stale badge) is server state. The swap lives here: tap a
@@ -39,6 +42,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
   const [sitError, setSitError] = useState<{ id: number; text: string } | null>(null);
   const shown = optimistic ?? data;
   const presets = usePresets();
+  const prefs = useDecisionPrefs();
   const [asking, setAsking] = useState<{ kind: string; title: string; targets: Promise<number[]>; rationale?: string[] } | null>(null);
   // every change a move makes to the rows (the re-slot, ESPN's read-back, a refusal putting them back) plays out
   const { root, capture } = useFlip<HTMLDivElement>(shown);
@@ -60,13 +64,17 @@ export function RosterLive({ initial }: { initial: Roster }) {
   // a toast (with Edit) when it follows it. The answer then settles the prompt (`settle`): it hands the form the row
   // it recorded, opens the dialog after all if the server judged the move differently, and on a failed or
   // unrecorded move takes the prompt down (the move's own error says why under the row).
+  // The dialog waits out the rows' re-slot (ASK_DELAY_MS) so the swap is seen before it is covered; a move refused
+  // inside that wait never shows it. With logging off in Settings nothing is recorded, so nothing is asked.
   const ask = (kind: string, followed: boolean, dialogTitle: string, title: string) => {
+    if (!prefs.log) return { settle() {}, fail() {} };
     const row = deferred<number[]>();
     const prompt = { kind, targets: row.promise };
     const edit = () => setAsking({ ...prompt, title, rationale: ["followed_call"] });
     const toastId = followed ? toast("Logged: followed the call", { action: { label: "Edit", onClick: edit } }) : null;
-    if (!followed) setAsking({ ...prompt, title: dialogTitle });
+    const timer = followed ? null : setTimeout(() => setAsking({ ...prompt, title: dialogTitle }), ASK_DELAY_MS);
     const drop = () => {
+      if (timer != null) clearTimeout(timer);
       if (toastId != null) toast.dismiss(toastId);
       setAsking((a) => (a?.targets === row.promise ? null : a));
     };

@@ -30,6 +30,19 @@ DRAFT_DAY = "2026-09-07"  # entries on or before it are the draft era, which has
 _BENCH = {"BE", "IR"}  # season.BENCH_SLOTS; kept here so this module imports nothing
 
 
+# The Settings page's two switches: `log` (the app records its moves and asks why), `page` (the Decisions page shows).
+DEFAULT_PREFS = {"log": True, "page": True}
+
+
+def merge_prefs(stored: dict, change: dict) -> dict:
+    """The stored switches with a change laid over; unknown keys are dropped, a non-bool refused (ValueError)."""
+    merged = {**DEFAULT_PREFS, **{k: v for k, v in {**stored, **change}.items() if k in DEFAULT_PREFS}}
+    for k, v in merged.items():
+        if not isinstance(v, bool):
+            raise ValueError(f"{k} must be true or false, got {v!r}")
+    return merged
+
+
 def preset_keys(kind: str) -> set[str]:
     return {k for k, _ in PRESETS[kind]}
 

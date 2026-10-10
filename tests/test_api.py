@@ -917,6 +917,23 @@ def test_a_test_server_can_record_fake_moves(lineup_env, monkeypatch):
     assert row["title"].startswith("[fake] Week 3 lineup") and row["facts"]["fake"] is True and r.json()["decision"]["id"] == row["id"]
 
 
+def test_logging_off_in_settings_records_no_move(lineup_env):
+    assert lineup_env.get("/decisions/prefs").json() == {"log": True, "page": True}
+    assert lineup_env.post("/decisions/prefs", json={"log": False}).json() == {"log": False, "page": True}
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 200 and r.json()["decision"] is None and db.decisions() == []
+    assert lineup_env.post("/decisions/prefs", json={"page": "no"}).status_code == 422
+    assert lineup_env.get("/decisions/prefs").json() == {"log": False, "page": True}, "a refused change leaves the switches"
+
+
+def test_unreadable_decision_prefs_never_fail_a_move(lineup_env, monkeypatch, caplog):
+    def broken(key, default=None):
+        raise db.sa.exc.OperationalError("select", {}, Exception("disk I/O error"))
+    monkeypatch.setattr(api.db, "get_state", broken)
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 200 and r.json()["decision"] is not None and "defaults used" in caplog.text
+
+
 def test_lineup_keeps_the_row_the_moved_player_took(lineup_env):
     assert lineup_env.post("/lineup", json=SWAP).status_code == 200
     assert db.seat_map() == {3: 2}, "Bench stands in Flex's place in ESPN's order; Flex went to the bench"
