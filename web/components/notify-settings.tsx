@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,14 @@ const KINDS = [["move", "League moves", "Adds, drops and trades, batched per syn
 
 const noSubscribe = () => () => {};
 
+// `serviceWorker.ready` never settles when registration failed: give it a few seconds, then say so
+function swReady(): Promise<ServiceWorkerRegistration> {
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<never>((_, no) => setTimeout(() => no(new Error("Service worker not registered — reload the app.")), 5000)),
+  ]);
+}
+
 export function NotifySettings({ config, recent }: { config: NotifyConfig; recent: Notice[] }) {
   const router = useRouter();
   const [prefs, setPrefs] = useState<NotifyPrefs>(config.prefs);
@@ -26,8 +34,19 @@ export function NotifySettings({ config, recent }: { config: NotifyConfig; recen
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // what the quiet-hours inputs show: the saved pair until he edits one
+  const [draft, setDraft] = useState<[string, string]>(config.prefs.quiet);
+
   useEffect(() => {
-    if (support === "ready") navigator.serviceWorker.ready.then((r) => r.pushManager.getSubscription()).then((sub) => setSubscribed(!!sub));
+    if (support !== "ready") return;
+    swReady().then((r) => r.pushManager.getSubscription()).then((sub) => {
+      setSubscribed(!!sub);
+      // an idempotent upsert: a server that lost the row (410 prune, fresh DB) gets it back
+      if (sub) {
+        const j = sub.toJSON();
+        clientPost("/notify/subscribe", { endpoint: j.endpoint, keys: j.keys, ua: navigator.userAgent }).catch(() => {});
+      }
+    }).catch((e) => setMsg(e instanceof Error ? e.message : String(e)));
   }, [support]);
 
   async function run(fn: () => Promise<string | void>) {
@@ -40,7 +59,7 @@ export function NotifySettings({ config, recent }: { config: NotifyConfig; recen
   const enable = () => run(async () => {
     if (!config.public_key) return "The API has no VAPID key yet.";
     if ((await Notification.requestPermission()) !== "granted") return "Notifications were not allowed.";
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await swReady();
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(config.public_key) });
     const j = sub.toJSON();
     await clientPost("/notify/subscribe", { endpoint: j.endpoint, keys: j.keys, ua: navigator.userAgent });
@@ -48,13 +67,23 @@ export function NotifySettings({ config, recent }: { config: NotifyConfig; recen
   });
 
   const disable = () => run(async () => {
-    const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    const sub = await (await swReady()).pushManager.getSubscription();
     if (sub) { await clientPost("/notify/unsubscribe", { endpoint: sub.endpoint }); await sub.unsubscribe(); }
     setSubscribed(false);
   });
 
   const save = (p: Partial<NotifyPrefs>) => run(async () => {
     setPrefs(await clientPost<NotifyPrefs>("/notify/prefs", p));
+  });
+
+  const saveQuiet = (quiet: [string, string]) => run(async () => {
+    try {
+      const p = await clientPost<NotifyPrefs>("/notify/prefs", { quiet });
+      setPrefs(p); setDraft(p.quiet);
+    } catch (e) {
+      setDraft(prefs.quiet);
+      throw e;
+    }
   });
 
   const test = () => run(async () => {
@@ -67,6 +96,7 @@ export function NotifySettings({ config, recent }: { config: NotifyConfig; recen
       <Card>
         <CardHeader><CardTitle>This device</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">
+          {support === null && <p className="text-muted-foreground">Checking this browser…</p>}
           {support === "needs-install" && <p>On iPhone, notifications work only from the Home Screen app: Share → Add to Home Screen, then open FFL from there.</p>}
           {support === "unsupported" && <p>This browser cannot receive push notifications.</p>}
           {support === "ready" && (
@@ -99,11 +129,14 @@ export function NotifySettings({ config, recent }: { config: NotifyConfig; recen
       <Card>
         <CardHeader><CardTitle>Quiet hours</CardTitle></CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2 text-sm">
-          <Input type="time" className="w-32" defaultValue={prefs.quiet[0]} aria-label="Quiet from"
-                 onBlur={(e) => isHm(e.target.value) && e.target.value !== prefs.quiet[0] && save({ quiet: [e.target.value, prefs.quiet[1]] })} />
-          <span>to</span>
-          <Input type="time" className="w-32" defaultValue={prefs.quiet[1]} aria-label="Quiet until"
-                 onBlur={(e) => isHm(e.target.value) && e.target.value !== prefs.quiet[1] && save({ quiet: [prefs.quiet[0], e.target.value] })} />
+          {([0, 1] as const).map((i) => (
+            <Fragment key={i}>
+              {i === 1 && <span>to</span>}
+              <Input type="time" className="w-36" value={draft[i]} disabled={busy} aria-label={i === 0 ? "Quiet from" : "Quiet until"}
+                     onChange={(e) => setDraft(i === 0 ? [e.target.value, draft[1]] : [draft[0], e.target.value])}
+                     onBlur={() => draft.every(isHm) && (draft[0] !== prefs.quiet[0] || draft[1] !== prefs.quiet[1]) && saveQuiet(draft)} />
+            </Fragment>
+          ))}
           <span className="text-muted-foreground">held, then sent together</span>
         </CardContent>
       </Card>
