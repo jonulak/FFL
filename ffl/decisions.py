@@ -85,7 +85,7 @@ def parse_journal(text: str) -> list[dict]:
             if m := _BULLET.match(line):
                 label, val = m[1].strip(), m[2].strip() or None
                 key = ("decision" if label == "Decision" else "reasoning" if label == "Reasoning"
-                       else "alternatives" if label.startswith("Alternatives") else "exit_conditions" if label == "Exit conditions"
+                       else "alternatives" if label.startswith("Alternatives") else "exit_conditions" if label.startswith("Exit condition")
                        else "outcome" if label.startswith("Outcome") else None)
                 if key:
                     f[key] = val
