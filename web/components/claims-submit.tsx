@@ -113,6 +113,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
   const name = (id: number) => player(id)?.name ?? `player ${id}`;
   const fromApp = data.pending.filter((c) => c.from_app);
   const outside = data.pending.filter((c) => !c.from_app);
+  const blocked = data.errors.length > 0;
   const pos = new Map(Object.entries(data.players).map(([k, p]) => [Number(k), p.pos]));
   const day = processDay(groups.flatMap((g) => g.targets).filter((t) => status[String(t)] !== "FREEAGENT").map((t) => player(t)?.waiver_date ?? null));
   const title = data.now.length
@@ -212,6 +213,15 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
           </section>
         )}
         {result && verdict && <Outcome r={result} verdict={verdict} name={name} />}
+        {/* the read on open can turn up problems the panel didn't have (a status moved): Send waits for a fix */}
+        {!result && !loading && blocked && (
+          <div role="alert" className="space-y-1 rounded-md bg-destructive/10 px-3 py-2 text-destructive">
+            <p className="font-medium">Can&apos;t send: the plan has problems. Fix them in the claims.</p>
+            <ul className="list-disc pl-5">
+              {data.errors.map((e, i) => <li key={i}>Group {e.group + 1}{e.player_id != null && `, ${name(e.player_id)}`}: {e.reason}</li>)}
+            </ul>
+          </div>
+        )}
         {fault && <Failure f={fault} name={name} />}
       </div>
       {/* PHONE_INSET, written out: Tailwind only generates a variant it can read in the source */}
@@ -224,7 +234,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
           </Button>
         )}
         {!result && (
-          <Button onClick={send} disabled={submitting || loading} className={`min-w-24 ${PHONE_ACTION}`}>
+          <Button onClick={send} disabled={submitting || loading || blocked} className={`min-w-24 ${PHONE_ACTION}`}>
             {(submitting || loading) && <LoaderCircle aria-hidden className="animate-spin" />}
             {submitting ? "Sending…" : loading ? "Checking ESPN…" : "Send"}
           </Button>

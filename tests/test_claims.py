@@ -144,7 +144,7 @@ def test_target_already_on_roster():
 def test_instant_adds_off_rejects_every_free_agent_target():
     g = [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]
     off = errs(g, status={101: FA}, instant_adds=False)
-    assert off == [C.INSTANT_OFF] and "ffl-ut0.7" in off[0]       # 101 only: 102 is a waiver claim
+    assert off == [C.INSTANT_OFF] and "FFL_INSTANT_ADDS" in off[0]     # 101 only: 102 is a waiver claim
     assert errs(g, status={101: FA}) == []                         # on: the same plan is fine
 
 

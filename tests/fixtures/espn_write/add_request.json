@@ -1,0 +1,20 @@
+{
+ "isLeagueManager": false,
+ "teamId": 7,
+ "type": "FREEAGENT",
+ "scoringPeriodId": 5,
+ "executionType": "EXECUTE",
+ "memberId": "{SWID}",
+ "items": [
+  {
+   "playerId": 4596334,
+   "type": "ADD",
+   "toTeamId": 7
+  },
+  {
+   "playerId": 4880281,
+   "type": "DROP",
+   "fromTeamId": 7
+  }
+ ]
+}

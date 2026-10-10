@@ -135,6 +135,11 @@ class Cache:
                 return
             self._d[key] = Entry(now + hit.ttl, now, payload, hit.fn, hit.ttl)
 
+    def rebuild(self, *keys: str) -> None:
+        """These keys rebuilt inline, in this thread (the ones never built are skipped). Failures are flagged, not raised."""
+        for k in keys:
+            self._rebuild(k)
+
     def rebuild_expired(self) -> None:
         """Every expired key rebuilt inline, in this thread. Failures are flagged, not raised."""
         with self._lock:
@@ -298,8 +303,8 @@ class SubmitIn(BaseModel):
 
 
 def _instant_adds() -> bool:
-    # Read at call time: off until ffl-ut0.7 verifies the FREEAGENT write shape (anything but "1" is off).
-    return os.environ.get("FFL_INSTANT_ADDS") == "1"
+    # Read at call time. On unless FFL_INSTANT_ADDS=0 (the FREEAGENT body was accepted on 2026-10-09, ffl-ut0.7).
+    return os.environ.get("FFL_INSTANT_ADDS") != "0"
 
 
 def _roster_size() -> int:
@@ -412,6 +417,9 @@ def claims_submit(body: SubmitIn):
             raise HTTPException(502, {"source": "espn", "error": "ESPN login expired, refresh .env" if e.expired else str(e)})
         # ESPN's current scoring period, which is what its write bodies want; the plan's week is the cached pool's
         if period is not None and period != data["week"]:
+            # as /lineup does: drop the cached League and pool, or the reload serves the same old week
+            espn_season.refresh_league()
+            cache.drop("waivers")
             raise HTTPException(409, {"error": "ESPN's week changed — reload"})
         last = plan["submits"][-1] if plan["submits"] else None
         wk = data["week"] if period is None else period
@@ -439,10 +447,11 @@ def claims_submit(body: SubmitIn):
             with DECISIONS.open("a") as f:
                 f.write("\n" + claims_mod.decision_entry(submitted, names, datetime.now().strftime("%Y-%m-%d"), status))
         if res["now"]:
-            # the roster changed: as POST /refresh does, rebuild inline so the next page shows the add, not the dropped player
+            # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
+            # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
             espn_season._BOXES.clear()
             cache.expire_all()
-            cache.rebuild_expired()
+            cache.rebuild("waivers", "roster", "week:current", "league:current")
         return res
     finally:
         _SUBMIT.release()

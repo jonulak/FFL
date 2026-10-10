@@ -71,7 +71,7 @@ def expand(groups, status, used=None):
     return out
 
 
-INSTANT_OFF = "instant adds are off until verified (ffl-ut0.7)"
+INSTANT_OFF = "instant adds are switched off (FFL_INSTANT_ADDS=0)"
 
 
 def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True):

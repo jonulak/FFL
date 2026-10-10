@@ -79,8 +79,12 @@ def cancel_body(claim_id: str, week: int, team_id: int, member_id: str) -> dict:
 
 
 def add_body(add: int, drop: int | None, week: int, team_id: int, member_id: str) -> dict:
-    # FREEAGENT shape not captured yet (instant, real move): bead ffl-ut0.7 replaces this guess.
-    return {**submit_body(add, drop, week, team_id, member_id), "type": "FREEAGENT"}
+    # Not captured from ESPN's site (ffl-ut0.7): the body github.com/ryanjadhav/espn-fantasy sends (cmd_freeagent),
+    # which agrees with ESPN's own record of an executed add (tests/fixtures/espn_write/add_executed_record.json).
+    # A claim's body without bidAmount, which that tool never sends.
+    body = {**submit_body(add, drop, week, team_id, member_id), "type": "FREEAGENT"}
+    del body["bidAmount"]
+    return body
 
 
 def parse_pending(doc: dict, team_id: int) -> list[dict]:

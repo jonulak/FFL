@@ -67,10 +67,21 @@ def test_writes_off_is_a_fake_store(monkeypatch):
     assert W.pending_claims() == [{"id": b, "add": 102, "drop": None, "priority": 1}]
 
 
-def test_add_body_is_a_freeagent_transaction():
-    b = W.add_body(101, 1, 6, 7, "{SWID}")
-    assert b["type"] == "FREEAGENT" and [i["type"] for i in b["items"]] == ["ADD", "DROP"]
-    # bead ffl-ut0.7 captures the real FREEAGENT request; then replace this with an equality check
+def test_add_body_matches_the_freeagent_request():
+    sent = fx("add_request.json")
+    item_add = next(i for i in sent["items"] if i["type"] == "ADD")
+    item_drop = next(i for i in sent["items"] if i["type"] == "DROP")
+    body = W.add_body(item_add["playerId"], item_drop["playerId"], sent["scoringPeriodId"], sent["teamId"], "{SWID}")
+    assert body == sent
+
+
+def test_add_body_items_agree_with_espns_executed_record():
+    rec = fx("add_executed_record.json")
+    body = W.add_body(4596334, 4880281, rec["scoringPeriodId"], rec["teamId"], "{SWID}")
+    for k in ("type", "executionType", "teamId", "scoringPeriodId", "memberId", "isLeagueManager"):
+        assert body[k] == rec[k]
+    for sent, done in zip(body["items"], rec["items"], strict=True):
+        assert sent.items() <= done.items()
 
 
 def test_add_free_agent_writes_off_records_without_network(monkeypatch):

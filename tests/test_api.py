@@ -518,6 +518,23 @@ def test_submit_free_agent_is_instant(claims_env):
     assert api.espn_write._FAKE_ADDS == [{"add": 102, "drop": 1}]
 
 
+def test_instant_add_rebuilds_only_the_roster_pages_inline(claims_env):
+    built = {"week:current": 0, "player:9": 0}
+
+    def builder(key):
+        def fn():
+            built[key] += 1
+            return {}
+        return fn
+    for key in built:
+        api.cache.get_or_build(key, builder(key))
+    claims_env.pool["WR"][1]["status"] = "FREEAGENT"
+    claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [1], "open": 0}]})
+    claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
+    assert built == {"week:current": 2, "player:9": 1}         # the player card waits for its next request
+    assert api.cache._d["player:9"].expires == 0.0
+
+
 def test_submit_uses_fresh_status(claims_env):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     claims_env.get("/claims")                                  # pool cached with 101 on WAIVERS
@@ -554,12 +571,12 @@ def test_instant_adds_gate_off_rejects_free_agent_targets(claims_env, monkeypatc
     monkeypatch.setenv("FFL_INSTANT_ADDS", "0")
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
-    assert "instant adds are off until verified (ffl-ut0.7)" in [e["reason"] for e in claims_env.get("/claims").json()["errors"]]
+    assert api.claims_mod.INSTANT_OFF in [e["reason"] for e in claims_env.get("/claims").json()["errors"]]
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
-    assert r.status_code == 422 and "ffl-ut0.7" in str(r.json())
+    assert r.status_code == 422 and "FFL_INSTANT_ADDS" in str(r.json())
     assert api.espn_write._FAKE == [] and api.espn_write._FAKE_ADDS == []
-    monkeypatch.delenv("FFL_INSTANT_ADDS")                     # unset is off too
-    assert any("ffl-ut0.7" in e["reason"] for e in claims_env.get("/claims").json()["errors"])
+    monkeypatch.delenv("FFL_INSTANT_ADDS")                     # unset is on
+    assert claims_env.get("/claims").json()["errors"] == []
 
 
 def test_submit_espn_week_changed_is_409(claims_env, monkeypatch):
@@ -568,6 +585,7 @@ def test_submit_espn_week_changed_is_409(claims_env, monkeypatch):
     r = claims_env.post("/claims/submit", json={"replace_outside": False})
     assert r.status_code == 409 and r.json()["detail"] == {"error": "ESPN's week changed — reload"}
     assert api.espn_write._FAKE == [] and api.espn_write._FAKE_ADDS == []
+    assert not api.cache.has("waivers")                        # the reload builds the new week's pool
 
 
 def test_submit_writes_carry_espn_period(claims_env, monkeypatch):
