@@ -1,5 +1,15 @@
 """The decision journal's rules: the kinds, the rationale presets the app offers, and when a move followed the app's
-call (so it is recorded without asking). Pure; db.py stores the rows. T5 adds the CLI (`uv run python -m ffl.decisions`)."""
+call (so it is recorded without asking). Pure; db.py stores the rows.
+
+CLI, for recording and reviewing decisions from a session (`uv run python -m ffl.decisions <cmd>`):
+  add --kind K --title T [--decision D] [--week N] [--rationale k1,k2] [--note TEXT] [--alternatives TEXT]
+      [--exit TEXT] [--players 1,2]     record a decision (source "session")
+  outcome ID "TEXT"                     record what happened
+  rationale ID KEY[,KEY] [--note TEXT]  set the rationale on an open row
+  list [--week N] [--open]              one line per row; --open: missing a rationale or an outcome
+  show ID                               one row as markdown
+  export                                every row, oldest first, as markdown
+Errors print to stderr and exit 2."""
 from __future__ import annotations
 
 import re
@@ -102,3 +112,112 @@ def parse_journal(text: str) -> list[dict]:
                      "alternatives": f.get("alternatives"), "exit_conditions": f.get("exit_conditions"),
                      "outcome": f.get("outcome"), "body": "\n".join(lines), "import_key": f"{e['head']}#{seen[e['head']]}"})
     return rows
+
+
+def validate_rationale(kind, keys, note):
+    if kind not in PRESETS:
+        return f"unknown kind {kind!r}"
+    bad = [k for k in keys or [] if k not in preset_keys(kind)]
+    if bad:
+        return f"{', '.join(bad)}: not a {kind} reason ({', '.join(sorted(preset_keys(kind)))})"
+    if "other" in (keys or []) and not (note or "").strip():
+        return "Other needs a note"
+    return None
+
+
+def _label(kind, key):
+    return dict(PRESETS.get(kind, [])).get(key, key)
+
+
+def to_markdown(r: dict) -> str:
+    """One row as the old journal's entry, for reading and review (`export`)."""
+    if r["source"] == "import" and r.get("body"):
+        return r["body"] + f"\n\n_(id {r['id']})_\n"
+    why = ", ".join(_label(r["kind"], k) for k in r["rationale"] or []) or "(needs a rationale)"
+    if r.get("rationale_note"):
+        why += f" — {r['rationale_note']}"
+    lines = [f"## {r['at'][:10]} — {r['title']}", f"- **Decision:** {r['decision']}", f"- **Rationale:** {why}"]
+    for key, label in (("alternatives", "Alternatives"), ("exit_conditions", "Exit conditions"), ("outcome", "Outcome")):
+        if r.get(key):
+            lines.append(f"- **{label}:** {r[key]}")
+    return "\n".join(lines) + f"\n\n_(id {r['id']}, {r['kind']}, {r['source']})_\n"
+
+
+def _ids(s):
+    return [int(x) for x in s.split(",") if x.strip()] if s else None
+
+
+def main(argv: list[str]) -> int:
+    import argparse
+    import sys
+    from . import db
+    p = argparse.ArgumentParser(prog="python -m ffl.decisions")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("add")
+    a.add_argument("--kind", required=True, choices=KINDS)
+    a.add_argument("--title", required=True)
+    a.add_argument("--decision", default="")
+    a.add_argument("--week", type=int)
+    a.add_argument("--rationale")
+    a.add_argument("--note")
+    a.add_argument("--alternatives")
+    a.add_argument("--exit", dest="exit_conditions")
+    a.add_argument("--players")
+    o = sub.add_parser("outcome")
+    o.add_argument("id", type=int)
+    o.add_argument("text")
+    ra = sub.add_parser("rationale")
+    ra.add_argument("id", type=int)
+    ra.add_argument("keys")
+    ra.add_argument("--note")
+    ls = sub.add_parser("list")
+    ls.add_argument("--week", type=int)
+    ls.add_argument("--open", action="store_true")
+    sh = sub.add_parser("show")
+    sh.add_argument("id", type=int)
+    sub.add_parser("export")
+    args = p.parse_args(argv)
+
+    def fail(msg):
+        print(msg, file=sys.stderr)
+        return 2
+
+    if args.cmd == "add":
+        keys = args.rationale.split(",") if args.rationale else None
+        if err := validate_rationale(args.kind, keys, args.note):
+            return fail(err)
+        i = db.add_decision({"at": now_iso(), "week": args.week, "kind": args.kind, "source": "session", "title": args.title,
+                             "decision": args.decision, "rationale": keys, "rationale_note": args.note,
+                             "alternatives": args.alternatives, "exit_conditions": args.exit_conditions,
+                             "player_ids": _ids(args.players)})
+        print(f"decision {i}")
+        return 0
+    if args.cmd == "outcome":
+        return 0 if db.update_decision(args.id, {"outcome": args.text, "outcome_at": now_iso()}) else fail(f"no decision {args.id}")
+    if args.cmd == "rationale":
+        row = db.decision(args.id)
+        if row is None:
+            return fail(f"no decision {args.id}")
+        keys = args.keys.split(",")
+        if err := validate_rationale(row["kind"], keys, args.note):
+            return fail(err)
+        db.update_decision(args.id, {"rationale": keys, "rationale_note": args.note})
+        return 0
+    rows = db.decisions()
+    if args.cmd == "show":
+        row = db.decision(args.id)
+        return fail(f"no decision {args.id}") if row is None else print(to_markdown(row)) or 0
+    if args.cmd == "list":
+        for r in rows:
+            if (args.week is None or r["week"] == args.week) and (not args.open or r["rationale"] is None or r["outcome"] is None):
+                flag = "  [needs rationale]" if r["rationale"] is None else ""
+                print(f"{r['id']:>4}  {r['at'][:10]}  {r['kind']:<8}  {r['title']}{flag}")
+        return 0
+    print("\n".join(to_markdown(r) for r in reversed(rows)))  # export: oldest first, as the file read
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main(sys.argv[1:]))
+
