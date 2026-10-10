@@ -93,7 +93,7 @@ def test_no_subscription_leaves_the_queue_alone():
     assert notify.flush(T, send=lambda s, p: None)["sent"] == 0 and len(db.unsent_notices()) == 1
 
 
-def test_disabled_flush_sends_nothing(monkeypatch):
+def test_disabled_flush_sends_nothing():
     db.add_notices([_n("move:1")])
     assert notify.flush(T) == {"disabled": True} and len(db.unsent_notices()) == 1   # FFL_NOTIFY=0 in conftest
 
@@ -110,3 +110,46 @@ def test_vapid_keys_are_what_pywebpush_reads():
     from py_vapid import Vapid01
     pub, priv = notify.vapid_keys()
     assert len(pub) == 87 and Vapid01.from_string(priv).private_key is not None
+
+
+def test_a_timeout_leaves_the_notice_queued():
+    import requests
+    db.add_notices([_n("move:1")])
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+
+    def send(sub, payload):
+        raise requests.Timeout("hung")
+    out = notify.flush(T, send=send)
+    assert out["sent"] == 0 and len(db.unsent_notices()) == 1 and len(db.subscriptions()) == 1
+
+
+def test_webpush_sender_passes_a_timeout(monkeypatch):
+    import pywebpush
+    seen = {}
+    monkeypatch.setattr(pywebpush, "webpush", lambda **kw: seen.update(kw))
+    monkeypatch.setenv("VAPID_PRIVATE_KEY", notify.vapid_keys()[1])
+    notify.webpush_sender({"endpoint": "https://push/a", "keys": {"p256dh": "k", "auth": "a"}}, {"title": "x"})
+    assert seen["timeout"] == 10
+
+
+def test_one_long_body_is_cut_with_an_ellipsis_and_no_more_count():
+    (push,), _ = notify.plan([_n("move:1", body="x" * 300)], notify.DEFAULT_PREFS, T)
+    assert len(push["body"]) == 180 and push["body"].endswith("…") and "more" not in push["body"]
+
+
+def test_a_long_waivers_body_is_capped():
+    (push,), _ = notify.plan([_n("waivers:1", "waivers", "y" * 300)], notify.DEFAULT_PREFS, T)
+    assert len(push["body"]) == 180 and push["body"].endswith("…")
+
+
+def test_an_unreadable_created_at_expires_instead_of_blocking():
+    bad = [_n("move:1"), {**_n("move:2"), "created_at": "2026-10-09T10:00:00"}, {**_n("move:3"), "created_at": "garbage"}]
+    pushes, marks = notify.plan(bad, notify.DEFAULT_PREFS, T)
+    assert marks["expired"] == ["move:2", "move:3"] and [p["keys"] for p in pushes] == [["move:1"]]
+
+
+def test_prefs_reject_non_bool_switches():
+    import pytest
+    with pytest.raises(ValueError):
+        notify.put_prefs({"move": "false"})
+    assert notify.prefs() == notify.DEFAULT_PREFS

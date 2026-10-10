@@ -101,7 +101,8 @@ def put_prefs(p: dict) -> dict:
     if not (isinstance(q, list) and len(q) == 2 and all(isinstance(s, str) and _HM.match(s) for s in q)):
         raise ValueError(f"quiet must be two HH:MM times, got {q!r}")
     for k in ("move", "injury", "waivers"):
-        merged[k] = bool(merged[k])
+        if not isinstance(merged[k], bool):
+            raise ValueError(f"{k} must be true or false, got {merged[k]!r}")
     db.put_state("prefs", merged)
     return merged
 
@@ -121,7 +122,21 @@ def _join(bodies: list[str]) -> str:
         s = "; ".join(bodies[:n]) + (f"… +{rest} more" if rest else "")
         if len(s) <= BODY_MAX:
             return s
+    if len(bodies) == 1:
+        return _cap(bodies[0])
     return bodies[0][:BODY_MAX - 12] + f"… +{len(bodies) - 1} more"
+
+
+def _cap(s: str) -> str:
+    return s if len(s) <= BODY_MAX else s[:BODY_MAX - 1] + "…"
+
+
+def _age_over(n: dict, t: datetime) -> bool:
+    """Older than MAX_AGE; a created_at that does not parse or has no offset counts as stale, never an error."""
+    try:
+        return t - datetime.fromisoformat(n["created_at"]) > MAX_AGE
+    except (ValueError, TypeError, KeyError):
+        return True
 
 
 def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict[str, list[str]]]:
@@ -129,7 +144,7 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
     marks: dict[str, list[str]] = {"off": [], "expired": []}
     live = []
     for n in unsent:
-        if t - datetime.fromisoformat(n["created_at"]) > MAX_AGE:
+        if _age_over(n, t):
             marks["expired"].append(n["key"])
         elif not prefs.get("move" if n["kind"] == "trade" else n["kind"], True):
             marks["off"].append(n["key"])
@@ -146,7 +161,7 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
                        "body": _join([n["body"] for n in trades]), "url": "/transactions", "tag": "trade"})
     for n in live:
         if n["kind"] not in ("move", "trade"):
-            pushes.append({"keys": [n["key"]], "title": n["title"], "body": n["body"], "url": n["url"], "tag": n["key"]})
+            pushes.append({"keys": [n["key"]], "title": n["title"], "body": _cap(n["body"]), "url": n["url"], "tag": n["key"]})
     return pushes, marks
 
 
@@ -171,7 +186,7 @@ def webpush_sender(sub: dict, payload: dict) -> None:
     from pywebpush import webpush
     webpush(subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]}, data=json.dumps(payload),
             vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
-            vapid_claims={"sub": os.environ.get("VAPID_SUBJECT", "mailto:admin@example.com")}, ttl=24 * 3600)
+            vapid_claims={"sub": os.environ.get("VAPID_SUBJECT", "mailto:admin@example.com")}, ttl=24 * 3600, timeout=10)
 
 
 def sender():
