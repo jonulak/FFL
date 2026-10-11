@@ -109,10 +109,6 @@ export function ProjectionSources({ p }: { p: Player }) {
       {missing.length > 0 && (
         <p className="mt-2 text-xs text-muted-foreground">Not projecting him: {missing.map((s) => SOURCE_LABEL[s]).join(", ")}</p>
       )}
-      <p className="mt-3 border-t border-foreground/10 pt-3 text-xs leading-relaxed text-muted-foreground">
-        The line is the consensus: the middle of the sources and their pairwise averages, so one source
-        far off moves it little. The band is the ± range{vals.length >= 4 ? ", leaving out the highest and lowest" : ""}.
-      </p>
     </div>
   );
 }
