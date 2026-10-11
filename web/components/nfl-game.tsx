@@ -59,10 +59,11 @@ export function NflScorebug({ g, compact = false }: { g: NflGame; compact?: bool
 // One play: the score it made (or the down it was run on) and the clock as the caption, the text as the line.
 // My starter's play hangs a lime edge on the left, the opponent's a muted ink edge on the right.
 export function NflPlayRow({ p, g }: { p: NflPlay; g: NflGame }) {
-  const edge = p.mine.length ? "border-l-[3px] border-l-start pl-2.5" : p.opp.length ? "border-r-[3px] border-r-foreground/35 pr-2.5" : "";
+  // Both edges are always 3px, so the text column is the same width marked or not; only the marked side is coloured.
+  const edge = p.mine.length ? "border-l-start" : p.opp.length ? "border-r-foreground/35" : "";
   const who = [...p.mine, ...p.opp];
   return (
-    <div className={`py-2.5 ${edge}`}>
+    <div className={`play-row border-x-[3px] border-transparent px-2.5 py-2.5 ${edge}`}>
       <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground tabular-nums">
         {p.scoring && <span className="font-display text-[0.9375rem] font-bold tracking-tight text-foreground">{scoreLine(p, g)}</span>}
         <span>{p.quarter != null && (p.quarter >= 5 ? "OT" : `Q${p.quarter}`)} {p.clock}</span>
