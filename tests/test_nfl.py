@@ -171,6 +171,12 @@ def test_scoreboard_ttl_wakes_for_next_kickoff():
     assert nfl.scoreboard_ttl(sb, now) == 125  # two minutes to kickoff, plus 5 s
 
 
+def test_scoreboard_ttl_short_when_a_pre_game_is_past_kickoff():
+    now = datetime(2026, 10, 11, 17, 1, tzinfo=timezone.utc).timestamp()
+    sb = {"games": [{"status": "pre", "kickoff": "2026-10-11T17:00Z"}]}
+    assert nfl.scoreboard_ttl(sb, now) == 20  # ESPN lags at kickoff: poll fast until it flips to "in"
+
+
 def test_overlay_takes_feed_clock_and_score():
     g = {"away": {"abbr": "CHI", "score": 0}, "home": {"abbr": "GB", "score": 7}, "status": "in",
          "quarter": 1, "clock": "5:51", "ball": None, "red_zone": False, "down": "1st & 10 at CHI 33"}

@@ -222,7 +222,10 @@ def scoreboard_ttl(sb: dict, now: float | None = None) -> float:
     now = time.time() if now is None else now
     if any(g["status"] == "in" for g in sb["games"]):
         return 20
-    ahead = [t - now for g in sb["games"] if g["status"] == "pre" and (t := _ts(g["kickoff"])) and t > now]
+    times = [t for g in sb["games"] if g["status"] == "pre" and (t := _ts(g["kickoff"]))]
+    if any(t <= now for t in times):  # ESPN lags at kickoff (or the start is delayed): poll until it flips to "in"
+        return 20
+    ahead = [t - now for t in times]
     return max(20, min(600, int(min(ahead)) + 5)) if ahead else 600
 
 
