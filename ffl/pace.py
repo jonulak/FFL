@@ -60,8 +60,8 @@ def row(p: dict, rw: int, owner: str | None, slot: str, mine: bool,
     opps = [(w, sched.get(p["team"], {}).get(w)) for w in weeks]
     return {"name": p["name"], "pos": p["pos"], "team": p["team"], "owner": owner or "FA", "mine": mine,
             "slot": slot, "injury": p["injury"], "note": p.get("injury_note"), "ahead": p.get("ahead") or [],
-            "exp": p.get("exp"), "wk": p.get("proj"), "ros": S.ros_proj(p, rw), "ros_sleeper": p.get("ros_sleeper"),
-            "ros_cbs": p.get("ros_cbs"), "adj": S.ros_adj(p, rw), "form": p.get("form"),
+            "exp": p.get("exp"), "wk": p.get("proj"), "ros": S.ros_proj(p, rw), "ros_n": p.get("ros_n"),
+            "adj": S.ros_adj(p, rw), "form": p.get("form"),
             "opps": [(w, o, rank.get(o)) for w, o in opps if o]}
 
 

@@ -78,7 +78,7 @@ def flatten_box_player(bp, season_proj: float | None = None) -> dict:
             "spread": None, "n_src": 1 if proj > 0 else 0, "actual": float(getattr(bp, "points", 0) or 0),
             "game_played": int(getattr(bp, "game_played", 0) or 0),
             "season_proj": float(season_proj if season_proj is not None else getattr(bp, "projected_total_points", 0) or 0),
-            "season_proj_sleeper": None, "ros_proj": None, "ros_sleeper": None, "ros_cbs": None,
+            "ros_proj": None, "ros_n": None,
             "ros_spread": None, "return_week": None, "injury_note": None,
             # STRATEGY.md "Usage-adjusted ROS": years in the league (apply_exp) and the hurt
             # teammates at his position (apply_injuries) — the two stories the blend cannot price
@@ -505,20 +505,22 @@ def sleeper_ros(weeks: list[dict[tuple[str, str], float]]) -> dict[tuple[str, st
     return out
 
 
-def merge_season(espn_rows: list[dict], sleeper, ros_sleeper: dict | None = None,
-                 ros_cbs: dict | None = None) -> dict[int, dict]:
+ROS_SOURCES = {"cbs": cbs.fetch_ros, "sharks": sharks.fetch_ros}
+
+
+def merge_season(espn_rows: list[dict], sleeper, ros: dict[str, dict] | None = None) -> dict[int, dict]:
     """Season and rest-of-season projections by ESPN player id.
 
-    Season: ESPN and Sleeper averaged like board.merge_sleeper. ROS (STRATEGY.md, "Waivers"): the
-    mean of Sleeper's remaining weeks and CBS's rest-of-season page, whichever has him, None when
-    neither does (season.ros_proj then scales the season number). Non-D/ST match on (normalised
-    name, position); D/ST on team, with ESPN's abbreviation normalised through TEAM_FIX. An ESPN 0
-    is a placeholder row, not a projection.
+    Season: ESPN and Sleeper averaged like board.merge_sleeper. ROS (STRATEGY.md "Waivers"): the
+    consensus (consensus.combine) of every ROS source that has him — Sleeper's remaining weeks summed,
+    CBS's and FantasySharks' rest-of-season pages — None when none does (season.ros_proj then scales
+    the season number). `ros_src` keeps each source's number for the recorder; apply_season never
+    copies it onto a player. Non-D/ST match on (normalised name, position); D/ST on team, with ESPN's
+    abbreviation normalised through TEAM_FIX. An ESPN 0 is a placeholder row, not a projection.
     """
     rows = sleeper.to_dict("records") if hasattr(sleeper, "to_dict") else list(sleeper)
     by_name = {(r["key"], r["pos"]): r["proj_sleeper"] for r in rows if r["pos"] != "D/ST"}
     by_team = {r["team"]: r["proj_sleeper"] for r in rows if r["pos"] == "D/ST"}
-    ros_sleeper, ros_cbs = ros_sleeper or {}, ros_cbs or {}
     out: dict[int, dict] = {}
     for row in espn_rows:
         team = TEAM_FIX.get(row["team"], row["team"])
@@ -526,15 +528,10 @@ def merge_season(espn_rows: list[dict], sleeper, ros_sleeper: dict | None = None
         sl = by_team.get(team) if row["pos"] == "D/ST" else by_name.get(key)
         espn = row["proj"] if (row.get("proj") or 0) > 0 else None
         have = [float(x) for x in (espn, sl) if x is not None]
-        r_sl, r_cbs = ros_sleeper.get(key), ros_cbs.get(key)
-        ros = [float(x) for x in (r_sl, r_cbs) if x is not None]
-        out[row["player_id"]] = {
-            "season_proj": round(sum(have) / len(have), 1) if have else 0.0,
-            "season_proj_sleeper": float(sl) if sl is not None else None,
-            "ros_proj": round(sum(ros) / len(ros), 1) if ros else None,
-            "ros_sleeper": float(r_sl) if r_sl is not None else None,
-            "ros_cbs": float(r_cbs) if r_cbs is not None else None,
-            "ros_spread": round(abs(ros[0] - ros[1]), 1) if len(ros) == 2 else None}
+        vals = {name: float(d[key]) for name, d in (ros or {}).items() if d.get(key) is not None}
+        proj, spread, n = consensus.combine(vals)
+        out[row["player_id"]] = {"season_proj": round(sum(have) / len(have), 1) if have else 0.0,
+                                 "ros_proj": proj, "ros_spread": spread, "ros_n": n, "ros_src": vals}
     return out
 
 
@@ -549,7 +546,7 @@ def apply_season(players: list[dict], lookup: dict[int, dict]) -> list[dict]:
         q = dict(p)
         got = lookup.get(p["player_id"])
         if got:
-            for k in ("season_proj", "season_proj_sleeper", "ros_proj", "ros_sleeper", "ros_cbs", "ros_spread"):
+            for k in ("season_proj", "ros_proj", "ros_spread", "ros_n"):
                 q[k] = got.get(k)
         out.append(q)
     return out
@@ -563,27 +560,29 @@ def _remaining_sleeper_weeks(week: int, settings: dict) -> list[dict] | None:
         with ThreadPoolExecutor(max(len(weeks), 1)) as pool:
             return list(pool.map(lambda w: _sleeper_for(w, settings), weeks))
     except requests.RequestException as e:
-        print(f"sleeper weekly projections unavailable, ROS rests on CBS: {e}")
+        print(f"sleeper weekly projections unavailable, ROS rests on the other sources: {e}")
         return None
 
 
 def season_lookup(settings: dict, week: int) -> dict[int, dict]:
     """The whole player pool's season and rest-of-season projections, cached for CACHE_S per week
-    (one ESPN call, Sleeper's season and every remaining week, CBS's six pages)."""
+    (one ESPN call, Sleeper's season and every remaining week, CBS's and FantasySharks' pages)."""
     now = time.time()
     if _SEASON_CACHE and now - _SEASON_CACHE[0] < CACHE_S and _SEASON_CACHE[1] == week:
         return _SEASON_CACHE[2]
     # four independent sources of one to four seconds each, in flight together: in sequence they
     # were most of what the Refresh button waited on
     ks = key_scoring(settings["scoring"])
-    with ThreadPoolExecutor(4) as pool:
+    with ThreadPoolExecutor(3 + len(ROS_SOURCES)) as pool:
         espn_f = pool.submit(fetch_pool)
         sleeper_f = pool.submit(fetch_sleeper_season)
         weeks_f = pool.submit(_remaining_sleeper_weeks, week, settings)
-        cbs_f = pool.submit(cbs.fetch_ros, ks)
+        ros_f = {name: pool.submit(fn, ks) for name, fn in ROS_SOURCES.items()}
         weeks = weeks_f.result()
-        lookup = merge_season(espn_f.result(), sleeper_f.result(),
-                              sleeper_ros(weeks) if weeks is not None else None, cbs_f.result())
+        ros = {name: f.result() for name, f in ros_f.items()}
+        if weeks is not None:
+            ros = {"sleeper": sleeper_ros(weeks), **ros}
+        lookup = merge_season(espn_f.result(), sleeper_f.result(), ros)
     _SEASON_CACHE[:] = [now, week, lookup]
     return lookup
 

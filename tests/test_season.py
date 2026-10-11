@@ -15,7 +15,7 @@ def P(pid, name, pos, proj, slot="BE", injury="ACTIVE", bye=False, team="T", sea
             "injury": injury, "proj": proj, "spread": 0.0,
             "n_src": 2, "actual": 0.0, "game_played": 0,
             "season_proj": season_proj if season_proj is not None else proj * 17,
-            "season_proj_sleeper": None, "ros_proj": None, "ros_sleeper": None, "ros_cbs": None,
+            "ros_proj": None, "ros_n": 2,
             "ros_spread": None, "return_week": None, "injury_note": None, "exp": None, "ahead": [],
             "opponent": None, "kickoff": None, "home": None}
 

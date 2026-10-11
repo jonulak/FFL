@@ -21,7 +21,7 @@ def test_parse_scoreboard_ranks_defences_by_points_allowed_and_keeps_opponents()
 
 def _player(name, pos, l3, pace_gap, games=2, ros=150.0, team="MIN"):
     return {"name": name, "pos": pos, "team": team, "injury": "ACTIVE", "proj": 10.0, "ros_proj": ros,
-            "ros_sleeper": ros, "ros_cbs": ros, "exp": 3, "ahead": [], "injury_note": None,
+            "ros_n": 2, "exp": 3, "ahead": [], "injury_note": None,
             "form": {"games": games, "l3": l3, "beat": 2.0, "pace_gap": pace_gap, "opp": 8.0, "opp_trend": 1.0,
                      "snap_pct": 70, "tgt_snap": 0.1, "ypt": 9.0, "weight": float(games), "games_left": 15}}
 

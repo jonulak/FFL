@@ -56,6 +56,7 @@ def _no_scraped_weekly_sources(monkeypatch):
     no test reaches them (a test that wants them patches WEEKLY_SOURCES itself)."""
     from ffl import espn_season
     monkeypatch.setattr(espn_season, "WEEKLY_SOURCES", {})
+    monkeypatch.setattr(espn_season, "ROS_SOURCES", {})
 
 
 @pytest.fixture(autouse=True)

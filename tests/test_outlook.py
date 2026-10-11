@@ -27,7 +27,7 @@ def card(**kw):
     base = {"player_id": 1, "name": "Jahmyr Gibbs", "pos": "RB", "team": "DET", "slot": "RB", "bye": False,
             "injury": "ACTIVE", "proj": 20.2, "spread": 2.4,
             "n_src": 2, "actual": 0.0, "game_played": 0, "season_proj": 320.5,
-            "season_proj_sleeper": 300.0, "return_week": None, "injury_note": None,
+            "ros_n": 2, "return_week": None, "injury_note": None,
             "opponent": "GB", "kickoff": "2026-09-13T13:00:00-04:00",
             "group": "starter", "call": "START", "gap": 6.1, "close_call": False,
             "reason": "starts at RB: 20.2 vs 14.1 for Warren", "exp": 3,
