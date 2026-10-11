@@ -940,3 +940,14 @@ def test_box_scores_a_move_overtakes_are_not_kept(monkeypatch):
     lg2 = SimpleNamespace(current_week=5, box_scores=lambda week: [])
     espn_season.box_scores(lg2, 5)
     assert 5 in espn_season._BOXES, "an ordinary fetch is kept"
+
+
+def test_unmatched_lists_a_sources_top_rows_espn_does_not_know():
+    pool = {("jalen hurts", "QB"), ("zero guy", "TE")}
+    src = {("jalen hurts", "QB"): 300.0, ("hollywood brown", "WR"): 120.0, ("deep guy", "WR"): 1.0}
+    assert espn_season.unmatched(src, pool, top=2) == ["hollywood brown WR"]
+
+
+def test_aliases_rename_a_source_key(monkeypatch):
+    monkeypatch.setitem(espn_season.ALIASES, ("hollywood brown", "WR"), ("marquise brown", "WR"))
+    assert espn_season.canon({("hollywood brown", "WR"): 120.0}) == {("marquise brown", "WR"): 120.0}

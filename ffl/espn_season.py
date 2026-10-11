@@ -423,6 +423,22 @@ def parse_sleeper_rows(rows: list[dict], ks: dict) -> dict[tuple[str, str], floa
     return out
 
 
+# A source's name for a player -> ESPN's, when norm_name alone does not match them (add as the
+# unmatched log names them)
+ALIASES: dict[tuple[str, str], tuple[str, str]] = {}
+_POOL_KEYS: list = []   # [the ESPN pool's source keys], set by season_lookup for the weekly unmatched log
+
+
+def canon(d: dict[tuple[str, str], float]) -> dict[tuple[str, str], float]:
+    return {ALIASES.get(k, k): v for k, v in d.items()} if ALIASES else d
+
+
+def unmatched(src: dict[tuple[str, str], float], pool: set[tuple[str, str]], top: int = 100) -> list[str]:
+    """The source's top-`top` rows by points that match no ESPN player: a name to add to ALIASES."""
+    best = sorted(src.items(), key=lambda kv: -kv[1])[:top]
+    return [f"{k[0]} {k[1]}" for k, _ in best if k not in pool]
+
+
 WEEKLY_SOURCES = {"cbs": cbs.fetch_week, "sharks": sharks.fetch_week, "fleaflicker": fleaflicker.fetch_week}
 
 
@@ -438,6 +454,11 @@ def weekly_sources(week: int, settings: dict) -> dict[str, dict[tuple[str, str],
         except requests.RequestException as e:
             print(f"sleeper week {week} unavailable: {e}")
             out = {"sleeper": {}, **out}
+    out = {name: canon(d) for name, d in out.items()}
+    if _POOL_KEYS:
+        for name, d in out.items():
+            if miss := unmatched(d, _POOL_KEYS[0]):
+                print(f"week {week} source {name}: no ESPN player for {', '.join(miss[:10])}")
     return out
 
 
@@ -582,7 +603,15 @@ def season_lookup(settings: dict, week: int) -> dict[int, dict]:
         ros = {name: f.result() for name, f in ros_f.items()}
         if weeks is not None:
             ros = {"sleeper": sleeper_ros(weeks), **ros}
-        lookup = merge_season(espn_f.result(), sleeper_f.result(), ros)
+        ros = {name: canon(d) for name, d in ros.items()}
+        espn_rows = espn_f.result()
+        lookup = merge_season(espn_rows, sleeper_f.result(), ros)
+    pool_keys = {((TEAM_FIX.get(r["team"], r["team"]), "D/ST") if r["pos"] == "D/ST"
+                  else (norm_name(r["name"]), r["pos"])) for r in espn_rows}
+    _POOL_KEYS[:] = [pool_keys]
+    for name, d in ros.items():
+        if miss := unmatched(d, pool_keys):
+            print(f"ROS source {name}: no ESPN player for {', '.join(miss[:10])}")
     _SEASON_CACHE[:] = [now, week, lookup]
     return lookup
 
