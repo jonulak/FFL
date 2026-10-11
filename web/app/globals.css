@@ -206,12 +206,8 @@
   body {
     @apply bg-background text-foreground;
   }
-  /* No rubber band at the page's ends. A dialog opened during an iOS bounce takes the scroll lock
-     (overflow: hidden) mid-overscroll, which freezes the page past its end and carries the fixed
-     dialog's top off screen until the next scroll. Inner scrollers keep overscroll-contain. */
   html {
     @apply font-sans;
-    overscroll-behavior-y: none;
   }
   /* The browser's own surfaces, set from the board's palette rather than left at defaults. */
   ::selection {
