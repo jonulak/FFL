@@ -33,7 +33,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from . import calibrate, cbs, db, espn_season, espn_write, live, notify, outlook, player_card, season
+from . import calibrate, db, espn_season, espn_write, live, notify, outlook, player_card, season, sources
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -1080,8 +1080,7 @@ def refresh():
     espn_season._BOXES.clear()
     if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
         espn_season._INJ[0] = 0.0
-    if cbs._CACHE:  # same shape, same reason
-        cbs._CACHE[0] = 0.0
+    sources.expire_all()  # same reason: the last good scrape stays for an outage
     try:
         synced = sync_all()
     except HTTPException:

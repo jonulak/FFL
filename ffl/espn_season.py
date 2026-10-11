@@ -15,7 +15,8 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from . import calibrate, cbs, db, espn_write
+from . import calibrate, db, espn_write
+from .sources import cbs
 from . import season as S
 from .adp import norm_name
 from .config import MY_TEAM_ID, SEASON, SWID, cookies, league, raw_league_get

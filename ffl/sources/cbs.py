@@ -1,4 +1,4 @@
-"""CBS's public rest-of-season projections, rescored to this league -> {(key, pos): points}.
+"""CBS's public rest-of-season projections and the week's page, rescored to this league -> {(key, pos): points}.
 
 One HTML page per position (cbssports.com/fantasy/football/stats/<POS>/<season>/restofseason/
 projections/ppr/), the top 100 at the position, each row the raw stats CBS projects for the games
@@ -11,16 +11,19 @@ parse_page is the pure seam.
 from __future__ import annotations
 
 import re
-import time
 
 import requests
 from bs4 import BeautifulSoup
 
-from .adp import norm_name
-from .config import SEASON
-from .sleeper import score
+from . import Cached
+from ..adp import norm_name
+from ..config import SEASON
+from ..sleeper import score
 
 URL = "https://www.cbssports.com/fantasy/football/stats/{pos}/{season}/restofseason/projections/ppr/"
+WEEK_URL = "https://www.cbssports.com/fantasy/football/stats/{pos}/{season}/{week}/projections/ppr/"
+_ROS = Cached("cbs-ros")
+_WEEK = Cached("cbs")
 PAGES = {"QB": "QB", "RB": "RB", "WR": "WR", "TE": "TE"}
 # CBS column key (the sortcol of its header link) -> the stat name sleeper.score reads
 STATS = {"passing_yds": "pass_yd", "passing_td": "pass_td", "passing_int": "pass_int",
@@ -31,8 +34,6 @@ NEEDED = {"QB": {"passing_yds", "passing_td", "passing_int", "rushing_yds", "rus
           "WR": {"receiving_rec", "receiving_yds", "receiving_td", "rushing_yds", "rushing_td", "misc_fl"},
           "TE": {"receiving_rec", "receiving_yds", "receiving_td", "misc_fl"}}
 SORTCOL_RE = re.compile(r"sortcol=([^&\"]+)")
-CACHE_S = 1800
-_CACHE: list = []  # [expires_at, data]
 
 
 def _num(text: str) -> float:
@@ -44,7 +45,7 @@ def _num(text: str) -> float:
 
 
 def parse_page(html: str, pos: str, ks: dict) -> dict[tuple[str, str], dict]:
-    """{(normalised name, pos): {"ros": points, "games": games left}} for one position page.
+    """{(normalised name, pos): {"pts": points, "games": games left}} for one position page.
 
     The header row's sort links name the columns (`sortcol=rushing_yds`), so the parse follows the
     header, not positions. A page missing a column the scorer needs returns {}: a reshaped page
@@ -70,23 +71,25 @@ def parse_page(html: str, pos: str, ks: dict) -> dict[tuple[str, str], dict]:
         long = tds[0].select_one(".CellPlayerName--long a") or tds[0].find("a")
         if long is None:
             continue
-        ros = score({STATS[c]: v for c, v in row.items() if c in STATS}, ks)
-        out[(norm_name(long.get_text(strip=True)), pos)] = {"ros": round(float(ros), 1), "games": int(row.get("gp", 0))}
+        pts = score({STATS[c]: v for c, v in row.items() if c in STATS}, ks)
+        out[(norm_name(long.get_text(strip=True)), pos)] = {"pts": round(float(pts), 1), "games": int(row.get("gp", 0))}
     return out
 
 
-def fetch_ros(ks: dict) -> dict[tuple[str, str], float]:
-    """Every position page rescored, cached for CACHE_S; an outage serves the last good data, and
-    with nothing cached an empty dict: ROS then rests on Sleeper alone, or the season formula."""
-    if _CACHE and _CACHE[0] > time.time():
-        return _CACHE[1]
-    data: dict[tuple[str, str], float] = {}
-    try:
-        for pos, page in PAGES.items():
-            r = requests.get(URL.format(pos=page, season=SEASON), headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
-            r.raise_for_status()
-            data.update({k: v["ros"] for k, v in parse_page(r.text, pos, ks).items()})
-    except requests.RequestException:
-        return _CACHE[1] if _CACHE else {}
-    _CACHE[:] = [time.time() + CACHE_S, data]
+def _pages(url: str, ks: dict, **fmt) -> dict[tuple[str, str], dict]:
+    data: dict[tuple[str, str], dict] = {}
+    for pos, page in PAGES.items():
+        r = requests.get(url.format(pos=page, season=SEASON, **fmt), headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        r.raise_for_status()
+        data.update(parse_page(r.text, pos, ks))
     return data
+
+
+def fetch_ros(ks: dict) -> dict[tuple[str, str], float]:
+    """Every position's rest-of-season page rescored (sources.Cached: last good through an outage)."""
+    return _ROS.get("ros", lambda: {k: v["pts"] for k, v in _pages(URL, ks).items()})
+
+
+def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
+    """The week's pages rescored; a row with no game this week (gp 0: bye, ruled out) is left out."""
+    return _WEEK.get(week, lambda: {k: v["pts"] for k, v in _pages(WEEK_URL, ks, week=week).items() if v["games"] > 0})

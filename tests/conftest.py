@@ -43,6 +43,14 @@ def _db_in_tmp(monkeypatch, tmp_path, _db_template):
 
 
 @pytest.fixture(autouse=True)
+def _sources_reset():
+    from ffl import sources
+    sources.reset()
+    yield
+    sources.reset()
+
+
+@pytest.fixture(autouse=True)
 def _no_claim_fact_reads(monkeypatch):
     """free_agent_pool and roster_state read waiver status and roster flags from ESPN; a test build never makes the call
     (a test that wants the facts patches pool_status / roster_flags, or raw_league_get itself)."""
