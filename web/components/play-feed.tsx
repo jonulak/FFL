@@ -20,7 +20,7 @@ import { TeamPanel } from "./player-media";
 // `compact` is the Matchup strip's one-line form: name and play on a single truncated line, the
 // game clock and the delta at the inner end, no running total (that is the /plays page's job).
 export function PlayFeed({ plays, empty = "No plays yet.", compact = false, pick }: { plays: Play[]; empty?: string; compact?: boolean; pick?: Pick }) {
-  const rows = useLedger(plays);
+  const rows = useLedger(plays, key);
   if (rows.length === 0) {
     return <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>;
   }
@@ -57,21 +57,21 @@ const key = (p: Play) => `${p.at}-${p.player_id}-${p.total}`;
 // the last one is the cost of not tracking animationend per row
 const LEAVE_MS = 450;
 
-type Ledger = { p: Play; state: "still" | "enter" | "leave" }[];
+type Ledger<T> = { p: T; state: "still" | "enter" | "leave" }[];
 
 // What the feed draws: the rows on screen when it mounted stay still, any row that arrives after
 // is marked to enter (and keeps the mark, so a re-render never replays it), and a row that drops
 // off the end (the strip shows the latest five) is held for one fold before it goes.
-function useLedger(plays: Play[]): Ledger {
-  const [first] = useState(() => new Set(plays.map(key)));
-  const [prev, setPrev] = useState(plays);
-  const [leaving, setLeaving] = useState<Play[]>([]);
-  if (prev !== plays) {
-    const now = new Set(plays.map(key));
-    const gone = prev.filter((p) => !now.has(key(p)));
-    setPrev(plays);
-    if (gone.length > 0 || leaving.some((p) => now.has(key(p)))) {
-      setLeaving([...leaving.filter((p) => !now.has(key(p))), ...gone]);
+export function useLedger<T>(items: T[], keyOf: (t: T) => string): Ledger<T> {
+  const [first] = useState(() => new Set(items.map(keyOf)));
+  const [prev, setPrev] = useState(items);
+  const [leaving, setLeaving] = useState<T[]>([]);
+  if (prev !== items) {
+    const now = new Set(items.map(keyOf));
+    const gone = prev.filter((p) => !now.has(keyOf(p)));
+    setPrev(items);
+    if (gone.length > 0 || leaving.some((p) => now.has(keyOf(p)))) {
+      setLeaving([...leaving.filter((p) => !now.has(keyOf(p))), ...gone]);
     }
   }
   useEffect(() => {
@@ -80,7 +80,7 @@ function useLedger(plays: Play[]): Ledger {
     return () => clearTimeout(t);
   }, [leaving]);
   return [
-    ...plays.map((p) => ({ p, state: first.has(key(p)) ? "still" as const : "enter" as const })),
+    ...items.map((p) => ({ p, state: first.has(keyOf(p)) ?"still" as const : "enter" as const })),
     // the dropped rows are the oldest, so they fold at the foot of the ledger
     ...leaving.map((p) => ({ p, state: "leave" as const })),
   ];

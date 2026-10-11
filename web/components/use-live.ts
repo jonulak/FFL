@@ -8,7 +8,8 @@ import { generation } from "@/lib/generation";
 // /live event stream and refetch `path` on every tick (a tick means a player's points, or a
 // game's status, moved on ESPN's feed), so a page opened before kickoff goes live with the first
 // game. An idle stream is a keepalive every 15 s. While the API says games are on, a slow 60 s
-// poll also stands in, since the browser only retries a stream that cannot be opened. A server re-render
+// poll also stands in, since the browser only retries a stream that cannot be opened (the NFL game pages
+// pass a faster poll: their plays tick the stream only on fantasy points). A server re-render
 // (router.refresh(), navigation) hands us a fresh `initial`, adopted during render.
 const POLL_MS = 60_000;
 
@@ -22,7 +23,7 @@ const resume = <T,>(initial: T, path: string): T => {
   return hit && hit.initial === initial ? (hit.data as T) : initial;
 };
 
-export function useLive<T extends { live: boolean }>(initial: T, path: string): { data: T; now: number; replace: (d: T) => void } {
+export function useLive<T extends { live: boolean }>(initial: T, path: string, opts: { pollMs?: number } = {}): { data: T; now: number; replace: (d: T) => void } {
   const [data, setData] = useState(() => resume(initial, path));
   const [seen, setSeen] = useState(initial);
   if (seen !== initial) {
@@ -74,17 +75,18 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string): 
   }, [path]);
 
   // the fallback poll, and a refetch on coming back to the tab, only while games are on
+  const ms = opts.pollMs ?? POLL_MS;
   useEffect(() => {
     if (!live) return;
     const tick = () => refetchRef.current();
-    const poll = setInterval(tick, POLL_MS);
+    const poll = setInterval(tick, ms);
     const onVisible = () => { if (document.visibilityState === "visible") tick(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(poll);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [live]);
+  }, [live, ms]);
 
   // A fresher payload the page got some other way (a POST that answers with it) becomes the data, and the
   // one a back/forward navigation resumes from.

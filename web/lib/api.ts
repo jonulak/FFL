@@ -144,6 +144,22 @@ export type Plays = {
   week: number | null; live: boolean; game_on: boolean; mine: boolean; me: PlaysSide | null; opp: PlaysSide | null;
   plays: Play[]; stale_since: string | null;
 };
+// The NFL tab (GET /nfl, GET /nfl/{week}/{team}): ESPN's public scoreboard and drives, with this week's two
+// lineups marked on the plays and counted on each game (`mine`/`opp`).
+export type NflClub = { abbr: string; id: string; name: string | null; location: string | null; record: string | null; score: number | null; winner: boolean };
+export type NflGame = {
+  event_id: string; kickoff: string; status: "pre" | "in" | "post"; detail: string | null; quarter: number | null; clock: string | null;
+  network: string | null; away: NflClub; home: NflClub; ball: string | null; red_zone: boolean; down: string | null; mine: number; opp: number;
+};
+export type NflSection = { live: boolean; kickoff: string | null; games: NflGame[] };
+export type NflBoard = { week: number; current: number; weeks: number; live: boolean; sections: NflSection[]; byes: string[]; stale_since: string | null };
+export type NflPlay = {
+  id: string; quarter: number | null; clock: string | null; team: string | null; down: string | null; text: string; kind: string | null;
+  scoring: boolean; turnover: boolean; penalty: boolean; score: { away: number | null; home: number | null }; athletes: number[]; mine: string[]; opp: string[];
+};
+export type NflDrive = { id: string; team: string | null; description: string | null; result: string | null; plays: NflPlay[] };
+export type NflStarter = Pick<Player, "player_id" | "name" | "pos" | "slot" | "team" | "actual" | "stat_line" | "game_played">;
+export type NflGamePage = { week: number; live: boolean; game: NflGame; starters: { me: NflStarter[]; opp: NflStarter[] }; scoring: NflPlay[]; drives: NflDrive[]; stale_since: string | null };
 // `me` is the left side of the board, `opp` the right: I stand left of my own game (`mine`); any other
 // game (a League scoreboard tile) reads away then home.
 // win_prob is the left side's odds (and the right's) off season.win_prob, re-priced by the live
