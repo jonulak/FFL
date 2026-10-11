@@ -484,7 +484,7 @@ def merge_weekly(players: list[dict], sources: dict[str, dict]) -> list[dict]:
     for p in players:
         q = dict(p)
         espn = float(q.pop("proj_espn", 0) or 0)
-        proj, spread, n = consensus.combine(source_values(p, sources))
+        proj, spread, n = consensus.combine(source_values(p, sources), consensus.weights_for("week", p["pos"]))
         q["proj"] = proj if proj is not None else espn
         q["spread"], q["n_src"] = spread, n
         out.append(q)
@@ -577,7 +577,7 @@ def merge_season(espn_rows: list[dict], sleeper, ros: dict[str, dict] | None = N
         espn = row["proj"] if (row.get("proj") or 0) > 0 else None
         have = [float(x) for x in (espn, sl) if x is not None]
         vals = {name: float(d[key]) for name, d in (ros or {}).items() if d.get(key) is not None}
-        proj, spread, n = consensus.combine(vals)
+        proj, spread, n = consensus.combine(vals, consensus.weights_for("ros", row["pos"]))
         out[row["player_id"]] = {"season_proj": round(sum(have) / len(have), 1) if have else 0.0,
                                  "ros_proj": proj, "ros_spread": spread, "ros_n": n, "ros_src": vals}
     return out

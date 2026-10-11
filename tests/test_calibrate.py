@@ -88,3 +88,29 @@ def test_load_sigma_falls_back_on_a_db_error(monkeypatch):
 def test_load_sigma_falls_back_on_a_malformed_fit(fit):
     db.put_sigma(fit)
     assert calibrate.load_sigma() == (season.SIGMA_FALLBACK, "fallback")
+
+
+def _pairs():
+    # two weeks, two QBs; "good" is off by 1, "bad" by 6
+    out = []
+    for week in (5, 6):
+        for pid, actual in ((1, 20.0), (2, 15.0)):
+            out += [{"week": week, "player_id": pid, "pos": "QB", "source": "good", "points": actual + 1, "actual": actual},
+                    {"week": week, "player_id": pid, "pos": "QB", "source": "bad", "points": actual - 6, "actual": actual}]
+    return out
+
+
+def test_fit_weights_favours_the_lower_error_source_and_shrinks_toward_equal():
+    fit = calibrate.fit_weights(_pairs(), shrink=4)["QB"]
+    assert fit["mae"] == {"good": 1.0, "bad": 6.0} and fit["weeks"] == 2 and fit["n"] == {"good": 4, "bad": 4}
+    raw_good = (1 / 1) / (1 / 1 + 1 / 36)
+    assert fit["weights"]["good"] == pytest.approx((2 * raw_good + 4 * 0.5) / 6, abs=1e-3)
+    assert fit["weights"]["good"] + fit["weights"]["bad"] == pytest.approx(1.0, abs=1e-3)
+    assert calibrate.fit_weights(_pairs(), shrink=0)["QB"]["weights"]["good"] == pytest.approx(raw_good, abs=1e-3)
+
+
+def test_compare_scores_equal_and_fitted_consensus():
+    out = calibrate.compare(_pairs(), {"QB": {"good": 0.9, "bad": 0.1}})["QB"]
+    assert out["n"] == 4
+    assert out["equal"] == 2.5, "two sources: the mean, off by 2.5"
+    assert out["fitted"] < out["equal"]

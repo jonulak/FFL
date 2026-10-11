@@ -192,7 +192,7 @@ def week_projections(p: dict, pos: str, team: str | None, season: int, week: int
                     if d.get(key) is not None}
             if espn:
                 vals["espn"] = float(espn)
-            proj = consensus.combine(vals)[0]
+            proj = consensus.combine(vals, consensus.weights_for("week", pos))[0]
         else:
             sl = (sleeper.get(wk) or {}).get(key)
             proj = round(float(sl), 1) if sl is not None else None

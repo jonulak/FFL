@@ -8,6 +8,7 @@ median; equal weights give the unweighted answer. Pure.
 """
 from __future__ import annotations
 
+import time
 from itertools import combinations
 
 
@@ -46,3 +47,24 @@ def combine(values: dict[str, float], weights: dict[str, float] | None = None
         vals = vals[1:-1]
     spread = round(vals[-1] - vals[0], 1) if n >= 2 else None
     return proj, spread, n
+
+
+_W: list = [0.0, None]   # [read_at, the active fit] — read again after WEIGHTS_TTL_S
+WEIGHTS_TTL_S = 300
+
+
+def weights_for(kind: str, pos: str) -> dict[str, float] | None:
+    """The activated fit's weights for "week" or "ros" at a position; None (equal weights) when no fit
+    is active or the DB cannot be read."""
+    from . import db
+    if time.time() - _W[0] > WEIGHTS_TTL_S:
+        try:
+            fit = db.active_source_weights()
+        except db.DBError:
+            fit = None
+        _W[:] = [time.time(), fit]
+    return ((_W[1] or {}).get(kind) or {}).get(pos)
+
+
+def forget() -> None:
+    _W[:] = [0.0, None]

@@ -44,10 +44,12 @@ def _db_in_tmp(monkeypatch, tmp_path, _db_template):
 
 @pytest.fixture(autouse=True)
 def _sources_reset():
-    from ffl import sources
+    from ffl import consensus, sources
     sources.reset()
+    consensus.forget()
     yield
     sources.reset()
+    consensus.forget()
 
 
 @pytest.fixture(autouse=True)

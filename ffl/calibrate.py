@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import statistics
 import sys
+from datetime import datetime
 
 from . import db
 from . import season as S
@@ -126,9 +127,13 @@ def write_sigma(fit: dict, weeks: list[int]) -> None:
 
 
 def starter_weeks(lg, settings: dict, weeks: list[int]) -> tuple[list[dict], list[tuple[list[dict], list[dict]]]]:
-    """Every league starter of the given weeks as {pos, pts, proj} (proj the board's ESPN+Sleeper
-    mean, zero when he could not play), and each game's two starting lineups."""
+    """Every league starter of the given weeks as {pos, pts, proj} (proj the consensus the tick
+    recorded, else ESPN + Sleeper; zero when he could not play), and each game's two starting lineups."""
+    from .consensus import combine, weights_for
     from .espn_season import _sleeper_for, box_scores, flatten_box_player, merge_weekly
+    stored: dict[tuple[int, int], dict[str, float]] = {}
+    for r in db.projection_rows("week"):
+        stored.setdefault((r["week"], r["player_id"]), {})[r["source"]] = r["points"]
     rows, games = [], []
     for w in weeks:
         sl = _sleeper_for(w, settings)
@@ -137,11 +142,117 @@ def starter_weeks(lg, settings: dict, weeks: list[int]) -> tuple[list[dict], lis
             for lineup in (m.away_lineup, m.home_lineup):
                 starters = [bp for bp in lineup or [] if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]
                 players = merge_weekly([flatten_box_player(bp) for bp in starters], {"sleeper": sl})
+                for p in players:   # what the meter read that week, when the tick recorded it
+                    if vals := stored.get((w, p["player_id"])):
+                        p["proj"] = combine(vals, weights_for("week", p["pos"]))[0]
                 rows += [{"pos": p["pos"], "pts": p["actual"], "proj": S.playable_proj(p)} for p in players]
                 sides.append(players)
             if len(sides) == 2 and all(sides):
                 games.append((sides[0], sides[1]))
     return rows, games
+
+
+SHRINK_WEEKS = 4   # a fit from n weeks is (n * fitted + 4 * equal) / (n + 4)
+
+
+def fit_weights(pairs: list[dict], shrink: int = SHRINK_WEEKS) -> dict[str, dict]:
+    """Per position: each source's MAE and inverse-MSE weight against what happened, normalised and
+    shrunk toward equal by the weeks behind it (STRATEGY.md "Lineup": weights are fitted, then
+    approved by hand)."""
+    by: dict[str, dict[str, list[float]]] = {}
+    weeks: dict[str, set] = {}
+    for r in pairs:
+        by.setdefault(r["pos"], {}).setdefault(r["source"], []).append(r["points"] - r["actual"])
+        weeks.setdefault(r["pos"], set()).add(r["week"])
+    out = {}
+    for pos, errs in by.items():
+        mse = {s: max(sum(e * e for e in v) / len(v), 1e-6) for s, v in errs.items()}
+        inv = {s: 1 / m for s, m in mse.items()}
+        tot, eq, n = sum(inv.values()), 1 / len(inv), len(weeks[pos])
+        out[pos] = {"weights": {s: round((n * inv[s] / tot + shrink * eq) / (n + shrink), 4) for s in inv},
+                    "mae": {s: round(sum(abs(e) for e in v) / len(v), 2) for s, v in errs.items()},
+                    "n": {s: len(v) for s, v in errs.items()}, "weeks": n}
+    return out
+
+
+def compare(pairs: list[dict], weights: dict[str, dict[str, float]]) -> dict[str, dict]:
+    """The consensus' MAE per position with equal weights and with `weights`, over every (week, player)."""
+    from .consensus import combine
+    games: dict[tuple, dict] = {}
+    for r in pairs:
+        g = games.setdefault((r["week"], r["player_id"]), {"pos": r["pos"], "actual": r["actual"], "vals": {}})
+        g["vals"][r["source"]] = r["points"]
+    out: dict[str, dict] = {}
+    for g in games.values():
+        o = out.setdefault(g["pos"], {"equal": 0.0, "fitted": 0.0, "n": 0})
+        o["equal"] += abs(combine(g["vals"])[0] - g["actual"])
+        o["fitted"] += abs(combine(g["vals"], weights.get(g["pos"]))[0] - g["actual"])
+        o["n"] += 1
+    return {pos: {"equal": round(o["equal"] / o["n"], 2), "fitted": round(o["fitted"] / o["n"], 2), "n": o["n"]}
+            for pos, o in out.items()}
+
+
+def weekly_pairs(lg, rows: list[dict]) -> list[dict]:
+    """projection_rows (kind week) joined to what each player scored that week, off the box scores."""
+    from .espn_season import _boxes_by_team
+    actual = {}
+    for w in sorted({r["week"] for r in rows}):
+        for lineup in _boxes_by_team(lg, w).values():
+            for bp in lineup:
+                if not getattr(bp, "on_bye_week", False):
+                    actual[(w, bp.playerId)] = (bp.position, float(getattr(bp, "points", 0) or 0))
+    return [{**r, "pos": actual[(r["week"], r["player_id"])][0], "actual": actual[(r["week"], r["player_id"])][1]}
+            for r in rows if (r["week"], r["player_id"]) in actual]
+
+
+def ros_pairs(lg, rows: list[dict], now: int) -> list[dict]:
+    """projection_rows (kind ros) as a per-game rate against his per-game points since that ROS week;
+    only ROS weeks with at least one week played since."""
+    from .espn_season import _boxes_by_team
+    out = []
+    for w in sorted({r["week"] for r in rows if r["week"] < now}):
+        wr = [r for r in rows if r["week"] == w]
+        pos = {bp.playerId: bp.position for lineup in _boxes_by_team(lg, w).values() for bp in lineup}
+        got = actuals_since(lg, sorted({r["player_id"] for r in wr}), w, now - 1)
+        for r in wr:
+            pts, games = got.get(r["player_id"], (0.0, 0))
+            if games and r["player_id"] in pos:
+                out.append({**r, "pos": pos[r["player_id"]], "points": r["points"] / max(S.games_left(w, None), 1),
+                            "actual": pts / games})
+    return out
+
+
+def _sources(argv: list[str]) -> None:
+    if argv[:1] == ["--activate"] and len(argv) == 2:
+        ok = db.activate_source_weights(argv[1])
+        print(f"activated {argv[1]}" if ok else f"no fit {argv[1]}: see `ffl.calibrate sources`")
+        return
+    from .espn_season import fresh_league, ros_week_for
+    lg = fresh_league()
+    now = lg.current_week
+    done = ros_week_for(lg, now)          # weeks before this one are fully played
+    wk = weekly_pairs(lg, [r for r in db.projection_rows("week") if r["week"] < done])
+    ros = ros_pairs(lg, db.projection_rows("ros"), done)
+    if not wk:
+        print("no recorded weeks played yet: the notify tick records them (projection_rows)")
+        return
+    fit = {"week": fit_weights(wk), "ros": fit_weights(ros) if ros else {}}
+    weights = {k: {pos: f["weights"] for pos, f in v.items()} for k, v in fit.items()}
+    report = {"week": compare(wk, weights["week"]), "ros": compare(ros, weights["ros"]) if ros else {}}
+    at = db.put_source_weights({**weights, "report": report, "fit": fit})
+    for kind in ("week", "ros"):
+        for pos, f in sorted(fit[kind].items()):
+            r = report[kind][pos]
+            maes = "  ".join(f"{s} {m}" for s, m in sorted(f["mae"].items(), key=lambda x: x[1]))
+            print(f"{kind:>4} {pos:<3} {f['weeks']} wk  MAE {maes}  |  consensus equal {r['equal']} fitted {r['fitted']} (n {r['n']})")
+    eq = sum(r["equal"] * r["n"] for r in report["week"].values())
+    fi = sum(r["fitted"] * r["n"] for r in report["week"].values())
+    print(f"fit {at} stored inactive. Activate: uv run python -m ffl.calibrate sources --activate {at}")
+    if fi < eq:
+        n = sum(r["n"] for r in report["week"].values())
+        db.add_notices([{"key": f"weights:{at}", "kind": "weights", "title": "Fitted source weights beat the plain average",
+                         "body": f"Weekly MAE {fi / n:.2f} vs {eq / n:.2f} over {n}. Activate fit {at} to use them.",
+                         "url": "/settings", "created_at": datetime.now().astimezone().isoformat(timespec='seconds')}])
 
 
 def _winprob() -> None:
@@ -170,6 +281,16 @@ def _winprob() -> None:
 
 
 def main(argv: list[str]) -> None:
+    if argv[:1] == ["sources"]:
+        _sources(argv[1:])
+        return
+    if argv[:1] == ["wednesday"]:   # the launchd job: the win meter's σ, then the source weights
+        for name, fn in (("winprob", _winprob), ("sources", lambda: _sources([]))):
+            try:
+                fn()
+            except Exception as e:  # noqa: BLE001 — one failing must not skip the other; the log shows it
+                print(f"{name} failed: {e}")
+        return
     if argv[:1] == ["winprob"]:
         _winprob()
         return

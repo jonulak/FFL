@@ -40,3 +40,14 @@ def test_weights_pull_toward_the_heavier_source():
 def test_a_source_missing_from_the_weights_gets_the_mean_weight():
     vals = {"a": 10, "b": 12, "c": 20}
     assert combine(vals, {"a": 1, "b": 1}) == combine(vals)
+
+
+def test_weights_for_reads_the_active_fit_only():
+    from ffl import consensus, db
+    at = db.put_source_weights({"week": {"QB": {"espn": 0.6, "cbs": 0.4}}})
+    consensus.forget()
+    assert consensus.weights_for("week", "QB") is None, "fitted but not activated"
+    db.activate_source_weights(at)
+    consensus.forget()
+    assert consensus.weights_for("week", "QB") == {"espn": 0.6, "cbs": 0.4}
+    assert consensus.weights_for("ros", "QB") is None and consensus.weights_for("week", "K") is None
