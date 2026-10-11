@@ -41,6 +41,40 @@ function DialogOverlay({
   )
 }
 
+// The visible area, for centring a dialog in it. On iOS, at the foot of a page with the toolbar
+// shown, the visual viewport is shorter than the layout viewport fixed elements are placed in and
+// sits lower in it (traced on the phone: 718px tall, 94px down an 812px layout viewport), so a
+// dialog centred on `top: 50%` opened with its top above the screen. While any DialogContent is
+// mounted, <html> carries the visual viewport as --vv-top and --vv-h; the popup centres on them and the
+// tall dialogs cap their height by --vv-h.
+let vvOpen = 0
+let vvStop: (() => void) | null = null
+function useVisualViewportVars() {
+  React.useLayoutEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    if (vvOpen++ === 0) {
+      const html = document.documentElement
+      const set = () => {
+        html.style.setProperty("--vv-top", `${vv.offsetTop}px`)
+        html.style.setProperty("--vv-h", `${vv.height}px`)
+      }
+      set()
+      vv.addEventListener("resize", set)
+      vv.addEventListener("scroll", set)
+      vvStop = () => {
+        vv.removeEventListener("resize", set)
+        vv.removeEventListener("scroll", set)
+        html.style.removeProperty("--vv-top")
+        html.style.removeProperty("--vv-h")
+      }
+    }
+    return () => {
+      if (--vvOpen === 0) { vvStop?.(); vvStop = null }
+    }
+  }, [])
+}
+
 function DialogContent({
   className,
   children,
@@ -62,6 +96,7 @@ function DialogContent({
     if (typeof ref === "function") ref(el)
     else if (ref) ref.current = el
   }, [ref])
+  useVisualViewportVars()
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -72,7 +107,7 @@ function DialogContent({
         className={cn(
           // Transitions on Base UI's starting/ending styles rather than keyframes, so a tap that
         // closes the dialog mid-open reverses it from where it is instead of jumping.
-        "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm",
+        "fixed top-[calc(var(--vv-top,0px)+var(--vv-h,100%)/2)] left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm",
         "transition-[opacity,scale,translate] duration-300 ease-(--ease-arrive) data-starting-style:translate-y-[calc(-50%+0.75rem)] data-starting-style:scale-[0.97] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) motion-reduce:data-starting-style:-translate-y-1/2 motion-reduce:data-starting-style:scale-100",
           className
         )}

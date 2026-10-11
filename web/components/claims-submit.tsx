@@ -287,7 +287,7 @@ export function ClaimsSubmit({ open, onOpenChange }: { open: boolean; onOpenChan
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!submitting) onOpenChange(o); }}>
       <DialogContent showCloseButton={!submitting}
-        className="flex max-h-[calc(100dvh-4rem)] flex-col gap-4 rounded-lg shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:rounded-none">
+        className="flex max-h-[calc(var(--vv-h,100dvh)-4rem)] flex-col gap-4 rounded-lg shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg max-sm:h-[var(--vv-h,100dvh)] max-sm:max-h-[var(--vv-h,100dvh)] max-sm:max-w-none max-sm:rounded-none">
         {open && <ReviewBody onClose={() => onOpenChange(false)} />}
       </DialogContent>
     </Dialog>

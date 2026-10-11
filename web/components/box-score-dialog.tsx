@@ -20,7 +20,7 @@ export function BoxScoreDialog({ p, week, log, open, onOpenChange }: {
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
+      <DialogContent className={`grid max-h-[calc(var(--vv-h,100dvh)*0.85)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
         {p && log && <Body key={p.player_id} p={p} week={week} log={log} />}
       </DialogContent>
     </Dialog>

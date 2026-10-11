@@ -88,7 +88,7 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
     <Open.Provider value={show}>
       {children}
       <Dialog open={open && shown != null} onOpenChange={setOpen}>
-        <DialogContent className={`grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
+        <DialogContent className={`grid max-h-[calc(var(--vv-h,100dvh)*0.85)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-lg ${BAND_CLOSE}`}>
           {shown && <Body key={shown.seed.player_id} seed={shown.seed} fetch={shown.fetch} />}
         </DialogContent>
       </Dialog>

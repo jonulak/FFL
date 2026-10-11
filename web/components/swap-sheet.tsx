@@ -243,7 +243,7 @@ export function SwapSheet({ subject, move, onClose, blocked, onFix, week, sit, b
   if (desk) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent ref={panel} initialFocus={initialFocus} className="flex max-h-[calc(100dvh-4rem)] flex-col gap-3 rounded-lg p-4 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-md">
+        <DialogContent ref={panel} initialFocus={initialFocus} className="flex max-h-[calc(var(--vv-h,100dvh)-4rem)] flex-col gap-3 rounded-lg p-4 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-md">
           {body}
         </DialogContent>
       </Dialog>
