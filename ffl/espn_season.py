@@ -75,7 +75,7 @@ def flatten_box_player(bp, season_proj: float | None = None) -> dict:
             # BoxPlayers too); the getattr is belt-and-braces for a plain Player.
             "slot": getattr(bp, "slot_position", "FA"), "bye": bye,
             "injury": bp.injuryStatus or "ACTIVE", "proj_espn": proj, "proj": proj,  # proj_espn: merge_weekly's input, popped there
-            "spread": None, "n_src": 1 if proj > 0 else 0, "actual": float(getattr(bp, "points", 0) or 0),
+            "spread": None, "n_src": 1 if proj > 0 else 0, "proj_src": {"espn": proj} if proj > 0 else {}, "actual": float(getattr(bp, "points", 0) or 0),
             "game_played": int(getattr(bp, "game_played", 0) or 0),
             "season_proj": float(season_proj if season_proj is not None else getattr(bp, "projected_total_points", 0) or 0),
             "ros_proj": None, "ros_n": None,
@@ -479,14 +479,17 @@ def source_values(p: dict, sources: dict[str, dict]) -> dict[str, float]:
 
 def merge_weekly(players: list[dict], sources: dict[str, dict]) -> list[dict]:
     """One weekly projection per player (STRATEGY.md "Lineup"): the consensus of every source that has
-    him (consensus.combine). ESPN's own number is an input only and leaves the dict here."""
+    him (consensus.combine). ESPN's own number is an input only and leaves the dict here; each source's
+    number rides along in proj_src (highest first) for the projection dialog."""
     out = []
     for p in players:
         q = dict(p)
         espn = float(q.pop("proj_espn", 0) or 0)
-        proj, spread, n = consensus.combine(source_values(p, sources), consensus.weights_for("week", p["pos"]))
+        vals = source_values(p, sources)
+        proj, spread, n = consensus.combine(vals, consensus.weights_for("week", p["pos"]))
         q["proj"] = proj if proj is not None else espn
         q["spread"], q["n_src"] = spread, n
+        q["proj_src"] = {s: round(v, 1) for s, v in sorted(vals.items(), key=lambda kv: -kv[1])}
         out.append(q)
     return out
 

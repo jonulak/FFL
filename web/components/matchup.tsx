@@ -20,6 +20,7 @@ import { BoxScoreDialog } from "./box-score-dialog";
 import { fetchLog, holdFor, type LogFetch } from "./player-dialog";
 import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
+import { Spread } from "./projection";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 import { TeamLink } from "./team-link";
@@ -127,6 +128,8 @@ function Num({ p, now, end }: { p: Player; now: number; end: End }) {
         <span className={`font-display text-[1.125rem] font-bold leading-none tracking-tight sm:text-[1.375rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
           {pts(on ? p.actual : p.proj)}
         </span>
+        {/* the phone's game line has no room for it: the ± stands beside the number there */}
+        {!on && <Spread p={p} className="text-[0.6875rem] sm:hidden" />}
         <Unit fact={on} className="hidden text-[0.6875rem] sm:inline" />
       </div>
       <div className={`mt-0.5 flex max-sm:hidden ${opp ? "justify-start" : "justify-end"}`}><NumNote p={p} now={now} /></div>
@@ -134,8 +137,8 @@ function Num({ p, now, end }: { p: Player; now: number; end: End }) {
   );
 }
 
-// What stands under the number: before kickoff the source spread when it is 3+ (and, on the
-// phone, the PROJ unit); once his game is on, the projection it replaced, after a live dot. With
+// What stands under the number: before kickoff the sources' ± (amber from 3; and, on the
+// phone, the PROJ unit before it); the tap's box score lists the sources. Once his game is on, the projection it replaced, after a live dot. With
 // his unit on the field the dot takes the half's wash colour (lib/field.ts): colour, not words.
 function NumNote({ p, now }: { p: Player; now: number }) {
   const phase = gamePhase(p, now);
@@ -148,9 +151,7 @@ function NumNote({ p, now }: { p: Player; now: number }) {
       {!on && <Unit fact={false} className="sm:hidden" />}
       {on
         ? <span>proj {pts(p.proj)}</span>
-        : p.spread != null && p.spread >= 3
-          ? <span className="font-medium text-close-foreground max-sm:hidden dark:text-close">±{pts(p.spread)}</span>
-          : null}
+        : <Spread p={p} className="max-sm:hidden" />}
     </span>
   );
 }

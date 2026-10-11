@@ -15,7 +15,7 @@ from tests.test_espn_season import bp
 from tests.test_season import TWO_QB, P, roster
 
 # web/lib/api.ts: type Player
-PLAYER = {"player_id", "name", "pos", "team", "slot", "bye", "injury", "proj", "spread", "n_src", "actual", "game_played", "season_proj",
+PLAYER = {"player_id", "name", "pos", "team", "slot", "bye", "injury", "proj", "spread", "n_src", "proj_src", "actual", "game_played", "season_proj",
           "ros_proj", "ros_n", "ros_spread",
           "return_week", "injury_note", "opponent", "kickoff", "home", "exp", "ahead"}
 # web/lib/api.ts: type LineupEntry

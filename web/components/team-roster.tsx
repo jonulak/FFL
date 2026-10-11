@@ -11,6 +11,7 @@ import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { GameLine } from "./local-time";
 import { PlayerTrigger } from "./player-dialog";
+import { ProjectionTrigger, Spread } from "./projection";
 import { TeamPanel } from "./player-media";
 import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
@@ -26,19 +27,21 @@ import { NAME_LINK } from "@/lib/player-log";
 
 // The number and its unit, as on the Matchup board: PROJ for the forecast, PTS for a posted score
 // with the projection it replaced beneath it, after a live dot while the game is on.
-function Num({ p, now }: { p: Player; now: number }) {
+// A tap opens the sources behind the projection; before kickoff their ± stands beside PROJ.
+function Num({ p, now, week }: { p: Player; now: number; week: number }) {
   const phase = gamePhase(p, now);
   const on = phase !== "pending";
   return (
-    <div className="text-right tabular-nums">
-      <p className={`font-display text-[1.25rem] font-bold leading-none tracking-tight sm:text-[1.375rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
+    <ProjectionTrigger p={p} week={week} className="block text-right tabular-nums"
+      label={on ? `${p.name}: ${pts(p.actual)} points, projected ${pts(p.proj)}; show the sources` : undefined}>
+      <span className={`block font-display text-[1.25rem] font-bold leading-none tracking-tight sm:text-[1.375rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
         {pts(on ? p.actual : p.proj)}
-      </p>
-      <p className="mt-1 flex items-center justify-end gap-1 whitespace-nowrap text-[0.6875rem] leading-none text-muted-foreground sm:text-xs">
+      </span>
+      <span className="mt-1 flex items-center justify-end gap-1 whitespace-nowrap text-[0.6875rem] leading-none text-muted-foreground sm:text-xs">
         {phase === "live" && <span aria-label="live" className="size-1.5 rounded-full bg-foreground/75" />}
-        {on ? <>proj {pts(p.proj)}</> : <span className="font-display font-semibold uppercase tracking-[0.12em]">proj</span>}
-      </p>
-    </div>
+        {on ? <>proj {pts(p.proj)}</> : <><span className="font-display font-semibold uppercase tracking-[0.12em]">proj</span><Spread p={p} /></>}
+      </span>
+    </ProjectionTrigger>
   );
 }
 
@@ -79,7 +82,7 @@ function Row({ p, slot, week, now }: { p: Player; slot: string | null; week: num
         </div>
       </TableCell>
       <TableCell className="w-20 pr-3 align-middle sm:pr-4">
-        <Num p={p} now={now} />
+        <Num p={p} now={now} week={week} />
       </TableCell>
     </TableRow>
   );

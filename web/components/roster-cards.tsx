@@ -16,6 +16,7 @@ import { headshotUrl, team } from "@/lib/teams";
 import { Kickoff, useNow } from "./local-time";
 import { Outlook, OutlookAge, outlookAgeLabel } from "./outlook";
 import { PlayerTrigger } from "./player-dialog";
+import { ProjectionTrigger, Spread } from "./projection";
 import { TeamLogo } from "./player-media";
 import { StatLine } from "./stat-line";
 
@@ -52,8 +53,8 @@ const GRID =
   "grid items-center gap-x-1.5 px-2 py-2 " +
   "grid-cols-[2.25rem_2.5rem_minmax(0,1fr)_2.25rem] " +
   "[grid-template-areas:'slot_shot_body_ctl'_'msg_msg_msg_msg'] " +
-  "md:gap-x-2.5 md:py-2.5 md:grid-cols-[2.75rem_2.5rem_minmax(0,1fr)_10.5rem_3.5rem_9.5rem_2.75rem] " +
-  "lg:gap-x-3 lg:grid-cols-[3.75rem_2.5rem_minmax(0,1fr)_12.5rem_4rem_9.5rem_2.25rem] " +
+  "md:gap-x-2.5 md:py-2.5 md:grid-cols-[2.75rem_2.5rem_minmax(0,1fr)_10rem_4rem_9.5rem_2.75rem] " +
+  "lg:gap-x-3 lg:grid-cols-[3.75rem_2.5rem_minmax(0,1fr)_12rem_4.5rem_9.5rem_2.25rem] " +
   "md:[grid-template-areas:'slot_shot_name_match_num_call_ctl'_'msg_msg_msg_msg_msg_msg_msg']";
 
 const SLOT_TEXT =
@@ -167,17 +168,12 @@ function Reason({ text }: { text: string }) {
   );
 }
 
-// Under the reason: the live projection, and how far apart its sources are when that is 3+.
+// Under the reason once his game is on (the number above is then his points): the projection it replaced.
 function Sources({ c, live }: { c: Card; live: boolean }) {
-  const one = c.n_src === 1;
-  if (!live && !one && !(c.spread != null && c.spread >= 3)) return null;
+  if (!live) return null;
   return (
     <p className="text-xs tabular-nums text-muted-foreground">
-      {live && <span className="mr-2">proj {pts(c.proj)}</span>}
-      {one && <span>1 source</span>}
-      {c.spread != null && c.spread >= 3 && (
-        <span className="ml-2 font-medium text-close-foreground dark:text-close">±{pts(c.spread)}</span>
-      )}
+      proj {pts(c.proj)} <Spread p={c} />
     </p>
   );
 }
@@ -305,14 +301,20 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
                   {team(c.team).name || c.team}
                 </p>
               </div>
-              <div className="shrink-0 text-right md:[grid-area:num]" title={live ? `${pts(c.actual)} points scored · projected ${pts(c.proj)}` : "projected points"}>
-                <span className={`block font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
-                  {pts(big)}
+              {/* a tap opens the sources; before kickoff the spread stands beside the number on the phone, under it from md */}
+              <ProjectionTrigger p={c} week={week} className="block shrink-0 text-right md:[grid-area:num]"
+                label={live ? `${c.name}: ${pts(c.actual)} points scored, projected ${pts(c.proj)}; show the sources` : undefined}>
+                <span className="flex items-baseline justify-end gap-1">
+                  <span className={`font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
+                    {pts(big)}
+                  </span>
+                  {!live && <Spread p={c} className="text-xs md:hidden" />}
                 </span>
-                <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground max-md:sr-only">
+                <span className="block whitespace-nowrap font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground max-md:sr-only">
                   {live ? "pts" : "proj"}
+                  {!live && <Spread p={c} className="ml-1 normal-case tracking-normal" />}
                 </span>
-              </div>
+              </ProjectionTrigger>
             </div>
             {/* line 2: vs/when, giving way to an ellipsis, and the call flush right under the number */}
             <div className="flex min-w-0 items-center justify-between gap-x-2 md:contents">

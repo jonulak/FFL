@@ -5,7 +5,7 @@ import { gameOn, gamePhase, sideTotals, toPlay } from "./game";
 const T0 = Date.parse("2026-09-13T17:00:00Z"); // Sunday 1 PM ET
 const p = (over: Partial<Player>): Player => ({
   player_id: 1, name: "X", pos: "RB", team: "BAL", slot: "RB", bye: false, injury: "ACTIVE",
-  proj: 10, spread: null, n_src: 2, actual: 0, game_played: 0,
+  proj: 10, spread: null, n_src: 2, proj_src: { espn: 10, sleeper: 10 }, actual: 0, game_played: 0,
   season_proj: 100, ros_proj: null, ros_spread: null, ros_n: null,
   return_week: null, injury_note: null, exp: null, ahead: [],
   opponent: "PIT", kickoff: "2026-09-13T13:00:00-04:00", home: true, ...over,

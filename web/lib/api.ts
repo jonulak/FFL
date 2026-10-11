@@ -18,8 +18,9 @@ export class ApiError extends Error {
 export type Player = {
   player_id: number; name: string; pos: string; team: string; slot: string; bye: boolean;
   // this week: one projection, the consensus of every source that has him (ESPN, Sleeper, CBS,
-  // FantasySharks, FleaFlicker); spread is how far apart they are, n_src how many there were
-  injury: string; proj: number; spread: number | null; n_src: number;
+  // FantasySharks, FleaFlicker); spread is how far apart they are, n_src how many there were,
+  // proj_src each one's number (highest first; the projection dialog)
+  injury: string; proj: number; spread: number | null; n_src: number; proj_src: Record<string, number>;
   actual: number; game_played: number; season_proj: number;
   return_week: number | null; injury_note: string | null;
   // rest of season: the consensus of Sleeper's remaining weeks, CBS's and FantasySharks' ROS pages,

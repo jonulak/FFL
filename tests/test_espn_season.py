@@ -24,7 +24,7 @@ def test_flatten_box_player():
     p = espn_season.flatten_box_player(bp())
     assert p == {"player_id": 1, "name": "Jahmyr Gibbs", "pos": "RB", "team": "DET", "slot": "RB",
                  "bye": False, "injury": "ACTIVE", "proj_espn": 21.4, "proj": 21.4, "spread": None, "n_src": 1,
-                 "actual": 0.0, "game_played": 0, "season_proj": 320.5,
+                 "proj_src": {"espn": 21.4}, "actual": 0.0, "game_played": 0, "season_proj": 320.5,
                  "ros_proj": None, "ros_n": None, "ros_spread": None,
                  "return_week": None, "injury_note": None, "exp": None, "ahead": [], "opponent": None,
                  "kickoff": None, "home": None}
@@ -69,6 +69,8 @@ def test_merge_weekly_takes_the_consensus_and_drops_the_espn_input():
     assert g["n_src"] == 4 and g["proj"] == pytest.approx(23.05, abs=0.06) and g["spread"] == 2.2
     assert b["proj"] == 15.0 and b["n_src"] == 1 and b["spread"] is None, "ESPN alone: his number stands"
     assert d["proj"] == 7.0 and d["n_src"] == 2, "D/ST merges on team"
+    assert list(g["proj_src"].items()) == [("sharks", 30.0), ("sleeper", 23.6), ("espn", 21.4), ("cbs", 20.0)]
+    assert b["proj_src"] == {"espn": 15.0}
     assert all("proj_espn" not in p and "proj_sleeper" not in p and "espn_only" not in p for p in (g, b, d))
 
 
