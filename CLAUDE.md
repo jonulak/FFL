@@ -106,7 +106,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - The ROS that `add` and the deltas run on is **usage-adjusted** (`season.ros_adj`, STRATEGY.md "Usage-adjusted
   ROS"): the model's per-game rate shrunk toward his window's `l3` by the window's snap-weighted game count
   (`form["weight"]`, each game = snap share ÷ that week's `season.snap_reference` median for the position's lead
-  players, capped at one), the prior worth `season.K_PRIOR` (4) games. `ros_proj` stays the model mean beside
+  players, capped at one), the prior worth `season.K_PRIOR` (4) games. `ros_proj` stays the sources' consensus beside
   it. K is checked, not tuned: every pool build snapshots what the blend read (`ffl/calibrate.py`,
   the `calibration_snapshots`/`calibration_rows` tables, once per ROS week: the first build stands) and `ffl.calibrate` scores the Ks against what happened.
 - Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
