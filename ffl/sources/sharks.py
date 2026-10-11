@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from . import Cached
+from . import Cached, Thin
 from ..adp import norm_name
 from ..config import SEASON
 from ..season import NFL_WEEKS
@@ -30,6 +30,8 @@ NEEDED = {"QB": {"Pass Yds", "Pass TDs", "Int", "Rush Yds", "Rush TDs"},
           "RB": {"Rush Yds", "Rush TDs", "Rec", "Rec Yds", "Rec TDs"},
           "WR": {"Rec", "Rec Yds", "Rec TDs"}, "TE": {"Rec", "Rec Yds", "Rec TDs"}}
 _WEEK = Cached("sharks")
+_ROS = Cached("sharks-ros")   # its own health: a missing far week must not hide behind weekly successes
+FUTURE_TTL_S = 6 * 3600   # weeks after the first barely move between polls
 
 
 def segment(week: int, season: int = SEASON) -> int:
@@ -78,22 +80,26 @@ def _fetch(seg: int, ks: dict) -> dict[tuple[str, str], float]:
     return data
 
 
-def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
-    return _WEEK.get(week, lambda: _fetch(segment(week), ks))
+def fetch_week(week: int, ks: dict, ttl: float | None = None) -> dict[tuple[str, str], float]:
+    return _WEEK.get(week, lambda: _fetch(segment(week), ks), ttl=ttl)
 
 
 def fetch_ros(ks: dict, week: int) -> dict[tuple[str, str], float]:
     """Weekly projections summed over weeks week..NFL_WEEKS. A week that comes back empty makes the
-    whole ROS {} (never an undercount); a player absent from a week (bye, injury) just sums the rest."""
+    whole ROS {} (never an undercount) and a "sharks-ros" failure; a player absent from a week (bye,
+    injury) just sums the rest."""
     weeks = list(range(week, NFL_WEEKS + 1))
     if not weeks:
         return {}
-    with ThreadPoolExecutor(min(6, len(weeks))) as pool:
-        per_week = list(pool.map(lambda w: fetch_week(w, ks), weeks))
-    if not all(per_week):
-        return {}
-    out: dict[tuple[str, str], float] = {}
-    for d in per_week:
-        for k, v in d.items():
-            out[k] = out.get(k, 0.0) + v
-    return {k: round(v, 1) for k, v in out.items()}
+
+    def total():
+        with ThreadPoolExecutor(min(6, len(weeks))) as pool:
+            per_week = list(pool.map(lambda w: fetch_week(w, ks, None if w == week else FUTURE_TTL_S), weeks))
+        if (gone := [w for w, d in zip(weeks, per_week) if not d]):
+            raise Thin(f"week {', '.join(map(str, gone))} missing")
+        out: dict[tuple[str, str], float] = {}
+        for d in per_week:
+            for k, v in d.items():
+                out[k] = out.get(k, 0.0) + v
+        return {k: round(v, 1) for k, v in out.items()}
+    return _ROS.get(week, total)

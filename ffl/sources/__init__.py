@@ -7,6 +7,7 @@ the 24-hour notify detector. QB/RB/WR/TE only.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Callable
@@ -17,16 +18,22 @@ from .. import db
 
 log = logging.getLogger(__name__)
 TTL_S = 1800
+RETRY_S = 300   # after a failure: serve last good this long before trying the site again
 # fewer rows than this at a position is a broken scrape, not a projection (ffanalytics' FantasyPros
 # scraper silently returned 10 a position in 2026)
 MIN_ROWS = {"QB": 20, "RB": 20, "WR": 20, "TE": 10}
 STATUS: dict[str, dict] = {}
 _LOADED = False
 _ALL: list["Cached"] = []
+_LOCK = threading.RLock()   # STATUS is written by page builds, ticks and requests at once
 
 
 class Thin(Exception):
     pass
+
+
+class Idle(Exception):
+    """A valid page with nothing to project (another week shown, every game played): a success, not a failure."""
 
 
 def check(data: dict[tuple[str, str], float], min_rows: dict[str, int] | None = None) -> dict[str, int]:
@@ -47,38 +54,46 @@ def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def status_snapshot() -> dict:
+    with _LOCK:
+        return {k: dict(v) for k, v in STATUS.items()}
+
+
 def _load() -> None:
     """Once per process, before the first read-modify-write: fold the persisted record into STATUS so a
     restart does not overwrite other sources' history (or their failing_since)."""
     global _LOADED
-    if _LOADED:
-        return
-    _LOADED = True
-    try:
-        saved = db.get_state("source_status", {}) or {}
-        STATUS.update({k: v for k, v in saved.items() if k not in STATUS})
-    except Exception as e:
-        log.warning("source status not loaded: %s", e)
+    with _LOCK:
+        if _LOADED:
+            return
+        _LOADED = True
+        try:
+            saved = db.get_state("source_status", {}) or {}
+            STATUS.update({k: v for k, v in saved.items() if k not in STATUS})
+        except Exception as e:
+            log.warning("source status not loaded: %s", e)
 
 
 def _save() -> None:
     try:
-        db.put_state("source_status", STATUS)
+        db.put_state("source_status", status_snapshot())
     except Exception as e:
         log.warning("source status not saved: %s", e)
 
 
 def _ok(name: str, counts: dict[str, int]) -> None:
     _load()
-    STATUS[name] = {"ok_at": _now(), "rows": counts, "error": None, "failing_since": None}
+    with _LOCK:
+        STATUS[name] = {"ok_at": _now(), "rows": counts, "error": None, "failing_since": None}
     _save()
 
 
 def _failed(name: str, e: Exception) -> None:
     _load()
-    prev = STATUS.get(name) or {}
-    STATUS[name] = {"ok_at": prev.get("ok_at"), "rows": prev.get("rows", {}), "error": str(e),
-                    "failing_since": prev.get("failing_since") or _now()}
+    with _LOCK:
+        prev = STATUS.get(name) or {}
+        STATUS[name] = {"ok_at": prev.get("ok_at"), "rows": prev.get("rows", {}), "error": str(e),
+                        "failing_since": prev.get("failing_since") or _now()}
     log.warning("source %s failed: %s", name, e)
     _save()
 
@@ -91,18 +106,26 @@ class Cached:
         self._d: dict = {}
         _ALL.append(self)
 
-    def get(self, key, fetch: Callable[[], dict], min_rows: dict[str, int] | None = None) -> dict:
+    def get(self, key, fetch: Callable[[], dict], min_rows: dict[str, int] | None = None,
+            ttl: float | None = None) -> dict:
         hit = self._d.get(key)
         if hit and hit[0] > time.time():
             return hit[1]
+        ttl = TTL_S if ttl is None else ttl
         try:
             data = fetch()
             counts = check(data, min_rows)
+        except Idle:
+            _ok(self.name, {})
+            self._d[key] = (time.time() + ttl, {})
+            return {}
         except Exception as e:  # a parser surprise must fall back to last good too, not fail the page
             _failed(self.name, e)
-            return hit[1] if hit else {}
+            last = hit[1] if hit else {}
+            self._d[key] = (time.time() + RETRY_S, last)   # cooldown: a dead site is not asked on every build
+            return last
         _ok(self.name, counts)
-        self._d[key] = (time.time() + TTL_S, data)
+        self._d[key] = (time.time() + ttl, data)
         return data
 
     def expire(self) -> None:
@@ -120,5 +143,6 @@ def reset() -> None:
     for c in _ALL:
         c._d = {}
     global _LOADED
-    STATUS.clear()
-    _LOADED = False
+    with _LOCK:
+        STATUS.clear()
+        _LOADED = False

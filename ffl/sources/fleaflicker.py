@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from bs4 import BeautifulSoup
 
-from . import Cached
+from . import Cached, Idle
 from ..adp import norm_name
 from ..sleeper import score
 
@@ -38,6 +38,7 @@ def _num(s: str) -> float:
 
 
 def parse_page(html: str, pos: str, ks: dict, week: int) -> dict[tuple[str, str], float]:
+    """{} is a page that is not the projections table (broken); Idle is a valid one with nothing to project."""
     table = BeautifulSoup(html, "lxml").select_one("#body-center-main table")
     if table is None:
         return {}
@@ -53,34 +54,48 @@ def parse_page(html: str, pos: str, ks: dict, week: int) -> dict[tuple[str, str]
         g = next((k for k in GROUPS if k in text), "")
         groups += [g] * int(th.get("colspan") or 1)
     names = [c.get_text(" ", strip=True) for c in trs[1].find_all(["th", "td"])]
-    if shown != week or len(groups) != len(names) or not NEEDED[pos] <= set(groups) or "Opp" not in names:
+    if shown is None or len(groups) != len(names) or not NEEDED[pos] <= set(groups) or "Opp" not in names:
         return {}
+    if shown != week:
+        raise Idle(f"page shows week {shown}")
     cols = [(i, GROUPS[g][n]) for i, (g, n) in enumerate(zip(groups, names)) if g and n in GROUPS[g]]
     opp = names.index("Opp")
-    out = {}
+    out, played = {}, 0
     for tr in trs[2:]:
         tds = [c.get_text(" ", strip=True) for c in tr.find_all("td")]
-        if len(tds) != len(names) or not (m := NAME_RE.match(tds[0])) or PLAYED_RE.search(tds[opp]):
+        if len(tds) != len(names) or not (m := NAME_RE.match(tds[0])):
+            continue
+        if PLAYED_RE.search(tds[opp]):
+            played += 1
             continue
         out[(norm_name(m.group(1)), pos)] = round(score({stat: _num(tds[i]) for i, stat in cols}, ks), 1)
+    if not out and played:
+        raise Idle("every game played")
     return out
 
 
-def _position(pos: str, ks: dict, week: int) -> dict[tuple[str, str], float]:
+def _position(pos: str, ks: dict, week: int) -> dict[tuple[str, str], float] | None:
+    """None when every page was valid but had nothing to project (Idle)."""
     out: dict[tuple[str, str], float] = {}
+    idle = 0
     for page in range(PAGES[pos]):
         r = requests.get(URL.format(code=POS_CODE[pos], offset=20 * page),
                          headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
         r.raise_for_status()
-        out.update(parse_page(r.text, pos, ks, week))
-    return out
+        try:
+            out.update(parse_page(r.text, pos, ks, week))
+        except Idle:
+            idle += 1
+    return None if idle == PAGES[pos] else out
 
 
 def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
     def fetch():
         with ThreadPoolExecutor(len(POS_CODE)) as pool:
             parts = list(pool.map(lambda p: _position(p, ks, week), POS_CODE))
-        return {k: v for part in parts for k, v in part.items()}
+        if all(p is None for p in parts):
+            raise Idle("nothing to project")
+        return {k: v for part in parts if part for k, v in part.items()}
     # no per-position minimum: the header checks (week, groups, Opp) already reject reshaped or wrong-week
     # pages, and played games legitimately shrink the page as the week goes on
     return _WEEK.get(week, fetch, min_rows={})

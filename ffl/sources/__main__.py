@@ -10,7 +10,7 @@ import json
 import sys
 
 from .. import db, espn_season as E
-from . import STATUS
+from . import status_snapshot
 
 
 def _old(vals: dict[str, float], keep: tuple[str, ...]) -> float | None:
@@ -44,7 +44,7 @@ def main(argv: list[str]) -> None:
     if argv[:1] == ["compare"]:
         compare()
     elif argv[:1] == ["status"]:
-        print(json.dumps({**(db.get_state("source_status", {}) or {}), **STATUS}, indent=2))
+        print(json.dumps({**(db.get_state("source_status", {}) or {}), **status_snapshot()}, indent=2))
     else:
         print(__doc__)
 

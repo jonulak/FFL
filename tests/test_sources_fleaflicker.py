@@ -1,10 +1,12 @@
 """FleaFlicker's current-week projections (fixtures, no network)."""
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from ffl.sources import fleaflicker
+from ffl import sources
+from ffl.sources import Idle, fleaflicker
 
 FIX = Path(__file__).parent / "fixtures" / "sources"
 QB = (FIX / "fleaflicker_w5_qb.html").read_text()
@@ -26,9 +28,37 @@ def test_rb_rows_read_receiving_and_fumbles_by_group():
     assert out[("jahmyr gibbs", "RB")] == pytest.approx(9.66 + 6 + 4.7 + 3.99 + 2.4 - .2, abs=.06)
 
 
-def test_another_week_is_nothing():
-    assert fleaflicker.parse_page(QB, "QB", KS, 6) == {}, "the page shows week 5 whatever was asked"
+def test_another_week_is_idle():
+    with pytest.raises(Idle):   # the page shows week 5 whatever was asked
+        fleaflicker.parse_page(QB, "QB", KS, 6)
 
+
+def _serve(monkeypatch, text):
+    monkeypatch.setattr(fleaflicker, "POS_CODE", {"QB": 4})   # the one fixture's position
+    monkeypatch.setattr(fleaflicker.requests, "get",
+                        lambda url, **kw: SimpleNamespace(raise_for_status=lambda: None, text=text))
+
+
+def test_a_wrong_week_page_is_not_a_failure(monkeypatch):
+    _serve(monkeypatch, QB)
+    assert fleaflicker.fetch_week(6, KS) == {}
+    st = sources.STATUS["fleaflicker"]
+    assert st["failing_since"] is None and st["error"] is None
+
+
+def test_a_page_where_every_game_is_played_is_idle_not_broken(monkeypatch):
+    monkeypatch.setattr(fleaflicker, "PLAYED_RE", re.compile(r"\S"))
+    with pytest.raises(Idle, match="played"):
+        fleaflicker.parse_page(QB, "QB", KS, 5)
+    _serve(monkeypatch, QB)
+    assert fleaflicker.fetch_week(5, KS) == {}
+    assert sources.STATUS["fleaflicker"]["failing_since"] is None
+
+
+def test_a_garbage_page_is_a_failure(monkeypatch):
+    _serve(monkeypatch, "<html><body>down</body></html>")
+    assert fleaflicker.fetch_week(5, KS) == {}
+    assert sources.STATUS["fleaflicker"]["failing_since"]
 
 def test_a_reshaped_page_is_nothing():
     assert fleaflicker.parse_page("<html><body>down</body></html>", "QB", KS, 5) == {}

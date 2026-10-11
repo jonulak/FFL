@@ -61,13 +61,14 @@ def test_fetch_week_asks_each_position_for_the_week(monkeypatch):
 def test_fetch_ros_sums_the_weekly_projections_for_w_through_18(monkeypatch):
     asked = []
 
-    def week(w, ks):
+    def week(w, ks, ttl=None):
         asked.append(w)
         d = {("a b", "WR"): 10.0}
         if w != 7:
             d[("c d", "RB")] = 1.0   # bye week: absent that week, the rest still sum
         return d
 
+    monkeypatch.setattr(sources, "MIN_ROWS", {"WR": 1})
     monkeypatch.setattr(sharks, "fetch_week", week)
     out = sharks.fetch_ros(KS, 5)
     assert sorted(asked) == list(range(5, 19))
@@ -76,5 +77,26 @@ def test_fetch_ros_sums_the_weekly_projections_for_w_through_18(monkeypatch):
 
 
 def test_fetch_ros_is_empty_when_any_week_is_missing(monkeypatch):
-    monkeypatch.setattr(sharks, "fetch_week", lambda w, ks: {} if w == 12 else {("a b", "WR"): 10.0})
+    monkeypatch.setattr(sources, "MIN_ROWS", {"WR": 1})
+    monkeypatch.setattr(sharks, "fetch_week", lambda w, ks, ttl=None: {} if w == 12 else {("a b", "WR"): 10.0})
     assert sharks.fetch_ros(KS, 5) == {}
+    st = sources.STATUS["sharks-ros"]
+    assert st["failing_since"] and "12" in st["error"]
+    assert "sharks" not in sources.STATUS, "the weekly record is untouched"
+
+
+def test_future_weeks_are_refetched_every_six_hours_not_every_poll(monkeypatch):
+    monkeypatch.setattr(sources, "MIN_ROWS", {"WR": 1})
+    clock = [1000.0]
+    monkeypatch.setattr(sources.time, "time", lambda: clock[0])
+    asked = []
+    monkeypatch.setattr(sharks, "_fetch", lambda seg, ks: asked.append(seg) or {("a b", "WR"): 1.0})
+    sharks.fetch_ros(KS, 17)
+    now, future = sharks.segment(17), sharks.segment(18)
+    assert sorted(asked) == [now, future]
+    clock[0] += sources.TTL_S + 1
+    sharks.fetch_ros(KS, 17)
+    assert sorted(asked) == [now, now, future], "only the first week came due"
+    clock[0] += sharks.FUTURE_TTL_S
+    sharks.fetch_ros(KS, 17)
+    assert sorted(asked) == [now, now, now, future, future]

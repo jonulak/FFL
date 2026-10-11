@@ -31,6 +31,7 @@ def test_cached_serves_fresh_then_last_good_then_nothing(monkeypatch):
     assert sources.STATUS["test"]["error"] == "down" and sources.STATUS["test"]["failing_since"]
     assert c.get(6, down) == {}, "nothing for that key"
     assert c.get(7, lambda: {}) == {}, "an empty scrape is thin: a failure, not a result"
+    clock[0] += sources.RETRY_S + 1
     assert c.get(5, lambda: good) == good
     assert sources.STATUS["test"]["error"] is None and sources.STATUS["test"]["failing_since"] is None
 
@@ -90,3 +91,43 @@ def test_cached_get_with_min_rows_accepts_what_the_default_rejects():
     one = {("a", "RB"): 1.0}
     assert sources.Cached("t-default").get(1, lambda: one) == {}
     assert sources.Cached("t-loose").get(1, lambda: one, min_rows={}) == one
+
+
+def test_a_failure_cools_down_then_retries(monkeypatch):
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+    clock = [1000.0]
+    monkeypatch.setattr(sources.time, "time", lambda: clock[0])
+    c = sources.Cached("cool")
+    good = {("a", "RB"): 5.0}
+    calls = []
+
+    def down():
+        calls.append(1)
+        raise requests.ConnectionError("down")
+    assert c.get(1, down) == {} and c.get(1, down) == {} and len(calls) == 1, "nothing good: {}, asked once"
+    clock[0] += sources.RETRY_S + 1
+    assert c.get(1, lambda: good) == good
+    clock[0] += sources.TTL_S + 1
+    assert c.get(1, down) == good and c.get(1, down) == good and len(calls) == 2, "last good through the cooldown"
+    clock[0] += sources.RETRY_S + 1
+    c.get(1, down)
+    assert len(calls) == 3
+
+
+def test_idle_is_a_success_with_nothing_and_skips_the_check():
+    c = sources.Cached("idle")
+    sources._failed("idle", RuntimeError("old"))
+
+    def idle():
+        raise sources.Idle("week 4 shown")
+    assert c.get(1, idle) == {}
+    assert c.get(1, lambda: pytest.fail("cached")) == {}
+    assert sources.STATUS["idle"]["failing_since"] is None and sources.STATUS["idle"]["error"] is None
+
+
+def test_status_snapshot_is_a_copy():
+    sources._ok("snap", {"RB": 1})
+    snap = sources.status_snapshot()
+    snap["snap"]["rows"] = None
+    snap["other"] = {}
+    assert sources.STATUS["snap"]["rows"] == {"RB": 1} and "other" not in sources.STATUS

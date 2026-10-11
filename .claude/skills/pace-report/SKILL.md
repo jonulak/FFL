@@ -28,7 +28,7 @@ so drops and the flex rule are judged from the same output.
 | where | `ME` + slot; owner's team + slot; `FA`. Slot `BE` is benched production, `IR` is the IR slot, `RB/WR/TE` is a flex, which the write-up calls "flex" |
 | ppg / beat | points a game over the window; over ESPN's weekly projection for those games. `beat` can be negative on a row the model has low: "on projection, model behind him", not a breakout |
 | pace | ppg × games left − model ROS. Two hot games times fifteen is a big number: rank by it, judge by the rest |
-| ros → adj | model ROS (Sleeper/CBS mean) → usage-adjusted ROS (STRATEGY.md) |
+| ros → adj | model ROS (consensus of Sleeper, CBS, FantasySharks) → usage-adjusted ROS (STRATEGY.md) |
 | snap | offensive snap share over the window |
 | opp / tr | touches + targets a game (pass attempts for a QB); `tr` is the last game's opp minus the mean of the earlier games, a difference in touches |
 | tsn / ypt | targets per snap and yards a target. Lead WRs and TEs run about .20 tsn; .10 is a third option. ypt under 8 with a high beat is touchdowns, not usage |
