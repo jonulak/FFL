@@ -60,6 +60,10 @@ def test_weekly_page_parses_with_the_same_parser():
     out = cbs.parse_page(WEEK_RB, "RB", KS)
     assert len(out) >= 60
     assert all(v["games"] in (0, 1) for v in out.values())
+    gibbs = out[("jahmyr gibbs", "RB")]  # the fixture's first row: 88.6 rush yd, 1.1 TD, 4.5 rec, 42.7 rec yd, 0.4 TD, 0.1 fl
+    assert gibbs["games"] == 1
+    assert gibbs["pts"] == pytest.approx(88.6 * 0.1 + 1.1 * 6 + 4.5 * 0.5 + 42.7 * 0.1 + 0.4 * 6 - 0.1 * 2, abs=0.05)
+    assert gibbs["pts"] != pytest.approx(26.3), "CBS's own fpts column is PPR, not this league"
 
 
 def test_fetch_week_skips_rows_without_a_game(monkeypatch):
@@ -69,4 +73,16 @@ def test_fetch_week_skips_rows_without_a_game(monkeypatch):
     week = cbs.fetch_week(5, KS)
     parsed = cbs.parse_page(WEEK_RB, "RB", KS)
     assert set(week) == {k for k, v in parsed.items() if v["games"] > 0}
+    assert week[("jahmyr gibbs", "RB")] == parsed[("jahmyr gibbs", "RB")]["pts"]
+
+
+def test_fetch_week_leaves_out_a_row_with_no_game(monkeypatch):
+    """The week-5 fixture has no gp-0 row, so make one: zero Gibbs's games on the page."""
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+    parsed = cbs.parse_page(WEEK_RB, "RB", KS)
+    parsed[("jahmyr gibbs", "RB")]["games"] = 0
+    monkeypatch.setattr(cbs, "parse_page", lambda html, pos, ks: parsed if pos == "RB" else {})
+    monkeypatch.setattr(cbs.requests, "get", lambda url, **kw: SimpleNamespace(raise_for_status=lambda: None, text=""))
+    week = cbs.fetch_week(5, KS)
+    assert ("jahmyr gibbs", "RB") not in week and ("bijan robinson", "RB") in week
     assert "/2026/5/projections/ppr/" in cbs.WEEK_URL.format(pos="RB", season=2026, week=5)

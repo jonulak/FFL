@@ -21,6 +21,7 @@ TTL_S = 1800
 # scraper silently returned 10 a position in 2026)
 MIN_ROWS = {"QB": 20, "RB": 20, "WR": 20, "TE": 10}
 STATUS: dict[str, dict] = {}
+_LOADED = False
 _ALL: list["Cached"] = []
 
 
@@ -42,19 +43,35 @@ def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def _load() -> None:
+    """Once per process, before the first read-modify-write: fold the persisted record into STATUS so a
+    restart does not overwrite other sources' history (or their failing_since)."""
+    global _LOADED
+    if _LOADED:
+        return
+    _LOADED = True
+    try:
+        saved = db.get_state("source_status", {}) or {}
+        STATUS.update({k: v for k, v in saved.items() if k not in STATUS})
+    except Exception as e:
+        log.warning("source status not loaded: %s", e)
+
+
 def _save() -> None:
     try:
         db.put_state("source_status", STATUS)
-    except db.DBError as e:
+    except Exception as e:
         log.warning("source status not saved: %s", e)
 
 
 def _ok(name: str, counts: dict[str, int]) -> None:
+    _load()
     STATUS[name] = {"ok_at": _now(), "rows": counts, "error": None, "failing_since": None}
     _save()
 
 
 def _failed(name: str, e: Exception) -> None:
+    _load()
     prev = STATUS.get(name) or {}
     STATUS[name] = {"ok_at": prev.get("ok_at"), "rows": prev.get("rows", {}), "error": str(e),
                     "failing_since": prev.get("failing_since") or _now()}
@@ -77,7 +94,7 @@ class Cached:
         try:
             data = fetch()
             counts = check(data)
-        except (requests.RequestException, Thin, ValueError) as e:
+        except Exception as e:  # a parser surprise must fall back to last good too, not fail the page
             _failed(self.name, e)
             return hit[1] if hit else {}
         _ok(self.name, counts)
@@ -98,4 +115,6 @@ def reset() -> None:
     """Tests only: forget every cached value and the health record in memory."""
     for c in _ALL:
         c._d = {}
+    global _LOADED
     STATUS.clear()
+    _LOADED = False

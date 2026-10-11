@@ -37,8 +37,39 @@ def test_cached_serves_fresh_then_last_good_then_nothing(monkeypatch):
 
 def test_status_survives_a_restart(monkeypatch):
     monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+    other = {"ok_at": None, "rows": {}, "error": "down", "failing_since": "2026-10-10T00:00:00-04:00"}
+    db.put_state("source_status", {"other": other})
+    sources.reset()  # a restart: memory empty, the DB still holds the record
     sources.Cached("persist").get(1, lambda: {("a", "RB"): 1.0})
-    assert db.get_state("source_status")["persist"]["rows"] == {"RB": 1}
+    saved = db.get_state("source_status")
+    assert saved["other"]["failing_since"] == "2026-10-10T00:00:00-04:00"
+    assert saved["persist"]["rows"] == {"RB": 1}
+
+
+def test_a_status_save_failure_does_not_fail_the_fetch(monkeypatch):
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+
+    def boom(*a, **k):
+        raise RuntimeError("schema stale")
+    monkeypatch.setattr(db, "put_state", boom)
+    good = {("a", "RB"): 1.0}
+    assert sources.Cached("nosave").get(1, lambda: good) == good
+
+
+def test_a_parser_surprise_serves_last_good(monkeypatch):
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+    clock = [1000.0]
+    monkeypatch.setattr(sources.time, "time", lambda: clock[0])
+    c = sources.Cached("surprise")
+    good = {("a", "RB"): 1.0}
+    c.get(1, lambda: good)
+    clock[0] += sources.TTL_S + 1
+
+    def surprise():
+        raise AttributeError("reshaped page")
+    assert c.get(1, surprise) == good
+    assert c.get(2, surprise) == {}
+    assert "reshaped page" in sources.STATUS["surprise"]["error"]
 
 
 def test_expire_all_forces_a_refetch(monkeypatch):
