@@ -439,16 +439,15 @@ function Weeks({ s, pos, week }: { s: SeasonLog; pos: string; week: number }) {
 // A game still to play: the week, the opponent and its rank, how that defence has held his
 // position per game, and his projection. Nothing opens; there is no box yet.
 function AheadRow({ w, pos, cols, i }: { w: WeekLog; pos: string; cols: number; i: number }) {
-  const split = [w.proj_espn != null && `ESPN ${pts(w.proj_espn)}`, w.proj_sleeper != null && `Sleeper ${pts(w.proj_sleeper)}`].filter(Boolean).join(" · ");
   return (
     <TableRow className={`${ROW} hover:bg-transparent log-in`} style={{ "--i": i } as React.CSSProperties}>
       <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold text-muted-foreground`}>{weekLabel(w)}</TableCell>
       <TableCell className={CELL}><Opponent w={w} /></TableCell>
       <TableCell className={`${CELL} text-right`}><Rank r={w.opp_rank} pos={pos} /></TableCell>
       {cols > 0 && <TableCell colSpan={cols} className={`${CELL} text-right`}><Allowed r={w.opp_rank} /></TableCell>}
-      <TableCell title={split || undefined} className={`${CELL} text-right font-display text-lg font-semibold leading-none tracking-tight ${w.proj == null ? "text-muted-foreground" : "text-foreground/60"}`}>
+      <TableCell className={`${CELL} text-right font-display text-lg font-semibold leading-none tracking-tight ${w.proj == null ? "text-muted-foreground" : "text-foreground/60"}`}>
         <span aria-hidden>{ptsText(w.proj ?? null)}</span>
-        <span className="sr-only">{w.proj == null ? "no projection" : `projected ${pts(w.proj)} points${split ? ` (${split})` : ""}`}</span>
+        <span className="sr-only">{w.proj == null ? "no projection" : `projected ${pts(w.proj)} points`}</span>
       </TableCell>
       <TableCell className="py-2 pr-0 pl-1" />
     </TableRow>

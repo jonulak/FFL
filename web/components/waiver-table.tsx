@@ -86,7 +86,7 @@ function Week({ r }: { r: PlayerRow | RosterRow }) {
   return (
     <>
       <p className={`font-display text-[0.9375rem] font-semibold tabular-nums tracking-tight sm:text-lg ${r.week_proj === 0 ? "text-muted-foreground" : ""}`}>{pts(r.week_proj)}</p>
-      {r.espn_only ? <Under>ESPN only</Under> : r.spread != null && r.spread >= 3 ? <Under amber>±{pts(r.spread)}</Under> : null}
+      {r.n_src === 1 ? <Under>1 source</Under> : r.spread != null && r.spread >= 3 ? <Under amber>±{pts(r.spread)}</Under> : null}
     </>
   );
 }

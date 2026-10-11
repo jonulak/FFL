@@ -53,11 +53,10 @@ export function SeasonFacts({ p }: { p: PlayerSeed & { ros_adj: number } }) {
     title: "usage-adjusted rest of season: the models' rate shrunk toward his last games by their snap-weighted count (wt; the prior is worth 4); what add runs on",
   }];
   if (p.ros_proj != null) {
-    const src = [p.ros_sleeper != null && `Sleeper ${pts(p.ros_sleeper)}`, p.ros_cbs != null && `CBS ${pts(p.ros_cbs)}`].filter(Boolean).join(" · ");
     ros.push({
       key: "model", label: "model", value: pts(p.ros_proj),
-      note: p.ros_spread != null ? `±${pts(p.ros_spread)}` : src ? "1 source" : "season",
-      title: src ? `the models' rest of season, averaged: ${src}` : "no rest-of-season source has him: season projection scaled by the weeks left",
+      note: p.ros_spread != null ? `±${pts(p.ros_spread)}` : p.ros_n === 1 ? "1 source" : "season",
+      title: p.ros_n ? `the projection sources' rest of season, ${p.ros_n} averaged` : "no rest-of-season source has him: season projection scaled by the weeks left",
     });
   }
   if (p.delta_roster != null) ros.push({ key: "dr", label: "Δ roster", value: signed(p.delta_roster), title: "ROS against my weakest at the position" });

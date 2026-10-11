@@ -79,7 +79,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
       </p>
       {data.ros_source === "season" && (
         <p className="max-w-[72ch] text-xs leading-relaxed text-close-foreground dark:text-close">
-          ROS from season totals: neither Sleeper&apos;s remaining weeks nor CBS&apos;s rest-of-season page
+          ROS from season totals: none of the rest-of-season sources
           answered, so every ROS here is a draft-day season projection scaled by the weeks left.
         </p>
       )}

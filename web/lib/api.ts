@@ -17,12 +17,14 @@ export class ApiError extends Error {
 
 export type Player = {
   player_id: number; name: string; pos: string; team: string; slot: string; bye: boolean;
-  injury: string; proj_espn: number; proj_sleeper: number | null; proj: number; spread: number | null;
-  espn_only: boolean; actual: number; game_played: number; season_proj: number;
-  season_proj_sleeper: number | null; return_week: number | null; injury_note: string | null;
-  // rest of season: the mean of Sleeper's remaining weeks and CBS's ROS page, null when neither
-  // has him (the API then scales season_proj); ros_spread is the gap when both do
-  ros_proj: number | null; ros_sleeper: number | null; ros_cbs: number | null; ros_spread: number | null;
+  // this week: one projection, the consensus of every source that has him (ESPN, Sleeper, CBS,
+  // FantasySharks, FleaFlicker); spread is how far apart they are, n_src how many there were
+  injury: string; proj: number; spread: number | null; n_src: number;
+  actual: number; game_played: number; season_proj: number;
+  return_week: number | null; injury_note: string | null;
+  // rest of season: the consensus of Sleeper's remaining weeks, CBS's and FantasySharks' ROS pages,
+  // null when none has him (the API then scales season_proj); ros_n counts the sources
+  ros_proj: number | null; ros_spread: number | null; ros_n: number | null;
   // STRATEGY.md "Usage-adjusted ROS": the two stories the blend cannot price, shown beside it —
   // years in the league (0 = rookie; null when Sleeper has no record) and the hurt teammates
   // at his position on ESPN's injury report
@@ -68,8 +70,8 @@ export type WeekLog = {
   // his share of the offensive snaps (Sleeper's, a day behind: null until they land); this season's
   // games played only, and never on a K or a D/ST
   snap_pct?: number | null;
-  // a game still to play: Sleeper's projection, averaged with ESPN's for the current week
-  proj?: number | null; proj_espn?: number | null; proj_sleeper?: number | null;
+  // a game still to play: the consensus this week, Sleeper's after
+  proj?: number | null;
 };
 export type SeasonTotals = {
   games: number; pts: number; ppg: number; summary: [string, string][]; box: BoxItem[];

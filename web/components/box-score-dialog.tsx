@@ -49,7 +49,6 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
           <p className="pt-1.5 text-xs tabular-nums text-muted-foreground">
             {vol && <><span className="text-foreground/80">{vol}</span> <span aria-hidden>·</span> </>}
             proj {pts(p.proj)}
-            {p.proj_sleeper != null && <> <span aria-hidden>·</span> ESPN {pts(p.proj_espn)}, Sleeper {pts(p.proj_sleeper)}</>}
             {off && <> <span aria-hidden>·</span> ESPN posts {pts(p.actual)}</>}
           </p>
         </section>

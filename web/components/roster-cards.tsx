@@ -167,14 +167,14 @@ function Reason({ text }: { text: string }) {
   );
 }
 
-// The projection's sources under the reason: what the row's number is the mean of, and how far apart they are.
+// Under the reason: the live projection, and how far apart its sources are when that is 3+.
 function Sources({ c, live }: { c: Card; live: boolean }) {
+  const one = c.n_src === 1;
+  if (!live && !one && !(c.spread != null && c.spread >= 3)) return null;
   return (
     <p className="text-xs tabular-nums text-muted-foreground">
       {live && <span className="mr-2">proj {pts(c.proj)}</span>}
-      {c.espn_only
-        ? <span>ESPN only</span>
-        : <span>ESPN {pts(c.proj_espn)} <span aria-hidden>·</span> Sleeper {pts(c.proj_sleeper)}</span>}
+      {one && <span>1 source</span>}
       {c.spread != null && c.spread >= 3 && (
         <span className="ml-2 font-medium text-close-foreground dark:text-close">±{pts(c.spread)}</span>
       )}

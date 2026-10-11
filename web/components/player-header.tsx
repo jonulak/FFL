@@ -16,7 +16,7 @@ import { GameLine } from "./local-time";
 export type PlayerSeed = Pick<Player, "player_id" | "name" | "pos" | "team">
   & Partial<Pick<Player, "injury" | "injury_note" | "return_week" | "opponent" | "home" | "kickoff" | "bye" | "game">>
   // what a Players row knows past the header: the season figures and form his dialog lays out (SeasonFacts)
-  & Partial<Pick<Player, "ros_proj" | "ros_spread" | "ros_sleeper" | "ros_cbs" | "form">>
+  & Partial<Pick<Player, "ros_proj" | "ros_spread" | "ros_n" | "form">>
   & Partial<Pick<PlayerRow, "ros_adj" | "delta_roster" | "delta_pool">>;
 
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
