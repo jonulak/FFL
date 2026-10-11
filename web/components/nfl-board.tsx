@@ -2,6 +2,7 @@
 
 import { ChevronRight, Triangle } from "lucide-react";
 import Link from "next/link";
+import { useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { NflBoard, NflClub, NflGame } from "@/lib/api";
@@ -16,6 +17,15 @@ import { WeekSelect } from "./week-select";
 
 const POLL_MS = 30_000;
 const LiveChip = () => <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>;
+
+const noSubscribe = () => () => {};
+
+// A kickoff window's heading in the viewer's zone. The server has no zone worth using, so it renders a blank
+// of the same height and the browser fills in the label once mounted (no hydration mismatch, no stale text).
+function WindowLabel({ iso }: { iso: string }) {
+  const mounted = useSyncExternalStore(noSubscribe, () => true, () => false);
+  return mounted ? <>{windowLabel(iso)}</> : <span aria-hidden className="invisible">&nbsp;</span>;
+}
 
 // The club with the ball: the on-field orange the Matchup board's halves use, red inside the 20.
 export function PossessionDot({ red }: { red: boolean }) {
@@ -98,7 +108,7 @@ export function NflBoardLive({ initial, path }: { initial: NflBoard; path: strin
       {count === 0 && <p className="text-sm text-muted-foreground">No NFL games in week {data.week}.</p>}
       {data.sections.map((s) => (
         <section key={s.live ? "live" : s.kickoff ?? "tbd"} className="space-y-3">
-          <h2 suppressHydrationWarning className={`${LABEL} text-foreground/80`}>{s.live ? "Live" : s.kickoff ? windowLabel(s.kickoff) : "Time TBD"}</h2>
+          <h2 className={`${LABEL} text-foreground/80`}>{s.live ? "Live" : s.kickoff ? <WindowLabel iso={s.kickoff} /> : "Time TBD"}</h2>
           <div className="grid gap-3 md:grid-cols-2 md:gap-4">
             {s.games.map((g) => <GameCard key={g.event_id} g={g} week={data.week} />)}
           </div>
