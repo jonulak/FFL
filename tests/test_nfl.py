@@ -54,3 +54,63 @@ def test_board_live_first_then_windows_mine_first():
 def test_board_no_live_section_when_nothing_on():
     out = nfl.board([_g("1", "2026-10-11T17:00Z", "pre", "NYG", "WSH")], {}, {})
     assert [s["live"] for s in out] == [False]
+
+
+FINAL_IDS = {"21": "PHI", "30": "JAX"}
+LIVE_IDS = {"9": "GB", "3": "CHI"}
+
+
+def test_parse_drives_final_counts_and_order():
+    drives = nfl.parse_drives(load("drives-final-401872981.json"), FINAL_IDS)
+    assert len(drives) == 23
+    assert sum(len(d["plays"]) for d in drives) == 199
+    first_play = drives[-1]["plays"][-1]  # oldest drive, oldest play
+    assert first_play["quarter"] == 1
+    assert drives[0]["plays"][0]["quarter"] >= 4  # newest first
+    assert all(d["team"] in ("PHI", "JAX", None) for d in drives)
+    assert any(p["scoring"] for d in drives for p in d["plays"])
+    p = next(p for d in drives for p in d["plays"] if p["down"])
+    assert p["down"].startswith(("1st", "2nd", "3rd", "4th"))
+    assert all(isinstance(a, int) for d in drives for p in d["plays"] for a in p["athletes"])
+
+
+def test_parse_drives_in_progress_drive_has_no_result():
+    drives = nfl.parse_drives(load("drives-live-401872990.json"), LIVE_IDS)
+    assert drives[0]["result"] is None and drives[0]["plays"]
+    assert drives[0]["description"]
+
+
+def test_parse_drives_empty_before_kickoff():
+    assert nfl.parse_drives({"items": []}, LIVE_IDS) == []
+
+
+def _play(pid, team, athletes=(), scoring=False, turnover=False, kind="Rush"):
+    return {"id": pid, "team": team, "athletes": list(athletes), "scoring": scoring, "turnover": turnover,
+            "kind": kind, "mine": [], "opp": []}
+
+
+def test_mark_by_athlete_and_dst_by_club_on_defence():
+    drives = [{"id": "d", "plays": [
+        _play("1", "PHI", athletes=[4040715]),                      # Hurts: mine
+        _play("2", "JAX", athletes=[3916433]),                      # Meyers: opp
+        _play("3", "PHI", kind="Sack"),                             # JAX D/ST on defence: opp's D/ST
+        _play("4", "JAX", turnover=True),                           # PHI on defence, no PHI D/ST rostered
+        _play("5", "PHI", athletes=[1], kind="Pass Reception"),     # nobody
+    ]}]
+    out = nfl.mark(drives, {4040715: "Jalen Hurts"}, {3916433: "Jakobi Meyers"}, {}, {"JAX": "Jaguars D/ST"},
+                   ("PHI", "JAX"))
+    ps = {p["id"]: p for p in out[0]["plays"]}
+    assert ps["1"]["mine"] == ["Jalen Hurts"] and ps["1"]["opp"] == []
+    assert ps["2"]["opp"] == ["Jakobi Meyers"]
+    assert ps["3"]["opp"] == ["Jaguars D/ST"]
+    assert ps["4"]["mine"] == [] and ps["4"]["opp"] == []
+    assert ps["5"]["mine"] == [] and ps["5"]["opp"] == []
+    assert drives[0]["plays"][0]["mine"] == []  # input untouched
+
+
+def test_scoring_plays_newest_first():
+    drives = nfl.parse_drives(load("drives-final-401872981.json"), FINAL_IDS)
+    sc = nfl.scoring_plays(drives)
+    assert sc and all(p["scoring"] for p in sc)
+    seq = [int(p["id"]) for p in sc]
+    assert seq == sorted(seq, reverse=True)

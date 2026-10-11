@@ -4,6 +4,8 @@ Pure parse_* seams over the raw JSON; the fetches (below) sit behind a small TTL
 """
 from __future__ import annotations
 
+import re
+
 SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 DRIVES = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/{id}/competitions/{id}/drives"
 CLUBS = {"ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", "DAL", "DEN", "DET", "GB", "HOU", "IND", "JAX", "KC",
@@ -79,3 +81,66 @@ def board(games: list[dict], mine: dict[str, int], opp: dict[str, int]) -> list[
             windows.setdefault(g["kickoff"] or "", []).append(g)
     out += [{"live": False, "kickoff": k or None, "games": sorted(v, key=rank)} for k, v in sorted(windows.items())]
     return out
+
+
+_TEAM_REF = re.compile(r"/teams/(\d+)")
+_ATHLETE_REF = re.compile(r"/athletes/(-?\d+)")
+DST_KINDS = ("sack", "safety")
+
+
+def _ref_id(obj, pattern: re.Pattern) -> str | None:
+    ref = obj.get("$ref") if isinstance(obj, dict) else None
+    m = pattern.search(ref or "")
+    return m.group(1) if m else (str(obj["id"]) if isinstance(obj, dict) and obj.get("id") is not None else None)
+
+
+def _play(p: dict, ids: dict[str, str]) -> dict:
+    start = p.get("start") or {}
+    team = _ref_id(start.get("team"), _TEAM_REF) or _ref_id(p.get("team"), _TEAM_REF)
+    return {
+        "id": str(p.get("id")), "quarter": (p.get("period") or {}).get("number"),
+        "clock": (p.get("clock") or {}).get("displayValue"), "team": ids.get(team) if team else None,
+        "down": start.get("downDistanceText") or None, "text": (p.get("text") or "").strip(),
+        "kind": (p.get("type") or {}).get("text"), "scoring": bool(p.get("scoringPlay")),
+        "turnover": bool(p.get("isTurnover")), "penalty": bool(p.get("isPenalty")),
+        "score": {"away": _int(p.get("awayScore")), "home": _int(p.get("homeScore"))},
+        "athletes": [int(a) for x in p.get("participants") or [] if (a := _ref_id(x.get("athlete"), _ATHLETE_REF))],
+        "mine": [], "opp": [],
+    }
+
+
+def parse_drives(data: dict, ids: dict[str, str]) -> list[dict]:
+    """Every drive of a game, newest first, each with its plays newest first (the core API's drives embed them,
+    participants included; a drive still on the field has no result yet). `ids`: ESPN team id -> abbreviation."""
+    out = []
+    for d in reversed(data.get("items") or []):
+        team = _ref_id(d.get("team"), _TEAM_REF)
+        plays = [_play(p, ids) for p in reversed((d.get("plays") or {}).get("items") or [])]
+        out.append({"id": str(d.get("id")), "team": ids.get(team) if team else None,
+                    "description": d.get("description"), "result": d.get("displayResult") or None, "plays": plays})
+    return out
+
+
+def _dst_play(p: dict) -> bool:
+    kind = (p.get("kind") or "").lower()
+    return p["scoring"] or p["turnover"] or any(k in kind for k in DST_KINDS)
+
+
+def mark(drives: list[dict], mine: dict[int, str], opp: dict[int, str], dst_mine: dict[str, str],
+         dst_opp: dict[str, str], clubs: tuple[str, str]) -> list[dict]:
+    """Each play's `mine`/`opp`: the starters of mine and the opponent's it names. A D/ST has no athlete id: it
+    is in a play when its club is on defence (the club that is not the offence) and the play is a score, a
+    turnover, a sack or a safety."""
+    def names(p: dict, players: dict[int, str], dst: dict[str, str]) -> list[str]:
+        out = [players[a] for a in p["athletes"] if a in players]
+        defence = next((c for c in clubs if c != p["team"]), None) if p["team"] in clubs else None
+        if defence in dst and _dst_play(p):
+            out.append(dst[defence])
+        return list(dict.fromkeys(out))
+    return [{**d, "plays": [{**p, "mine": names(p, mine, dst_mine), "opp": names(p, opp, dst_opp)} for p in d["plays"]]}
+            for d in drives]
+
+
+def scoring_plays(drives: list[dict]) -> list[dict]:
+    """The game's scoring plays, newest first (drives and their plays are already newest first)."""
+    return [p for d in drives for p in d["plays"] if p["scoring"]]
