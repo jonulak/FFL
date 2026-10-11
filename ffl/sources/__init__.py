@@ -29,11 +29,15 @@ class Thin(Exception):
     pass
 
 
-def check(data: dict[tuple[str, str], float]) -> dict[str, int]:
+def check(data: dict[tuple[str, str], float], min_rows: dict[str, int] | None = None) -> dict[str, int]:
+    """min_rows None means MIN_ROWS; a dict replaces it for this call. An empty result always fails."""
+    if not data:
+        raise Thin("empty scrape")
+    minimum = MIN_ROWS if min_rows is None else min_rows
     counts: dict[str, int] = {}
     for _, pos in data:
         counts[pos] = counts.get(pos, 0) + 1
-    thin = [p for p, m in MIN_ROWS.items() if counts.get(p, 0) < m]
+    thin = [p for p, m in minimum.items() if counts.get(p, 0) < m]
     if thin:
         raise Thin(f"thin scrape at {', '.join(thin)}: {counts}")
     return counts
@@ -87,13 +91,13 @@ class Cached:
         self._d: dict = {}
         _ALL.append(self)
 
-    def get(self, key, fetch: Callable[[], dict]) -> dict:
+    def get(self, key, fetch: Callable[[], dict], min_rows: dict[str, int] | None = None) -> dict:
         hit = self._d.get(key)
         if hit and hit[0] > time.time():
             return hit[1]
         try:
             data = fetch()
-            counts = check(data)
+            counts = check(data, min_rows)
         except Exception as e:  # a parser surprise must fall back to last good too, not fail the page
             _failed(self.name, e)
             return hit[1] if hit else {}

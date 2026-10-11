@@ -78,3 +78,15 @@ def test_expire_all_forces_a_refetch(monkeypatch):
     c.get(1, lambda: {("a", "RB"): 1.0})
     sources.expire_all()
     assert c.get(1, lambda: {("b", "RB"): 2.0}) == {("b", "RB"): 2.0}
+
+
+def test_check_per_call_minimum_and_empty_always_fails():
+    with pytest.raises(sources.Thin, match="empty"):
+        sources.check({}, {})
+    assert sources.check({("a", "RB"): 1.0}, {}) == {"RB": 1}
+
+
+def test_cached_get_with_min_rows_accepts_what_the_default_rejects():
+    one = {("a", "RB"): 1.0}
+    assert sources.Cached("t-default").get(1, lambda: one) == {}
+    assert sources.Cached("t-loose").get(1, lambda: one, min_rows={}) == one

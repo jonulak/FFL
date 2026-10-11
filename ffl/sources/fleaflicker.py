@@ -81,4 +81,6 @@ def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
         with ThreadPoolExecutor(len(POS_CODE)) as pool:
             parts = list(pool.map(lambda p: _position(p, ks, week), POS_CODE))
         return {k: v for part in parts for k, v in part.items()}
-    return _WEEK.get(week, fetch)
+    # no per-position minimum: the header checks (week, groups, Opp) already reject reshaped or wrong-week
+    # pages, and played games legitimately shrink the page as the week goes on
+    return _WEEK.get(week, fetch, min_rows={})

@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from ffl import sources
 from ffl.sources import fleaflicker
 
 FIX = Path(__file__).parent / "fixtures" / "sources"
@@ -37,7 +36,6 @@ def test_a_reshaped_page_is_nothing():
 
 
 def test_fetch_week_walks_the_pages(monkeypatch):
-    monkeypatch.setattr(sources, "MIN_ROWS", {"QB": 1, "RB": 1})
     urls = []
 
     def fake_get(url, **kw):
