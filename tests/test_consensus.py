@@ -51,3 +51,16 @@ def test_weights_for_reads_the_active_fit_only():
     consensus.forget()
     assert consensus.weights_for("week", "QB") == {"espn": 0.6, "cbs": 0.4}
     assert consensus.weights_for("ros", "QB") is None and consensus.weights_for("week", "K") is None
+
+
+def test_weights_for_survives_a_stale_schema_and_merge_weekly_stays_equal(monkeypatch):
+    from ffl import consensus, db, espn_season
+    from tests.test_espn_season import bp
+
+    def boom():
+        raise db.SchemaError("stale")
+    monkeypatch.setattr(db, "active_source_weights", boom)
+    consensus.forget()
+    assert consensus.weights_for("week", "QB") is None
+    out = espn_season.merge_weekly([espn_season.flatten_box_player(bp())], {"sleeper": {("jahmyr gibbs", "RB"): 23.6}})
+    assert out[0]["proj"] == 22.5

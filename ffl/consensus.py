@@ -8,8 +8,11 @@ median; equal weights give the unweighted answer. Pure.
 """
 from __future__ import annotations
 
+import logging
 import time
 from itertools import combinations
+
+log = logging.getLogger(__name__)
 
 
 def _weighted_median(items: list[tuple[float, float]]) -> float:
@@ -60,7 +63,8 @@ def weights_for(kind: str, pos: str) -> dict[str, float] | None:
     if time.time() - _W[0] > WEIGHTS_TTL_S:
         try:
             fit = db.active_source_weights()
-        except db.DBError:
+        except Exception as e:  # noqa: BLE001 — a missing or stale DB (SchemaError) must not fail a page
+            log.warning("source weights unreadable, using equal weights: %s", e)
             fit = None
         _W[:] = [time.time(), fit]
     return ((_W[1] or {}).get(kind) or {}).get(pos)
