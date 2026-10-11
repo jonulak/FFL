@@ -95,3 +95,14 @@ def test_waiver_claim_still_pending_is_neither_won_nor_lost():
 def test_waiver_unknown_name_falls_back_to_the_id():
     out = notify.waiver_notices("r2", "r1", [{"id": "a", "add": 99, "drop": None, "priority": 1}], set(), {}, AT)
     assert out[0]["body"] == "Lost player 99." and out[0]["title"] == "Waivers: 0 of 1 claims won"
+
+
+def test_source_notices_after_a_day_failing():
+    from datetime import datetime, timedelta
+    t = datetime(2026, 10, 12, 9, 0).astimezone()
+    status = {"sharks": {"error": "thin scrape at RB", "failing_since": (t - timedelta(hours=25)).isoformat()},
+              "cbs": {"error": "down", "failing_since": (t - timedelta(hours=2)).isoformat()},
+              "fleaflicker": {"error": None, "failing_since": None}}
+    out = notify.source_notices(status, t, "now")
+    assert [n["key"] for n in out] == [f"source:sharks:{status['sharks']['failing_since']}"]
+    assert out[0]["kind"] == "source" and "sharks" in out[0]["title"] and out[0]["url"] == "/players"

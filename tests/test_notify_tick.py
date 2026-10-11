@@ -44,11 +44,13 @@ def test_tick_runs_every_step_even_when_espn_is_down(monkeypatch, lg):
         raise ConnectionError("espn down")
     monkeypatch.setattr(journal, "sync_transactions", down)
     monkeypatch.setattr(espn_season, "raw_league_get", down)
+    monkeypatch.setattr(espn_season, "record_projections", down)
     monkeypatch.setattr(espn_write, "last_waiver_run", lambda: None)  # the real failure mode: None, never a raise
     flushed = []
     monkeypatch.setattr(notify, "flush", lambda: flushed.append(1) or {"disabled": True})
     out = notify.tick()
     assert out["moves"] == {"error": "espn down"} and out["injuries"] == {"error": "espn down"}
+    assert out["projections"] == {"error": "espn down"} and out["sources"] == 0
     assert out["waivers"] == 0 and flushed == [1]
 
 
@@ -139,3 +141,13 @@ def test_pending_claims_raising_stores_nothing_and_the_next_tick_reports(monkeyp
     assert db.get_state("waiver_run") == "2026-10-01T03:10:00" and db.get_state("pending_claims") == _claims(11)
     assert notify.check_waivers() == 1
     assert [n for n in db.unsent_notices() if n["kind"] == "waivers"][0]["body"] == "Won Ray Davis."
+
+
+def test_tick_records_projections_and_checks_sources(monkeypatch, lg):
+    monkeypatch.setattr(journal, "sync_transactions", lambda lg: [])
+    monkeypatch.setattr(notify, "check_injuries", lambda: 0)
+    monkeypatch.setattr(notify, "check_waivers", lambda synced=True: 0)
+    monkeypatch.setattr(espn_season, "record_projections", lambda: {"week": 3, "ros": 2})
+    db.put_state("source_status", {})
+    out = notify.tick()
+    assert out["projections"] == {"week": 3, "ros": 2} and out["sources"] == 0

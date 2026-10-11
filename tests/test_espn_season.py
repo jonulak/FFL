@@ -951,3 +951,19 @@ def test_unmatched_lists_a_sources_top_rows_espn_does_not_know():
 def test_aliases_rename_a_source_key(monkeypatch):
     monkeypatch.setitem(espn_season.ALIASES, ("hollywood brown", "WR"), ("marquise brown", "WR"))
     assert espn_season.canon({("hollywood brown", "WR"): 120.0}) == {("marquise brown", "WR"): 120.0}
+
+
+def test_projection_rows_for_freezes_at_kickoff():
+    now = datetime(2026, 10, 11, 17, 30, tzinfo=timezone.utc)
+    ahead = {**espn_season.flatten_box_player(bp()), "kickoff": "2026-10-11T20:25:00+00:00"}
+    gone = {**espn_season.flatten_box_player(bp(playerId=2, name="A.J. Brown", position="WR", proTeam="PHI")),
+            "kickoff": "2026-10-11T17:00:00+00:00"}
+    idle = {**espn_season.flatten_box_player(bp(playerId=3, name="Bye Guy", position="TE", proTeam="SEA",
+                                                on_bye_week=True)), "kickoff": None}
+    src = {"cbs": {("jahmyr gibbs", "RB"): 20.0, ("aj brown", "WR"): 14.0}}
+    lookup = {1: {"ros_src": {"cbs": 200.0}}, 2: {"ros_src": {"cbs": 150.0}}, 3: {"ros_src": {"sharks": 90.0}}}
+    week, ros = espn_season.projection_rows_for([ahead, gone, idle], src, lookup, now, ros_ahead=False)
+    assert {(r["player_id"], r["source"]) for r in week} == {(1, "cbs"), (1, "espn")}
+    assert {(r["player_id"], r["source"]) for r in ros} == {(1, "cbs"), (3, "sharks")}
+    _, ros_all = espn_season.projection_rows_for([ahead, gone, idle], src, lookup, now, ros_ahead=True)
+    assert {r["player_id"] for r in ros_all} == {1, 2, 3}, "ESPN's week is over: the ROS week has not begun"

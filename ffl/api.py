@@ -764,6 +764,13 @@ def live_status():
     return live.STATE.snapshot()
 
 
+@app.get("/sources/status")
+def sources_status():
+    """Each projection source's health: last success, rows per position, the error while failing
+    (this process's view over the last one saved, so a fresh restart still shows yesterday's)."""
+    return {**(db.get_state("source_status", {}) or {}), **sources.STATUS}
+
+
 @app.get("/players")
 def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] | None = None, q: str | None = None, fa: bool = True):
     # free agents at a position by default; fa=0 adds every rostered player there. A search spans

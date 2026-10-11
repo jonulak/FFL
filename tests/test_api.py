@@ -1326,3 +1326,11 @@ def test_player_transactions_carry_his_decisions(client, monkeypatch):
     i = _dec()
     _dec(player_ids=[99])
     assert [d["id"] for d in client.get("/player/11/transactions").json()["decisions"]] == [i]
+
+
+def test_sources_status_reports_memory_over_the_db(client, monkeypatch):
+    from ffl import db, sources
+    db.put_state("source_status", {"cbs": {"ok_at": "a", "rows": {}, "error": None, "failing_since": None}})
+    monkeypatch.setitem(sources.STATUS, "sharks", {"ok_at": "b", "rows": {"QB": 60}, "error": None, "failing_since": None})
+    body = client.get("/sources/status").json()
+    assert body["cbs"]["ok_at"] == "a" and body["sharks"]["rows"] == {"QB": 60}

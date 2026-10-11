@@ -491,6 +491,33 @@ def merge_weekly(players: list[dict], sources: dict[str, dict]) -> list[dict]:
     return out
 
 
+def projection_rows_for(players: list[dict], sources: dict, lookup: dict[int, dict], now: datetime,
+                        ros_ahead: bool) -> tuple[list[dict], list[dict]]:
+    """Each source's number per player for projection_rows: weekly rows while his game is ahead; ROS
+    rows likewise, or all of them while the ROS week is ahead of ESPN's (STRATEGY.md "Waivers")."""
+    def ahead(p):
+        return p.get("kickoff") is not None and datetime.fromisoformat(p["kickoff"]) > now
+    week = [{"player_id": p["player_id"], "source": s, "points": v}
+            for p in players if ahead(p) for s, v in source_values(p, sources).items()]
+    ros = [{"player_id": p["player_id"], "source": s, "points": v}
+           for p in players if ros_ahead or ahead(p) or p.get("bye")
+           for s, v in ((lookup.get(p["player_id"]) or {}).get("ros_src") or {}).items()]
+    return week, ros
+
+
+def record_projections() -> dict:
+    """The notify tick's step (every 15 min): every rostered player's per-source numbers into
+    projection_rows, so `ffl.calibrate sources` can fit weights from what each source said."""
+    lg = fresh_league()
+    settings = load()
+    week = lg.current_week
+    rw = ros_week_for(lg, week)
+    players = [flatten_box_player(bp) for lineup in _boxes_by_team(lg, week).values() for bp in lineup]
+    wk, ros = projection_rows_for(players, weekly_sources(week, settings), season_lookup(settings, rw),
+                                  datetime.now().astimezone(), ros_ahead=rw > week)
+    return {"week": db.put_projection_rows(week, "week", wk), "ros": db.put_projection_rows(rw, "ros", ros)}
+
+
 def my_team_id(lg) -> int:
     if MY_TEAM_ID:
         return MY_TEAM_ID

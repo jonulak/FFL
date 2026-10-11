@@ -90,6 +90,24 @@ def waiver_notices(run: str | None, prev_run: str | None, pending: list[dict], m
              "body": " ".join(parts), "url": "/transactions", "created_at": at}]
 
 
+def source_notices(status: dict, t: datetime, at: str, hours: int = 24) -> list[dict]:
+    """One notice per failing spell of a projection source (keyed by when it began) once it passes
+    `hours`: the consensus has been running without it."""
+    out = []
+    for name, s in sorted(status.items()):
+        since = s.get("failing_since")
+        if not since or t - datetime.fromisoformat(since) < timedelta(hours=hours):
+            continue
+        out.append({"key": f"source:{name}:{since}", "kind": "source", "title": f"{name} projections failing",
+                    "body": f"Since {since[:16].replace('T', ' ')}: {s.get('error')}. Projections run on the other sources.",
+                    "url": "/players", "created_at": at})
+    return out
+
+
+def check_sources() -> int:
+    return db.add_notices(source_notices(db.get_state("source_status", {}), datetime.now().astimezone(), now()))
+
+
 DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "quiet": ["23:00", "07:00"]}
 MAX_AGE = timedelta(hours=24)
 BODY_MAX = 180
@@ -300,7 +318,9 @@ def tick() -> dict:
     out: dict = {}
     steps = (("moves", lambda: len(journal.sync_transactions(espn_season.fresh_league()))),
              ("injuries", check_injuries),
-             ("waivers", lambda: check_waivers(synced=not isinstance(out.get("moves"), dict))))
+             ("waivers", lambda: check_waivers(synced=not isinstance(out.get("moves"), dict))),
+             ("projections", espn_season.record_projections),
+             ("sources", check_sources))
     for name, fn in steps:
         try:
             out[name] = fn()
