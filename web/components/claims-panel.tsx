@@ -49,7 +49,7 @@ function Grip({ label, handleRef, attributes, listeners, disabled }: {
   label: string; handleRef: Sortable["setActivatorNodeRef"]; attributes: Sortable["attributes"]; listeners: Sortable["listeners"]; disabled: boolean;
 }) {
   return (
-    <button type="button" ref={handleRef} {...attributes} {...listeners} disabled={disabled} aria-label={label}
+    <button type="button" ref={handleRef} {...attributes} {...listeners} disabled={disabled} aria-label={label} data-base-ui-swipe-ignore
       className={`${HIT} flex size-6 cursor-grab touch-none items-center justify-center rounded-sm text-foreground/40 hover:text-foreground focus-visible:outline-2 active:cursor-grabbing disabled:cursor-default disabled:opacity-40`}>
       <GripVertical aria-hidden className="size-4" />
     </button>

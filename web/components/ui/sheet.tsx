@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { Dialog as SheetPrimitive } from "@base-ui/react/dialog"
+// On Base UI's Drawer (its Dialog plus swipe-to-dismiss), like ui/dialog: a bottom sheet swipes down
+// to close. The root's swipeDirection defaults to "down"; pass the matching one for another side.
+import { Drawer as SheetPrimitive } from "@base-ui/react/drawer"
 import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
@@ -28,7 +30,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+        "fixed inset-0 z-50 bg-black/10 opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-150 data-swiping:duration-0 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
         className
       )}
       {...props}
@@ -49,16 +51,23 @@ function SheetContent({
   return (
     <SheetPortal>
       <SheetOverlay />
+      <SheetPrimitive.Viewport className="fixed inset-0 z-50">
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
         className={cn(
           "fixed z-50 flex flex-col gap-4 bg-popover bg-clip-padding text-sm text-popover-foreground shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+          // The swipe (see ui/dialog): follow the finger, spring back, or carry on off the edge at its speed.
+          "[transform:translate(var(--drawer-swipe-movement-x,0px),var(--drawer-swipe-movement-y,0px))] data-swiping:select-none data-swipe-dismiss:data-ending-style:opacity-100 data-swipe-dismiss:data-ending-style:duration-[calc(var(--drawer-swipe-strength,1)*320ms)] data-swipe-dismiss:data-ending-style:ease-out data-[swipe-direction=down]:data-swipe-dismiss:data-ending-style:[transform:translateY(100%)] data-[swipe-direction=up]:data-swipe-dismiss:data-ending-style:[transform:translateY(-100%)] data-[swipe-direction=left]:data-swipe-dismiss:data-ending-style:[transform:translateX(-100%)] data-[swipe-direction=right]:data-swipe-dismiss:data-ending-style:[transform:translateX(100%)]",
           className
         )}
         {...props}
       >
-        {children}
+        {side === "bottom" && (
+          // the grip: says the sheet can be pulled down
+          <span aria-hidden className="pointer-events-none absolute top-1.5 left-1/2 h-1 w-9 -translate-x-1/2 rounded-full bg-foreground/20" />
+        )}
+        <SheetPrimitive.Content className="contents">{children}</SheetPrimitive.Content>
         {showCloseButton && (
           <SheetPrimitive.Close
             data-slot="sheet-close"
@@ -76,6 +85,7 @@ function SheetContent({
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Popup>
+      </SheetPrimitive.Viewport>
     </SheetPortal>
   )
 }

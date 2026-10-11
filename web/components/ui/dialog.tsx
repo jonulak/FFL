@@ -1,7 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
+// Base UI's Drawer is its Dialog plus swipe-to-dismiss: every dialog here swipes down to close on a
+// touch screen. A mouse drag inside the panel stays a text selection (the children sit in
+// Drawer.Content); add data-base-ui-swipe-ignore to anything that drags on its own.
+import { Drawer as DialogPrimitive } from "@base-ui/react/drawer"
 import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
@@ -33,7 +36,7 @@ function DialogOverlay({
       className={cn(
         // A plain scrim, not a backdrop blur: blurring the whole page every frame of the fade is
         // what made opening a dialog stutter on the phone.
-        "fixed inset-0 isolate z-50 bg-black/25 transition-opacity duration-300 ease-(--ease-arrive) data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) dark:bg-black/50",
+        "fixed inset-0 isolate z-50 bg-black/25 opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-300 ease-(--ease-arrive) data-swiping:duration-0 data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) dark:bg-black/50",
         className
       )}
       {...props}
@@ -100,6 +103,8 @@ function DialogContent({
   return (
     <DialogPortal>
       <DialogOverlay />
+      {/* the viewport is where the swipe is read; the popup keeps its own fixed centring */}
+      <DialogPrimitive.Viewport className="fixed inset-0 z-50">
       <DialogPrimitive.Popup
         ref={setRef}
         initialFocus={initialFocus ?? panel}
@@ -108,12 +113,16 @@ function DialogContent({
           // Transitions on Base UI's starting/ending styles rather than keyframes, so a tap that
         // closes the dialog mid-open reverses it from where it is instead of jumping.
         "fixed top-[calc(var(--vv-top,0px)+var(--vv-h,100%)/2)] left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm",
-        "transition-[opacity,scale,translate] duration-300 ease-(--ease-arrive) data-starting-style:translate-y-[calc(-50%+0.75rem)] data-starting-style:scale-[0.97] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) motion-reduce:data-starting-style:-translate-y-1/2 motion-reduce:data-starting-style:scale-100",
+        "transition-[opacity,scale,translate,transform] duration-300 ease-(--ease-arrive) data-starting-style:translate-y-[calc(-50%+0.75rem)] data-starting-style:scale-[0.97] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-150 data-ending-style:ease-(--ease-leave) motion-reduce:data-starting-style:-translate-y-1/2 motion-reduce:data-starting-style:scale-100",
+        // The swipe: the panel follows the finger (Base UI writes the transform while it moves), a short
+        // pull springs back, and a dismissing one carries on down off the screen at the finger's speed
+        // rather than fading where it was let go.
+        "[transform:translateY(var(--drawer-swipe-movement-y,0px))] data-swiping:select-none data-swipe-dismiss:data-ending-style:[transform:translateY(calc(var(--vv-h,100dvh)/2+50%))] data-swipe-dismiss:data-ending-style:scale-100 data-swipe-dismiss:data-ending-style:opacity-100 data-swipe-dismiss:data-ending-style:duration-[calc(var(--drawer-swipe-strength,1)*320ms)] data-swipe-dismiss:data-ending-style:ease-out",
           className
         )}
         {...props}
       >
-        {children}
+        <DialogPrimitive.Content className="contents">{children}</DialogPrimitive.Content>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
@@ -131,6 +140,7 @@ function DialogContent({
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>
+      </DialogPrimitive.Viewport>
     </DialogPortal>
   )
 }
