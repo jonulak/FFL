@@ -33,6 +33,8 @@ uv run python -m ffl.decisions list --open   # decisions still needing a rationa
 uv run python -m ffl.calibrate         # in-season: score STRATEGY.md's K (usage-adjusted ROS) against the weekly snapshots in the DB (calibration_*)
 uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (sigma_fits) + Brier; launchd runs it Wed 07:00
 uv run python -m ffl.pace              # in-season: who is beating his projection, every roster + the wire (write-up rules: .claude/skills/pace-report)
+uv run python -m ffl.sources compare   # old (ESPN+Sleeper) vs consensus projection for every rostered player; status: source health
+uv run python -m ffl.calibrate sources   # fit per-source weights (stored inactive); --activate <fitted_at> applies them
 uv run python -m ffl.props score       # props trial (weeks 4-6): ESPN+Sleeper vs +props MAE and the verdict (launchd pulls Thu/Sun)
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
 curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (launchd does this hourly)
@@ -81,15 +83,22 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   to ADP + spread under roster constraints; my later picks are planned by assignment of open slots to remaining
   picks (`plan_position`); candidates are scored by `season_points` (best lineup, byes out, per week).
   Judge it with `ffl.replay` on real logs, not by tuning it until a simulation looks right.
-- Projections: `proj` is the mean of ESPN (`proj_espn`, league-scored by ESPN) and Sleeper (`proj_sleeper`, raw stats rescored
-  in `ffl/sleeper.py::score`); K and D/ST use Sleeper's standard points. Merge is on normalized name + position (D/ST on team).
+- Projections: `proj` is the weekly **consensus** (`ffl/consensus.py`, Hodges-Lehmann; `spread` = trimmed range) of ESPN
+  (`proj_espn`, league-scored by ESPN; an input only, 0 is a placeholder), Sleeper (raw stats rescored in `ffl/sleeper.py::score`),
+  CBS, FantasySharks and FleaFlicker. `ffl/sources/` holds cbs, sharks, fleaflicker (`Cached`: TTL + last good + thin guard); health is
+  `STATUS` / the `source_status` state, `GET /sources/status`, `ffl.sources status`, and a notice after 24 h failing. K and D/ST use
+  Sleeper's standard points. Merge is on normalized name + position (D/ST on team): `espn_season.weekly_sources(week, settings)` →
+  `merge_weekly(players, sources)`. The payload carries only `proj`/`spread`/`n_src` and `ros_proj`/`ros_spread`/`ros_n`. Each source's
+  number is written to `projection_rows` by the notify tick (`record_projections`, frozen at kickoff); `source_weights` are fitted
+  Wednesdays by `ffl.calibrate wednesday` and apply only after `ffl.calibrate sources --activate`. Props keep their own ESPN+Sleeper
+  `baseline`. `uv run python -m ffl.sources compare` is the before/after check.
 - Rest-of-season projections (the Players page's `add` column) are `ffl/espn_season.py::season_lookup(settings, week)`:
-  Sleeper's weekly projections for weeks w..18 summed (`sleeper_ros`, through the per-week `_sleeper_for` cache;
-  any failed week drops Sleeper's ROS for that build rather than undercount) averaged with CBS's public
-  rest-of-season pages (`ffl/cbs.py`, QB/RB/WR/TE only, rescored, 30-min cache, last-good on failure). Every
-  player dict carries `ros_proj`/`ros_sleeper`/`ros_cbs`/`ros_spread`; `season.ros_proj(p, week)` falls back to
-  season total × weeks left when neither source has him, and only then does `add_score` haircut an OUT/IR
-  player for games missed (both sources already leave those games out). `free_agent_pool` reports
+  the consensus of Sleeper's weekly projections for weeks w..18 summed (`sleeper_ros`, through the per-week `_sleeper_for` cache;
+  any failed week drops Sleeper's ROS for that build rather than undercount), CBS's public rest-of-season pages (`ffl/sources/cbs.py`,
+  QB/RB/WR/TE only, rescored) and FantasySharks' (`ffl/sources/sharks.py`), each value in `ros_src`. Every
+  player dict carries `ros_proj`/`ros_spread`/`ros_n`; `season.ros_proj(p, week)` falls back to
+  season total × weeks left when no source has him, and only then does `add_score` haircut an OUT/IR
+  player for games missed (all sources already leave those games out). `free_agent_pool` reports
   `ros_source` so the page can say when the whole pool fell back. Sleeper is Rotowire's single model.
   `w` is the **ROS week** (`espn_season.ros_week_for` → `season.ros_week`): ESPN's scoring period, or the
   next one once every kickoff in it is four hours old (off the pro-schedule document) — ESPN rolls its week
