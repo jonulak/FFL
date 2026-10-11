@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { NflGame, NflGamePage, NflPlay, NflStarter } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
 import { pts, shortName } from "@/lib/format";
-import { feedHref, gameState, inGameRows, scoreLine } from "@/lib/nfl";
+import { feedHref, gameState, inGameRows, priorScores, scoreLine } from "@/lib/nfl";
 import { KickoffTime } from "./local-time";
 import { PossessionDot } from "./nfl-board";
 import { TeamLogo } from "./player-media";
@@ -61,10 +61,10 @@ export function NflScorebug({ g, compact = false }: { g: NflGame; compact?: bool
 // A marked play hangs one 3px rail on its left: lime for my starter's, ink at 60% for the opponent's. The left
 // edge is always 3px, so the text column is the same width marked or not. A turnover or a penalty is a chip on
 // the caption line, inside the row so it slides in with it.
-export function NflPlayRow({ p, g }: { p: NflPlay; g: NflGame }) {
+export function NflPlayRow({ p, g, prev }: { p: NflPlay; g: NflGame; prev?: NflPlay["score"] | null }) {
   const rail = p.mine.length ? "border-l-start" : p.opp.length ? "border-l-foreground/60" : "";
   const who = [...p.mine, ...p.opp];
-  const sc = p.scoring ? scoreLine(p, g) : null;
+  const sc = p.scoring ? scoreLine(p, g, prev) : null;
   const part = (side: "away" | "home", text: string) =>
     <span className={sc?.scorer === side ? "text-foreground" : "font-semibold text-muted-foreground"}>{text}</span>;
   return (
@@ -105,6 +105,7 @@ export function NflGameLive({ initial, path }: { initial: NflGamePage; path: str
   const { game: g, week } = data;
   const rows = inGameRows(data.starters);
   const latest = data.scoring.slice(0, LATEST);
+  const prior = priorScores(data.scoring);
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -134,7 +135,7 @@ export function NflGameLive({ initial, path }: { initial: NflGamePage; path: str
               ? <p className="py-4 text-center text-xs text-muted-foreground">
                   {g.status === "pre" ? <>Kickoff <KickoffTime iso={g.kickoff} />. Scoring plays appear here once the game starts.</> : "No points yet."}
                 </p>
-              : latest.map((p) => <NflPlayRow key={p.id} p={p} g={g} />)}
+              : latest.map((p) => <NflPlayRow key={p.id} p={p} g={g} prev={prior[p.id]} />)}
           </CardContent>
         </Card>
       </section>

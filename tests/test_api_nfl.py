@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -33,7 +34,7 @@ def c(monkeypatch):
 
 def test_scoreboard_route(c):
     r = c.get("/nfl").json()
-    assert r["week"] == 5 and r["current"] == 5 and r["weeks"] >= 14
+    assert r["week"] == 5 and r["current"] == 5 and r["weeks"] == 18
     assert r["live"] is True and r["sections"][0]["live"] is True
     games = [g for s in r["sections"] for g in s["games"]]
     chi_gb = next(g for g in games if g["home"]["abbr"] == "GB")
@@ -58,6 +59,40 @@ def test_game_route_resolves_either_club(c):
 @pytest.mark.parametrize("team", ["KC", "ZZZ"])  # a bye, and junk
 def test_game_route_404(c, team):
     assert c.get(f"/nfl/5/{team}").status_code == 404
+
+
+def test_junk_club_404s_without_a_fetch(monkeypatch):
+    nfl.reset()
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: (_ for _ in ()).throw(AssertionError("fetched")))
+    assert TestClient(api.app).get("/nfl/5/ZZZ").status_code == 404
+
+
+def test_current_week_fetch_failure_falls_back(monkeypatch, c):
+    def get(url, params=None):
+        if params is None:
+            raise RuntimeError("down")
+        return SB
+    nfl.reset()
+    monkeypatch.setattr(nfl, "_get", get)
+    r = c.get("/nfl?week=5")
+    assert r.status_code == 200 and r.json()["current"] == 5
+
+
+def _soon_sb(minutes):
+    sb = json.loads(json.dumps(SB))
+    for e in sb["events"]:
+        e["status"]["type"]["state"] = "pre"
+        e["date"] = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%MZ")
+    return sb
+
+
+@pytest.mark.parametrize("minutes,live", [(10, True), (120, False)])
+def test_pregame_pages_poll_from_fifteen_minutes_out(monkeypatch, c, minutes, live):
+    sb = _soon_sb(minutes)
+    nfl.reset()
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: sb if "scoreboard" in url else {"items": []})
+    assert c.get("/nfl").json()["live"] is live
+    assert c.get("/nfl/5/gb").json()["live"] is live
 
 
 def test_cold_outage_is_502(monkeypatch):

@@ -1,8 +1,10 @@
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from espn_api.football.constant import PRO_TEAM_MAP
 
 from ffl import nfl
 
@@ -167,7 +169,8 @@ def test_ttls():
     assert nfl.scoreboard_ttl(live, now) == 20
     later = {"games": [{"status": "post", "kickoff": "x"}]}
     assert nfl.scoreboard_ttl(later, now) == 600
-    assert nfl.drives_ttl("in") == 15 and nfl.drives_ttl("pre") == 600 and nfl.drives_ttl("post") == 86400
+    assert nfl.drives_ttl("in") == 15 and nfl.drives_ttl("pre") == 600 and nfl.drives_ttl("post") == 600
+    assert nfl.drives_ttl("post", seen_final=True) == 86400
 
 
 def test_scoreboard_ttl_wakes_for_next_kickoff():
@@ -192,3 +195,59 @@ def test_overlay_takes_feed_clock_and_score():
     assert out["down"] == "1st & 10 at CHI 33"  # the feed has no down; the scoreboard's stays
     assert g["quarter"] == 1  # input untouched
     assert nfl.overlay([g], {}) == [g]  # no feed: the scoreboard stands
+
+
+def test_clubs_are_all_32():
+    assert nfl.CLUBS == set(PRO_TEAM_MAP.values()) - {"None"}
+
+
+def _ttl_left(key):
+    return nfl._DRIVES._d[key][0] - time.time()
+
+
+def test_first_final_fetch_lives_ten_minutes_then_a_day(monkeypatch):
+    calls = []
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: calls.append(url) or {"items": []})
+    nfl.drives("1", "post", {})
+    assert 590 < _ttl_left(("1", "post")) <= 600  # ESPN's drives may lag the flip: do not freeze them
+    nfl.expire_all()
+    nfl.drives("1", "post", {})
+    assert len(calls) == 2 and 86000 < _ttl_left(("1", "post")) <= 86400
+
+
+def test_final_drops_the_games_pre_and_in_entries(monkeypatch):
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: {"items": []})
+    nfl.drives("1", "pre", {})
+    nfl.drives("1", "in", {})
+    nfl.drives("2", "in", {})
+    nfl.drives("1", "post", {})
+    assert set(nfl._DRIVES._d) == {("1", "post"), ("2", "in")}
+
+
+def test_failed_refetch_does_not_overwrite_a_newer_entry():
+    c = nfl.TtlCache()
+    c.get("k", lambda: {"v": 1}, lambda _: 0)  # expired at once
+
+    def slow_fail():
+        c.get("k", lambda: {"v": 2}, lambda _: 100)  # another request lands a newer answer meanwhile
+        raise RuntimeError("down")
+    data, stale = c.get("k", slow_fail, lambda _: 100)
+    assert data == {"v": 2} and stale is None
+    assert c.get("k", lambda: {"v": 3}, lambda _: 100) == ({"v": 2}, None)  # still fresh
+
+
+def test_overlay_keeps_quarter_when_feed_has_none():
+    g = {"away": {"abbr": "CHI", "score": 0}, "home": {"abbr": "GB", "score": 7}, "status": "in", "quarter": 3,
+         "clock": "5:51", "ball": None, "red_zone": False, "down": None}
+    live = {"CHI": {"status": "in", "quarter": None, "clock": "1:00", "score": {}}}
+    assert nfl.overlay([g], live)[0]["quarter"] == 3
+
+
+def test_is_live_from_fifteen_minutes_before_kickoff():
+    now = datetime(2026, 10, 11, 16, 50, tzinfo=timezone.utc).timestamp()
+    pre = lambda k: {"status": "pre", "kickoff": k}  # noqa: E731
+    assert nfl.is_live(pre("2026-10-11T17:00Z"), now)
+    assert not nfl.is_live(pre("2026-10-11T17:30Z"), now)
+    assert nfl.is_live({"status": "in", "kickoff": None}, now)
+    assert not nfl.is_live({"status": "post", "kickoff": "2026-10-11T17:00Z"}, now)
+    assert not nfl.is_live(pre(None), now)

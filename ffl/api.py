@@ -752,11 +752,8 @@ def _nfl_scoreboard(week: int | None) -> tuple[dict, str | None]:
         raise HTTPException(502, {"source": "espn-nfl", "error": str(e)})
 
 
-def _weeks() -> int:
-    try:
-        return int(load().get("reg_season_weeks") or 18)
-    except (Exception, SystemExit):  # noqa: BLE001 — load() exits when the settings file is missing
-        return 18
+
+NFL_WEEKS = 18  # the NFL tab's week picker: the league's regular season is 18 games, not the fantasy 14
 
 
 def _by_club(players: list[dict]) -> dict[str, int]:
@@ -770,11 +767,18 @@ def _by_club(players: list[dict]) -> dict[str, int]:
 def nfl_scoreboard(week: int | None = None):
     """Every NFL game of the week, live first then by kickoff window, my games first in each (the NFL tab)."""
     sb, stale = _nfl_scoreboard(week)
-    current = sb["week"] if week is None else _nfl_scoreboard(None)[0]["week"]
+    if week is None:
+        current = sb["week"]
+    else:
+        try:
+            current = _nfl_scoreboard(None)[0]["week"]
+        except HTTPException:  # the picker's "this week" mark is not worth failing the requested week
+            current = sb["week"]
     wk = sb["week"]
     games = nfl.overlay(sb["games"], _live_games(wk))
     mine, opp = _nfl_sides(wk)
-    return {"week": wk, "current": current, "weeks": _weeks(), "live": any(g["status"] == "in" for g in games),
+    return {"week": wk, "current": current, "weeks": NFL_WEEKS,
+            "live": any(nfl.is_live(g) for g in games),
             "sections": nfl.board(games, _by_club(mine), _by_club(opp)), "byes": sb["byes"], "stale_since": stale}
 
 
@@ -783,6 +787,8 @@ def nfl_game(week: int, team: str):
     """One game, by either club: its header, the starters of mine and my opponent's in it, its scoring plays and
     every drive, plays marked for those starters. 404 for an unknown club or a bye."""
     abbr = nfl.club(team)
+    if abbr not in nfl.CLUBS:
+        raise HTTPException(404, f"no club {team}")
     sb, stale = _nfl_scoreboard(week)
     game = next((g for g in sb["games"] if abbr in (g["away"]["abbr"], g["home"]["abbr"])), None)
     if game is None:
@@ -799,7 +805,7 @@ def nfl_game(week: int, team: str):
     dst = lambda ps: {p["team"]: p["name"] for p in ps if p["player_id"] < 0}  # noqa: E731
     marked = nfl.mark(drives, named(mine), named(opp), dst(mine), dst(opp), clubs)
     pick = lambda ps: [{k: p.get(k) for k in STARTER_KEYS} for p in ps]  # noqa: E731
-    return {"week": week, "live": game["status"] == "in",
+    return {"week": week, "live": nfl.is_live(game),
             "game": {**game, "mine": len(mine), "opp": len(opp)},
             "starters": {"me": pick(mine), "opp": pick(opp)},
             "scoring": nfl.scoring_plays(marked), "drives": marked, "stale_since": stale or stale2}

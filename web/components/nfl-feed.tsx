@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useTransition, type CSSProperties } from "react";
+import { useMemo, useState, useTransition, type CSSProperties } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { NflDrive, NflGame, NflGamePage, NflPlay } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
-import { feedHref, filterDrives, gameHref, type FeedFilter } from "@/lib/nfl";
+import { feedHref, filterDrives, gameHref, priorScores, type FeedFilter } from "@/lib/nfl";
 import { GAME_POLL_MS, NflPlayRow, NflScorebug } from "./nfl-game";
 import { useLedger } from "./play-feed";
 import { StaleBadge } from "./stale-badge";
@@ -32,7 +32,7 @@ function DriveHeader({ d }: { d: NflDrive }) {
 // inside the row (NflPlayRow). `entering` comes from ONE ledger over every play of the game (NflFeedLive): a
 // ledger per drive would mount a new drive's first play as "still" — the kickoff or first snap he is waiting for —
 // and a ledger over the filtered list would replay plays the filter merely hid.
-function Plays({ plays, g, entering }: { plays: NflPlay[]; g: NflGame; entering: Set<string> }) {
+function Plays({ plays, g, entering, prior }: { plays: NflPlay[]; g: NflGame; entering: Set<string>; prior: ReturnType<typeof priorScores> }) {
   return (
     <div>
       {plays.map((p, i) => {
@@ -41,7 +41,7 @@ function Plays({ plays, g, entering }: { plays: NflPlay[]; g: NflGame; entering:
           <div key={p.id} className="play-slot" data-side="me" data-enter={enter || undefined}
             data-gain={(enter && p.scoring) || undefined} style={enter ? { "--i": i } as CSSProperties : undefined}>
             <div className={`play-clip px-(--card-spacing) ${i > 0 ? "border-t border-foreground/10" : ""} ${p.scoring ? "bg-start/[0.07]" : ""}`}>
-              <NflPlayRow p={p} g={g} />
+              <NflPlayRow p={p} g={g} prev={prior[p.id]} />
             </div>
           </div>
         );
@@ -57,8 +57,20 @@ export function NflFeedLive({ initial, path, filter, club }: { initial: NflGameP
   // memoised: useLedger compares `items` by identity, so a fresh array every render would loop
   const all = useMemo(() => data.drives.flatMap((d) => d.plays), [data.drives]);
   const ledger = useLedger(all, (p) => p.id);
-  const entering = new Set(ledger.filter((r) => r.state === "enter").map((r) => r.p.id));
   const drives = filterDrives(data.drives, filter);
+  const prior = useMemo(() => priorScores(all), [all]);
+  // A row animates only the first time it is on screen: the ledger keeps saying "enter" for a play that arrived
+  // after the page opened, so a filter switch would replay it. `shown` is every id ever rendered; `animated` those
+  // rendered entering (they keep the flag through their own animation and later renders).
+  const [seen, setSeen] = useState({ shown: new Set<string>(), animated: new Set<string>() });
+  const entering = new Set(ledger.filter((r) => r.state === "enter" && (!seen.shown.has(r.p.id) || seen.animated.has(r.p.id))).map((r) => r.p.id));
+  const rendered = drives.flatMap((d) => d.plays.map((p) => p.id));
+  if (!rendered.every((id) => seen.shown.has(id))) {  // derived state, set in render like useLedger's
+    setSeen({
+      shown: new Set([...seen.shown, ...rendered]),
+      animated: new Set([...seen.animated, ...rendered.filter((id) => entering.has(id))]),
+    });
+  }
   const total = data.drives.reduce((n, d) => n + d.plays.length, 0);
   const empty = data.game.status === "pre"
     ? "Plays appear here once the game starts."
@@ -84,7 +96,7 @@ export function NflFeedLive({ initial, path, filter, club }: { initial: NflGameP
         <CardContent className="px-0 py-0">
           {drives.length === 0
             ? <p className="py-6 text-center text-xs text-muted-foreground">{empty}</p>
-            : drives.map((d) => <section key={d.id}><DriveHeader d={d} /><Plays plays={d.plays} g={data.game} entering={entering} /></section>)}
+            : drives.map((d) => <section key={d.id}><DriveHeader d={d} /><Plays plays={d.plays} g={data.game} entering={entering} prior={prior} /></section>)}
         </CardContent>
       </Card>
     </div>

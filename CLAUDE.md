@@ -218,13 +218,14 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - **NFL tab** (`/nfl`, `/nfl/<week>/<club>`, `/nfl/<week>/<club>/plays`; `ffl/nfl.py`, GET `/nfl` and `/nfl/{week}/{team}`): ESPN's
   public site scoreboard and core-API drives (one call embeds every play with participant athlete ids, which are the fantasy
   player ids), no cookies, behind `nfl.TtlCache` (inline, last good, `stale_since`; drives keyed by (event, status); the scoreboard lives
-  to the next kickoff (+5 s), between 20 s and 10 min, and 20 s while a game is on or a `pre` game is past its kickoff; drives 10 min pregame, 15 s while on, a day once final; not `ffl/sources`, so an
+  to the next kickoff (+5 s), between 20 s and 10 min, and 20 s while a game is on or a `pre` game is past its kickoff; drives 10 min pregame, 15 s while on, a final game's first fetch 10 min (ESPN's drives can lag the status flip) and a refetch of it a day, its `pre`/`in` entries dropped; not `ffl/sources`, so an
   outage never pushes a notice; `/refresh` expires it). Plays are marked `mine`/`opp` against this week's two lineups
   (`api._nfl_sides`, the Matchup board; D/ST by club on defence for a score, turnover, sack or safety; on HTTPException or
   SystemExit it degrades to no marks rather than failing the page); FastCast's clock and score lie over the scoreboard
   (`nfl.overlay`). The game pages poll every 15 s (`useLive` `pollMs`) since `/live` ticks only on fantasy points, and the feed
   keeps one arrival ledger over the whole game (not per drive or per filter) so only plays that land after the page opened
-  slide in. A game line (`GameLink`, `gameLinkFor`; 40px tap target) on Matchup, League boards, Team and Roster opens the game.
+  slide in, each only the first time it is on screen. The payloads' `live` is true from 15 minutes before kickoff (`nfl.is_live`) so a
+  pregame page starts polling; the week picker offers `api.NFL_WEEKS` (18), not the fantasy 14. A junk club 404s before any fetch. A game line (`GameLink`, `gameLinkFor`; 40px tap target) on Matchup, League boards, Team and Roster opens the game.
 - **Win probability** (`season.win_prob`, pure; STRATEGY.md "Lineup": context, never an input to the call):
   each side's starters as posted points plus projection × the game left (`season.game_left`: the feed's quarter
   and clock, else ESPN's game_played; a starter with points and no clock carries the rest of his projection),

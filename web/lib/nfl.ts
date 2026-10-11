@@ -30,13 +30,19 @@ export function filterDrives(drives: NflDrive[], f: FeedFilter): NflDrive[] {
 }
 
 // The running score after a play in one fixed order, away then home: "CHI 7" · "GB 14". `scorer` says which part
-// the scoring club owns (full ink); a play with no club leaves both quiet.
-export function scoreLine(p: NflPlay, g: NflGame): { away: string; home: string; scorer: "away" | "home" | null } {
+// the scoring club owns (full ink): the side whose score rose since `prev` (the score before the play, 0-0 when
+// none is given), which is right on a pick-six or a safety; the offence when the change cannot be read; neither
+// for a play with no club.
+export function scoreLine(
+  p: NflPlay, g: NflGame, prev?: { away: number | null; home: number | null } | null,
+): { away: string; home: string; scorer: "away" | "home" | null } {
   const { away, home } = p.score;
-  return {
-    away: `${g.away.abbr} ${away ?? 0}`, home: `${g.home.abbr} ${home ?? 0}`,
-    scorer: p.team === g.away.abbr ? "away" : p.team === g.home.abbr ? "home" : null,
-  };
+  const base = prev ?? { away: 0, home: 0 };
+  const awayUp = (away ?? 0) > (base.away ?? 0);
+  const homeUp = (home ?? 0) > (base.home ?? 0);
+  const byScore = awayUp !== homeUp ? (awayUp ? "away" : "home") : null;
+  const byOffence = p.team === g.away.abbr ? "away" : p.team === g.home.abbr ? "home" : null;
+  return { away: `${g.away.abbr} ${away ?? 0}`, home: `${g.home.abbr} ${home ?? 0}`, scorer: byScore ?? byOffence };
 }
 
 export function gameState(g: NflGame): string {
@@ -66,4 +72,11 @@ export function windowLabel(iso: string, tz?: string): string {
 // The In-this-game rows: my starters down the left, the opponent's down the right, paired by order.
 export function inGameRows(s: { me: NflStarter[]; opp: NflStarter[] }): [NflStarter | undefined, NflStarter | undefined][] {
   return Array.from({ length: Math.max(s.me.length, s.opp.length) }, (_, i) => [s.me[i], s.opp[i]]);
+}
+
+// Each scoring play's score before it: the next-older scoring play's (plays are newest first), none for the
+// game's first. Feeds `scoreLine`'s `prev`.
+export function priorScores(plays: NflPlay[]): Record<string, NflPlay["score"] | null> {
+  const sc = plays.filter((p) => p.scoring);
+  return Object.fromEntries(sc.map((p, i) => [p.id, sc[i + 1]?.score ?? null]));
 }

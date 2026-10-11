@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NflDrive, NflGame, NflPlay } from "./api";
-import { feedHref, filterDrives, gameHref, gameLinkFor,gameState, inGameRows, parseFilter, parseGameParams, scoreLine, windowLabel } from "./nfl";
+import { feedHref, filterDrives, gameHref, gameLinkFor,gameState, inGameRows, parseFilter, parseGameParams, priorScores, scoreLine, windowLabel } from "./nfl";
 
 const play = (o: Partial<NflPlay>): NflPlay => ({ id: "1", quarter: 1, clock: "1:00", team: "GB", down: null, text: "", kind: null,
   scoring: false, turnover: false, penalty: false, score: { away: 0, home: 7 }, athletes: [], mine: [], opp: [], ...o });
@@ -49,6 +49,17 @@ describe("labels", () => {
     expect(scoreLine(play({ team: "GB", score: { away: 0, home: 7 } }), game({}))).toEqual({ away: "CHI 0", home: "GB 7", scorer: "home" });
     expect(scoreLine(play({ team: "CHI", score: { away: 3, home: 7 } }), game({}))).toEqual({ away: "CHI 3", home: "GB 7", scorer: "away" });
     expect(scoreLine(play({ team: null, score: { away: 3, home: 7 } }), game({}))).toEqual({ away: "CHI 3", home: "GB 7", scorer: null });
+  });
+  it("gives the score to the side whose score rose, not the offence (pick-six)", () => {
+    const prev = { away: 7, home: 0 };
+    expect(scoreLine(play({ team: "CHI", score: { away: 7, home: 7 } }), game({}), prev).scorer).toBe("home");
+    expect(scoreLine(play({ team: "GB", score: { away: 9, home: 0 } }), game({}), prev).scorer).toBe("away"); // safety
+    expect(scoreLine(play({ team: "GB", score: { away: 7, home: 0 } }), game({}), prev).scorer).toBe("home"); // unreadable: offence
+  });
+  it("pairs each scoring play with the one before it", () => {
+    const a = play({ id: "3", scoring: true, score: { away: 7, home: 7 } });
+    const b = play({ id: "2", scoring: true, score: { away: 7, home: 0 } });
+    expect(priorScores([a, play({ id: "x", scoring: false }), b])).toEqual({ "3": b.score, "2": null });
   });
   it("names the game state", () => {
     expect(gameState(game({}))).toBe("Q2 4:12");

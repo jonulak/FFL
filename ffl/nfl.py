@@ -181,11 +181,23 @@ class TtlCache:
                 raise
             log.warning("nfl %s failed, serving %s: %s", key, _hhmm(hit[2]), e)
             with self._lock:
+                cur = self._d.get(key)
+                if cur is not hit:  # another call stored a newer entry while this one failed: keep it
+                    return cur[1], (_hhmm(cur[2]) if cur[3] else None)
                 self._d[key] = (now + RETRY_S, hit[1], hit[2], True)
             return hit[1], _hhmm(hit[2])
         with self._lock:
             self._d[key] = (now + ttl_of(data), data, now, False)
         return data, None
+
+    def has(self, key) -> bool:
+        with self._lock:
+            return key in self._d
+
+    def drop(self, *keys) -> None:
+        with self._lock:
+            for k in keys:
+                self._d.pop(k, None)
 
     def expire(self) -> None:
         with self._lock:
@@ -229,7 +241,23 @@ def scoreboard_ttl(sb: dict, now: float | None = None) -> float:
     return max(20, min(600, int(min(ahead)) + 5)) if ahead else 600
 
 
-def drives_ttl(status: str) -> float:
+PREGAME_S = 15 * 60
+
+
+def is_live(g: dict, now: float | None = None) -> bool:
+    """The page should poll: the game is on, or kicks off within 15 minutes (a page opened before kickoff must
+    flip to live even if the /live stream does not tick)."""
+    if g["status"] == "in":
+        return True
+    t = _ts(g.get("kickoff"))
+    return g["status"] == "pre" and t is not None and t - (time.time() if now is None else now) <= PREGAME_S
+
+
+def drives_ttl(status: str, seen_final: bool = False) -> float:
+    """15 s in play, 10 min before kickoff. A final game's first fetch also lives 10 min (ESPN's drives can lag
+    the status flip by seconds); a refetch of an already-final game is settled and lives 24 h."""
+    if status == "post":
+        return 86400 if seen_final else 600
     return {"in": 15, "pre": 600}.get(status, 86400)
 
 
@@ -243,7 +271,10 @@ def drives(event_id: str, status: str, ids: dict[str, str]) -> tuple[list[dict],
     """One game's drives and plays, newest first; [] before kickoff."""
     fetch = lambda: {"drives": parse_drives(_get(DRIVES.format(id=event_id), {"limit": 60}), ids)}  # noqa: E731
     # keyed by status too: a page opened before kickoff caches [] for 10 min, and the flip to "in" must refetch
-    data, stale = _DRIVES.get((event_id, status), fetch, lambda _: drives_ttl(status))
+    seen_final = status == "post" and _DRIVES.has((event_id, "post"))
+    data, stale = _DRIVES.get((event_id, status), fetch, lambda _: drives_ttl(status, seen_final))
+    if status == "post":
+        _DRIVES.drop((event_id, "pre"), (event_id, "in"))
     return data["drives"], stale
 
 
@@ -259,7 +290,7 @@ def overlay(games: list[dict], live: dict[str, dict]) -> list[dict]:
         score = s.get("score") or {}
         side = lambda c: {**c, "score": score.get(c["abbr"], c.get("score"))}  # noqa: E731
         on = s["status"] == "in"
-        out.append({**g, "status": s["status"], "quarter": s.get("quarter", g.get("quarter")),
+        out.append({**g, "status": s["status"], "quarter": s.get("quarter") or g.get("quarter"),
                     "clock": s.get("clock") if on else None, "away": side(g["away"]), "home": side(g["home"]),
                     "ball": s.get("ball") if on else None, "red_zone": bool(on and s.get("red_zone")),
                     "down": g.get("down") if on else None})
