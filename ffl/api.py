@@ -33,7 +33,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from . import calibrate, db, espn_season, espn_write, live, notify, outlook, player_card, season, sources
+from . import calibrate, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, season, sources
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -726,6 +726,85 @@ def team(team_id: int):
     return {**data, "side": live.overlay_side(data["side"], _live_points(wk), _live_games(wk), _live_stats(wk), _scoring())}
 
 
+STARTER_KEYS = ("player_id", "name", "pos", "slot", "team", "actual", "stat_line", "game_played")
+
+
+def _nfl_sides(week: int) -> tuple[list[dict], list[dict]]:
+    """My starters and my opponent's for `week`, live points laid on (the Matchup board's), for the NFL pages'
+    marks. The board failing (ESPN fantasy down) leaves the pages unmarked, never unserved."""
+    try:
+        data = _week_payload(_board(None, None))
+        if data["week"] != week:
+            data = _week_payload(_board(week, None))
+    except HTTPException as e:
+        log.warning("nfl marks off, no board for week %s: %s", week, e.detail)
+        return [], []
+    except SystemExit as e:  # config.league() exits when .env is missing; the NFL pages need no ESPN login
+        log.warning("nfl marks off, no league config for week %s: %s", week, e)
+        return [], []
+    return (data.get("me") or {}).get("lineup", []), (data.get("opp") or {}).get("lineup", [])
+
+
+def _nfl_scoreboard(week: int | None) -> tuple[dict, str | None]:
+    try:
+        return nfl.scoreboard(week)
+    except Exception as e:  # noqa: BLE001 — a cold outage, nothing cached to serve
+        raise HTTPException(502, {"source": "espn-nfl", "error": str(e)})
+
+
+def _weeks() -> int:
+    try:
+        return int(load().get("reg_season_weeks") or 18)
+    except (Exception, SystemExit):  # noqa: BLE001 — load() exits when the settings file is missing
+        return 18
+
+
+def _by_club(players: list[dict]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for p in players:
+        out[p["team"]] = out.get(p["team"], 0) + 1
+    return out
+
+
+@app.get("/nfl")
+def nfl_scoreboard(week: int | None = None):
+    """Every NFL game of the week, live first then by kickoff window, my games first in each (the NFL tab)."""
+    sb, stale = _nfl_scoreboard(week)
+    current = sb["week"] if week is None else _nfl_scoreboard(None)[0]["week"]
+    wk = sb["week"]
+    games = nfl.overlay(sb["games"], _live_games(wk))
+    mine, opp = _nfl_sides(wk)
+    return {"week": wk, "current": current, "weeks": _weeks(), "live": any(g["status"] == "in" for g in games),
+            "sections": nfl.board(games, _by_club(mine), _by_club(opp)), "byes": sb["byes"], "stale_since": stale}
+
+
+@app.get("/nfl/{week}/{team}")
+def nfl_game(week: int, team: str):
+    """One game, by either club: its header, the starters of mine and my opponent's in it, its scoring plays and
+    every drive, plays marked for those starters. 404 for an unknown club or a bye."""
+    abbr = nfl.club(team)
+    sb, stale = _nfl_scoreboard(week)
+    game = next((g for g in sb["games"] if abbr in (g["away"]["abbr"], g["home"]["abbr"])), None)
+    if game is None:
+        raise HTTPException(404, f"no game for {abbr} in week {week}")
+    game = nfl.overlay([game], _live_games(week))[0]
+    clubs = (game["away"]["abbr"], game["home"]["abbr"])
+    ids = {game["away"]["id"]: clubs[0], game["home"]["id"]: clubs[1]}
+    try:
+        drives, stale2 = nfl.drives(game["event_id"], game["status"], ids)
+    except Exception as e:  # noqa: BLE001 — cold outage on this game's feed
+        raise HTTPException(502, {"source": "espn-nfl", "error": str(e)})
+    mine, opp = ([p for p in side if p.get("team") in clubs] for side in _nfl_sides(week))
+    named = lambda ps: {p["player_id"]: p["name"] for p in ps if p["player_id"] > 0}  # noqa: E731
+    dst = lambda ps: {p["team"]: p["name"] for p in ps if p["player_id"] < 0}  # noqa: E731
+    marked = nfl.mark(drives, named(mine), named(opp), dst(mine), dst(opp), clubs)
+    pick = lambda ps: [{k: p.get(k) for k in STARTER_KEYS} for p in ps]  # noqa: E731
+    return {"week": week, "live": game["status"] == "in",
+            "game": {**game, "mine": len(mine), "opp": len(opp)},
+            "starters": {"me": pick(mine), "opp": pick(opp)},
+            "scoring": nfl.scoring_plays(marked), "drives": marked, "stale_since": stale or stale2}
+
+
 PLAYER_TTL = 600.0  # a game log moves once a week; the live week rides on the feed, not this cache
 
 
@@ -1093,6 +1172,7 @@ def expire_everything() -> None:
     if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
         espn_season._INJ[0] = 0.0
     sources.expire_all()  # same reason: the last good scrape stays for an outage
+    nfl.expire_all()  # the NFL tab's scoreboard and feeds
 
 
 def pregame_pull(now: datetime | None = None) -> list[str]:
