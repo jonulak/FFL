@@ -83,6 +83,31 @@ def test_a_started_game_keeps_his_slot():
     assert {e["name"] for e in lu if e["slot"] == "RB"} == {"RB B", "RB A"}
 
 
+def test_a_benched_player_whose_game_has_started_is_not_started():
+    # WR C's Thursday game is over and he sat: he cannot come in, so the flex he would take stays with RB D
+    r = roster()
+    r[8].update(slot="BE", proj=11, locked=True)  # WR C
+    lu = season.optimal_lineup(r, TWO_QB)
+    assert "WR C" not in {e["name"] for e in lu}
+    cards = {c["name"]: c for c in season.roster_cards(r, TWO_QB, 2)}
+    assert cards["WR C"]["call"] == "BENCH" and cards["WR C"]["reason"] == "bench: his game has started"
+    assert cards["RB D"]["call"] == "START", "a locked bench man is no alternative"
+    assert "WR C" not in cards["RB D"]["reason"] and "WR C" not in cards["TE B"]["reason"]
+
+
+def test_a_started_starter_stays_in_whatever_his_projection():
+    # QB B (18) is locked in a QB slot: QB C (22) on the bench can only take the other one, from QB A
+    r = roster()
+    r[1]["locked"] = True
+    names = {e["name"] for e in season.optimal_lineup(r, TWO_QB) if e["slot"] == "QB"}
+    assert names == {"QB B", "QB C"}
+    r[1]["proj"] = 1  # even a dud keeps his slot: ESPN will not move him
+    names = {e["name"] for e in season.optimal_lineup(r, TWO_QB) if e["slot"] == "QB"}
+    assert names == {"QB B", "QB C"}
+    card = next(c for c in season.roster_cards(r, TWO_QB, 2) if c["name"] == "QB B")
+    assert card["call"] == "START" and card["reason"] == "starts at QB: his game has started" and card["gap"] is None
+
+
 def test_roster_cards_name_the_slot_the_call_puts_him_in():
     r = _kicks(roster(), {"RB C": MON, "RB A": SUN_4})
     cards = {c["name"]: c for c in season.roster_cards(r, TWO_QB, 2)}

@@ -125,23 +125,28 @@ def optimal_lineup(roster: list[dict], settings: dict) -> list[dict]:
     """Best lineup by projection. Fixed slots first (best of each position), then flex from what is
     left — optimal for slots whose eligibility is by position (exchange argument), which is every
     ESPN slot. IR players and OUT/bye players score 0 so they are never chosen over a live body; a player sat by
-    hand for the week (`sat`) is left out like IR."""
-    pool = sorted((p for p in roster if p.get("slot") != "IR" and not p.get("sat")), key=playable_proj, reverse=True)
-    used: set[int] = set()
-    out: list[dict] = []
+    hand for the week (`sat`) is left out like IR. A player whose game has started (`locked`) cannot move: a starter
+    keeps his slot whatever his projection, a bench player cannot start."""
     slots = [s for s in SLOT_ORDER if s in settings["starters"]]
+    held = [p for p in roster if p.get("locked") and p.get("slot") in slots]
+    open_n = Counter(settings["starters"])
+    open_n.subtract(Counter(p["slot"] for p in held))
+    pool = sorted((p for p in roster if p.get("slot") != "IR" and not p.get("sat") and not p.get("locked")),
+                  key=playable_proj, reverse=True)
+    used: set[int] = set()
+    out: list[dict] = [_entry(p["slot"], p) for p in held]
     for phase in (False, True):  # fixed slots, then flex
         for slot in slots:
             if _is_flex(slot) != phase:
                 continue
             accepts = _slot_accepts(slot)
-            for _ in range(settings["starters"][slot]):
+            for _ in range(max(open_n[slot], 0)):
                 pick = next((p for p in pool if p["player_id"] not in used and p["pos"] in accepts
                              and playable_proj(p) > 0), None)
                 if pick is not None:
                     used.add(pick["player_id"])
                 out.append(_entry(slot, pick))
-    out = _place_by_kickoff(out, {p["player_id"]: p for p in pool})
+    out = _place_by_kickoff(out, {p["player_id"]: p for p in [*held, *pool]})
     order = {s: i for i, s in enumerate(SLOT_ORDER)}
     return sorted(out, key=lambda e: order[e["slot"]])
 
@@ -267,8 +272,9 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
     optimal = optimal_lineup(roster, settings)
     slot_of = {e["player_id"]: e["slot"] for e in optimal if e["player_id"] is not None}
     by_id = {p["player_id"]: p for p in roster}
+    # who could still come in: a benched player whose game has started cannot
     bench = [p for p in roster if p["player_id"] not in slot_of and p.get("slot") != "IR" and not p.get("sat")
-             and playable_proj(p) > 0]
+             and not p.get("locked") and playable_proj(p) > 0]
     cards = []
     for i, p in enumerate(roster):
         gap: float | None = None
@@ -284,19 +290,23 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
         elif p["player_id"] in slot_of:
             call = "START"
             slot = slot_of[p["player_id"]]
-            alt = max((b for b in bench if b["pos"] in _slot_accepts(slot)), key=playable_proj, default=None)
-            if alt is None:
+            alt = None if p.get("locked") else max((b for b in bench if b["pos"] in _slot_accepts(slot)), key=playable_proj, default=None)
+            if p.get("locked"):
+                reason = f"starts at {slot_label(slot)}: his game has started"
+            elif alt is None:
                 reason = f"starts at {slot_label(slot)}: no bench alternative"
             else:
                 gap = round(playable_proj(p) - playable_proj(alt), 1)
                 reason = f"starts at {slot_label(slot)}: {playable_proj(p):.1f} vs {playable_proj(alt):.1f} for {alt['name']}"
         else:
             call = "BENCH"
-            takers = [(by_id[e["player_id"]], e["slot"]) for e in optimal
-                      if e["player_id"] is not None and p["pos"] in _slot_accepts(e["slot"])]
+            takers = [(by_id[e["player_id"]], e["slot"]) for e in optimal if e["player_id"] is not None
+                      and p["pos"] in _slot_accepts(e["slot"]) and not by_id[e["player_id"]].get("locked")]
             weakest = min(takers, key=lambda t: playable_proj(t[0]), default=None)
-            if weakest is None:
-                reason = f"bench: no slot takes a {p['pos']}"
+            if p.get("locked"):
+                reason = "bench: his game has started"
+            elif weakest is None:
+                reason = f"bench: no open slot takes a {p['pos']}"
             else:
                 gap = round(playable_proj(p) - playable_proj(weakest[0]), 1)
                 reason = f"bench: {abs(gap):.1f} behind {weakest[0]['name']} at {slot_label(weakest[1])}"
