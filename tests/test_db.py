@@ -230,3 +230,26 @@ def test_none_in_a_json_column_is_sql_null():
         assert c.execute(sa.text("SELECT count(*) FROM decisions WHERE facts IS NULL AND player_ids IS NULL AND id = :i"),
                          {"i": i}).scalar() == 1
     assert db.decision(i)["rationale"] is None
+
+
+def test_projection_rows_upsert_and_read_back():
+    n = db.put_projection_rows(5, "week", [{"player_id": 1, "source": "cbs", "points": 12.0},
+                                           {"player_id": 1, "source": "espn", "points": 14.0}])
+    assert n == 2
+    db.put_projection_rows(5, "week", [{"player_id": 1, "source": "cbs", "points": 13.0}])
+    rows = db.projection_rows("week")
+    assert {(r["player_id"], r["source"]): r["points"] for r in rows} == {(1, "cbs"): 13.0, (1, "espn"): 14.0}
+    assert db.projection_rows("ros") == []
+    assert db.put_projection_rows(5, "week", []) == 0
+
+
+def test_source_weights_are_inactive_until_activated():
+    a = db.put_source_weights({"week": {"QB": {"espn": 0.5, "cbs": 0.5}}}, fitted_at="2026-10-14T07:00:00")
+    b = db.put_source_weights({"week": {"QB": {"espn": 0.7, "cbs": 0.3}}}, fitted_at="2026-10-21T07:00:00")
+    assert db.active_source_weights() is None
+    assert [f["fitted_at"] for f in db.source_weight_fits()] == [b, a]
+    assert db.activate_source_weights(a) is True
+    assert db.active_source_weights()["week"]["QB"]["espn"] == 0.5
+    assert db.activate_source_weights(b) is True
+    assert db.active_source_weights()["week"]["QB"]["espn"] == 0.7, "one active row at a time"
+    assert db.activate_source_weights("nope") is False
