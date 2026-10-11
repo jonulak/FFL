@@ -215,6 +215,16 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   The caption is the newest play *naming the player* (`plays.PlayCache`, fed from every game's lastPlay,
   drive plays and scoringPlays), never simply the game's last play: stats arrive one to three frames after
   the play text, by which time lastPlay is often the next play. `match: "last"` marks the fallback (D/ST).
+- **NFL tab** (`/nfl`, `/nfl/<week>/<club>`, `/nfl/<week>/<club>/plays`; `ffl/nfl.py`, GET `/nfl` and `/nfl/{week}/{team}`): ESPN's
+  public site scoreboard and core-API drives (one call embeds every play with participant athlete ids, which are the fantasy
+  player ids), no cookies, behind `nfl.TtlCache` (inline, last good, `stale_since`; drives keyed by (event, status); a pregame
+  entry lives to kickoff, and a `pre` game past its kickoff time drops to 20 s; 20 s/15 s while on; not `ffl/sources`, so an
+  outage never pushes a notice; `/refresh` expires it). Plays are marked `mine`/`opp` against this week's two lineups
+  (`api._nfl_sides`, the Matchup board; D/ST by club on defence for a score, turnover, sack or safety; on HTTPException or
+  SystemExit it degrades to no marks rather than failing the page); FastCast's clock and score lie over the scoreboard
+  (`nfl.overlay`). The game pages poll every 15 s (`useLive` `pollMs`) since `/live` ticks only on fantasy points, and the feed
+  keeps one arrival ledger over the whole game (not per drive or per filter) so only plays that land after the page opened
+  slide in. A game line (`GameLink`, `gameLinkFor`; 40px tap target) on Matchup, League boards, Team and Roster opens the game.
 - **Win probability** (`season.win_prob`, pure; STRATEGY.md "Lineup": context, never an input to the call):
   each side's starters as posted points plus projection × the game left (`season.game_left`: the feed's quarter
   and clock, else ESPN's game_played; a starter with points and no clock carries the rest of his projection),
