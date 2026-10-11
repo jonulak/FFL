@@ -1,4 +1,4 @@
-import type { NflDrive, NflGame, NflPlay } from "./api";
+import type { NflDrive, NflGame, NflPlay, NflStarter } from "./api";
 
 // The NFL tab's routes: a game by its week and either club (ESPN's abbreviation), its full feed beneath it.
 export const gameHref = (week: number, club: string) => `/nfl/${week}/${club}`;
@@ -53,4 +53,9 @@ export function windowLabel(iso: string, tz?: string): string {
   const day = get("weekday");
   if (hour24 >= 19 && NIGHT[day]) return NIGHT[day];
   return `${day} ${get("hour")}:${get("minute")} ${get("dayPeriod")}`.toUpperCase();
+}
+
+// The In-this-game rows: my starters down the left, the opponent's down the right, paired by order.
+export function inGameRows(s: { me: NflStarter[]; opp: NflStarter[] }): [NflStarter | undefined, NflStarter | undefined][] {
+  return Array.from({ length: Math.max(s.me.length, s.opp.length) }, (_, i) => [s.me[i], s.opp[i]]);
 }

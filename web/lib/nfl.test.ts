@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NflDrive, NflGame, NflPlay } from "./api";
-import { feedHref, filterDrives, gameHref, gameState, parseFilter, parseGameParams, scoreLine, windowLabel } from "./nfl";
+import { feedHref, filterDrives, gameHref, gameState, inGameRows, parseFilter, parseGameParams, scoreLine, windowLabel } from "./nfl";
 
 const play = (o: Partial<NflPlay>): NflPlay => ({ id: "1", quarter: 1, clock: "1:00", team: "GB", down: null, text: "", kind: null,
   scoring: false, turnover: false, penalty: false, score: { away: 0, home: 7 }, athletes: [], mine: [], opp: [], ...o });
@@ -65,5 +65,14 @@ describe("labels", () => {
     expect(windowLabel("2026-10-12T00:20Z", "America/New_York")).toBe("SNF");
     expect(windowLabel("2026-10-13T00:15Z", "America/New_York")).toBe("MNF");
     expect(windowLabel("2026-10-09T00:15Z", "America/New_York")).toBe("TNF");
+  });
+});
+
+describe("inGameRows", () => {
+  const s = (name: string) => ({ player_id: 1, name, pos: "WR", slot: "WR", team: "GB", actual: 0, game_played: 0 });
+  it("pairs mine with the opponent's, the shorter side empty", () => {
+    expect(inGameRows({ me: [s("A"), s("B")], opp: [s("Z")] }).map(([a, b]) => [a?.name ?? null, b?.name ?? null]))
+      .toEqual([["A", "Z"], ["B", null]]);
+    expect(inGameRows({ me: [], opp: [] })).toEqual([]);
   });
 });

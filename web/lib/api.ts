@@ -272,7 +272,11 @@ export type PlayerTx = {
 async function handle<T>(r: Response): Promise<T> {
   if (r.ok) return (await r.json()) as T;
   let detail: { source?: string; error?: string } = {};
-  try { detail = (await r.json()).detail ?? {}; } catch {}
+  try {
+    const d = (await r.json()).detail;
+    // FastAPI's own HTTPException(404, "...") carries a plain string; the source-tagged 502s an object.
+    detail = typeof d === "string" ? { error: d } : (d ?? {});
+  } catch {}
   throw new ApiError(r.status, detail.source ?? "api", detail.error ?? r.statusText);
 }
 
