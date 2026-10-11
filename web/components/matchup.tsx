@@ -20,7 +20,7 @@ import { BoxScoreDialog } from "./box-score-dialog";
 import { fetchLog, holdFor, type LogFetch } from "./player-dialog";
 import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
-import { Spread } from "./projection";
+import { ProjectionTrigger, Spread } from "./projection";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 import { TeamLink } from "./team-link";
@@ -182,14 +182,18 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
   // the lead stat group (passing for a QB, rushing for a RB, receiving for a WR) as the footer,
   // with the whole half to itself. From `sm` the full name, the position before the game line,
   // the whole stat line.
+  // The half is a card with two taps: the projected number opens its sources (ProjectionTrigger,
+  // stacked above), anywhere else the scoring breakdown, through a button laid over the whole half
+  // (a button cannot hold the number's own button).
   return (
     <Item
       size="sm"
-      render={<button type="button" onClick={() => onPick(p)} aria-label={`${p.name}${field ? `, ${FIELD[field].sr}` : ""}: scoring breakdown`} />}
       data-end={end}
       data-field={field ?? undefined}
-      className={`field-half min-w-0 cursor-pointer flex-wrap gap-x-2 gap-y-1 rounded-md border-0 px-1 py-1 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-ring/60 sm:flex-nowrap sm:gap-3 sm:px-1.5 ${opp ? "-mr-1 flex-row-reverse sm:-mr-1.5" : "-ml-1 sm:-ml-1.5"}`}
+      className={`field-half relative min-w-0 cursor-pointer flex-wrap gap-x-2 gap-y-1 rounded-md border-0 px-1 py-1 text-left transition-colors hover:bg-foreground/[0.04] has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-ring/60 sm:flex-nowrap sm:gap-3 sm:px-1.5 ${opp ? "-mr-1 flex-row-reverse sm:-mr-1.5" : "-ml-1 sm:-ml-1.5"}`}
     >
+      <button type="button" onClick={() => onPick(p)} aria-label={`${p.name}${field ? `, ${FIELD[field].sr}` : ""}: scoring breakdown`}
+        className="absolute inset-0 z-0 cursor-pointer rounded-md outline-none" />
       <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
         <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 font-display text-[1rem] font-semibold leading-none tracking-tight sm:flex-wrap sm:gap-x-2 sm:gap-y-0.5 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/40" : ""}`}>
           <span className="min-w-0 truncate"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
@@ -213,7 +217,13 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
         {p.stat_line && <StatLine text={p.stat_line} className="mt-1.5 text-xs max-sm:hidden" wrap />}
       </ItemContent>
       <ItemActions className="self-start">
-        <Num p={p} now={now} end={end} />
+        {on
+          ? <Num p={p} now={now} end={end} />
+          : (
+            <ProjectionTrigger p={p} week={week} className="relative z-10 -m-1 block p-1">
+              <Num p={p} now={now} end={end} />
+            </ProjectionTrigger>
+          )}
       </ItemActions>
       {/* The phone's game line spans the half, the PROJ unit at its inner end by the spine; the
           opponent's is mirrored, his game at the outer edge. Once his game is on the score line

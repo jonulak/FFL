@@ -8,8 +8,6 @@ import { seasonRank } from "@/lib/player-log";
 import { BoxTable } from "./box-table";
 import { BAND_CLOSE, PlayerHeader } from "./player-header";
 import { Heading, PlayerRecord, useLog, type LogFetch } from "./player-dialog";
-import { ProjectionSources } from "./projection";
-
 // One player's points taken apart, in a matchup view: this week first, then his season log (this
 // season's weeks and the games ahead, and the past seasons) as the season modal sets it, under the
 // same team-colour header. The week's items are summed here; when that sum and ESPN's posted
@@ -47,17 +45,11 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
           ) : (
             <BoxTable box={box} />
           )}
-          {(vol || off) && (
-            <p className="pt-1.5 text-xs tabular-nums text-muted-foreground">
-              {vol && <span className="text-foreground/80">{vol}</span>}
-              {vol && off && <> <span aria-hidden>·</span> </>}
-              {off && <>ESPN posts {pts(p.actual)}</>}
-            </p>
-          )}
-        </section>
-        <section aria-labelledby="box-proj" className="space-y-2 px-4 pt-6">
-          <Heading id="box-proj" title="Projection" />
-          <ProjectionSources p={p} />
+          <p className="pt-1.5 text-xs tabular-nums text-muted-foreground">
+            {vol && <><span className="text-foreground/80">{vol}</span> <span aria-hidden>·</span> </>}
+            proj {pts(p.proj)}
+            {off && <> <span aria-hidden>·</span> ESPN posts {pts(p.actual)}</>}
+          </p>
         </section>
         <PlayerRecord load={load} retry={retry} fetch={log} className="px-4 pt-7 pb-5" />
       </div>
