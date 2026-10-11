@@ -181,12 +181,21 @@ def test_week_projections_mean_this_week_sleeper_after():
         {"seasonId": 2026, "statSourceId": 1, "statSplitTypeId": 0, "scoringPeriodId": 0, "appliedTotal": 285.5}]}
     sleeper = {5: {("josh allen", "QB"): 20.0}, 6: {("josh allen", "QB"): 19.46}, 8: {("someone else", "QB"): 9.0}}
     out = pc.week_projections(p, "QB", "BUF", 2026, 5, sleeper)
-    assert out[5] == {"proj": 21.1, "proj_espn": 22.2, "proj_sleeper": 20.0}
-    assert out[6] == {"proj": 19.5, "proj_espn": None, "proj_sleeper": 19.5}
+    assert out[5] == {"proj": 21.1}
+    assert out[6] == {"proj": 19.5}
     assert out[8] == pc.NO_PROJ
     dst = pc.week_projections({"fullName": "Commanders D/ST", "stats": []}, "D/ST", "WSH", 2026, 5,
                               {5: {("WAS", "D/ST"): 6.0}})  # ESPN's WSH is Sleeper's WAS
     assert dst[5]["proj"] == 6.0
+
+
+def test_week_projections_current_week_is_the_consensus():
+    p = {"fullName": "Jahmyr Gibbs", "stats": [{"seasonId": 2026, "statSourceId": 1, "statSplitTypeId": 1,
+                                                "scoringPeriodId": 5, "appliedTotal": 22.2}]}
+    cur = {"sleeper": {("jahmyr gibbs", "RB"): 20.0}, "cbs": {("jahmyr gibbs", "RB"): 30.0}}
+    out = pc.week_projections(p, "RB", "DET", 2026, 5, {6: {("jahmyr gibbs", "RB"): 19.5}}, current=cur)
+    assert out[5] == {"proj": 23.6}, "Walsh averages of 20, 22.2, 30: 20, 21.1, 22.2, 25, 26.1, 30 -> (22.2 + 25) / 2"
+    assert out[6] == {"proj": 19.5}, "later weeks: Sleeper's"
 
 
 def test_player_log_ranks_and_projections():
@@ -203,7 +212,7 @@ def test_player_log_ranks_and_projections():
     weeks = {w["week"]: w for w in log["seasons"][0]["weeks"]}
     assert weeks[1]["opp"] == "BAL" and weeks[1]["opp_rank"] == ranks["QB"]["BAL"] and "proj" not in weeks[1]
     assert all("opp_rank" in w for w in weeks.values() if w["opp"])
-    assert weeks[4]["status"] == "upcoming" and weeks[4]["proj"] == 20.0 and weeks[4]["proj_espn"] is None
+    assert weeks[4]["status"] == "upcoming" and weeks[4]["proj"] == 20.0
 
 
 def test_with_live_keeps_the_week_ahead_opponent():

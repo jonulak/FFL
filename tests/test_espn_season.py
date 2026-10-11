@@ -23,10 +23,9 @@ def bp(**kw):
 def test_flatten_box_player():
     p = espn_season.flatten_box_player(bp())
     assert p == {"player_id": 1, "name": "Jahmyr Gibbs", "pos": "RB", "team": "DET", "slot": "RB",
-                 "bye": False, "injury": "ACTIVE", "proj_espn": 21.4, "proj_sleeper": None, "proj": 21.4,
-                 "spread": None, "espn_only": True, "actual": 0.0, "game_played": 0,
-                 "season_proj": 320.5, "season_proj_sleeper": None,
-                 "ros_proj": None, "ros_sleeper": None, "ros_cbs": None, "ros_spread": None,
+                 "bye": False, "injury": "ACTIVE", "proj_espn": 21.4, "proj": 21.4, "spread": None, "n_src": 1,
+                 "actual": 0.0, "game_played": 0, "season_proj": 320.5,
+                 "ros_proj": None, "ros_sleeper": None, "ros_cbs": None, "ros_spread": None, "season_proj_sleeper": None,
                  "return_week": None, "injury_note": None, "exp": None, "ahead": [], "opponent": None,
                  "kickoff": None, "home": None}
 
@@ -59,30 +58,47 @@ def test_flatten_bye_has_no_opponent_or_kickoff():
     assert q["opponent"] is None, 'espn-api writes the string "None" when it has no schedule'
 
 
-def test_merge_weekly_averages_and_flags_misses():
+def test_merge_weekly_takes_the_consensus_and_drops_the_espn_input():
     players = [espn_season.flatten_box_player(bp()),
                espn_season.flatten_box_player(bp(playerId=2, name="A.J. Brown", position="WR", proTeam="PHI", projected_points=15.0)),
                espn_season.flatten_box_player(bp(playerId=3, name="Eagles D/ST", position="D/ST", proTeam="PHI", projected_points=8.0))]
-    sl = {("jahmyr gibbs", "RB"): 23.6, ("PHI", "D/ST"): 6.0}
-    out = espn_season.merge_weekly(players, sl)
-    g, b, d = out
-    assert g["proj_sleeper"] == 23.6 and g["proj"] == 22.5 and g["spread"] == 2.2 and g["espn_only"] is False
-    assert b["proj_sleeper"] is None and b["proj"] == 15.0 and b["spread"] is None and b["espn_only"] is True
-    assert d["proj"] == 7.0, "D/ST merges on team"
+    src = {"sleeper": {("jahmyr gibbs", "RB"): 23.6, ("PHI", "D/ST"): 6.0},
+           "cbs": {("jahmyr gibbs", "RB"): 20.0}, "sharks": {("jahmyr gibbs", "RB"): 30.0}, "fleaflicker": {}}
+    g, b, d = espn_season.merge_weekly(players, src)
+    # Walsh averages of 20, 21.4, 23.6, 30: median (22.5 + 23.6) / 2; spread 23.6 - 21.4 after the trim
+    assert g["n_src"] == 4 and g["proj"] == pytest.approx(23.05, abs=0.06) and g["spread"] == 2.2
+    assert b["proj"] == 15.0 and b["n_src"] == 1 and b["spread"] is None, "ESPN alone: his number stands"
+    assert d["proj"] == 7.0 and d["n_src"] == 2, "D/ST merges on team"
+    assert all("proj_espn" not in p and "proj_sleeper" not in p and "espn_only" not in p for p in (g, b, d))
+
+
+def test_merge_weekly_two_sources_is_the_old_mean():
+    out = espn_season.merge_weekly([espn_season.flatten_box_player(bp())], {"sleeper": {("jahmyr gibbs", "RB"): 23.6}})
+    assert out[0]["proj"] == 22.5 and out[0]["spread"] == 2.2
 
 
 def test_merge_weekly_ignores_zero_espn_placeholder():
-    players = [espn_season.flatten_box_player(bp(projected_points=0.0))]
-    out = espn_season.merge_weekly(players, {("jahmyr gibbs", "RB"): 20.0})
-    assert out[0]["proj"] == 20.0
+    out = espn_season.merge_weekly([espn_season.flatten_box_player(bp(projected_points=0.0))],
+                                   {"sleeper": {("jahmyr gibbs", "RB"): 20.0}})
+    assert out[0]["proj"] == 20.0 and out[0]["n_src"] == 1
+    none = espn_season.merge_weekly([espn_season.flatten_box_player(bp(projected_points=0.0))], {})
+    assert none[0]["proj"] == 0.0 and none[0]["n_src"] == 0
 
 
 def test_merge_weekly_normalises_dst_team_abbreviation():
     players = [espn_season.flatten_box_player(
-        bp(playerId=4, name="Commanders D/ST", position="D/ST", proTeam="WSH", slot_position="D/ST",
-           projected_points=8.0))]
-    out = espn_season.merge_weekly(players, {("WAS", "D/ST"): 6.0})
-    assert out[0]["proj"] == 7.0 and out[0]["espn_only"] is False, "ESPN WSH is Sleeper WAS"
+        bp(playerId=4, name="Commanders D/ST", position="D/ST", proTeam="WSH", slot_position="D/ST", projected_points=8.0))]
+    out = espn_season.merge_weekly(players, {"sleeper": {("WAS", "D/ST"): 6.0}})
+    assert out[0]["proj"] == 7.0 and out[0]["n_src"] == 2, "ESPN WSH is Sleeper WAS"
+
+
+def test_weekly_sources_survive_a_source_failing(monkeypatch):
+    def boom(week, ks):
+        raise requests.ConnectionError("x")
+    monkeypatch.setattr(espn_season, "_sleeper_for", boom)
+    monkeypatch.setattr(espn_season, "WEEKLY_SOURCES", {"cbs": lambda w, ks: {("a", "RB"): 1.0}})
+    out = espn_season.weekly_sources(5, {"scoring": []})
+    assert out == {"sleeper": {}, "cbs": {("a", "RB"): 1.0}}
 
 
 def test_parse_sleeper_rows_skips_players_who_did_not_play():
@@ -185,7 +201,7 @@ def test_week_state_gives_no_opponent_on_a_bye(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.week_state(week=1, sleeper={}, season={}, injuries={})
+    st = espn_season.week_state(week=1, sources={}, season={}, injuries={})
     assert st["week"] == 1 and st["opp"] is None
     assert "stale" not in st, "the freshness flag is stale_since, added by the API's cache"
     assert st["me"]["team"] == "Mine" and len(st["me"]["lineup"]) == 11
@@ -200,7 +216,7 @@ def test_roster_state_builds_cards_for_my_side_only(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    st = espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})
     assert st["week"] == 1 and isinstance(st["live"], bool)
     assert len(st["cards"]) == 15 and {c["group"] for c in st["cards"]} == {"starter", "bench", "ir"}
     assert all("call" in c and "reason" in c for c in st["cards"])
@@ -215,14 +231,14 @@ def test_roster_state_carries_locks_empty_slots_and_the_writes_flag(monkeypatch,
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {1: {"locked": True}})
-    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    st = espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})
     locked = {c["player_id"]: c["locked"] for c in st["cards"]}
     assert locked[1] is True and locked[2] is False
     assert st["empty_slots"] == ["K"] and st["writes"] is False, "the suite runs under FFL_WRITES=0"
     monkeypatch.setenv("FFL_WRITES", "1")
-    assert espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})["writes"] is True
+    assert espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})["writes"] is True
     monkeypatch.setattr(espn_season, "roster_flags", lambda lg: 1 / 0)
-    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    st = espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})
     assert not any(c["locked"] for c in st["cards"]), "a failed flags read shows every row unlocked"
     assert "roster_flags read failed" in caplog.text, "and says so in the log"
 
@@ -237,7 +253,7 @@ def test_roster_state_takes_slots_from_the_fresh_read_not_the_box_score(monkeypa
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     bench = next(p for p in matchup.home_lineup if p.slot_position == "BE")
     monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {bench.playerId: {"locked": False, "slot": "RB/WR/TE"}})
-    kw = dict(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    kw = dict(week=1, sources={}, season={}, injuries={}, snaps={})
     card = next(c for c in espn_season.roster_state(**kw)["cards"] if c["player_id"] == bench.playerId)
     assert card["slot"] == "RB/WR/TE" and card["group"] == "starter", "the box score is a cache; ESPN's read is the page"
     monkeypatch.setattr(espn_season, "roster_flags", lambda lg: 1 / 0)
@@ -433,7 +449,7 @@ def test_week_state_attaches_injuries_to_both_sides(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: SimpleNamespace(box_scores=lambda week: [matchup], current_week=1))
     monkeypatch.setattr(espn_season, "load", lambda: {**TWO_QB, "week1_start": WEEK1.isoformat()})
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.week_state(week=1, sleeper={}, season={},
+    st = espn_season.week_state(week=1, sources={}, season={},
                                injuries=espn_season.parse_injuries(INJ_FIXTURE))
     hurt = next(p for p in st["me"]["lineup"] if p["player_id"] == CARTER)
     assert hurt["return_week"] == 5 and hurt["injury_note"]
@@ -507,9 +523,9 @@ def test_free_agent_pool_reports_whether_ros_came_from_the_sources(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    out = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    out = espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
     assert out["ros_source"] == "season"
-    out = espn_season.free_agent_pool(week=1, sleeper={}, season={1001: {"season_proj": 1.0, "season_proj_sleeper": None,
+    out = espn_season.free_agent_pool(week=1, sources={}, season={1001: {"season_proj": 1.0, "season_proj_sleeper": None,
                                                                           "ros_proj": 5.0, "ros_sleeper": 5.0,
                                                                           "ros_cbs": None, "ros_spread": None}},
                                       injuries={}, snaps={})
@@ -572,7 +588,7 @@ def test_free_agent_pool_carries_every_rostered_player_with_owner_and_worth_to_m
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    pool = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    pool = espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
     rb = {r["player_id"]: r for r in pool["rostered"]["RB"]}
     them = rb[500]
     assert them["owner"] == {"team_id": 2, "name": "Them", "abbrev": "THM"} and them["mine"] is False
@@ -594,13 +610,13 @@ def test_builders_share_one_box_scores_fetch(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    espn_season.week_state(week=1, sleeper={}, season={}, injuries={})
-    espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
-    espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    espn_season.week_state(week=1, sources={}, season={}, injuries={})
+    espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})
+    espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
     assert calls["box"] == 1
     other = _stub_league(_matchup(), calls)
     monkeypatch.setattr(espn_season, "league", lambda: other)
-    espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})
     assert calls["box"] == 2, "a rebuilt League is a new source: its box scores are fetched again"
 
 
@@ -610,7 +626,7 @@ def test_free_agent_pool_fetches_every_position_in_position_order(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    out = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    out = espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
     assert list(out["positions"]) == ["QB", "RB", "WR", "TE", "D/ST", "K"]
     assert sorted(calls["fa"]) == sorted(["QB", "RB", "WR", "TE", "D/ST", "K"]), "each fetched exactly once"
     assert all(row["slot"] == "FA" for rows in out["positions"].values() for row in rows)
@@ -664,7 +680,7 @@ def test_week_state_for_another_team_puts_the_away_side_first(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     for team in (3, 4):
-        st = espn_season.week_state(week=1, sleeper={}, season={}, injuries={}, team=team)
+        st = espn_season.week_state(week=1, sources={}, season={}, injuries={}, team=team)
         assert (st["me"]["team"], st["opp"]["team"], st["mine"]) == ("Away", "Home", False)
 
 
@@ -673,7 +689,7 @@ def test_week_state_keeps_me_on_the_left_of_my_own_game(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     for team in (None, 7, 2):
-        st = espn_season.week_state(week=1, sleeper={}, season={}, injuries={}, team=team)
+        st = espn_season.week_state(week=1, sources={}, season={}, injuries={}, team=team)
         assert (st["me"]["team"], st["opp"]["team"], st["mine"]) == ("Mine", "Them", True)
 
 
@@ -682,7 +698,7 @@ def test_week_state_for_an_unknown_team_raises(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     with pytest.raises(LookupError):
-        espn_season.week_state(week=1, sleeper={}, season={}, injuries={}, team=99)
+        espn_season.week_state(week=1, sources={}, season={}, injuries={}, team=99)
 
 
 def test_team_state_lists_any_team_with_its_club_and_rank(monkeypatch):
@@ -698,16 +714,16 @@ def test_team_state_lists_any_team_with_its_club_and_rank(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.team_state(8, week=1, sleeper={}, season={}, injuries={})
+    st = espn_season.team_state(8, week=1, sources={}, season={}, injuries={})
     assert st["week"] == 1 and st["mine"] is False
     assert st["club"] == {"team_id": 8, "team": "Theirs", "abbrev": "THM", "logo": "", "wins": 2,
                           "losses": 1, "ties": 0, "rank": 1}
     side = st["side"]
     assert side["team_id"] == 8 and len(side["lineup"]) == 11
     assert len(side["lineup"]) + len(side["bench"]) + len(side["ir"]) == len(theirs)
-    assert espn_season.team_state(7, week=1, sleeper={}, season={}, injuries={})["mine"] is True
+    assert espn_season.team_state(7, week=1, sources={}, season={}, injuries={})["mine"] is True
     with pytest.raises(LookupError):
-        espn_season.team_state(99, week=1, sleeper={}, season={}, injuries={})
+        espn_season.team_state(99, week=1, sources={}, season={}, injuries={})
 
 
 def test_team_state_lists_a_team_without_a_game_from_its_roster(monkeypatch):
@@ -720,7 +736,7 @@ def test_team_state_lists_a_team_without_a_game_from_its_roster(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    side = espn_season.team_state(9, week=15, sleeper={}, season={}, injuries={})["side"]
+    side = espn_season.team_state(9, week=15, sources={}, season={}, injuries={})["side"]
     assert [p["player_id"] for p in side["lineup"]] == [qb["player_id"]]
     assert [p["player_id"] for p in side["bench"]] == [rb["player_id"]]
 
@@ -735,7 +751,7 @@ def test_week_state_carries_the_odds_of_its_game(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     _fallback_sigma(monkeypatch)
-    odds = espn_season.week_state(week=1, sleeper={}, season={}, injuries={})["win_prob"]
+    odds = espn_season.week_state(week=1, sources={}, season={}, injuries={})["win_prob"]
     assert odds["sigma_source"] == "fallback"
     assert odds["me"] > 0.9, "a full lineup against three players"
     assert abs(odds["me"] + odds["opp"] - 1) < 0.002
@@ -777,7 +793,7 @@ def test_league_state_carries_starters_merged_proj_and_odds(monkeypatch):
                          scoreboard=lambda wk: [])
     monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    monkeypatch.setattr(espn_season, "load", lambda: {**TWO_QB, "reg_season_weeks": 14, "playoff_teams": 6})
+    monkeypatch.setattr(espn_season, "load", lambda: {**TWO_QB, "scoring": [], "reg_season_weeks": 14, "playoff_teams": 6})
     monkeypatch.setattr(espn_season, "_sleeper_for", lambda week, settings: {("qb a", "QB"): 30.0})
     _fallback_sigma(monkeypatch)
     row = espn_season.league_state(1)["scoreboard"][0]
@@ -838,7 +854,7 @@ def _pool_with_facts(monkeypatch, status, flags):
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     monkeypatch.setattr(espn_season, "pool_status", status)
     monkeypatch.setattr(espn_season, "roster_flags", flags)
-    return espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    return espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
 
 
 def test_free_agent_pool_rows_carry_claim_facts(monkeypatch):

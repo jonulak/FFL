@@ -15,8 +15,8 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from . import calibrate, db, espn_write
-from .sources import cbs
+from . import calibrate, consensus, db, espn_write
+from .sources import cbs, fleaflicker, sharks
 from . import season as S
 from .adp import norm_name
 from .config import MY_TEAM_ID, SEASON, SWID, cookies, league, raw_league_get
@@ -74,8 +74,8 @@ def flatten_box_player(bp, season_proj: float | None = None) -> dict:
             # BoxPlayer already defaults slot_position to "FA" (free agents come back as
             # BoxPlayers too); the getattr is belt-and-braces for a plain Player.
             "slot": getattr(bp, "slot_position", "FA"), "bye": bye,
-            "injury": bp.injuryStatus or "ACTIVE", "proj_espn": proj, "proj_sleeper": None, "proj": proj,
-            "spread": None, "espn_only": True, "actual": float(getattr(bp, "points", 0) or 0),
+            "injury": bp.injuryStatus or "ACTIVE", "proj_espn": proj, "proj": proj,  # proj_espn: merge_weekly's input, popped there
+            "spread": None, "n_src": 1 if proj > 0 else 0, "actual": float(getattr(bp, "points", 0) or 0),
             "game_played": int(getattr(bp, "game_played", 0) or 0),
             "season_proj": float(season_proj if season_proj is not None else getattr(bp, "projected_total_points", 0) or 0),
             "season_proj_sleeper": None, "ros_proj": None, "ros_sleeper": None, "ros_cbs": None,
@@ -405,7 +405,7 @@ def parse_sleeper_rows(rows: list[dict], ks: dict) -> dict[tuple[str, str], floa
     """Sleeper's weekly rows keyed the way merge_weekly looks them up.
 
     Rows without `gp` are inactive players, whose stats are all zero — averaging that against
-    ESPN would halve a real projection, so they are skipped and left `espn_only`.
+    ESPN would halve a real projection, so they are skipped and left out of the consensus.
     """
     out: dict[tuple[str, str], float] = {}
     for p in rows:
@@ -423,23 +423,49 @@ def parse_sleeper_rows(rows: list[dict], ks: dict) -> dict[tuple[str, str], floa
     return out
 
 
-def merge_weekly(players: list[dict], sleeper: dict[tuple[str, str], float]) -> list[dict]:
-    """Average ESPN and Sleeper weekly points, as board.merge_sleeper does for the season."""
+WEEKLY_SOURCES = {"cbs": cbs.fetch_week, "sharks": sharks.fetch_week, "fleaflicker": fleaflicker.fetch_week}
+
+
+def weekly_sources(week: int, settings: dict) -> dict[str, dict[tuple[str, str], float]]:
+    """Every weekly source's projections for the week, fetched together (each cached; a failed one is {})."""
+    ks = key_scoring(settings["scoring"])
+    with ThreadPoolExecutor(len(WEEKLY_SOURCES) + 1) as pool:
+        sl = pool.submit(_sleeper_for, week, settings)
+        rest = {name: pool.submit(fn, week, ks) for name, fn in WEEKLY_SOURCES.items()}
+        out = {name: f.result() for name, f in rest.items()}
+        try:
+            out = {"sleeper": sl.result(), **out}
+        except requests.RequestException as e:
+            print(f"sleeper week {week} unavailable: {e}")
+            out = {"sleeper": {}, **out}
+    return out
+
+
+def source_key(p: dict) -> tuple[str, str]:
+    # ESPN's abbreviations differ from Sleeper's (WSH/WAS, JAC/JAX): normalise before matching.
+    return ((TEAM_FIX.get(p["team"], p["team"]), "D/ST") if p["pos"] == "D/ST"
+            else (norm_name(p["name"]), p["pos"]))
+
+
+def source_values(p: dict, sources: dict[str, dict]) -> dict[str, float]:
+    """His number from each source that has him; ESPN's 0 is a placeholder, not a projection."""
+    key = source_key(p)
+    vals = {name: float(d[key]) for name, d in sources.items() if d.get(key) is not None}
+    if (p.get("proj_espn") or 0) > 0:
+        vals["espn"] = float(p["proj_espn"])
+    return vals
+
+
+def merge_weekly(players: list[dict], sources: dict[str, dict]) -> list[dict]:
+    """One weekly projection per player (STRATEGY.md "Lineup"): the consensus of every source that has
+    him (consensus.combine). ESPN's own number is an input only and leaves the dict here."""
     out = []
     for p in players:
-        # ESPN's abbreviations differ from Sleeper's (WSH/WAS, JAC/JAX): normalise before matching.
-        key = ((TEAM_FIX.get(p["team"], p["team"]), "D/ST") if p["pos"] == "D/ST"
-               else (norm_name(p["name"]), p["pos"]))
-        sl = sleeper.get(key)
         q = dict(p)
-        if sl is None:
-            out.append(q)
-            continue
-        espn = p["proj_espn"] if p["proj_espn"] > 0 else None
-        q["proj_sleeper"] = sl
-        q["proj"] = round((espn + sl) / 2, 1) if espn is not None else sl
-        q["spread"] = round(abs(espn - sl), 1) if espn is not None else None
-        q["espn_only"] = False
+        espn = float(q.pop("proj_espn", 0) or 0)
+        proj, spread, n = consensus.combine(source_values(p, sources))
+        q["proj"] = proj if proj is not None else espn
+        q["spread"], q["n_src"] = spread, n
         out.append(q)
     return out
 
@@ -830,12 +856,13 @@ def player_card(player_id: int) -> dict:
     reads |= {("sched", yr): (lambda yr=yr: past_schedule(yr)) for yr in range(SEASON - 1, SEASON - HISTORY - 1, -1)}
     reads |= {("stats", yr): (lambda yr=yr: past_stats(yr, player_id)) for yr in earlier}
     settings = load()
+    reads[("sources", lg.current_week)] = lambda: weekly_sources(lg.current_week, settings)
     reads |= {("sleeper", wk): (lambda wk=wk: _sleeper_for(wk, settings)) for wk in range(lg.current_week, S.NFL_WEEKS + 1)}
     if pos in S.SNAP_POSITIONS:  # his snaps each week this season, off the cached Sleeper stat rows
         reads |= {("snaps", wk): (lambda wk=wk: parse_sleeper_snaps(_stats_rows(wk))) for wk in range(1, lg.current_week + 1)}
     with ThreadPoolExecutor(max_workers=len(reads)) as pool:
         futures = {k: pool.submit(fn) for k, fn in reads.items()}
-    schedules, rows, ranks, sleeper, pos_ranks, snaps = {}, [], {}, {}, {}, {}
+    schedules, rows, ranks, sleeper, pos_ranks, snaps, current = {}, [], {}, {}, {}, {}, {}
     key = (norm_name(p.get("fullName") or ""), pos)
     for (kind, yr), f in futures.items():
         try:
@@ -845,6 +872,8 @@ def player_card(player_id: int) -> dict:
                 ranks = f.result()
             elif kind == "pos_ranks":
                 pos_ranks = f.result()
+            elif kind == "sources":
+                current = f.result()
             elif kind == "sleeper":
                 sleeper[yr] = f.result()  # yr is the week here
             elif kind == "snaps":
@@ -856,7 +885,7 @@ def player_card(player_id: int) -> dict:
             print(f"{kind} {yr} unavailable for player {player_id}: {e}")
     card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
     return card_log.player_log(card, settings["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks,
-                               sleeper=sleeper, pos_ranks=pos_ranks, snaps=snaps)
+                               sleeper=sleeper, pos_ranks=pos_ranks, snaps=snaps, current=current)
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:
@@ -889,7 +918,7 @@ def owners_in(boxes: list) -> dict[int, dict]:
     return out
 
 
-def week_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
+def week_state(week: int | None = None, sources: dict | None = None, season: dict | None = None,
                injuries: dict | None = None, team: int | None = None) -> dict:
     """The matchup board for `team`'s game (mine by default). `me` is the left side and `opp`
     the right: I stand on the left of my own game; any other game reads away then home, as the
@@ -899,7 +928,7 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
     week = week or lg.current_week
     me = my_team_id(lg)
     team = team or me
-    sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
+    src = sources if sources is not None else weekly_sources(week, settings)
     seas = _season_for(settings, season, week)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     home = home_by_team(lg, week)
@@ -915,7 +944,7 @@ def week_state(week: int | None = None, sleeper: dict | None = None, season: dic
         sides = [s for s in sides if hasattr(s[0], "team_id")]
         # my players sat by hand this week stay out of my side's by-projection lineup, as on the Roster page
         sat = db.sat_ids(week) if mine else set()
-        built = [build_side(t, with_sits(_side_players(lineup, settings, sl, seas, inj, w1, home),
+        built = [build_side(t, with_sits(_side_players(lineup, settings, src, seas, inj, w1, home),
                                          sat if t.team_id == me else set()), settings)
                  for t, lineup in sides]
         # the left side's odds of winning (season.win_prob); the live overlay recomputes them
@@ -946,15 +975,15 @@ def league_starters(week: int | None = None) -> dict:
     return {"week": week, "games": games}
 
 
-def _side_players(lineup: list, settings: dict, sl: dict, seas: dict, inj: dict, w1, home: dict) -> list[dict]:
+def _side_players(lineup: list, settings: dict, src: dict, seas: dict, inj: dict, w1, home: dict) -> list[dict]:
     """One side's box players as the board shows them: both sources' projections, the season
     lookup, injury return weeks and the venue."""
     return apply_home(apply_injuries(
         apply_season(merge_weekly([{**flatten_box_player(bp), "stat_row": stat_row(bp, settings)}
-                                   for bp in lineup], sl), seas), inj, w1), home)
+                                   for bp in lineup], src), seas), inj, w1), home)
 
 
-def team_state(team_id: int, week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
+def team_state(team_id: int, week: int | None = None, sources: dict | None = None, season: dict | None = None,
                injuries: dict | None = None) -> dict:
     """Any team's roster for the week (the team page): its side of the box scores, grouped
     starters / bench / IR as the board groups them, under the club as the League page shows it
@@ -966,10 +995,10 @@ def team_state(team_id: int, week: int | None = None, sleeper: dict | None = Non
         raise LookupError(f"no team {team_id}")
     settings = load()
     week = week or lg.current_week
-    sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
+    src = sources if sources is not None else weekly_sources(week, settings)
     seas = _season_for(settings, season, week)
     players = _boxes_by_team(lg, week).get(team_id)
-    built = _side_players(players or getattr(t, "roster", []), settings, sl, seas,
+    built = _side_players(players or getattr(t, "roster", []), settings, src, seas,
                           _injuries_for(injuries), _week1_start(settings), home_by_team(lg, week))
     if players is None:  # roster Players carry lineupSlot, not the box score's slot_position
         slots = {rp.playerId: getattr(rp, "lineupSlot", "BE") for rp in t.roster}
@@ -1031,7 +1060,7 @@ def roster_flags(lg) -> dict[int, dict]:
 POOL_SIZE = 150
 
 
-def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sleeper: dict | None = None,
+def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dict | None = None,
                     season: dict | None = None, injuries: dict | None = None,
                     snaps: dict | None = None) -> dict:
     """The Players page's pool: `positions` holds the free agents ranked for a claim (claims, the
@@ -1044,7 +1073,7 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sleeper: dic
     rw = ros_week_for(lg, week)
     week_over = rw > week
     me = my_team_id(lg)
-    sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
+    src = sources if sources is not None else weekly_sources(week, settings)
     seas = _season_for(settings, season, rw)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     boxes = _boxes_by_team(lg, week)
@@ -1057,7 +1086,7 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sleeper: dic
     roster_games = _roster_games(lg, boxes, week)
 
     def enrich(players: list[dict], games: dict[int, list[dict]]) -> list[dict]:
-        return apply_form(apply_exp(apply_home(apply_injuries(apply_season(merge_weekly(players, sl), seas), inj, w1), home), exp),
+        return apply_form(apply_exp(apply_home(apply_injuries(apply_season(merge_weekly(players, src), seas), inj, w1), home), exp),
                           games, snap_weeks, rw, byes, refs)
     # my players carry the same enrichment as a free agent: the page compares him against them
     my_players = enrich([flatten_box_player(bp) for bp in boxes[me]], roster_games)
@@ -1165,7 +1194,7 @@ def with_sits(rows: list[dict], sat: set[int]) -> list[dict]:
     return [{**r, "sat": r["player_id"] in sat} for r in rows]
 
 
-def roster_state(week: int | None = None, sleeper: dict | None = None, season: dict | None = None,
+def roster_state(week: int | None = None, sources: dict | None = None, season: dict | None = None,
                  injuries: dict | None = None, snaps: dict | None = None, flags: dict | None = None) -> dict:
     """My roster as cards (season.roster_cards) for the Roster page. Same enrichment as week_state,
     plus `form` (STRATEGY.md, "Recent form") on every card. `flags` is an mRoster read the caller
@@ -1175,7 +1204,7 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
     week = week or lg.current_week
     rw = ros_week_for(lg, week)
     me = my_team_id(lg)
-    sl = sleeper if sleeper is not None else _sleeper_for(week, settings)
+    src = sources if sources is not None else weekly_sources(week, settings)
     seas = _season_for(settings, season, rw)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     boxes = _boxes_by_team(lg, week)
@@ -1184,7 +1213,7 @@ def roster_state(week: int | None = None, sleeper: dict | None = None, season: d
     weeks = form_weeks(week)
     snap_weeks = _snaps_for(weeks, snaps)
     players = apply_form(apply_exp(apply_home(apply_injuries(
-        apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], sl), seas), inj, w1),
+        apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], src), seas), inj, w1),
         home_by_team(lg, week)), _exp_for(weeks, snaps)),
         _roster_games(lg, {me: boxes[me]}, week), snap_weeks, rw, bye_by_team(lg), snap_refs(snap_weeks))
     fake = espn_write.fake_slots()
@@ -1243,7 +1272,7 @@ def league_state(week: int | None = None) -> dict:
     # starters the tile's projection and odds are built from. espn_api clamps box_scores to the
     # current week, so a future week takes its pairings from the schedule view, projection 0.
     board = []
-    sl: dict | None = None  # the week's Sleeper projections, read once the first lineup needs them
+    src: dict | None = None  # the week's source projections, read once the first lineup needs them
     sigma, _ = calibrate.load_sigma()
     for m in (box_scores(lg, week) if week <= current else lg.scoreboard(week)):
         if not (hasattr(m.home_team, "team_id") and hasattr(m.away_team, "team_id")):
@@ -1260,13 +1289,13 @@ def league_state(week: int | None = None) -> dict:
         for side, t, score in (("home", m.home_team, m.home_score), ("away", m.away_team, m.away_score)):
             starters = [bp for bp in (getattr(m, f"{side}_lineup", None) or [])
                         if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]
-            if starters and sl is None:
-                # the scoreboard stood without Sleeper before the odds: an outage leaves ESPN's numbers
+            if starters and src is None:
+                # the scoreboard stood without the sources before the odds: an outage leaves ESPN's numbers
                 try:
-                    sl = _sleeper_for(week, settings)
+                    src = weekly_sources(week, settings)
                 except Exception:  # noqa: BLE001
-                    sl = {}
-            players = merge_weekly([flatten_box_player(bp) for bp in starters], sl) if starters else []
+                    src = {}
+            players = merge_weekly([flatten_box_player(bp) for bp in starters], src) if starters else []
             row[side] = {**_club(t), "score": round(score, 1),
                          "proj": (round(sum(S.playable_proj(p) for p in players), 1) if players
                                   else round(float(getattr(m, f"{side}_projected", 0) or 0), 1)),

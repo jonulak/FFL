@@ -79,7 +79,7 @@ def build(top: int = 14, min_games: int = 2, min_adj: float = 60.0) -> dict:
     week = lg.current_week
     rw = E.ros_week_for(lg, week)
     me = E.my_team_id(lg)
-    sl = E._sleeper_for(week, settings)
+    src = E.weekly_sources(week, settings)
     seas = E._season_for(settings, None, rw)
     inj, w1 = E._injuries_for(None), E._week1_start(settings)
     home = E.home_by_team(lg, week)
@@ -98,7 +98,7 @@ def build(top: int = 14, min_games: int = 2, min_adj: float = 60.0) -> dict:
 
     def enrich(players: list[dict], g: dict[int, list]) -> list[dict]:
         return E.apply_form(E.apply_exp(E.apply_home(E.apply_injuries(
-            E.apply_season(E.merge_weekly(players, sl), seas), inj, w1), home), exp), g, snap_weeks, rw, byes, refs)
+            E.apply_season(E.merge_weekly(players, src), seas), inj, w1), home), exp), g, snap_weeks, rw, byes, refs)
 
     rostered = enrich([E.flatten_box_player(bp) for lineup in boxes[week].values() for bp in lineup], games)
     asks = [(pos, w) for pos in POSITIONS for w in weeks]

@@ -51,6 +51,14 @@ def _sources_reset():
 
 
 @pytest.fixture(autouse=True)
+def _no_scraped_weekly_sources(monkeypatch):
+    """A page build reads the CBS / FantasySharks / FleaFlicker weekly pages through espn_season.WEEKLY_SOURCES;
+    no test reaches them (a test that wants them patches WEEKLY_SOURCES itself)."""
+    from ffl import espn_season
+    monkeypatch.setattr(espn_season, "WEEKLY_SOURCES", {})
+
+
+@pytest.fixture(autouse=True)
 def _no_claim_fact_reads(monkeypatch):
     """free_agent_pool and roster_state read waiver status and roster flags from ESPN; a test build never makes the call
     (a test that wants the facts patches pool_status / roster_flags, or raw_league_get itself)."""

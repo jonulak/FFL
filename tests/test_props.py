@@ -132,3 +132,10 @@ def test_week_end_stops_before_next_weeks_thursday_game():
     thu = datetime(2026, 10, 1, 22, 45, tzinfo=timezone.utc)
     sun = datetime(2026, 10, 4, 15, 30, tzinfo=timezone.utc)
     assert props.week_end(thu) == props.week_end(sun) == datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
+
+
+def test_baseline_is_espn_and_sleeper_only():
+    from ffl import espn_season
+    from tests.test_espn_season import bp
+    out = props.baseline([espn_season.flatten_box_player(bp())], {("jahmyr gibbs", "RB"): 23.6})
+    assert out[0]["proj"] == 22.5 and out[0]["proj_sleeper"] == 23.6 and out[0]["proj_espn"] == 21.4

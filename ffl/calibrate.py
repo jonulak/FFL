@@ -136,7 +136,7 @@ def starter_weeks(lg, settings: dict, weeks: list[int]) -> tuple[list[dict], lis
             sides = []
             for lineup in (m.away_lineup, m.home_lineup):
                 starters = [bp for bp in lineup or [] if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]
-                players = merge_weekly([flatten_box_player(bp) for bp in starters], sl)
+                players = merge_weekly([flatten_box_player(bp) for bp in starters], {"sleeper": sl})
                 rows += [{"pos": p["pos"], "pts": p["actual"], "proj": S.playable_proj(p)} for p in players]
                 sides.append(players)
             if len(sides) == 2 and all(sides):

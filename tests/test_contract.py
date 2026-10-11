@@ -15,8 +15,7 @@ from tests.test_espn_season import bp
 from tests.test_season import TWO_QB, P, roster
 
 # web/lib/api.ts: type Player
-PLAYER = {"player_id", "name", "pos", "team", "slot", "bye", "injury", "proj_espn", "proj_sleeper",
-          "proj", "spread", "espn_only", "actual", "game_played", "season_proj", "season_proj_sleeper",
+PLAYER = {"player_id", "name", "pos", "team", "slot", "bye", "injury", "proj", "spread", "n_src", "actual", "game_played", "season_proj", "season_proj_sleeper",
           "ros_proj", "ros_sleeper", "ros_cbs", "ros_spread",
           "return_week", "injury_note", "opponent", "kickoff", "home", "exp", "ahead"}
 # web/lib/api.ts: type LineupEntry
@@ -43,7 +42,7 @@ LEAGUE = {"week", "current_week", "weeks", "playoff_teams", "live", "standings",
 
 
 def test_player_keys():
-    assert set(espn_season.flatten_box_player(bp())) == PLAYER
+    assert set(espn_season.flatten_box_player(bp())) == PLAYER | {"proj_espn"}  # an input merge_weekly pops
 
 
 def test_side_keys():
@@ -129,7 +128,7 @@ def test_week_state_top_level_keys(monkeypatch):
     monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    assert set(espn_season.week_state(week=1, sleeper={}, season={}, injuries={})) == WEEK
+    assert set(espn_season.week_state(week=1, sources={}, season={}, injuries={})) == WEEK
 
 
 # web/lib/api.ts: type PlayerLog / SeasonLog / WeekLog / SeasonTotals
@@ -194,7 +193,7 @@ def test_player_card_io(monkeypatch):
     assert set(log) == PLAYER_LOG and log["seasons"][1]["weeks"][0]["opp"] is None
     assert sorted(past) == [2023, 2024]
     assert [s["season"] for s in log["seasons"]] == [2026, 2025, 2024]
-    assert sorted(sleeper_weeks) == list(range(4, 19))
+    assert sorted(set(sleeper_weeks)) == list(range(4, 19))  # week 4 twice: the page read and the current-week consensus (cached in production)
     assert asked == ["QB"] and log["seasons"][0]["totals"]["pos_rank"] == 5
 
 

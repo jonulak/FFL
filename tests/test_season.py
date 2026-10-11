@@ -12,8 +12,8 @@ TWO_QB = {"team_count": 10,
 
 def P(pid, name, pos, proj, slot="BE", injury="ACTIVE", bye=False, team="T", season_proj=None):
     return {"player_id": pid, "name": name, "pos": pos, "team": team, "slot": slot, "bye": bye,
-            "injury": injury, "proj_espn": proj, "proj_sleeper": proj, "proj": proj, "spread": 0.0,
-            "espn_only": False, "actual": 0.0, "game_played": 0,
+            "injury": injury, "proj": proj, "spread": 0.0,
+            "n_src": 2, "actual": 0.0, "game_played": 0,
             "season_proj": season_proj if season_proj is not None else proj * 17,
             "season_proj_sleeper": None, "ros_proj": None, "ros_sleeper": None, "ros_cbs": None,
             "ros_spread": None, "return_week": None, "injury_note": None, "exp": None, "ahead": [],

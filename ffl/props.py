@@ -131,6 +131,19 @@ def sleeper_stat_lines(rows: list[dict]) -> dict[tuple[str, str], dict]:
     return out
 
 
+def baseline(players: list[dict], sleeper: dict[tuple[str, str], float]) -> list[dict]:
+    """The trial's bar is fixed against ESPN + Sleeper (STRATEGY.md "Props trial"): their mean as
+    `proj`, each kept beside it, whatever the live board now averages."""
+    from .espn_season import source_key
+    out = []
+    for p in players:
+        sl = sleeper.get(source_key(p))
+        espn = p["proj_espn"] if p["proj_espn"] > 0 else None
+        have = [x for x in (espn, sl) if x is not None]
+        out.append({**p, "proj_sleeper": sl, "proj": round(sum(have) / len(have), 1) if have else p["proj_espn"]})
+    return out
+
+
 def snapshot_rows(players: list[dict], stats: dict, market: dict, ks: dict) -> list[dict]:
     """Rostered skill players (merged ESPN + Sleeper rows) with the props number beside the mean.
     `proj3` is the mean of whichever of ESPN (>0), Sleeper and props he has; no line: `proj`."""
@@ -228,8 +241,7 @@ def fetch_event_props(event_id: str) -> tuple[dict, int | None]:
 
 
 def pull(kind: str, force: bool = False) -> None:
-    from .espn_season import _boxes_by_team, fetch_sleeper_rows, flatten_box_player, fresh_league, merge_weekly, \
-        parse_sleeper_rows
+    from .espn_season import _boxes_by_team, fetch_sleeper_rows, flatten_box_player, fresh_league, parse_sleeper_rows
     from .settings import key_scoring, load
     if not os.environ.get("ODDS_API_KEY"):
         print("ODDS_API_KEY is not set in .env: nothing pulled")
@@ -264,7 +276,7 @@ def pull(kind: str, force: bool = False) -> None:
     players = []
     for tid, lineup in _boxes_by_team(lg, week).items():
         players += [flatten_box_player(bp) | {"fantasy_team": tid} for bp in lineup]
-    players = merge_weekly(players, parse_sleeper_rows(sl_rows, ks))
+    players = baseline(players, parse_sleeper_rows(sl_rows, ks))
     rows = snapshot_rows(players, sleeper_stat_lines(sl_rows), market, ks)
     PROPS_DIR.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"week": week, "kind": kind, "taken_at": now.isoformat(), "events": len(events),

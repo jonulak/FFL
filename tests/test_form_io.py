@@ -106,9 +106,9 @@ def test_builders_carry_form_from_the_box_score_alone_when_the_league_has_no_ros
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    st = espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})
     assert all(c["form"] is None for c in st["cards"]), "the stub rows have no stats: no games"
-    pool = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    pool = espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
     assert all(r["form"] is None for rows in pool["positions"].values() for r in rows)
     assert calls["box"] == 1 and sorted(calls["fa"]) == sorted(["QB", "RB", "WR", "TE", "D/ST", "K"]), \
         "week 1: no earlier weeks to fetch"
@@ -129,7 +129,7 @@ def test_free_agent_pool_fetches_the_form_weeks_and_reads_their_stats(monkeypatc
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    pool = espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    pool = espn_season.free_agent_pool(week=3, sources={}, season={}, injuries={}, snaps={})
     assert sorted(w for p, w in weeks_asked if p == "RB") == [1, 2, 3], "the window's weeks, once each"
     row = pool["positions"]["RB"][0]
     assert row["form"]["weeks"] == [1, 2], "week 3's game (game_played 0) is not final"
@@ -155,7 +155,7 @@ def test_roster_state_reads_earlier_weeks_off_those_weeks_box_scores(monkeypatch
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.roster_state(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    st = espn_season.roster_state(week=3, sources={}, season={}, injuries={}, snaps={})
     card = next(c for c in st["cards"] if c["player_id"] == 4)
     assert card["form"]["weeks"] == [1, 2] and card["form"]["beat"] == round(((15 - 14) + (22 - 14.5)) / 2, 1)
     assert card["form"]["opp_trend"] == 25.0 - 21.0
@@ -167,7 +167,7 @@ def test_free_agent_pool_carries_my_roster_with_the_same_figures(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    pool = espn_season.free_agent_pool(week=1, sleeper={}, season={}, injuries={}, snaps={})
+    pool = espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
     mine = pool["roster"]
     assert len(mine) == 15 and all("form" in p and "ros_proj" in p and "week_proj" in p for p in mine)
     assert [p["ros_adj"] for p in mine] == sorted((p["ros_adj"] for p in mine), reverse=True), "by ROS, best first"
@@ -225,13 +225,13 @@ def test_free_agent_pool_starts_ros_from_the_next_week_once_this_weeks_games_are
     monkeypatch.setattr(espn_season, "ros_week_for", lambda lg, week: 4)
     asked = []
     monkeypatch.setattr(espn_season, "_season_for", lambda settings, season, week: asked.append(week) or {})
-    pool = espn_season.free_agent_pool(week=3, sleeper={}, injuries={}, snaps={})
+    pool = espn_season.free_agent_pool(week=3, sources={}, injuries={}, snaps={})
     assert pool["week"] == 3 and pool["ros_week"] == 4 and pool["week_over"] is True
     assert asked == [4], "the Sleeper sum starts from the ROS week"
     rows = [r for rows in pool["positions"].values() for r in rows]
     assert all(r["week_delta"] == 0.0 and not r["would_start"] for r in rows), "nothing left to gain this week"
     monkeypatch.setattr(espn_season, "ros_week_for", lambda lg, week: 3)
-    live = espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    live = espn_season.free_agent_pool(week=3, sources={}, season={}, injuries={}, snaps={})
     assert live["ros_week"] == 3 and live["week_over"] is False
 
 
@@ -242,10 +242,10 @@ def test_free_agent_pool_snapshots_the_blend_once_per_ros_week(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    espn_season.free_agent_pool(week=3, sources={}, season={}, injuries={}, snaps={})
     first = db.snapshots()
     assert [s["week"] for s in first] == [3]
-    espn_season.free_agent_pool(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    espn_season.free_agent_pool(week=3, sources={}, season={}, injuries={}, snaps={})
     assert db.snapshots() == first, "the first build of the week stands"
 
 
@@ -283,7 +283,7 @@ def test_roster_state_drops_a_week_whose_box_scores_fail_instead_of_failing(monk
     monkeypatch.setattr(espn_season, "league", lambda: lg)
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    st = espn_season.roster_state(week=3, sleeper={}, season={}, injuries={}, snaps={})
+    st = espn_season.roster_state(week=3, sources={}, season={}, injuries={}, snaps={})
     card = next(c for c in st["cards"] if c["player_id"] == 4)
     assert card["form"]["weeks"] == [2], "week 1 has no rows; the page still builds"
 
@@ -295,6 +295,6 @@ def test_roster_state_uses_the_flags_it_is_handed(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     monkeypatch.setattr(espn_season, "roster_flags", lambda lg: (_ for _ in ()).throw(AssertionError("read again")))
-    st = espn_season.roster_state(week=1, sleeper={}, season={}, injuries={}, snaps={}, flags={4: {"slot": "BE", "locked": True}})
+    st = espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={}, flags={4: {"slot": "BE", "locked": True}})
     card = next(c for c in st["cards"] if c["player_id"] == 4)
     assert card["slot"] == "BE" and card["locked"] is True
