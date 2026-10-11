@@ -75,7 +75,7 @@ def parse_scoreboard(data: dict) -> dict:
 
 def board(games: list[dict], mine: dict[str, int], opp: dict[str, int]) -> list[dict]:
     """The scoreboard's sections: every game in progress as one LIVE section first, then the rest by kickoff
-    window in time order. Inside a section: games with my starters, then with only the opponent's, then the
+    window in time order (a game with no kickoff, "Time TBD", last). Inside a section: games with my starters, then with only the opponent's, then the
     rest, each by kickoff then away club. `mine`/`opp` count starters by club; each game carries its counts."""
     rows = [{**g, "mine": mine.get(g["away"]["abbr"], 0) + mine.get(g["home"]["abbr"], 0),
              "opp": opp.get(g["away"]["abbr"], 0) + opp.get(g["home"]["abbr"], 0)} for g in games]
@@ -88,7 +88,7 @@ def board(games: list[dict], mine: dict[str, int], opp: dict[str, int]) -> list[
     for g in rows:
         if g["status"] != "in":
             windows.setdefault(g["kickoff"] or "", []).append(g)
-    out += [{"live": False, "kickoff": k or None, "games": sorted(v, key=rank)} for k, v in sorted(windows.items())]
+    out += [{"live": False, "kickoff": k or None, "games": sorted(v, key=rank)} for k, v in sorted(windows.items(), key=lambda kv: (kv[0] == "", kv[0]))]
     return out
 
 

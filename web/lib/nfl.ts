@@ -21,19 +21,22 @@ export function parseGameParams(week: string, team: string): { week: number; tea
   return Number.isInteger(w) && w > 0 && /^[A-Za-z]{2,3}$/.test(team) ? { week: w, team: team.toUpperCase() } : null;
 }
 
-// The feed under a filter: My players is either side's marks (both are drawn); a drive the filter empties goes.
+// The feed under a filter: My players is my starters' plays only (the opponent's are marked under All); a drive
+// the filter empties goes.
 export function filterDrives(drives: NflDrive[], f: FeedFilter): NflDrive[] {
   if (f === "all") return drives;
-  const keep = (p: NflPlay) => (f === "scoring" ? p.scoring : p.mine.length > 0 || p.opp.length > 0);
+  const keep = (p: NflPlay) => (f === "scoring" ? p.scoring : p.mine.length > 0);
   return drives.map((d) => ({ ...d, plays: d.plays.filter(keep) })).filter((d) => d.plays.length > 0);
 }
 
-// The running score after a play, the scoring club's number first: "GB 14–7".
-export function scoreLine(p: NflPlay, g: NflGame): string {
+// The running score after a play in one fixed order, away then home: "CHI 7" · "GB 14". `scorer` says which part
+// the scoring club owns (full ink); a play with no club leaves both quiet.
+export function scoreLine(p: NflPlay, g: NflGame): { away: string; home: string; scorer: "away" | "home" | null } {
   const { away, home } = p.score;
-  if (p.team === g.home.abbr) return `${g.home.abbr} ${home ?? 0}–${away ?? 0}`;
-  if (p.team === g.away.abbr) return `${g.away.abbr} ${away ?? 0}–${home ?? 0}`;
-  return `${g.away.abbr} ${away ?? 0}–${home ?? 0} ${g.home.abbr}`;
+  return {
+    away: `${g.away.abbr} ${away ?? 0}`, home: `${g.home.abbr} ${home ?? 0}`,
+    scorer: p.team === g.away.abbr ? "away" : p.team === g.home.abbr ? "home" : null,
+  };
 }
 
 export function gameState(g: NflGame): string {

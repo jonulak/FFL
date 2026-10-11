@@ -37,17 +37,18 @@ describe("filterDrives", () => {
     expect(filterDrives(drives, "scoring")[0].plays.map((p) => p.id)).toEqual(["3"]);
     expect(filterDrives(drives, "mine")[0].plays.map((p) => p.id)).toEqual(["2"]);
   });
-  it("counts the opponent's marks as mine for the filter", () => {
-    expect(filterDrives([{ ...drives[1], plays: [play({ opp: ["Y"] })] }], "mine")).toHaveLength(1);
+  it("keeps only my starters' plays for My players; the opponent's stay under All", () => {
+    expect(filterDrives([{ ...drives[1], plays: [play({ opp: ["Y"] })] }], "mine")).toEqual([]);
+    expect(filterDrives([{ ...drives[1], plays: [play({ opp: ["Y"], mine: ["X"] })] }], "mine")).toHaveLength(1);
   });
   it("is empty when nothing survives", () => expect(filterDrives([drives[1]], "mine")).toEqual([]));
 });
 
 describe("labels", () => {
-  it("puts the scoring club first", () => {
-    expect(scoreLine(play({ team: "GB", score: { away: 0, home: 7 } }), game({}))).toBe("GB 7–0");
-    expect(scoreLine(play({ team: "CHI", score: { away: 3, home: 7 } }), game({}))).toBe("CHI 3–7");
-    expect(scoreLine(play({ team: null, score: { away: 3, home: 7 } }), game({}))).toBe("CHI 3–7 GB");
+  it("reads the score away then home, and says whose part is the scorer's", () => {
+    expect(scoreLine(play({ team: "GB", score: { away: 0, home: 7 } }), game({}))).toEqual({ away: "CHI 0", home: "GB 7", scorer: "home" });
+    expect(scoreLine(play({ team: "CHI", score: { away: 3, home: 7 } }), game({}))).toEqual({ away: "CHI 3", home: "GB 7", scorer: "away" });
+    expect(scoreLine(play({ team: null, score: { away: 3, home: 7 } }), game({}))).toEqual({ away: "CHI 3", home: "GB 7", scorer: null });
   });
   it("names the game state", () => {
     expect(gameState(game({}))).toBe("Q2 4:12");

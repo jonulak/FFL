@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useTransition, type CSSProperties } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { NflDrive, NflGame, NflGamePage, NflPlay } from "@/lib/api";
@@ -29,8 +28,8 @@ function DriveHeader({ d }: { d: NflDrive }) {
 }
 
 // The play inside its arrival slot: a play that lands after the page opened opens its slot at the top and slides
-// in (globals.css `.play-slot`), a scoring play leaving the lime wash (`data-gain`). Turnovers take an amber edge,
-// penalties a muted FLAG chip. `entering` comes from ONE ledger over every play of the game (NflFeedLive): a
+// in (globals.css `.play-slot`), a scoring play leaving the lime wash (`data-gain`). Turnovers and penalties are chips
+// inside the row (NflPlayRow). `entering` comes from ONE ledger over every play of the game (NflFeedLive): a
 // ledger per drive would mount a new drive's first play as "still" — the kickoff or first snap he is waiting for —
 // and a ledger over the filtered list would replay plays the filter merely hid.
 function Plays({ plays, g, entering }: { plays: NflPlay[]; g: NflGame; entering: Set<string> }) {
@@ -41,8 +40,7 @@ function Plays({ plays, g, entering }: { plays: NflPlay[]; g: NflGame; entering:
         return (
           <div key={p.id} className="play-slot" data-side="me" data-enter={enter || undefined}
             data-gain={(enter && p.scoring) || undefined} style={enter ? { "--i": i } as CSSProperties : undefined}>
-            <div className={`play-clip px-(--card-spacing) ${i > 0 ? "border-t border-foreground/10" : ""} ${p.turnover ? "shadow-[inset_3px_0_0_var(--close)]" : ""} ${p.scoring ? "bg-start/[0.07]" : ""}`}>
-              {p.penalty && <Badge variant="muted" shape="chip" className="ml-[calc(3px+0.625rem)] mt-2">flag</Badge>}
+            <div className={`play-clip px-(--card-spacing) ${i > 0 ? "border-t border-foreground/10" : ""} ${p.scoring ? "bg-start/[0.07]" : ""}`}>
               <NflPlayRow p={p} g={g} />
             </div>
           </div>
@@ -64,7 +62,7 @@ export function NflFeedLive({ initial, path, filter, club }: { initial: NflGameP
   const total = data.drives.reduce((n, d) => n + d.plays.length, 0);
   const empty = data.game.status === "pre"
     ? "Plays appear here once the game starts."
-    : filter === "mine" ? "None of your starters or your opponent's has been in a play yet."
+    : filter === "mine" ? "None of your starters has been in a play yet."
     : filter === "scoring" ? "No points yet." : "No plays yet.";
   return (
     <div className="space-y-4">

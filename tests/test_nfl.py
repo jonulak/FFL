@@ -66,6 +66,11 @@ def test_board_no_live_section_when_nothing_on():
     assert [s["live"] for s in out] == [False]
 
 
+def test_board_time_tbd_window_sorts_last():
+    out = nfl.board([_g("1", None, "pre", "NYG", "WSH"), _g("2", "2026-10-11T17:00Z", "pre", "CIN", "MIA")], {}, {})
+    assert [s["kickoff"] for s in out] == ["2026-10-11T17:00Z", None]
+
+
 FINAL_IDS = {"21": "PHI", "30": "JAX"}
 LIVE_IDS = {"9": "GB", "3": "CHI"}
 
