@@ -29,7 +29,7 @@ export function NflScorebug({ g, compact = false }: { g: NflGame; compact?: bool
       <TeamLogo abbr={c.abbr} size={compact ? 32 : 44} fallback />
       <div className="min-w-0">
         <p className={`flex items-center gap-2 font-display font-semibold leading-none tracking-tight ${compact ? "text-lg" : "text-[1.375rem] sm:text-[1.65rem]"} ${end === "r" ? "flex-row-reverse" : ""}`}>
-          <span className="truncate">{c.name ?? c.abbr}</span>
+          <span className="truncate sm:hidden">{c.abbr}</span><span className="hidden truncate sm:inline">{c.name ?? c.abbr}</span>
           {g.ball === c.abbr && <PossessionDot red={g.red_zone} />}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">{c.record ?? c.abbr}</p>
@@ -92,9 +92,9 @@ function StarterHalf({ s, end }: { s?: NflStarter; end: "me" | "opp" }) {
     <div className={`min-w-0 py-2 ${end === "opp" ? "text-right" : ""}`}>
       <p className={`flex items-baseline gap-2 ${end === "opp" ? "flex-row-reverse" : ""}`}>
         <span className="truncate font-display text-[1.0625rem] font-semibold leading-none tracking-tight">{shortName(s.name)}</span>
-        <span className="text-xs text-muted-foreground">{s.slot}{s.team && ` · ${s.team}`}</span>
         <span className={`${end === "opp" ? "mr-auto" : "ml-auto"} font-display text-[1.25rem] font-bold leading-none tabular-nums`}>{pts(s.actual)}<span className="ml-1 text-[0.6875rem] font-semibold text-muted-foreground">PTS</span></span>
       </p>
+      <p className="mt-1 text-xs text-muted-foreground">{s.slot}{s.team && ` · ${s.team}`}</p>
       {s.stat_line && <StatLine text={s.stat_line} className="mt-1 text-xs" wrap />}
     </div>
   );
