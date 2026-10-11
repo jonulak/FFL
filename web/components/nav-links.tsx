@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { useDecisionPrefs } from "./decision-prefs";
 
-const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], ["/transactions", "Transactions"], ["/players", "Players"], ["/decisions", "Decisions"]] as const;
+const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], ["/nfl", "NFL"],["/transactions", "Transactions"], ["/players", "Players"], ["/decisions", "Decisions"]] as const;
 
 // The page tabs, set like the chyron of a broadcast board: condensed caps, letterspaced, the
 // current page in full ink with a bar under it, the rest stepped back. On a phone the strip
