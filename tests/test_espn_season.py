@@ -509,7 +509,7 @@ def test_season_lookup_sums_the_remaining_sleeper_weeks_and_drops_them_on_a_fail
     monkeypatch.setattr(espn_season, "fetch_sleeper_week", fake_week)
     monkeypatch.setattr(espn_season, "fetch_pool", lambda: SEASON_ESPN)
     monkeypatch.setattr(espn_season, "fetch_sleeper_season", lambda: SEASON_SLEEPER)
-    monkeypatch.setattr(espn_season, "ROS_SOURCES", {"cbs": lambda ks: {("jalen hurts", "QB"): 150.0}})
+    monkeypatch.setattr(espn_season, "ROS_SOURCES", {"cbs": lambda ks, week: {("jalen hurts", "QB"): 150.0}})
     settings = {**TWO_QB, "scoring": []}
     out = espn_season.season_lookup(settings, week=16)
     assert sorted(fetched) == [16, 17, 18]

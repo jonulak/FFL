@@ -1,19 +1,23 @@
 """FantasySharks projections (fantasysharks.com/apps/bert/forecasts), weekly and rest of season,
-rescored to this league from the CSV export's raw stats. The Segment number picks the period: a
-season's base (874 for 2026, read off the page's Period list) + 8 + week, and base + 3 for "Rest of
-Year". Columns are read by header name; the TD-distance buckets are ignored (this league scores a TD
+rescored to this league from the CSV export's raw stats. The Segment number picks the week: a
+season's base (874 for 2026, read off the page's Period list) + 8 + week. Rest of season is the
+weekly projections summed over weeks w..18 (all weeks or nothing), like Sleeper's: the page's own
+"Rest of Year" segment (base + 3) covers only ~10 games, not the games left, so it is not used.
+Columns are read by header name; the TD-distance buckets are ignored (this league scores a TD
 the same at any distance). parse_csv is the pure seam.
 """
 from __future__ import annotations
 
 import csv
 import io
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
 from . import Cached
 from ..adp import norm_name
 from ..config import SEASON
+from ..season import NFL_WEEKS
 from ..sleeper import score
 
 URL = ("https://www.fantasysharks.com/apps/bert/forecasts/projections.php?csv=1&Sort=&League=-1"
@@ -26,13 +30,12 @@ NEEDED = {"QB": {"Pass Yds", "Pass TDs", "Int", "Rush Yds", "Rush TDs"},
           "RB": {"Rush Yds", "Rush TDs", "Rec", "Rec Yds", "Rec TDs"},
           "WR": {"Rec", "Rec Yds", "Rec TDs"}, "TE": {"Rec", "Rec Yds", "Rec TDs"}}
 _WEEK = Cached("sharks")
-_ROS = Cached("sharks-ros")
 
 
-def segment(week: int | str, season: int = SEASON) -> int:
+def segment(week: int, season: int = SEASON) -> int:
     if season not in BASE:
         raise ValueError(f"no FantasySharks segment base for {season}")
-    return BASE[season] + 3 if week == "ros" else BASE[season] + 8 + int(week)
+    return BASE[season] + 8 + int(week)
 
 
 def _num(s: str) -> float:
@@ -79,5 +82,18 @@ def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
     return _WEEK.get(week, lambda: _fetch(segment(week), ks))
 
 
-def fetch_ros(ks: dict) -> dict[tuple[str, str], float]:
-    return _ROS.get("ros", lambda: _fetch(segment("ros"), ks))
+def fetch_ros(ks: dict, week: int) -> dict[tuple[str, str], float]:
+    """Weekly projections summed over weeks week..NFL_WEEKS. A week that comes back empty makes the
+    whole ROS {} (never an undercount); a player absent from a week (bye, injury) just sums the rest."""
+    weeks = list(range(week, NFL_WEEKS + 1))
+    if not weeks:
+        return {}
+    with ThreadPoolExecutor(min(6, len(weeks))) as pool:
+        per_week = list(pool.map(lambda w: fetch_week(w, ks), weeks))
+    if not all(per_week):
+        return {}
+    out: dict[tuple[str, str], float] = {}
+    for d in per_week:
+        for k, v in d.items():
+            out[k] = out.get(k, 0.0) + v
+    return {k: round(v, 1) for k, v in out.items()}

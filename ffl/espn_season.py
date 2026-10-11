@@ -625,7 +625,7 @@ def season_lookup(settings: dict, week: int) -> dict[int, dict]:
         espn_f = pool.submit(fetch_pool)
         sleeper_f = pool.submit(fetch_sleeper_season)
         weeks_f = pool.submit(_remaining_sleeper_weeks, week, settings)
-        ros_f = {name: pool.submit(fn, ks) for name, fn in ROS_SOURCES.items()}
+        ros_f = {name: pool.submit(fn, ks, week) for name, fn in ROS_SOURCES.items()}
         weeks = weeks_f.result()
         ros = {name: f.result() for name, f in ros_f.items()}
         if weeks is not None:

@@ -95,7 +95,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - Rest-of-season projections (the Players page's `add` column) are `ffl/espn_season.py::season_lookup(settings, week)`:
   the consensus of Sleeper's weekly projections for weeks w..18 summed (`sleeper_ros`, through the per-week `_sleeper_for` cache;
   any failed week drops Sleeper's ROS for that build rather than undercount), CBS's public rest-of-season pages (`ffl/sources/cbs.py`,
-  QB/RB/WR/TE only, rescored) and FantasySharks' (`ffl/sources/sharks.py`), each value in `ros_src`. Every
+  QB/RB/WR/TE only, rescored) and FantasySharks' weekly projections summed over w..18 like Sleeper's (`ffl/sources/sharks.py`; its Rest of Year page covers only ~10 games), each value in `ros_src`. Every
   player dict carries `ros_proj`/`ros_spread`/`ros_n`; `season.ros_proj(p, week)` falls back to
   season total × weeks left when no source has him, and only then does `add_score` haircut an OUT/IR
   player for games missed (all sources already leave those games out). `free_agent_pool` reports

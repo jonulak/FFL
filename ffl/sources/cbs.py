@@ -85,8 +85,8 @@ def _pages(url: str, ks: dict, **fmt) -> dict[tuple[str, str], dict]:
     return data
 
 
-def fetch_ros(ks: dict) -> dict[tuple[str, str], float]:
-    """Every position's rest-of-season page rescored (sources.Cached: last good through an outage)."""
+def fetch_ros(ks: dict, week: int | None = None) -> dict[tuple[str, str], float]:
+    """Every position's rest-of-season page rescored (week unused: the page is already the games left; sources.Cached: last good through an outage)."""
     return _ROS.get("ros", lambda: {k: v["pts"] for k, v in _pages(URL, ks).items()})
 
 

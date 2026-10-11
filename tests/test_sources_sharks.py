@@ -38,7 +38,6 @@ def test_a_reshaped_file_is_nothing():
 
 def test_segments():
     assert sharks.segment(5, 2026) == 887 and sharks.segment(6, 2026) == 888
-    assert sharks.segment("ros", 2026) == 877
     with pytest.raises(ValueError):
         sharks.segment(6, 2031)
 
@@ -57,3 +56,25 @@ def test_fetch_week_asks_each_position_for_the_week(monkeypatch):
     out = sharks.fetch_week(6, KS)
     assert ("josh allen", "QB") in out and ("bijan robinson", "RB") in out
     assert all("Segment=888" in u for u in urls) and len(urls) == 4
+
+
+def test_fetch_ros_sums_the_weekly_projections_for_w_through_18(monkeypatch):
+    asked = []
+
+    def week(w, ks):
+        asked.append(w)
+        d = {("a b", "WR"): 10.0}
+        if w != 7:
+            d[("c d", "RB")] = 1.0   # bye week: absent that week, the rest still sum
+        return d
+
+    monkeypatch.setattr(sharks, "fetch_week", week)
+    out = sharks.fetch_ros(KS, 5)
+    assert sorted(asked) == list(range(5, 19))
+    assert out[("a b", "WR")] == pytest.approx(140.0)
+    assert out[("c d", "RB")] == pytest.approx(13.0)
+
+
+def test_fetch_ros_is_empty_when_any_week_is_missing(monkeypatch):
+    monkeypatch.setattr(sharks, "fetch_week", lambda w, ks: {} if w == 12 else {("a b", "WR"): 10.0})
+    assert sharks.fetch_ros(KS, 5) == {}
