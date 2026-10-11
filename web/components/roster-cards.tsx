@@ -11,6 +11,7 @@ import type { Card } from "@/lib/api";
 import { STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
 import { irIllegal, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure } from "@/lib/lineup";
+import { gameLinkFor } from "@/lib/nfl";
 import { NAME_LINK } from "@/lib/player-log";
 import { headshotUrl, team } from "@/lib/teams";
 import { Kickoff, useNow } from "./local-time";
@@ -18,6 +19,7 @@ import { Outlook, OutlookAge, outlookAgeLabel } from "./outlook";
 import { PlayerTrigger } from "./player-dialog";
 import { ProjectionTrigger, Spread } from "./projection";
 import { TeamLogo } from "./player-media";
+import { GameLink } from "./game-link";
 import { StatLine } from "./stat-line";
 
 // SIT is his own hand, not a verdict: muted like BENCH.
@@ -322,7 +324,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
               <div className="min-w-0 truncate max-md:h-5 max-md:leading-5 md:[grid-area:match]">
                 {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it */}
                 {c.pos !== slot && <><span className="text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>{" "}</>}
-                <Matchup c={c} />
+                <GameLink href={gameLinkFor(c, week)}><Matchup c={c} /></GameLink>
               </div>
               <div className="flex shrink-0 gap-1 md:[grid-area:call]"><CallChip c={c} week={week} split /></div>
             </div>

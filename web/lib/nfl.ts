@@ -2,6 +2,11 @@ import type { NflDrive, NflGame, NflPlay, NflStarter } from "./api";
 
 // The NFL tab's routes: a game by its week and either club (ESPN's abbreviation), its full feed beneath it.
 export const gameHref = (week: number, club: string) => `/nfl/${week}/${club}`;
+
+// Where a player's game line goes: his club's game that week; a bye, or no game, goes nowhere.
+export function gameLinkFor(p: { bye: boolean; opponent?: string | null; team: string }, week: number): string | null {
+  return p.bye || !p.opponent ? null : gameHref(week, p.team);
+}
 export type FeedFilter = "all" | "mine" | "scoring";
 export const feedHref = (week: number, club: string, f: FeedFilter = "all") =>
   `${gameHref(week, club)}/plays${f === "all" ? "" : `?f=${f}`}`;

@@ -9,6 +9,7 @@ import { injuryTone, ordinal, pts, record } from "@/lib/format";
 import { gameOn, gamePhase, sideTotals } from "@/lib/game";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
+import { GameLink } from "./game-link";
 import { GameLine } from "./local-time";
 import { PlayerTrigger } from "./player-dialog";
 import { ProjectionTrigger, Spread } from "./projection";
@@ -17,6 +18,7 @@ import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 import { useLive } from "./use-live";
+import { gameLinkFor } from "@/lib/nfl";
 import { NAME_LINK } from "@/lib/player-log";
 
 // Any team's roster as a plain list (tap a team's name anywhere): no calls, no outlooks, just who
@@ -74,7 +76,7 @@ function Row({ p, slot, week, now }: { p: Player; slot: string | null; week: num
             <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-4 tabular-nums text-muted-foreground">
               <span className="font-semibold text-foreground/80">{p.pos}</span>
               {/* the bye says itself in the chip; the line keeps only a real game */}
-              {!p.bye && <GameLine p={p} size={14} />}
+              {!p.bye && <GameLink href={gameLinkFor(p, week)}><GameLine p={p} size={14} /></GameLink>}
               {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
             </p>
             {p.stat_line && <StatLine text={p.stat_line} className="mt-1 text-xs max-sm:hidden" wrap />}

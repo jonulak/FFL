@@ -14,10 +14,12 @@ import { FIELD, fieldOf, inGameOf } from "@/lib/field";
 import { gameOn, gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { finalP } from "@/lib/win-prob";
 import { playsHref } from "@/lib/matchup-link";
+import { gameLinkFor } from "@/lib/nfl";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { BoxScoreDialog } from "./box-score-dialog";
 import { fetchLog, holdFor, type LogFetch } from "./player-dialog";
+import { GameLink } from "./game-link";
 import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
 import { ProjectionTrigger, Spread } from "./projection";
@@ -209,7 +211,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
         <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1.5 text-xs leading-4 tabular-nums max-sm:hidden! ${opp ? "justify-end text-right" : ""}`}>
           <span className="font-semibold text-foreground/80">{p.pos}</span>
           {/* the bye says itself in the chip; the line keeps only a real game */}
-          {!p.bye && <GameLine p={p} size={14} />}
+          {!p.bye && <GameLink href={gameLinkFor(p, week)}><GameLine p={p} size={14} /></GameLink>}
           {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </ItemDescription>
         {/* The row's one fact once he has played: the box-score line, in the play feed's register,
@@ -230,7 +232,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
           needs the width, so the note (`proj 17.8`) closes the stat line beneath instead. */}
       <ItemFooter className={`-mt-0.5 gap-x-1.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
         <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 ${opp ? "justify-end" : ""}`}>
-          {!p.bye && <GameLine p={p} size={13} />}
+          {!p.bye && <GameLink href={gameLinkFor(p, week)}><GameLine p={p} size={13} /></GameLink>}
           {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </span>
         {!on && <NumNote p={p} now={now} />}

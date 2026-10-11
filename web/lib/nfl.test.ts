@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NflDrive, NflGame, NflPlay } from "./api";
-import { feedHref, filterDrives, gameHref, gameState, inGameRows, parseFilter, parseGameParams, scoreLine, windowLabel } from "./nfl";
+import { feedHref, filterDrives, gameHref, gameLinkFor,gameState, inGameRows, parseFilter, parseGameParams, scoreLine, windowLabel } from "./nfl";
 
 const play = (o: Partial<NflPlay>): NflPlay => ({ id: "1", quarter: 1, clock: "1:00", team: "GB", down: null, text: "", kind: null,
   scoring: false, turnover: false, penalty: false, score: { away: 0, home: 7 }, athletes: [], mine: [], opp: [], ...o });
@@ -74,5 +74,15 @@ describe("inGameRows", () => {
     expect(inGameRows({ me: [s("A"), s("B")], opp: [s("Z")] }).map(([a, b]) => [a?.name ?? null, b?.name ?? null]))
       .toEqual([["A", "Z"], ["B", null]]);
     expect(inGameRows({ me: [], opp: [] })).toEqual([]);
+  });
+});
+
+describe("gameLinkFor", () => {
+  it("links a player with a game to his club's game in that week", () => {
+    expect(gameLinkFor({ bye: false, opponent: "CHI", team: "GB" }, 5)).toBe("/nfl/5/GB");
+  });
+  it("does not link a bye or a player without a game", () => {
+    expect(gameLinkFor({ bye: true, opponent: null, team: "KC" }, 5)).toBeNull();
+    expect(gameLinkFor({ bye: false, opponent: null, team: "FA" }, 5)).toBeNull();
   });
 });
