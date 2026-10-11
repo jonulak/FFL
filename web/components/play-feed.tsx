@@ -80,7 +80,7 @@ export function useLedger<T>(items: T[], keyOf: (t: T) => string): Ledger<T> {
     return () => clearTimeout(t);
   }, [leaving]);
   return [
-    ...items.map((p) => ({ p, state: first.has(keyOf(p)) ?"still" as const : "enter" as const })),
+    ...items.map((p) => ({ p, state: first.has(keyOf(p)) ? "still" as const : "enter" as const })),
     // the dropped rows are the oldest, so they fold at the foot of the ledger
     ...leaving.map((p) => ({ p, state: "leave" as const })),
   ];

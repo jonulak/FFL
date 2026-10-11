@@ -32,6 +32,7 @@ export function scoreLine(p: NflPlay, g: NflGame): string {
 }
 
 export function gameState(g: NflGame): string {
+  if (g.detail && /postpon|delay|suspend|cancel/i.test(g.detail)) return g.detail.toUpperCase();
   if (g.status === "post") return (g.quarter ?? 0) >= 5 ? "FINAL/OT" : "FINAL";
   if (g.status === "in") {
     if (g.detail && /half/i.test(g.detail)) return "HALF";

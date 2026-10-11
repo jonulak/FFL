@@ -56,6 +56,10 @@ describe("labels", () => {
     expect(gameState(game({ status: "post", quarter: 4 }))).toBe("FINAL");
     expect(gameState(game({ status: "post", quarter: 5 }))).toBe("FINAL/OT");
   });
+  it("reads postponed and delayed games verbatim", () => {
+    expect(gameState(game({ status: "post", detail: "Postponed" }))).toBe("POSTPONED");
+    expect(gameState(game({ status: "in", detail: "Delayed" }))).toBe("DELAYED");
+  });
   it("names kickoff windows", () => {
     expect(windowLabel("2026-10-11T17:00Z", "America/New_York")).toBe("SUN 1:00 PM");
     expect(windowLabel("2026-10-12T00:20Z", "America/New_York")).toBe("SNF");
