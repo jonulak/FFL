@@ -379,6 +379,18 @@ def ros_week(week: int, kickoffs: list[datetime], now: datetime | None = None) -
     return week + 1 if (t - last).total_seconds() >= GAME_HOURS * 3600 else week
 
 
+# Inactives are posted 90 minutes before kickoff; the notify tick (every 15 min) pulls fresh projections and
+# injuries at its first run inside this many minutes of a kickoff, so the pull lands 70-85 minutes out.
+PREGAME_PULL_MIN = 85
+
+
+def pregame_due(kickoffs: list[datetime], now: datetime, pulled: set[str]) -> list[datetime]:
+    """The kickoffs whose pre-game pull is due: inside PREGAME_PULL_MIN of the ball, not yet kicked, not yet pulled
+    (`pulled` holds isoformat kickoffs). Games sharing a kickoff are one pull."""
+    lead = PREGAME_PULL_MIN * 60
+    return sorted({k for k in kickoffs if 0 < (k - now).total_seconds() <= lead and k.isoformat() not in pulled})
+
+
 def week_of(d: date, week1_start: date) -> int:
     """The fantasy week a date falls in; week 1 is the seven days from week1_start."""
     return (d - week1_start).days // 7 + 1

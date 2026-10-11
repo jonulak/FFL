@@ -38,7 +38,8 @@ uv run python -m ffl.calibrate sources   # fit per-source weights (stored inacti
 uv run python -m ffl.props score       # props trial (weeks 4-6): ESPN+Sleeper vs +props MAE and the verdict (launchd pulls Thu/Sun)
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
 curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (launchd does this hourly)
-curl -X POST 127.0.0.1:8300/notify/tick   # sync + injury/waiver checks + push flush (launchd every 15 min)
+curl -X POST 127.0.0.1:8300/notify/tick   # sync + injury/waiver checks + push flush + pre-game pull (launchd every 15 min)
+curl -X POST 127.0.0.1:8300/refresh       # force every page, projection and injury cache to refetch now, and wait (no UI button)
 uv run python -m ffl.notify keys       # one-time: VAPID keys for .env
 curl 127.0.0.1:8300/live/status        # the live-scoring feed: connected?, version, players scored (FFL_LIVE=0 keeps a dev API off it)
 cd web && pnpm dev                     # season UI on :3301 against the API above
@@ -164,6 +165,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - **Push notifications** (`ffl/notify.py`): detectors (new transaction rows, my starters' injuries, waiver-run results) →
   `notices` outbox (`key` = dedupe) → `/notify/tick` flush (quiet hours, moves batched, 24 h drop; one tick at a time, 409
   otherwise) → pywebpush → `web/public/sw.js`; `/settings` holds the device, switches and quiet window.
+  After the tick, `api.pregame_pull`: once per kickoff time (`season.pregame_due`, inside `PREGAME_PULL_MIN` = 85 min,
+  after the inactives are out; done ones in the `pregame_pulls` state) it expires every page and source cache and rebuilds
+  on a thread. Refresh keeps a source entry fetched with a long TTL (FantasySharks' far weeks): re-scraping 14 weeks
+  is what took the old nav button past 30 s.
 - **Transactions page** (`/transactions`, `GET /transactions`): `season.group_transactions` (pure) turns
   the `transactions` table's rows into moves. A waiver run stamps every claim with one timestamp across teams, so a
   move is (timestamp, team); a trade is every row of a timestamp holding a TRADE_* row, one side per team.
@@ -276,7 +281,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   the pane (the deploy prints `deployed <sha>`). On any failure stop and report; never fix it in his tab.
   Without his go-ahead, or outside Herdr, hand him `cd ~/Developer/FFL && scripts/land.sh <branch>`.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
-- Weekly results go to the `results` table (`journal sync` / the UI's Refresh); `journal/results/` is no longer written. Standings are read live from ESPN.
+- Weekly results go to the `results` table (`journal sync` / the hourly `/transactions/sync`); `journal/results/` is no longer written. Standings are read live from ESPN.
 - UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`
   when one fits, and add a missing one with `pnpm dlx shadcn add <name>` (style base-nova, on `@base-ui/react`)
   rather than writing it. If shadcn has nothing that fits, use a well-tested library (Base UI primitives,

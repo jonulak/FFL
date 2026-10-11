@@ -99,7 +99,7 @@ def _failed(name: str, e: Exception) -> None:
 
 
 class Cached:
-    """Per-key TTL cache keeping the last good value through an outage."""
+    """Per-key TTL cache keeping the last good value through an outage. Each entry is (expires, data, ttl)."""
 
     def __init__(self, name: str):
         self.name = name
@@ -117,19 +117,21 @@ class Cached:
             counts = check(data, min_rows)
         except Idle:
             _ok(self.name, {})
-            self._d[key] = (time.time() + ttl, {})
+            self._d[key] = (time.time() + ttl, {}, ttl)
             return {}
         except Exception as e:  # a parser surprise must fall back to last good too, not fail the page
             _failed(self.name, e)
             last = hit[1] if hit else {}
-            self._d[key] = (time.time() + RETRY_S, last)   # cooldown: a dead site is not asked on every build
+            self._d[key] = (time.time() + RETRY_S, last, ttl)   # cooldown: a dead site is not asked on every build
             return last
         _ok(self.name, counts)
-        self._d[key] = (time.time() + ttl, data)
+        self._d[key] = (time.time() + ttl, data, ttl)
         return data
 
     def expire(self) -> None:
-        self._d = {k: (0.0, v) for k, (_, v) in self._d.items()}
+        """Entries fetched at the default TTL refetch on next read. One given a longer TTL (a far week, which
+        barely moves) keeps it: Refresh re-scraping FantasySharks' 14 weeks ahead took /refresh past 30 s."""
+        self._d = {k: (0.0 if ttl <= TTL_S else exp, v, ttl) for k, (exp, v, ttl) in self._d.items()}
 
 
 def expire_all() -> None:

@@ -834,3 +834,14 @@ def test_reseat_leaves_the_bench_and_an_empty_slot_alone():
     cards = [{"player_id": 1, "espn_order": 1}, {"player_id": 2, "espn_order": 2}]
     assert season.reseat([(1, "WR", "BE")], cards, {}) == {}
     assert season.reseat([(2, "BE", "WR")], cards, {}) == {}, "no one left the slot: he keeps his own place"
+
+
+def test_pregame_due_once_per_kickoff_inside_the_lead():
+    from datetime import timedelta, timezone
+    k1 = datetime(2026, 10, 11, 17, 0, tzinfo=timezone.utc)
+    kicks = [k1, k1, k1 + timedelta(minutes=205)]  # two games at 1:00 are one pull
+    lead = timedelta(minutes=season.PREGAME_PULL_MIN)
+    assert season.pregame_due(kicks, k1 - lead - timedelta(minutes=1), set()) == [], "too early"
+    assert season.pregame_due(kicks, k1 - lead, set()) == [k1]
+    assert season.pregame_due(kicks, k1 - timedelta(minutes=10), {k1.isoformat()}) == [], "already pulled"
+    assert season.pregame_due(kicks, k1, set()) == [], "kicked off: too late to matter"

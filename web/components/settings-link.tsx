@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 
-// The gear at the nav's right edge, beside Refresh: Settings is not a page tab. Full ink on its own page.
+// The gear at the nav's right edge: Settings is not a page tab. Full ink on its own page.
 export function SettingsLink() {
   const active = usePathname().startsWith("/settings");
   return (

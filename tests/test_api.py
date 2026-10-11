@@ -80,8 +80,11 @@ def test_refresh_502s_when_espn_is_down(client, monkeypatch):
 def test_transactions_sync_answers_the_new_count(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
     monkeypatch.setattr(api, "sync_transactions", lambda lg: [{}, {}])
+    results = []
+    monkeypatch.setattr(api, "sync_results", lambda lg, settings: results.append(lg))
     r = client.post("/transactions/sync")
     assert r.status_code == 200 and r.json() == {"new": 2}
+    assert results == ["LG"], "the hourly sync keeps the results table too"
     monkeypatch.setattr(api, "sync_transactions", lambda lg: [])
     assert client.post("/transactions/sync").json() == {"new": 0}
 
@@ -1262,6 +1265,7 @@ def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypat
 
 def test_notify_tick_409s_while_another_runs(client, monkeypatch):
     monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
+    monkeypatch.setattr(api, "pregame_pull", lambda: [])
     assert api._NOTIFY.acquire(blocking=False)
     try:
         assert client.post("/notify/tick").status_code == 409
@@ -1334,3 +1338,19 @@ def test_sources_status_reports_memory_over_the_db(client, monkeypatch):
     monkeypatch.setitem(sources.STATUS, "sharks", {"ok_at": "b", "rows": {"QB": 60}, "error": None, "failing_since": None})
     body = client.get("/sources/status").json()
     assert body["cbs"]["ok_at"] == "a" and body["sharks"]["rows"] == {"QB": 60}
+
+
+def test_notify_tick_pulls_once_before_a_kickoff(client, monkeypatch):
+    """Inactives are out 90 minutes before kickoff: the tick inside the lead expires every page and source, once."""
+    from datetime import datetime, timedelta, timezone
+    monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
+    kick = datetime.now(timezone.utc) + timedelta(minutes=60)
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
+    monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg: {6: [kick, kick]})
+    client.get("/week/3")
+    assert client.post("/notify/tick").json()["pregame"] == [kick.isoformat()]
+    api.cache.join()
+    assert client.calls["week"] == 2, "rebuilt behind the tick"
+    assert client.post("/notify/tick").json()["pregame"] == [], "once per kickoff"
+    monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg: (_ for _ in ()).throw(RuntimeError("espn down")))
+    assert client.post("/notify/tick").json()["pregame"] == {"error": "espn down"}

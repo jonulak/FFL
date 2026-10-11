@@ -81,6 +81,15 @@ def test_expire_all_forces_a_refetch(monkeypatch):
     assert c.get(1, lambda: {("b", "RB"): 2.0}) == {("b", "RB"): 2.0}
 
 
+def test_expire_all_keeps_a_long_ttl_entry(monkeypatch):
+    """A far week is fetched with a long TTL because it barely moves; Refresh must not re-scrape every one of them."""
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+    c = sources.Cached("exp-long")
+    c.get(9, lambda: {("a", "RB"): 1.0}, ttl=6 * 3600)
+    sources.expire_all()
+    assert c.get(9, lambda: pytest.fail("kept through the refresh")) == {("a", "RB"): 1.0}
+
+
 def test_check_per_call_minimum_and_empty_always_fails():
     with pytest.raises(sources.Thin, match="empty"):
         sources.check({}, {})

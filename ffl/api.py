@@ -24,7 +24,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Callable, Literal
 
@@ -1001,10 +1001,13 @@ def sync_all() -> dict:
 @app.post("/transactions/sync")
 def transactions_sync():
     """The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
-    the DB's transactions table, so the record keeps up with no page open. Concurrent syncs are
-    safe: the table's (season, id) key dedupes."""
+    the DB's transactions table, so the record keeps up with no page open, and the weekly results into
+    `results` (the nav's Refresh did that until it went). Concurrent syncs are safe: the table's
+    (season, id) key dedupes."""
     try:
-        new = sync_transactions(espn_season.fresh_league())
+        lg = espn_season.fresh_league()
+        new = sync_transactions(lg)
+        sync_results(lg, load())
     except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
     return {"new": len(new)}  # new rows already dropped the Transactions page (journal.ON_NEW_ROWS)
@@ -1066,35 +1069,59 @@ def notify_recent():
 
 @app.post("/notify/tick")
 def notify_tick():
-    """launchd/com.jonulak.ffl-notify every 15 minutes: sync, detect, flush (notify.tick)."""
+    """launchd/com.jonulak.ffl-notify every 15 minutes: sync, detect, flush (notify.tick), then the pre-game pull."""
     if not _NOTIFY.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="a notify tick is already running")
     try:
         out = notify.tick()
+        try:
+            out["pregame"] = pregame_pull()
+        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
+            out["pregame"] = {"error": str(e)}
     finally:
         _NOTIFY.release()
     return out
 
 
-@app.post("/refresh")
-def refresh():
-    # expire_all, not clear: a refresh while ESPN is down must still leave the stale payloads
-    # behind for the fallback to serve, flagged — never a blank page on Sunday.
+def expire_everything() -> None:
+    """Every page and every projection/injury cache refetches on its next read. Expire, not clear: a pull while
+    ESPN is down must still leave the stale payloads behind for the fallback to serve, flagged."""
     cache.expire_all()
-    # the Sleeper-week, season-projection and injury caches live in espn_season; Refresh busts those too
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
     espn_season._BOXES.clear()
     if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
         espn_season._INJ[0] = 0.0
     sources.expire_all()  # same reason: the last good scrape stays for an outage
+
+
+def pregame_pull(now: datetime | None = None) -> list[str]:
+    """Once per kickoff time, inside season.PREGAME_PULL_MIN of it (the inactives are out): expire everything and
+    rebuild the pages on a thread behind the tick. Answers the kickoffs pulled for."""
+    kicks = [k for ks in espn_season.kickoffs_by_week(espn_season.fresh_league()).values() for k in ks]
+    pulled = set(db.get_state("pregame_pulls", []) or [])
+    due = season.pregame_due(kicks, now or datetime.now(timezone.utc), pulled)
+    if not due:
+        return []
+    expire_everything()
+    t = threading.Thread(target=cache.rebuild_expired, daemon=True, name="cache-pregame")
+    with cache._lock:
+        cache._threads["pregame"] = t
+    t.start()
+    db.put_state("pregame_pulls", sorted(pulled | {k.isoformat() for k in due})[-40:])  # a season's kickoff times
+    return [k.isoformat() for k in due]
+
+
+@app.post("/refresh")
+def refresh():
+    """A forced pull by hand (curl; the nav button is gone, the notify tick's pregame_pull runs one before games).
+    Waits for every page to rebuild."""
+    expire_everything()
     try:
         synced = sync_all()
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001 — an ESPN failure is a 502, not a bare traceback
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
-    # The button is the one place the user asks to wait: rebuild here so the page it re-renders
-    # is fresh, rather than the old payload with a rebuild running behind it.
     cache.rebuild_expired()
     return {"synced": synced, "at": datetime.now().strftime("%H:%M")}
