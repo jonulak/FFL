@@ -321,10 +321,10 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
             {/* line 2: vs/when, giving way to an ellipsis, and the call flush right under the number */}
             <div className="flex min-w-0 items-center justify-between gap-x-2 md:contents">
               {/* one 20px line, the chip's height: the mixed faces would otherwise stand the line box 24px tall */}
-              <div className="min-w-0 truncate max-md:h-5 max-md:leading-5 md:[grid-area:match]">
+              <div className="flex min-w-0 items-center max-md:h-5 max-md:leading-5 md:[grid-area:match]">
                 {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it */}
-                {c.pos !== slot && <><span className="text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>{" "}</>}
-                <GameLink href={gameLinkFor(c, week)}><Matchup c={c} /></GameLink>
+                {c.pos !== slot && <span className="mr-1 shrink-0 text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>}
+                <GameLink href={gameLinkFor(c, week)} className="max-w-full"><span className="block min-w-0 truncate"><Matchup c={c} /></span></GameLink>
               </div>
               <div className="flex shrink-0 gap-1 md:[grid-area:call]"><CallChip c={c} week={week} split /></div>
             </div>
