@@ -4,7 +4,16 @@ Pure parse_* seams over the raw JSON; the fetches (below) sit behind a small TTL
 """
 from __future__ import annotations
 
+import logging
 import re
+import threading
+import time
+from datetime import datetime
+from typing import Callable
+
+import requests
+
+log = logging.getLogger(__name__)
 
 SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 DRIVES = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/{id}/competitions/{id}/drives"
@@ -144,3 +153,123 @@ def mark(drives: list[dict], mine: dict[int, str], opp: dict[int, str], dst_mine
 def scoring_plays(drives: list[dict]) -> list[dict]:
     """The game's scoring plays, newest first (drives and their plays are already newest first)."""
     return [p for d in drives for p in d["plays"] if p["scoring"]]
+
+
+RETRY_S = 60
+
+
+class TtlCache:
+    """Per-key TTL cache that fetches inline and keeps the last good answer through an outage (served with the
+    time it was fetched). Standalone, not ffl.sources.Cached: that one's status feeds the 24 h "source failing"
+    push, and an NFL outage must not page the phone. Inline, not api.Cache's stale-while-revalidate: a live game
+    page polls every 15 s and must not read one poll behind. A cold failure raises: there is nothing to serve."""
+
+    def __init__(self):
+        self._d: dict = {}  # key -> (expires, payload, fetched_at, failed)
+        self._lock = threading.Lock()
+
+    def get(self, key, fetch: Callable[[], dict], ttl_of: Callable[[dict], float]):
+        now = time.time()
+        with self._lock:
+            hit = self._d.get(key)
+        if hit and hit[0] > now:
+            return hit[1], (_hhmm(hit[2]) if hit[3] else None)
+        try:
+            data = fetch()
+        except Exception as e:  # noqa: BLE001 — any failure falls back to the last good answer
+            if hit is None:
+                raise
+            log.warning("nfl %s failed, serving %s: %s", key, _hhmm(hit[2]), e)
+            with self._lock:
+                self._d[key] = (now + RETRY_S, hit[1], hit[2], True)
+            return hit[1], _hhmm(hit[2])
+        with self._lock:
+            self._d[key] = (now + ttl_of(data), data, now, False)
+        return data, None
+
+    def expire(self) -> None:
+        with self._lock:
+            self._d = {k: (0.0, *v[1:]) for k, v in self._d.items()}
+
+    def clear(self) -> None:
+        with self._lock:
+            self._d = {}
+
+
+def _hhmm(ts: float) -> str:
+    return datetime.fromtimestamp(ts).strftime("%H:%M")
+
+
+_BOARDS = TtlCache()
+_DRIVES = TtlCache()
+
+
+def _get(url: str, params: dict | None = None) -> dict:
+    r = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+
+def _ts(iso: str | None) -> float | None:
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp() if iso else None
+    except ValueError:
+        return None
+
+
+def scoreboard_ttl(sb: dict, now: float | None = None) -> float:
+    """20 s while a game is on; otherwise until the next kickoff (+5 s), between 20 s and 10 min."""
+    now = time.time() if now is None else now
+    if any(g["status"] == "in" for g in sb["games"]):
+        return 20
+    ahead = [t - now for g in sb["games"] if g["status"] == "pre" and (t := _ts(g["kickoff"])) and t > now]
+    return max(20, min(600, int(min(ahead)) + 5)) if ahead else 600
+
+
+def drives_ttl(status: str) -> float:
+    return {"in": 15, "pre": 600}.get(status, 86400)
+
+
+def scoreboard(week: int | None) -> tuple[dict, str | None]:
+    """The week's games (ESPN's current week when None), parsed."""
+    params = {"week": week, "seasontype": 2} if week else None
+    return _BOARDS.get(week or "current", lambda: parse_scoreboard(_get(SCOREBOARD, params)), scoreboard_ttl)
+
+
+def drives(event_id: str, status: str, ids: dict[str, str]) -> tuple[list[dict], str | None]:
+    """One game's drives and plays, newest first; [] before kickoff."""
+    fetch = lambda: {"drives": parse_drives(_get(DRIVES.format(id=event_id), {"limit": 60}), ids)}  # noqa: E731
+    # keyed by status too: a page opened before kickoff caches [] for 10 min, and the flip to "in" must refetch
+    data, stale = _DRIVES.get((event_id, status), fetch, lambda _: drives_ttl(status))
+    return data["drives"], stale
+
+
+def overlay(games: list[dict], live: dict[str, dict]) -> list[dict]:
+    """FastCast's clock, quarter, score and possession over the scoreboard's, so the tab agrees with the Matchup
+    page to the second while the socket is up. The scoreboard keeps what the feed lacks (down and distance)."""
+    out = []
+    for g in games:
+        s = live.get(g["away"]["abbr"]) or live.get(g["home"]["abbr"])
+        if not s or s.get("status") not in ("in", "post"):
+            out.append(g)
+            continue
+        score = s.get("score") or {}
+        side = lambda c: {**c, "score": score.get(c["abbr"], c.get("score"))}  # noqa: E731
+        on = s["status"] == "in"
+        out.append({**g, "status": s["status"], "quarter": s.get("quarter", g.get("quarter")),
+                    "clock": s.get("clock") if on else None, "away": side(g["away"]), "home": side(g["home"]),
+                    "ball": s.get("ball") if on else None, "red_zone": bool(on and s.get("red_zone")),
+                    "down": g.get("down") if on else None})
+    return out
+
+
+def expire_all() -> None:
+    """POST /refresh: refetch on next read, the last good kept for an outage."""
+    _BOARDS.expire()
+    _DRIVES.expire()
+
+
+def reset() -> None:
+    """Tests only."""
+    _BOARDS.clear()
+    _DRIVES.clear()

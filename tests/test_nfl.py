@@ -1,5 +1,8 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 from ffl import nfl
 
@@ -8,6 +11,13 @@ FIX = Path(__file__).parent / "fixtures" / "nfl"
 
 def load(name):
     return json.loads((FIX / name).read_text())
+
+
+@pytest.fixture(autouse=True)
+def _nfl_reset():
+    nfl.reset()
+    yield
+    nfl.reset()
 
 
 def test_club_aliases():
@@ -114,3 +124,60 @@ def test_scoring_plays_newest_first():
     assert sc and all(p["scoring"] for p in sc)
     seq = [int(p["id"]) for p in sc]
     assert seq == sorted(seq, reverse=True)
+
+
+def test_scoreboard_caches_then_serves_last_good_on_failure(monkeypatch):
+    calls = []
+    raw = load("scoreboard-w5.json")
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: calls.append(params) or raw)
+    first, stale = nfl.scoreboard(5)
+    assert stale is None and first["week"] == 5 and calls == [{"week": 5, "seasontype": 2}]
+    nfl.scoreboard(5)
+    assert len(calls) == 1  # inside the TTL
+    nfl.expire_all()
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: (_ for _ in ()).throw(RuntimeError("down")))
+    again, stale = nfl.scoreboard(5)
+    assert again == first and stale is not None and len(stale) == 5  # "HH:MM"
+
+
+def test_scoreboard_cold_failure_raises(monkeypatch):
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: (_ for _ in ()).throw(RuntimeError("down")))
+    with pytest.raises(RuntimeError):
+        nfl.scoreboard(None)
+
+
+def test_drives_refetch_when_the_game_kicks_off(monkeypatch):
+    calls = []
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: calls.append(url) or {"items": []})
+    assert nfl.drives("401872989", "pre", {})[0] == []
+    nfl.drives("401872989", "pre", {})
+    assert len(calls) == 1  # pregame: cached
+    nfl.drives("401872989", "in", {})
+    assert len(calls) == 2  # kickoff: the empty pregame feed is not served for the rest of its 10 min
+
+
+def test_ttls():
+    now = 1_000_000.0
+    live = {"games": [{"status": "in", "kickoff": "2026-10-11T17:00Z"}]}
+    assert nfl.scoreboard_ttl(live, now) == 20
+    later = {"games": [{"status": "post", "kickoff": "x"}]}
+    assert nfl.scoreboard_ttl(later, now) == 600
+    assert nfl.drives_ttl("in") == 15 and nfl.drives_ttl("pre") == 600 and nfl.drives_ttl("post") == 86400
+
+
+def test_scoreboard_ttl_wakes_for_next_kickoff():
+    now = datetime(2026, 10, 11, 16, 58, tzinfo=timezone.utc).timestamp()
+    sb = {"games": [{"status": "pre", "kickoff": "2026-10-11T17:00Z"}]}
+    assert nfl.scoreboard_ttl(sb, now) == 125  # two minutes to kickoff, plus 5 s
+
+
+def test_overlay_takes_feed_clock_and_score():
+    g = {"away": {"abbr": "CHI", "score": 0}, "home": {"abbr": "GB", "score": 7}, "status": "in",
+         "quarter": 1, "clock": "5:51", "ball": None, "red_zone": False, "down": "1st & 10 at CHI 33"}
+    live = {"CHI": {"status": "in", "quarter": 2, "clock": "14:10", "score": {"CHI": 3, "GB": 7}, "ball": "GB", "red_zone": True}}
+    out = nfl.overlay([g], live)[0]
+    assert out["quarter"] == 2 and out["clock"] == "14:10" and out["away"]["score"] == 3
+    assert out["ball"] == "GB" and out["red_zone"] is True
+    assert out["down"] == "1st & 10 at CHI 33"  # the feed has no down; the scoreboard's stays
+    assert g["quarter"] == 1  # input untouched
+    assert nfl.overlay([g], {}) == [g]  # no feed: the scoreboard stands
