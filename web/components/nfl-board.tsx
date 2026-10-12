@@ -37,7 +37,8 @@ export function PossessionDot({ red }: { red: boolean }) {
 }
 
 // One club's line of a game card: mark, name and record, the score at the far end. Once the game
-// is on the trailing club steps back to 60% ink; a final's winner carries the caret, as on a League tile.
+// is on the trailing club steps back to 60% ink; a final's winner carries the caret, as on a League tile, centred on
+// the row so it sits level with the score.
 export function NflClubRow({ c, g, trailing }: { c: NflClub; g: NflGame; trailing: boolean }) {
   const final = g.status === "post";
   return (
@@ -52,7 +53,7 @@ export function NflClubRow({ c, g, trailing }: { c: NflClub; g: NflGame; trailin
       </div>
       <p className="font-display text-[1.5rem] font-bold leading-none tabular-nums tracking-tight">{c.score ?? ""}</p>
       {final && (
-        <span className="-ml-1 flex w-2.5 shrink-0 self-start pt-[0.4375rem]">
+        <span className="-ml-1 flex w-2.5 shrink-0 items-center self-stretch">
           {c.winner && <><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></>}
         </span>
       )}
