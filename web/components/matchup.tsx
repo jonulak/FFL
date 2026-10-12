@@ -208,10 +208,10 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
           {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
         </ItemTitle>
         {/* `max-sm:hidden!`: the `flex!` that beats shadcn's line-clamp reset would beat a plain `max-sm:hidden` too */}
-        <ItemDescription className={`mt-1 line-clamp-none flex! flex-wrap items-center gap-x-1.5 text-xs leading-4 tabular-nums max-sm:hidden! ${opp ? "justify-end text-right" : ""}`}>
+        <ItemDescription className={`mt-2 line-clamp-none flex! flex-wrap items-center gap-x-1.5 text-xs leading-4 tabular-nums max-sm:hidden! ${opp ? "justify-end text-right" : ""}`}>
           <span className="font-semibold text-foreground/80">{p.pos}</span>
           {/* the bye says itself in the chip; the line keeps only a real game */}
-          {!p.bye && <GameLink href={gameLinkFor(p, week)}><GameLine p={p} size={14} /></GameLink>}
+          {!p.bye && <GameLink href={gameLinkFor(p, week)} className="-my-1 py-1"><GameLine p={p} size={14} /></GameLink>}
           {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </ItemDescription>
         {/* The row's one fact once he has played: the box-score line, in the play feed's register,
@@ -230,9 +230,9 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
       {/* The phone's game line spans the half, the PROJ unit at its inner end by the spine; the
           opponent's is mirrored, his game at the outer edge. Once his game is on the score line
           needs the width, so the note (`proj 17.8`) closes the stat line beneath instead. */}
-      <ItemFooter className={`-mt-0.5 gap-x-1.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
+      <ItemFooter className={`mt-1 gap-x-1.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
         <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 ${opp ? "justify-end" : ""}`}>
-          {!p.bye && <GameLink href={gameLinkFor(p, week)}><GameLine p={p} size={13} /></GameLink>}
+          {!p.bye && <GameLink href={gameLinkFor(p, week)} className="-my-1 py-1"><GameLine p={p} size={13} /></GameLink>}
           {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </span>
         {!on && <NumNote p={p} now={now} />}

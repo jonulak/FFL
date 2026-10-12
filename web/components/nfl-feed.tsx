@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition, type CSSProperties } from "react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardContent } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { NflDrive, NflGame, NflGamePage, NflPlay } from "@/lib/api";
@@ -15,15 +16,15 @@ import { useLive } from "./use-live";
 
 const FILTERS: [FeedFilter, string][] = [["all", "All"], ["mine", "My players"], ["scoring", "Scoring"]];
 
-// A drive's header: the club, ESPN's summary, and how it ended ("GB · 10 plays, 91 yards, 6:13 · TD").
-// A drive still on the field has no result yet.
+// A drive's header, the accordion's trigger: the club, ESPN's summary, and how it ended ("GB · 10 plays, 91 yards,
+// 6:13 · TD"), the chevron after. A drive still on the field has no result yet.
 function DriveHeader({ d }: { d: NflDrive }) {
   return (
-    <div className="flex items-baseline gap-2 bg-foreground/[0.04] px-(--card-spacing) py-2">
+    <AccordionTrigger className="items-center gap-2 rounded-none border-0 bg-foreground/[0.04] px-(--card-spacing) py-2.5 hover:bg-foreground/[0.07] hover:no-underline focus-visible:ring-inset">
       <span className={`${LABEL} text-foreground`}>{d.team ?? "—"}</span>
-      <span className="text-xs text-muted-foreground">{d.description}</span>
-      {d.result && <span className={`${LABEL} ml-auto`}>{d.result}</span>}
-    </div>
+      <span className="min-w-0 flex-1 text-xs font-normal text-muted-foreground">{d.description}</span>
+      {d.result && <span className={`${LABEL} shrink-0`}>{d.result}</span>}
+    </AccordionTrigger>
   );
 }
 
@@ -96,7 +97,17 @@ export function NflFeedLive({ initial, path, filter, club }: { initial: NflGameP
         <CardContent className="px-0 py-0">
           {drives.length === 0
             ? <p className="py-6 text-center text-xs text-muted-foreground">{empty}</p>
-            : drives.map((d) => <section key={d.id}><DriveHeader d={d} /><Plays plays={d.plays} g={data.game} entering={entering} prior={prior} /></section>)}
+            : (
+              // every drive starts collapsed; the open set is the accordion's own state, so a poll or a filter keeps it
+              <Accordion multiple defaultValue={[]}>
+                {drives.map((d) => (
+                  <AccordionItem key={d.id} value={d.id} className="border-foreground/10">
+                    <DriveHeader d={d} />
+                    <AccordionContent className="pb-0"><Plays plays={d.plays} g={data.game} entering={entering} prior={prior} /></AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            )}
         </CardContent>
       </Card>
     </div>
