@@ -126,8 +126,8 @@ function OptionRow({ r, rec, onPick }: { r: Row; rec: boolean; onPick: () => voi
         <span className={`${SLOT} ${r.slot === "BE" ? "text-muted-foreground" : ""}`}>{r.slot === "BE" ? "BE" : slotLabel(r.slot)}</span>
         {shot}
         <span className="min-w-0">
-          <span className={`flex items-baseline gap-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight ${who ? "" : "text-muted-foreground"}`}>
-            <span className="min-w-0 truncate">{name}</span>
+          <span className={`flex flex-wrap items-baseline gap-x-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight ${who ? "" : "text-muted-foreground"}`}>
+            <span className="min-w-0 break-words">{name}</span>
             {who && <InjuryMark c={who} />}
           </span>
           {sub && <span className="mt-0.5 block">{sub}</span>}
@@ -159,7 +159,7 @@ function Body({ subject, move, blocked, onFix, week, sit, busy, Title, Descripti
       <>
         <Headshot c={picked} idle={idle(picked)} />
         <div className="min-w-0">
-          <Title className="truncate font-display text-xl font-bold leading-tight tracking-tight">Move {picked.name}</Title>
+          <Title className="text-balance break-words font-display text-xl font-bold leading-tight tracking-tight">Move {picked.name}</Title>
           <Description render={<div />} className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
             <span className="font-display font-semibold uppercase tracking-[0.08em] text-foreground/80">{slotLabel(picked.slot)}</span>
             <span aria-hidden>·</span>
@@ -175,7 +175,7 @@ function Body({ subject, move, blocked, onFix, week, sit, busy, Title, Descripti
       <>
         <div aria-hidden className="size-10 shrink-0 rounded-md border border-dashed border-foreground/25" />
         <div className="min-w-0">
-          <Title className="truncate font-display text-xl font-bold leading-tight tracking-tight">Fill {slotLabel(subject.slot)}</Title>
+          <Title className="text-balance break-words font-display text-xl font-bold leading-tight tracking-tight">Fill {slotLabel(subject.slot)}</Title>
           <Description className="mt-0.5 text-sm text-muted-foreground">
             {subject.slot === "IR"
               ? <>Empty IR slot <span aria-hidden>·</span> IR or Out only</>

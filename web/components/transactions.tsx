@@ -45,11 +45,14 @@ function Tile({ p, out }: { p: TxPlayer; out: boolean }) {
   );
 }
 
+// The trade's right side reads out from the middle, from `sm` only: the phone stacks the sides, flush left.
+const MIRROR = "sm:flex-row-reverse sm:text-right";
+
 function PlayerLine({ p, out, mirror = false }: { p: TxPlayer; out: boolean; mirror?: boolean }) {
   const seed = { player_id: p.player_id, name: p.name, pos: p.pos ?? "", team: p.team ?? "" };
   const Glyph = out ? Minus : Plus;
   return (
-    <div className={`flex min-w-0 items-center gap-2.5 ${mirror ? "flex-row-reverse text-right" : ""}`}>
+    <div className={`flex min-w-0 items-center gap-2.5 ${mirror ? MIRROR : ""}`}>
       <span className={`grid size-5 shrink-0 place-items-center rounded-sm ${out ? "bg-foreground/6 text-foreground/55" : "bg-foreground/12 text-foreground"}`}>
         <Glyph className="size-3.5" strokeWidth={2.5} aria-hidden />
         <span className="sr-only">{out ? "dropped" : "added"}</span>
@@ -58,11 +61,11 @@ function PlayerLine({ p, out, mirror = false }: { p: TxPlayer; out: boolean; mir
         <Tile p={p} out={out} />
       </PlayerTrigger>
       <div className="min-w-0">
-        <p className={`truncate font-display text-[1.0625rem] font-semibold leading-tight tracking-tight sm:text-[1.125rem] ${out ? "text-foreground/70" : ""}`}>
+        <p className={`break-words font-display text-[1.0625rem] font-semibold leading-tight tracking-tight sm:text-[1.125rem] ${out ? "text-foreground/70" : ""}`}>
           <PlayerTrigger p={seed} className={`rounded-sm ${NAME_LINK}`}>{p.name}</PlayerTrigger>
         </p>
         {/* mirrored, the line only moves to the right edge: it still reads POS · TEAM */}
-        <p className={`mt-0.5 flex items-center gap-1.5 text-xs leading-4 text-muted-foreground ${mirror ? "justify-end" : ""}`}>
+        <p className={`mt-0.5 flex items-center gap-1.5 text-xs leading-4 text-muted-foreground ${mirror ? "sm:justify-end" : ""}`}>
           {p.pos && <span className="font-semibold text-foreground/80">{p.pos}</span>}
           {p.pos && p.team && <span aria-hidden>·</span>}
           {p.team && <span className="flex items-center gap-1"><TeamLogo abbr={p.team} size={14} />{p.team}</span>}
@@ -76,11 +79,11 @@ function PlayerLine({ p, out, mirror = false }: { p: TxPlayer; out: boolean; mir
 // The fantasy team: its mark and name (opens its roster), with the ME chip on mine.
 function Club({ s, me, size = 36, mirror = false, children }: { s: TxSide; me: boolean; size?: number; mirror?: boolean; children?: React.ReactNode }) {
   return (
-    <div className={`flex min-w-0 items-center gap-2.5 ${mirror ? "flex-row-reverse text-right" : ""}`}>
+    <div className={`flex min-w-0 items-center gap-2.5 ${mirror ? MIRROR : ""}`}>
       <ClubLogo src={clubLogoSrc(s)} abbrev={s.abbrev || s.team} size={size} className="shrink-0" />
       <div className="min-w-0">
-        <p className={`flex items-center gap-2 font-display text-[1.125rem] font-semibold leading-tight tracking-tight sm:text-[1.1875rem] ${mirror ? "flex-row-reverse" : ""}`}>
-          <TeamLink id={s.team_id} className="min-w-0 truncate">{s.team}</TeamLink>
+        <p className={`flex items-center gap-2 font-display text-[1.125rem] font-semibold leading-tight tracking-tight sm:text-[1.1875rem] ${mirror ? "sm:flex-row-reverse" : ""}`}>
+          <TeamLink id={s.team_id} className="min-w-0 break-words">{s.team}</TeamLink>
           {me && <Badge variant="muted" shape="chip" className="shrink-0">me</Badge>}
         </p>
         {children}
@@ -143,10 +146,12 @@ function TradeRow({ m, me }: { m: TxMove; me: number }) {
         <time dateTime={m.at} className="tabular-nums">{stamp(m.at)}</time>
       </p>
       {b ? (
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-x-3 sm:gap-x-6">
+        // on the phone the two sides stack, the swap mark turned to point between them: abreast, each
+        // half is ~130px and every name in it cuts
+        <div className="grid items-start gap-y-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-x-6">
           {half(a, false)}
-          <span className="mt-2 grid size-7 place-items-center rounded-full bg-foreground/10 sm:size-8">
-            <ArrowLeftRight className="size-4" aria-label="traded with" />
+          <span className="grid size-7 place-items-center rounded-full bg-foreground/10 max-sm:ml-1.5 sm:mt-2 sm:size-8">
+            <ArrowLeftRight className="size-4 max-sm:rotate-90" aria-label="traded with" />
           </span>
           {half(b, true)}
         </div>

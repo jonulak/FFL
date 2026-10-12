@@ -136,22 +136,25 @@ function ShortKickoff({ iso }: { iso: string }) {
   return <span suppressHydrationWarning>{d.toLocaleString(undefined, opts)}</span>;
 }
 
-// "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare. One line at every
-// width: inline text on the phone, so the line ends in an ellipsis; from md the mark joins it. A game on shows its
-// clock and score in the short form everywhere, since the full score does not fit the column.
+// "at LAR" when he travels, "vs SF" at home; without a venue the opponent still shows, bare. On the phone it is
+// inline text in two unbreakable pieces, the opponent and the time, so a narrow row breaks between them
+// (`at JAX` / `17-19 Final`) rather than cutting the score; from md the mark joins it on one line. A game on shows
+// its clock and score in the short form everywhere, since the full score does not fit the column.
 function Matchup({ c }: { c: Card }) {
   const when = c.game || !c.kickoff
     ? <Kickoff iso={c.kickoff} bye={c.bye} game={c.game} team={c.team} compact />
-    : <><span className="lg:hidden"><ShortKickoff iso={c.kickoff} /></span><span className="max-lg:hidden"><Kickoff iso={c.kickoff} bye={c.bye} /></span></>;
+    : <><span className="whitespace-nowrap lg:hidden"><ShortKickoff iso={c.kickoff} /></span><span className="max-lg:hidden"><Kickoff iso={c.kickoff} bye={c.bye} /></span></>;
   if (!c.opponent) return <span className="text-xs text-muted-foreground md:text-sm">{when}</span>;
   return (
     // the phone line is set at the caption size, so the kickoff fits beside the call chip more often than not
     <span className="text-xs text-muted-foreground md:flex md:items-center md:gap-x-1.5 md:text-sm">
-      {c.home !== null && <>
-        <span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80 md:text-[0.8125rem]">{c.home ? "vs" : "at"}</span>{" "}
-      </>}
-      <span className="contents max-md:hidden"><TeamLogo abbr={c.opponent} size={18} /></span>
-      <span className="font-medium text-foreground/85">{c.opponent}</span>{" "}
+      <span className="whitespace-nowrap md:contents">
+        {c.home !== null && <>
+          <span className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80 md:text-[0.8125rem]">{c.home ? "vs" : "at"}</span>{" "}
+        </>}
+        <span className="contents max-md:hidden"><TeamLogo abbr={c.opponent} size={18} /></span>
+        <span className="font-medium text-foreground/85">{c.opponent}</span>
+      </span>{" "}
       <span aria-hidden className="max-lg:hidden">·</span>
       <span className="md:min-w-0 md:truncate">{when}</span>
     </span>
@@ -290,8 +293,8 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
             {/* line 1: who, and the number flush right */}
             <div className="flex min-w-0 items-baseline justify-between gap-x-2 md:contents">
               <div className="min-w-0 md:[grid-area:name]">
-                <p className={`flex items-baseline gap-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
-                  <PlayerTrigger p={c} className={`min-w-0 truncate rounded-sm ${NAME_LINK}`}>
+                <p className={`flex flex-wrap items-baseline gap-x-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
+                  <PlayerTrigger p={c} className={`min-w-0 break-words text-left rounded-sm ${NAME_LINK}`}>
                     <span className="lg:hidden">{shortName(c.name)}</span>
                     <span className="max-lg:hidden">{c.name}</span>
                   </PlayerTrigger>
@@ -318,13 +321,17 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
                 </span>
               </ProjectionTrigger>
             </div>
-            {/* line 2: vs/when, giving way to an ellipsis, and the call flush right under the number */}
+            {/* line 2: vs/when, breaking to a second line when the row is narrow, and the call flush right under the number */}
             <div className="flex min-w-0 items-center justify-between gap-x-2 md:contents">
-              {/* one 20px line, the chip's height: the mixed faces would otherwise stand the line box 24px tall */}
-              <div className="flex min-w-0 items-center max-md:h-5 max-md:leading-5 md:[grid-area:match]">
+              {/* at least the chip's 20px; the 16px line box keeps the mixed faces from standing it 24px tall,
+                  and a wrapped line stays tight */}
+              <div className="flex min-w-0 items-center max-md:min-h-5 max-md:leading-4 md:[grid-area:match]">
                 {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it */}
-                {c.pos !== slot && <span className="mr-1 shrink-0 text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>}
-                <GameLink href={gameLinkFor(c, week)} className="max-w-full"><span className="block min-w-0 truncate"><Matchup c={c} /></span></GameLink>
+                {c.pos !== slot && <span className="mr-1 shrink-0 self-start text-xs font-semibold leading-5 text-foreground/80 md:hidden">{c.pos}</span>}
+                {/* no `max-w-full` on the phone: the div is sized to the chip less its negative margin, so a
+                    100% cap left the chip 4px short of its own line, which broke (and, truncated, cut "Final" to
+                    "F…" at every phone width). As a min-w-0 flex item the chip still shrinks when it must. */}
+                <GameLink href={gameLinkFor(c, week)} className="md:max-w-full"><span className="block min-w-0 md:truncate"><Matchup c={c} /></span></GameLink>
               </div>
               <div className="flex shrink-0 gap-1 md:[grid-area:call]"><CallChip c={c} week={week} split /></div>
             </div>

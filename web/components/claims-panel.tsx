@@ -71,7 +71,7 @@ function FaceCells({ pid, rank, tags, value, tone = "" }: Face) {
   return (
     <>
       <span className="text-right font-display text-sm font-semibold tabular-nums text-muted-foreground">{rank}</span>
-      <span className="flex min-w-0 items-center gap-1.5">
+      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
         <ClaimName id={pid} className={`font-medium ${tone}`} />
         {tags}
       </span>

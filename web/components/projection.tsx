@@ -49,7 +49,7 @@ export function ProjectionTrigger({ p, week, className = "", label, children }: 
       <DialogContent className="gap-0 p-0 sm:max-w-md">
         <div className="flex items-start justify-between gap-4 px-5 pt-5 pr-12">
           <div className="min-w-0">
-            <DialogTitle className="truncate font-display text-[1.375rem] font-semibold leading-tight tracking-tight">{p.name}</DialogTitle>
+            <DialogTitle className="text-balance break-words font-display text-[1.375rem] font-semibold leading-tight tracking-tight">{p.name}</DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
               {week != null ? `Week ${week} projection` : "This week's projection"} · {p.pos}
             </DialogDescription>

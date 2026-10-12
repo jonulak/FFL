@@ -29,10 +29,10 @@ function MoveLine({ m, n }: { m: Pick<Claim, "add" | "drop">; n?: number }) {
   return (
     <li className="grid grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)] items-baseline gap-x-2 border-t border-foreground/8 py-1 first:border-t-0">
       <span className="text-right font-display font-semibold tabular-nums text-muted-foreground">{n ?? ""}</span>
-      <span className="truncate font-medium">+ <ClaimName id={m.add} /></span>
+      <span className="break-words font-medium">+ <ClaimName id={m.add} /></span>
       {m.drop == null
-        ? <span className="truncate text-muted-foreground">open spot</span>
-        : <span className="truncate text-out">− <ClaimName id={m.drop} /></span>}
+        ? <span className="text-muted-foreground">open spot</span>
+        : <span className="break-words text-out">− <ClaimName id={m.drop} /></span>}
     </li>
   );
 }

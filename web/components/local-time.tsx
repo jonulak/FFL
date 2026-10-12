@@ -90,14 +90,18 @@ export function GameLine({ p, size = 14, className = "" }: { p: Pick<Player, "te
   const ink = (mine: number, theirs: number) => (mine > theirs ? "font-semibold text-foreground" : "text-foreground/80");
   const mark = (abbr: string) => <TeamLogo abbr={abbr} size={size} fallback className="shrink-0 font-medium" />;
   return (
-    <span className={`inline-flex items-center gap-x-1 whitespace-nowrap tabular-nums ${className}`}>
+    // Two unbreakable halves, the clubs and the time: a column too narrow for the whole line breaks
+    // between them (`[LAR] vs [BUF]` / `Mon 8:15 PM`) rather than running past its edge.
+    <span className={`inline-flex flex-wrap items-center gap-x-1 tabular-nums ${className}`}>
       <span className="sr-only">{p.team} {p.home === true ? "vs" : "at"} {p.opponent}</span>
-      {scored && <span className={ink(own, other)}>{own}</span>}
-      {mark(p.team)}
-      <span aria-hidden>{sep}</span>
-      {scored && <span className={ink(other, own)}>{other}</span>}
-      {mark(p.opponent)}
-      <span className="ml-0.5">
+      <span className="inline-flex items-center gap-x-1 whitespace-nowrap">
+        {scored && <span className={ink(own, other)}>{own}</span>}
+        {mark(p.team)}
+        <span aria-hidden>{sep}</span>
+        {scored && <span className={ink(other, own)}>{other}</span>}
+        {mark(p.opponent)}
+      </span>
+      <span className="ml-0.5 whitespace-nowrap">
         {g
           ? <span className={g.status === "in" ? "font-medium text-foreground/85" : undefined}>{gameClock(g)}</span>
           : p.kickoff ? <KickoffTime iso={p.kickoff} /> : null}

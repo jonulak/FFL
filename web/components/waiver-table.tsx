@@ -42,6 +42,9 @@ const PAD = "px-1.5 sm:px-2";
 const NARROW = "@max-[32rem]/table:hidden";
 const CLAIM_COL = "@max-[40rem]/table:hidden";
 const CLAIM_INLINE = "@min-[40rem]/table:hidden";
+// The name line's chips (would start, injury, bye) may break inside themselves in the phone's narrow
+// name column: a chip is one 20px line by default, so it would otherwise run over the numbers beside it.
+const WRAP_CHIPS = "[&_[data-slot=badge]]:h-auto [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:max-w-full [&_[data-slot=badge]]:whitespace-normal [&_[data-slot=badge]]:text-left [&_[data-slot=badge]]:leading-4";
 // The header's hairline is a shadow, not a border: a sticky cell in a collapsed table leaves its
 // border behind, and the rows would show through the gap as they scroll under it.
 const PIN = "sticky top-12 z-[2] bg-card shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--foreground)_10%,transparent)]";
@@ -122,7 +125,8 @@ export function comparePositions(pos: string): Set<string> {
 
 // The name cell every row shares: name and chips, then the caption (POS when the rows mix
 // positions · TEAM · years · matchup), then the hurt teammates ahead of him. It takes the
-// width the numbers leave; the name truncates and the chips and caption wrap. `tail` closes the
+// width the numbers leave, which on the phone is about 105px: the name, the chips and the caption all wrap,
+// and a chip too wide for the column breaks inside itself (`would start` / `+14.0`). `tail` closes the
 // caption line (the outlook button, on a wide table); `actions` is a line of its own under it all
 // (the outlook and the claim, on a narrow one, where the caption has no room for them).
 function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
@@ -132,8 +136,8 @@ function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
   const idle = r.bye || injuryTone(r.injury) === "bad";
   return (
     <TableCell className={`w-full max-w-0 py-2 whitespace-normal ${PAD} ${mine ? "pl-4 sm:pl-5" : ""}`}>
-      <p className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-display text-base font-semibold leading-tight tracking-tight sm:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
-        <PlayerTrigger p={r} className={`max-w-full truncate rounded-sm ${NAME_LINK}`}>{r.name}</PlayerTrigger>
+      <p className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-display text-base font-semibold leading-tight tracking-tight sm:text-[1.1875rem] ${idle ? "text-foreground/70" : ""} ${WRAP_CHIPS}`}>
+        <PlayerTrigger p={r} className={`max-w-full break-words rounded-sm ${NAME_LINK}`}>{r.name}</PlayerTrigger>
         {chip}
         {hurt && (
           <Badge variant={TAG[injuryTone(r.injury)]} shape="chip" title={r.injury_note ?? undefined}>

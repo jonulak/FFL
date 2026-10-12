@@ -65,7 +65,9 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
       <div className={`flex items-center gap-2.5 self-end sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={40} className="sm:hidden" />
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={48} className="hidden sm:flex" />
-        <p className="line-clamp-2 min-w-0 text-balance font-display text-[1.375rem] font-semibold leading-none tracking-tight sm:text-[1.65rem]">
+        {/* the whole name, however many lines it takes: a long team name ("Anthony's Astounding Team")
+            wraps to three at the phone's size rather than clip, and a word wider than the column hyphenates */}
+        <p className="min-w-0 hyphens-auto text-balance font-display text-[1.125rem] font-semibold leading-[1.05] tracking-tight [overflow-wrap:anywhere] sm:text-[1.65rem] sm:leading-none">
           <TeamLink id={side.team_id}>{side.team}</TeamLink>
         </p>
       </div>
@@ -197,8 +199,9 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
       <button type="button" onClick={() => onPick(p)} aria-label={`${p.name}${field ? `, ${FIELD[field].sr}` : ""}: scoring breakdown`}
         className="absolute inset-0 z-0 cursor-pointer rounded-md outline-none" />
       <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
-        <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 font-display text-[1rem] font-semibold leading-none tracking-tight sm:flex-wrap sm:gap-x-2 sm:gap-y-0.5 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/40" : ""}`}>
-          <span className="min-w-0 truncate"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
+        <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 gap-y-0.5 flex-wrap font-display text-[1rem] font-semibold leading-none tracking-tight sm:gap-x-2 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/40" : ""}`}>
+          {/* a name and its chip wrap rather than cut the name: `A. St. Brown BYE` is wider than a phone half */}
+          <span className="min-w-0 break-words"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
           {hurt && (
             <span title={p.injury_note ?? status} className={`shrink-0 font-bold ${TONE[injuryTone(p.injury)]}`}>
               <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
@@ -232,7 +235,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
           needs the width, so the note (`proj 17.8`) closes the stat line beneath instead. */}
       <ItemFooter className={`mt-1 gap-x-1.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
         <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 ${opp ? "justify-end" : ""}`}>
-          {!p.bye && <GameLink href={gameLinkFor(p, week)} className="-my-1 py-1"><GameLine p={p} size={13} /></GameLink>}
+          {!p.bye && <GameLink href={gameLinkFor(p, week)} className="-my-1 py-1"><GameLine p={p} size={13} className={opp ? "justify-end" : ""} /></GameLink>}
           {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </span>
         {!on && <NumNote p={p} now={now} />}
@@ -390,19 +393,20 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
     <Card className={BOARD_CARD} aria-label="Lineups">
       {/* a label strip over the slot rows: the board's header band (DESIGN.md, Header band) */}
       <CardHeader className={`${grid} items-baseline bg-foreground/[0.04] py-3 sm:py-3.5`}>
-        <div className="flex min-w-0 items-baseline gap-x-2.5">
-          <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">
+        {/* a side too narrow for its name and state drops the state to a second line, never cuts the name */}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2.5">
+          <h2 className="min-w-0 break-words font-display text-xl font-semibold uppercase tracking-[0.14em]">
             {data.mine !== false ? "My lineup" : <TeamName side={me} />}
           </h2>
           <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{mine.label}</span>
         </div>
         <span />
         {opp && theirs && (
-          <div className="flex min-w-0 items-baseline justify-end gap-x-2.5">
-            <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{theirs.label}</span>
-            <h2 className="min-w-0 truncate font-display text-xl font-semibold uppercase tracking-[0.14em]">
+          <div className="flex min-w-0 flex-row-reverse flex-wrap items-baseline gap-x-2.5">
+            <h2 className="min-w-0 break-words text-right font-display text-xl font-semibold uppercase tracking-[0.14em]">
               <TeamName side={opp} />
             </h2>
+            <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{theirs.label}</span>
           </div>
         )}
       </CardHeader>
