@@ -151,7 +151,8 @@ export type NflGame = {
   event_id: string; kickoff: string; status: "pre" | "in" | "post"; detail: string | null; quarter: number | null; clock: string | null;
   network: string | null; away: NflClub; home: NflClub; ball: string | null; red_zone: boolean; down: string | null; mine: number; opp: number;
 };
-export type NflSection = { live: boolean; kickoff: string | null; games: NflGame[] };
+// `final`: every game in it is over; those sections come last, most recent first
+export type NflSection = { live: boolean; final?: boolean; kickoff: string | null; games: NflGame[] };
 export type NflBoard = { week: number; current: number; weeks: number; live: boolean; sections: NflSection[]; byes: string[]; stale_since: string | null };
 export type NflPlay = {
   id: string; quarter: number | null; clock: string | null; team: string | null; down: string | null; text: string; kind: string | null;

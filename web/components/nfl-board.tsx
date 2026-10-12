@@ -107,8 +107,10 @@ export function NflBoardLive({ initial, path }: { initial: NflBoard; path: strin
       </SectionHeading>
       {count === 0 && <p className="text-sm text-muted-foreground">No NFL games in week {data.week}.</p>}
       {data.sections.map((s) => (
-        <section key={s.live ? "live" : s.kickoff ?? "tbd"} className="space-y-3">
-          <h2 className={`${LABEL} text-foreground/80`}>{s.live ? "Live" : s.kickoff ? <WindowLabel iso={s.kickoff} /> : "Time TBD"}</h2>
+        <section key={s.live ? "live" : `${s.final ? "final-" : ""}${s.kickoff ?? "tbd"}`} className="space-y-3">
+          <h2 className={`${LABEL} text-foreground/80`}>
+            {s.live ? "Live" : <>{s.final && "Final · "}{s.kickoff ? <WindowLabel iso={s.kickoff} /> : "Time TBD"}</>}
+          </h2>
           <div className="grid gap-3 md:grid-cols-2 md:gap-4">
             {s.games.map((g) => <GameCard key={g.event_id} g={g} week={data.week} />)}
           </div>

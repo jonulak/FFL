@@ -58,9 +58,25 @@ def test_board_live_first_then_windows_mine_first():
     ]
     out = nfl.board(games, mine={"CIN": 2, "SF": 1}, opp={"NO": 1})
     assert out[0]["live"] is True and [g["event_id"] for g in out[0]["games"]] == ["6"]
-    assert [s["kickoff"] for s in out[1:]] == ["2026-10-09T00:15Z", "2026-10-11T17:00Z", "2026-10-11T20:25Z"]
-    assert [g["event_id"] for g in out[2]["games"]] == ["2", "3", "1"]  # mine, then opp only, then the rest
-    assert out[2]["games"][0]["mine"] == 2 and out[2]["games"][1]["opp"] == 1
+    # still to come in time order, the finished window last
+    assert [(s["kickoff"], s["final"]) for s in out[1:]] == [
+        ("2026-10-11T17:00Z", False), ("2026-10-11T20:25Z", False), ("2026-10-09T00:15Z", True)]
+    assert [g["event_id"] for g in out[1]["games"]] == ["2", "3", "1"]  # mine, then opp only, then the rest
+    assert out[1]["games"][0]["mine"] == 2 and out[1]["games"][1]["opp"] == 1
+
+
+def test_board_finished_games_below_the_rest_most_recent_first():
+    games = [
+        _g("1", "2026-10-09T00:15Z", "post", "TB", "DAL"),
+        _g("2", "2026-10-11T13:30Z", "post", "NYJ", "DEN"),
+        _g("3", "2026-10-11T17:00Z", "post", "CIN", "MIA"),
+        _g("4", "2026-10-11T17:00Z", "pre", "MIN", "NO"),  # a delayed game stays with the games to come
+        _g("5", "2026-10-13T00:15Z", "pre", "KC", "BUF"),
+    ]
+    out = nfl.board(games, {}, {})
+    assert [(s["kickoff"], s["final"]) for s in out] == [
+        ("2026-10-11T17:00Z", False), ("2026-10-13T00:15Z", False),
+        ("2026-10-11T17:00Z", True), ("2026-10-11T13:30Z", True), ("2026-10-09T00:15Z", True)]
 
 
 def test_board_no_live_section_when_nothing_on():
