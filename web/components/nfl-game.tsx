@@ -127,7 +127,7 @@ export function NflGameLive({ initial, path }: { initial: NflGamePage; path: str
       )}
       <section className="space-y-2">
         <SectionHeading title="Scoring plays" count={data.scoring.length}>
-          <Link href={feedHref(week, g.away.abbr, data.scoring.length > LATEST ? "scoring" : "all")} className={`${LABEL} -my-2 py-2 text-foreground/55 hover:text-foreground`}>All plays →</Link>
+          <Link href={feedHref(week, g.away.abbr, "all")} className={`${LABEL} -my-2 py-2 text-foreground/55 hover:text-foreground`}>All plays →</Link>
         </SectionHeading>
         <Card className={BOARD_CARD}>
           <CardContent className="divide-y divide-foreground/10 py-1">
