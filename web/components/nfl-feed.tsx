@@ -72,6 +72,13 @@ export function NflFeedLive({ initial, path, filter, club }: { initial: NflGameP
       animated: new Set([...seen.animated, ...rendered.filter((id) => entering.has(id))]),
     });
   }
+  // Every drive starts collapsed but the one on the field (no result yet, game on). When the next drive takes the
+  // field it opens in the finished one's place; drives opened by hand stay open through polls and filters.
+  const live = data.game.status === "in" ? data.drives.find((d) => !d.result)?.id ?? null : null;
+  const [open, setOpen] = useState<{ ids: string[]; live: string | null }>({ ids: live ? [live] : [], live });
+  if (live !== open.live) {  // derived state, set in render like `seen`
+    setOpen({ ids: [...open.ids.filter((id) => id !== open.live), ...(live ? [live] : [])], live });
+  }
   const total = data.drives.reduce((n, d) => n + d.plays.length, 0);
   const empty = data.game.status === "pre"
     ? "Plays appear here once the game starts."
@@ -98,8 +105,7 @@ export function NflFeedLive({ initial, path, filter, club }: { initial: NflGameP
           {drives.length === 0
             ? <p className="py-6 text-center text-xs text-muted-foreground">{empty}</p>
             : (
-              // every drive starts collapsed; the open set is the accordion's own state, so a poll or a filter keeps it
-              <Accordion multiple defaultValue={[]}>
+              <Accordion multiple value={open.ids} onValueChange={(ids: string[]) => setOpen({ ...open, ids })}>
                 {drives.map((d) => (
                   <AccordionItem key={d.id} value={d.id} className="border-foreground/10">
                     <DriveHeader d={d} />
