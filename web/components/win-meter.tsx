@@ -20,13 +20,15 @@ export function WinMeter({ p, teams, final = false }: { p: number; teams: [strin
   const left = final ? outcome(p) : pct(p);
   const right = final ? outcome(1 - p) : pct(1 - p);
   // From `sm` the numbers close the bar at each end; on the phone they sit above it so the bar
-  // keeps the bug's whole width. The favourite's number is full ink, the other steps back. The
+  // keeps the bug's whole width. Both number columns are one fixed width (4rem holds "100%"), so the
+  // bar, and its even line, centre on the bug whatever the two numbers measure ("97%" against "3%"
+  // pushed it right when the columns sized to them). The favourite's number is full ink, the other steps back. The
   // unit runs under it all, as every big numeral carries one.
   const num = "font-display text-lg font-bold leading-none tracking-tight tabular-nums sm:text-xl";
   const dim = "text-foreground/60";
   return (
     <Meter.Root value={Math.round(Math.max(p, 1 - p) * 100)} aria-label={oddsLabel(p, teams, final)}
-      className="grid grid-cols-2 items-center gap-x-3 gap-y-1.5 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+      className="grid grid-cols-2 items-center gap-x-3 gap-y-1.5 sm:grid-cols-[4rem_minmax(0,1fr)_4rem]">
       <span aria-hidden className={`${num} ${end === "right" ? dim : ""}`}>{left}</span>
       <div className="col-span-2 row-start-2 sm:col-span-1 sm:col-start-2 sm:row-start-1">
         <Meter.Track className="relative h-1.5 w-full overflow-hidden rounded-full bg-foreground/12">
