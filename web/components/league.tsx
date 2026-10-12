@@ -71,9 +71,9 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
 // One side of a scorebug row: mark, name and record left, the number right. Once points post
 // the trailing side steps back to 60% ink so the leader reads first. In a final game the winner's
 // score carries a solid caret pointing at it, the way a broadcast scoreboard closes a result; the
-// loser keeps the caret's column empty so the two scores stay aligned.
+// loser, and every row of a game not yet final, keeps the caret's column empty so scores align across tiles.
 // `odds` (the away side's) and `half` draw this row's half of the card's win meter at the edge.
-function ScoreRow({ side, on, trailing, final, won, odds, half }: { side: ScoreSide; on: boolean; trailing: boolean; final: boolean; won: boolean; odds: number | null; half: "top" | "bottom" }) {
+function ScoreRow({ side, on, trailing, won, odds, half }: { side: ScoreSide; on: boolean; trailing: boolean; won: boolean; odds: number | null; half: "top" | "bottom" }) {
   return (
     <li className={`relative flex items-center gap-2.5 py-2.5 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
       {odds != null && <OddsHalf p={odds} half={half} />}
@@ -92,11 +92,10 @@ function ScoreRow({ side, on, trailing, final, won, odds, half }: { side: ScoreS
         </p>
         {on && side.proj > 0 && <p className="mt-0.5 text-xs text-muted-foreground">proj {pts(side.proj)}</p>}
       </div>
-      {final && (
-        <span className="-ml-1 flex w-2.5 shrink-0 self-start pt-[0.4375rem] sm:-ml-1.5">
-          {won && <><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></>}
-        </span>
-      )}
+      {/* the caret's slot is on every row, final or not, so scores line up across tiles in every state */}
+      <span className="-ml-1 flex w-2.5 shrink-0 self-start pt-[0.4375rem] sm:-ml-1.5">
+        {won && <><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></>}
+      </span>
     </li>
   );
 }
@@ -126,8 +125,8 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
       </CardHeader>
       <CardContent className="-mt-(--card-spacing)">
         <ul className="divide-y divide-foreground/10">
-          <ScoreRow side={m.away} on={on} trailing={lead < 0} final={final} won={final && lead > 0} odds={odds} half="top" />
-          <ScoreRow side={m.home} on={on} trailing={lead > 0} final={final} won={final && lead < 0} odds={odds} half="bottom" />
+          <ScoreRow side={m.away} on={on} trailing={lead < 0} won={final && lead > 0} odds={odds} half="top" />
+          <ScoreRow side={m.home} on={on} trailing={lead > 0} won={final && lead < 0} odds={odds} half="bottom" />
         </ul>
       </CardContent>
       {/* the odds as a screen reader hears them; each row draws its half of the edge stripe */}

@@ -52,11 +52,10 @@ export function NflClubRow({ c, g, trailing }: { c: NflClub; g: NflGame; trailin
         <p className="mt-1 text-xs text-muted-foreground">{c.record ?? c.abbr}</p>
       </div>
       <p className="font-display text-[1.5rem] font-bold leading-none tabular-nums tracking-tight">{c.score ?? ""}</p>
-      {final && (
-        <span className="-ml-1 flex w-2.5 shrink-0 items-center self-stretch">
-          {c.winner && <><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></>}
-        </span>
-      )}
+      {/* the caret's slot is on every row, final or not, so scores line up across cards in every state */}
+      <span className="-ml-1 flex w-2.5 shrink-0 items-center self-stretch">
+        {final && c.winner && <><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></>}
+      </span>
     </li>
   );
 }
