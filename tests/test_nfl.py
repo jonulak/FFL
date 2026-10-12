@@ -65,7 +65,7 @@ def test_board_live_first_then_windows_mine_first():
     assert out[1]["games"][0]["mine"] == 2 and out[1]["games"][1]["opp"] == 1
 
 
-def test_board_finished_games_below_the_rest_most_recent_first():
+def test_board_finished_games_below_the_rest_earliest_first():
     games = [
         _g("1", "2026-10-09T00:15Z", "post", "TB", "DAL"),
         _g("2", "2026-10-11T13:30Z", "post", "NYJ", "DEN"),
@@ -76,7 +76,7 @@ def test_board_finished_games_below_the_rest_most_recent_first():
     out = nfl.board(games, {}, {})
     assert [(s["kickoff"], s["final"]) for s in out] == [
         ("2026-10-11T17:00Z", False), ("2026-10-13T00:15Z", False),
-        ("2026-10-11T17:00Z", True), ("2026-10-11T13:30Z", True), ("2026-10-09T00:15Z", True)]
+        ("2026-10-09T00:15Z", True), ("2026-10-11T13:30Z", True), ("2026-10-11T17:00Z", True)]
 
 
 def test_board_no_live_section_when_nothing_on():
