@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition, type CSSProperties } from "react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -8,11 +7,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { NflDrive, NflGame, NflGamePage, NflPlay } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
-import { feedHref, filterDrives, gameHref, priorScores, type FeedFilter } from "@/lib/nfl";
-import { GAME_POLL_MS, NflPlayRow, NflScorebug } from "./nfl-game";
+import { feedHref, filterDrives, priorScores, type FeedFilter } from "@/lib/nfl";
+import { KickoffTime } from "./local-time";
+import { NflPlayRow } from "./nfl-game";
 import { useLedger } from "./play-feed";
-import { StaleBadge } from "./stale-badge";
-import { useLive } from "./use-live";
+import { SectionHeading } from "./section-heading";
 
 const FILTERS: [FeedFilter, string][] = [["all", "All"], ["mine", "My players"], ["scoring", "Scoring"]];
 
@@ -51,8 +50,9 @@ function Plays({ plays, g, entering, prior }: { plays: NflPlay[]; g: NflGame; en
   );
 }
 
-export function NflFeedLive({ initial, path, filter, club }: { initial: NflGamePage; path: string; filter: FeedFilter; club: string }) {
-  const { data } = useLive(initial, path, { pollMs: GAME_POLL_MS });
+// Every play of the game under its drives, newest first, on the game page beneath "In this game". `data` is the
+// page's live payload (NflGameLive polls it); `filter` is the page's `?f=` (URL state, so back and reload keep it).
+export function NflPlayFeed({ data, filter, club }: { data: NflGamePage; filter: FeedFilter; club: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   // memoised: useLedger compares `items` by identity, so a fresh array every render would loop
@@ -81,25 +81,18 @@ export function NflFeedLive({ initial, path, filter, club }: { initial: NflGameP
   }
   const total = data.drives.reduce((n, d) => n + d.plays.length, 0);
   const empty = data.game.status === "pre"
-    ? "Plays appear here once the game starts."
+    ? <>Kickoff <KickoffTime iso={data.game.kickoff} />. Plays appear here once the game starts.</>
     : filter === "mine" ? "None of your starters has been in a play yet."
     : filter === "scoring" ? "No points yet." : "No plays yet.";
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link href={gameHref(data.week, club)} className={`${LABEL} hover:text-foreground`}>← Game</Link>
-        <StaleBadge since={data.stale_since} />
-      </div>
-      <NflScorebug g={data.game} compact />
-      <div className="flex items-center gap-3">
-        <ToggleGroup value={[filter]} onValueChange={(v: string[]) => {
-          const f = v[0] as FeedFilter | undefined;
-          if (f && f !== filter) start(() => router.replace(feedHref(data.week, club, f), { scroll: false }));
-        }} className={pending ? "opacity-60" : ""} aria-label="Filter plays">
-          {FILTERS.map(([f, label]) => <ToggleGroupItem key={f} value={f} className="font-display text-sm font-semibold uppercase tracking-[0.1em]">{label}</ToggleGroupItem>)}
-        </ToggleGroup>
-        <span className="ml-auto font-display text-sm font-medium tabular-nums text-muted-foreground">{total} plays</span>
-      </div>
+    <section className="space-y-2">
+      <SectionHeading title="Plays" count={total} />
+      <ToggleGroup value={[filter]} onValueChange={(v: string[]) => {
+        const f = v[0] as FeedFilter | undefined;
+        if (f && f !== filter) start(() => router.replace(feedHref(data.week, club, f), { scroll: false }));
+      }} className={pending ? "opacity-60" : ""} aria-label="Filter plays">
+        {FILTERS.map(([f, label]) => <ToggleGroupItem key={f} value={f} className="font-display text-sm font-semibold uppercase tracking-[0.1em]">{label}</ToggleGroupItem>)}
+      </ToggleGroup>
       <Card className={`${BOARD_CARD} overflow-hidden`}>
         <CardContent className="px-0 py-0">
           {drives.length === 0
@@ -116,6 +109,6 @@ export function NflFeedLive({ initial, path, filter, club }: { initial: NflGameP
             )}
         </CardContent>
       </Card>
-    </div>
+    </section>
   );
 }

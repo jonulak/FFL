@@ -11,9 +11,9 @@ const game = (o: Partial<NflGame>): NflGame => ({ event_id: "e", kickoff: "2026-
 describe("nfl links", () => {
   it("builds game and feed hrefs", () => {
     expect(gameHref(5, "GB")).toBe("/nfl/5/GB");
-    expect(feedHref(5, "GB")).toBe("/nfl/5/GB/plays");
-    expect(feedHref(5, "GB", "mine")).toBe("/nfl/5/GB/plays?f=mine");
-    expect(feedHref(5, "GB", "all")).toBe("/nfl/5/GB/plays");
+    expect(feedHref(5, "GB")).toBe("/nfl/5/GB");
+    expect(feedHref(5, "GB", "mine")).toBe("/nfl/5/GB?f=mine");
+    expect(feedHref(5, "GB", "all")).toBe("/nfl/5/GB");
   });
   it("parses params and filters", () => {
     expect(parseGameParams("5", "gb")).toEqual({ week: 5, team: "GB" });

@@ -8,8 +8,9 @@ export function gameLinkFor(p: { bye: boolean; opponent?: string | null; team: s
   return p.bye || !p.opponent ? null : gameHref(week, p.team);
 }
 export type FeedFilter = "all" | "mine" | "scoring";
+// The game page with its play feed filtered (the feed is part of the game page; `/plays` only redirects here).
 export const feedHref = (week: number, club: string, f: FeedFilter = "all") =>
-  `${gameHref(week, club)}/plays${f === "all" ? "" : `?f=${f}`}`;
+  `${gameHref(week, club)}${f === "all" ? "" : `?f=${f}`}`;
 
 export function parseFilter(raw: string | string[] | undefined): FeedFilter {
   const v = Array.isArray(raw) ? raw[0] : raw;

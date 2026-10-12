@@ -6,8 +6,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { NflGame, NflGamePage, NflPlay, NflStarter } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
 import { pts, shortName } from "@/lib/format";
-import { feedHref, gameState, inGameRows, priorScores, scoreLine } from "@/lib/nfl";
+import { gameState, inGameRows, scoreLine, type FeedFilter } from "@/lib/nfl";
 import { KickoffTime } from "./local-time";
+import { NflPlayFeed } from "./nfl-feed";
 import { PossessionDot } from "./nfl-board";
 import { TeamLogo } from "./player-media";
 import { SectionHeading } from "./section-heading";
@@ -16,19 +17,18 @@ import { StatLine } from "./stat-line";
 import { useLive } from "./use-live";
 
 export const GAME_POLL_MS = 15_000;
-const LATEST = 5;
 
 // The Matchup scorebug turned to clubs: marks at the outer edges, names in Title, the two scores meeting at the
-// centre in Display numerals; the status line beneath says where the ball is. `compact` is the feed page's.
-export function NflScorebug({ g, compact = false }: { g: NflGame; compact?: boolean }) {
+// centre in Display numerals; the status line beneath says where the ball is.
+export function NflScorebug({ g }: { g: NflGame }) {
   const on = g.status !== "pre";
   const lead = on ? Math.sign((g.away.score ?? 0) - (g.home.score ?? 0)) : 0;
-  const num = compact ? "text-[2rem] sm:text-[2.4rem]" : "text-[2.6rem] sm:text-[3.25rem]";
+  const num = "text-[2.6rem] sm:text-[3.25rem]";
   const side = (c: NflGame["away"], trailing: boolean, end: "l" | "r") => (
     <div className={`flex min-w-0 items-center gap-2.5 sm:gap-3 ${end === "r" ? "flex-row-reverse text-right" : ""} ${trailing ? "text-foreground/60" : ""}`}>
-      <TeamLogo abbr={c.abbr} size={compact ? 32 : 44} fallback />
+      <TeamLogo abbr={c.abbr} size={44} fallback />
       <div className="min-w-0">
-        <p className={`flex items-center gap-2 font-display font-semibold leading-none tracking-tight ${compact ? "text-lg" : "text-[1.375rem] sm:text-[1.65rem]"} ${end === "r" ? "flex-row-reverse" : ""}`}>
+        <p className={`flex items-center gap-2 font-display font-semibold leading-none tracking-tight text-[1.375rem] sm:text-[1.65rem] ${end === "r" ? "flex-row-reverse" : ""}`}>
           <span className="truncate sm:hidden">{c.abbr}</span><span className="hidden truncate sm:inline">{c.name ?? c.abbr}</span>
           {g.ball === c.abbr && <PossessionDot red={g.red_zone} />}
         </p>
@@ -100,12 +100,10 @@ function StarterHalf({ s, end }: { s?: NflStarter; end: "me" | "opp" }) {
   );
 }
 
-export function NflGameLive({ initial, path }: { initial: NflGamePage; path: string }) {
+export function NflGameLive({ initial, path, filter, club }: { initial: NflGamePage; path: string; filter: FeedFilter; club: string }) {
   const { data } = useLive(initial, path, { pollMs: GAME_POLL_MS });
   const { game: g, week } = data;
   const rows = inGameRows(data.starters);
-  const latest = data.scoring.slice(0, LATEST);
-  const prior = priorScores(data.scoring);
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -125,20 +123,7 @@ export function NflGameLive({ initial, path }: { initial: NflGamePage; path: str
           </Card>
         </section>
       )}
-      <section className="space-y-2">
-        <SectionHeading title="Scoring plays" count={data.scoring.length}>
-          <Link href={feedHref(week, g.away.abbr, "all")} className={`${LABEL} -my-2 py-2 text-foreground/55 hover:text-foreground`}>All plays →</Link>
-        </SectionHeading>
-        <Card className={BOARD_CARD}>
-          <CardContent className="divide-y divide-foreground/10 py-1">
-            {latest.length === 0
-              ? <p className="py-4 text-center text-xs text-muted-foreground">
-                  {g.status === "pre" ? <>Kickoff <KickoffTime iso={g.kickoff} />. Scoring plays appear here once the game starts.</> : "No points yet."}
-                </p>
-              : latest.map((p) => <NflPlayRow key={p.id} p={p} g={g} prev={prior[p.id]} />)}
-          </CardContent>
-        </Card>
-      </section>
+      <NflPlayFeed data={data} filter={filter} club={club} />
     </div>
   );
 }

@@ -4,15 +4,19 @@ import { ErrorCard } from "@/components/error-card";
 import { NflGameLive } from "@/components/nfl-game";
 import { apiGet, type NflGamePage } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
-import { parseGameParams } from "@/lib/nfl";
+import { parseFilter, parseGameParams } from "@/lib/nfl";
 
 export const dynamic = "force-dynamic";
 
-// One NFL game by week and either club: its scorebug, my and my opponent's starters in it, its latest scoring plays.
-export default async function Page({ params }: { params: Promise<{ week: string; team: string }> }) {
+// One NFL game by week and either club: its scorebug, my and my opponent's starters in it, and every play under its
+// drives; `?f=mine|scoring` filters the plays (URL state, so back and reload keep it).
+export default async function Page({ params, searchParams }: {
+  params: Promise<{ week: string; team: string }>; searchParams: Promise<{ f?: string | string[] }>;
+}) {
   const { week, team } = await params;
   const p = parseGameParams(week, team);
   if (!p) notFound();
+  const filter = parseFilter((await searchParams).f);
   const path = `/nfl/${p.week}/${p.team}`;
   let d: NflGamePage;
   try {
@@ -25,5 +29,5 @@ export default async function Page({ params }: { params: Promise<{ week: string;
       </div>
     );
   }
-  return <NflGameLive initial={d} path={path} />;
+  return <NflGameLive initial={d} path={path} filter={filter} club={p.team} />;
 }
