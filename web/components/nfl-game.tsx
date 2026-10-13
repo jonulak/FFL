@@ -15,7 +15,7 @@ import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 import { useLive } from "./use-live";
-import { Presence, Swap, Ticker } from "./motion";
+import { Presence, Swap, Ticker, whole } from "./motion";
 
 export const GAME_POLL_MS = 15_000;
 
@@ -44,7 +44,7 @@ export function NflScorebug({ g }: { g: NflGame }) {
           {side(g.away, lead < 0, "l")}
           <p className={`font-display font-bold leading-none tabular-nums tracking-tight ${num}`}>
             <Swap k={on ? "on" : "pre"}>
-              {on ? <><span className={`transition-colors duration-500 ${lead < 0 ? "text-foreground/60" : ""}`}><Ticker value={g.away.score ?? 0} format={String} gain /></span><span aria-hidden className="mx-2 text-foreground/30">–</span><span className={`transition-colors duration-500 ${lead > 0 ? "text-foreground/60" : ""}`}><Ticker value={g.home.score ?? 0} format={String} gain /></span></> : <span className={`${LABEL}`}>vs</span>}
+              {on ? <><span className={`transition-colors duration-500 ${lead < 0 ? "text-foreground/60" : ""}`}><Ticker value={g.away.score ?? 0} format={whole} gain /></span><span aria-hidden className="mx-2 text-foreground/30">–</span><span className={`transition-colors duration-500 ${lead > 0 ? "text-foreground/60" : ""}`}><Ticker value={g.home.score ?? 0} format={whole} gain /></span></> : <span className={`${LABEL}`}>vs</span>}
             </Swap>
           </p>
           {side(g.home, lead > 0, "r")}

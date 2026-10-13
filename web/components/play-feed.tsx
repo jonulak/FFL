@@ -11,7 +11,7 @@ import { Clock } from "./local-time";
 import { NAME_LINK } from "@/lib/player-log";
 import { PlayerTrigger } from "./player-dialog";
 import { TeamPanel } from "./player-media";
-import { Ticker } from "./motion";
+import { Ticker, whole } from "./motion";
 
 // The play feed, on the board: a ledger of every points change for a starter in the matchup,
 // newest first. It is the lineup row turned to face the play: the club tile, the name, the play
@@ -178,7 +178,7 @@ export function PlayFeedCard({ plays, title, count, link, empty, compact, pick }
     <Card className="rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]" aria-label={title}>
       <CardHeader className={`flex flex-row items-baseline gap-3 ${compact ? "pt-2.5 sm:pt-3" : "pt-3 sm:pt-3.5"}`}>
         <h2 className="shrink-0 font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</h2>
-        {count != null && <span className="font-display text-xl font-medium text-muted-foreground tabular-nums"><Ticker value={count} format={(n) => String(Math.round(n))} /></span>}
+        {count != null && <span className="font-display text-xl font-medium text-muted-foreground tabular-nums"><Ticker value={count} format={whole} /></span>}
         <Separator className="mb-1 flex-1 self-end bg-foreground/12" />
         {link && (
           <Link href={link.href} className="group/onward -my-2 shrink-0 py-2 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 transition-colors hover:text-foreground dark:text-foreground/65 dark:hover:text-foreground">

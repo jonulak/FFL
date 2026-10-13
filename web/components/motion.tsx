@@ -14,6 +14,9 @@ const still = () => typeof window !== "undefined" && window.matchMedia("(prefers
 // the arrival curve, cubic-bezier(0.16, 1, 0.3, 1), near enough for a counter: a quartic ease-out
 const arrive = (k: number) => 1 - Math.pow(1 - k, 4);
 
+// The format for a whole-number Ticker (a count, an NFL score): the frames between two values round too.
+export const whole = (n: number) => String(Math.round(n));
+
 // A number that counts to its new value rather than swapping, so a score moving reads as movement.
 // `gain` marks a fantasy-points figure: a rise there leaves the play feed's lime wash behind the
 // numeral (a gain is the one change with a verdict colour); every other change only counts.

@@ -17,7 +17,7 @@ import { TeamLogo, TeamPanel } from "./player-media";
 import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
 import { TeamLink } from "./team-link";
-import { Ticker } from "./motion";
+import { Ticker, whole } from "./motion";
 
 // The league's wire, on the board: every move a week's ledger, newest first. An add/drop move is
 // one line, the team at the left, then what came in beside what went out, so the pair reads
@@ -238,4 +238,3 @@ export function TransactionsView({ data }: { data: Transactions }) {
   );
 }
 
-const whole = (n: number) => String(Math.round(n));

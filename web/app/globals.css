@@ -459,7 +459,7 @@ tr[data-fold="shut"] > td > .fold {
   inset: -0.08em -0.22em;
   z-index: -1;
   border-radius: 0.25rem;
-  background: color-mix(in oklab, var(--start) 38%, transparent);
+  background: color-mix(in oklab, var(--start) 30%, transparent);
   pointer-events: none;
   animation: play-wash 1.8s ease-out both;
 }

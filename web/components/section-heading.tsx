@@ -1,9 +1,8 @@
 "use client";
 
 import { Separator } from "@/components/ui/separator";
-import { Ticker } from "./motion";
+import { Ticker, whole } from "./motion";
 
-const whole = (n: number) => String(Math.round(n));
 
 // The section heading the Roster page uses: condensed caps, a muted count, a hairline running
 // out; `children` sit at the far end of the line (the scoreboard's week picker).

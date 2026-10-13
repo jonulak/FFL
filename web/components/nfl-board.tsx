@@ -15,7 +15,7 @@ import { StaleBadge } from "./stale-badge";
 import { useLive } from "./use-live";
 import { WeekSelect } from "./week-select";
 import { LiveChip } from "./live-chip";
-import { Presence, Swap, Ticker, useReorder } from "./motion";
+import { Presence, Swap, Ticker, useReorder, whole } from "./motion";
 
 const POLL_MS = 30_000;
 
@@ -55,7 +55,7 @@ export function NflClubRow({ c, g, trailing }: { c: NflClub; g: NflGame; trailin
         </p>
         <p className="mt-1 text-xs text-muted-foreground">{c.record ?? c.abbr}</p>
       </div>
-      <p className="font-display text-[1.5rem] font-bold leading-none tabular-nums tracking-tight">{c.score != null && <Ticker value={c.score} format={String} gain />}</p>
+      <p className="font-display text-[1.5rem] font-bold leading-none tabular-nums tracking-tight">{c.score != null && <Ticker value={c.score} format={whole} gain />}</p>
       {/* the caret's slot is on every row, final or not, so scores line up across cards in every state */}
       <span className="-ml-1 flex w-2.5 shrink-0 items-center self-stretch">
         <Presence show={final && !!c.winner}><span className="flex"><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></span></Presence>
