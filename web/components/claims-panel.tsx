@@ -245,13 +245,13 @@ function LiftedGroup({ g, gi }: { g: ClaimGroup; gi: number }) {
 // row has moved into, `cutId` the drag id of each of its cuts. While a group is dragged the list
 // folds every card to its title and its targets' names (`[data-folded]` in globals.css), so all of
 // them are in view and alike in height; the body stays mounted, and `reveal` fades it back in once
-// the dragged one has landed.
-function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, cutId }: {
+// the dragged one has landed (its grip waits for that: a pickup measures the fold from open cards).
+function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, cutId }: {
   g: ClaimGroup; gi: number; gkey: number; roster: [number, ClaimPlayer][]; dragging: Kind | null; landing: boolean;
-  reveal: boolean; cutId: (c: number) => string;
+  reveal: boolean; settling: boolean; cutId: (c: number) => string;
 }) {
   const { groups, setGroups, status, player, data, dirty, submitting } = useClaims();
-  const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: `g${gkey}`, disabled: submitting });
+  const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: `g${gkey}`, disabled: submitting || settling });
   const shown = displayTargets(g, status);
   const fa = shown.filter((t) => t.now);
   const waiting = shown.filter((t) => !t.now);
@@ -573,7 +573,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
         <SortableContext items={keys.map((k) => `g${k}`)} strategy={verticalListSortingStrategy}>
           <ol ref={listRef} data-folded={folded || undefined} className="space-y-2.5" style={hold ? { minHeight: hold.h, paddingTop: hold.pad } : undefined}>
             {shown.map((g, i) => (
-              <GroupCard key={keys[i]} g={g} gi={i} gkey={keys[i]} roster={roster} dragging={rowKind} reveal={reveal}
+              <GroupCard key={keys[i]} g={g} gi={i} gkey={keys[i]} roster={roster} dragging={rowKind} reveal={reveal} settling={settling}
                 landing={drag?.at === i && drag.home !== i} cutId={cutId(i)} />
             ))}
           </ol>
