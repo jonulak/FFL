@@ -16,7 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import type { ClaimGroup, ClaimPlayer, PoolStatus } from "@/lib/api";
+import type { ClaimErr, ClaimGroup, ClaimPlayer, PoolStatus } from "@/lib/api";
 import {
   addCut, capacity, cutBlock, displayTargets, groupHasFA, groupPos, holder, moveGroup, newGroup, place, processDay, prune,
   regroupKeys, removeFrom, removeGroup, setOpen, statusTag,
@@ -24,6 +24,7 @@ import {
 import { pts, signed } from "@/lib/format";
 import { useClaims } from "./claims-context";
 import { ClaimName } from "./claim-name";
+import { useClaimsFlip } from "./claims-flip";
 import { ClaimsSubmit, PHONE_ACTION, PHONE_INSET, ReviewBody } from "./claims-submit";
 import { Clock } from "./local-time";
 
@@ -88,7 +89,7 @@ function Line({ id, name, onRemove, removeLabel, disabled, ...face }: Face & {
 }) {
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id, disabled });
   return (
-    <li ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }}
+    <li ref={setNodeRef} data-row={id} style={{ transform: CSS.Translate.toString(transform), transition }}
       className={`${ROW} ${isDragging ? "rounded-md border-transparent bg-foreground/[0.04] outline-1 -outline-offset-1 outline-foreground/25 outline-dashed *:invisible" : ""}`}>
       <Grip label={`Move ${name}`} handleRef={setActivatorNodeRef} attributes={attributes} listeners={listeners} disabled={disabled} />
       <FaceCells {...face} />
@@ -246,17 +247,16 @@ function LiftedGroup({ g, gi }: { g: ClaimGroup; gi: number }) {
 // folds every card to its title and its targets' names (`[data-folded]` in globals.css), so all of
 // them are in view and alike in height; the body stays mounted, and `reveal` fades it back in once
 // the dragged one has landed (its grip waits for that: a pickup measures the fold from open cards).
-function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, cutId }: {
+function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, cutId, errors }: {
   g: ClaimGroup; gi: number; gkey: number; roster: [number, ClaimPlayer][]; dragging: Kind | null; landing: boolean;
-  reveal: boolean; settling: boolean; cutId: (c: number) => string;
+  reveal: boolean; settling: boolean; cutId: (c: number) => string; errors: ClaimErr[];
 }) {
-  const { groups, setGroups, status, player, data, dirty, submitting } = useClaims();
+  const { groups, setGroups, status, player, data, submitting } = useClaims();
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: `g${gkey}`, disabled: submitting || settling });
   const shown = displayTargets(g, status);
   const fa = shown.filter((t) => t.now);
   const waiting = shown.filter((t) => !t.now);
   const hasFA = groupHasFA(g, status);
-  const errors = dirty ? [] : data.errors.filter((e) => e.group === gi);
   const name = (id: number) => player(id)?.name ?? `player ${id}`;
 
   const targetLine = (t: { id: number; now: boolean }, rank: number) => (
@@ -417,6 +417,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   const [hold, setHold] = useState<{ h: number; pad: number } | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
   const anchor = useRef<{ key: number; top: number; s: HTMLElement } | null>(null);
+  const flipShift = useRef(0); // the scroll the open below made, for the FLIP that follows it
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const still = useSyncExternalStore(onMotionChange, stillMotion, () => false);
@@ -437,6 +438,18 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   // the dragged cut keeps his drag id in whichever group the preview has him
   const cutId = (gi: number) => (c: number) => (rowKind === "c" && dragged === c && drag?.at === gi ? String(drag.id) : `c${keys[gi]}_${c}`);
 
+  // The saved plan's errors for each card, found by its content (its own index first): a card an
+  // edit left alone keeps them while the edit saves, so no line drops out and back in; an edited
+  // one waits for the save.
+  const used = new Set<number>();
+  const errorsOf = shown.map((g, i) => {
+    const same = (j: number) => !used.has(j) && JSON.stringify(data.groups[j]) === JSON.stringify(g);
+    const j = same(i) ? i : data.groups.findIndex((_, k) => same(k));
+    if (j < 0) return [];
+    used.add(j);
+    return data.errors.filter((e) => e.group === j);
+  });
+
   const cardTop = (key: number) => listRef.current?.querySelector(`[data-group="${key}"]`)?.getBoundingClientRect().top ?? null;
   // remember where a card stands before the cards fold or open, to put it back there after
   const pin = (key: number) => {
@@ -449,10 +462,17 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     const a = anchor.current;
     anchor.current = null;
     const top = a && cardTop(a.key);
-    if (a && top != null && !folded) a.s.scrollTop += top - a.top;
+    if (a && top != null && !folded) {
+      const before = a.s.scrollTop;
+      a.s.scrollTop += top - a.top;
+      flipShift.current += a.s.scrollTop - before;
+    }
   }, [folded]);
+  // after the scroll above (layout effects run in order): every change of size or place plays out
+  const capture = useClaimsFlip(listRef, scroller, flipShift, still);
 
   const onDragStart = ({ active }: DragStartEvent) => {
+    capture();
     if (kindOf(active.id) === "g") {
       const ol = listRef.current;
       const key = numOf(active.id);
@@ -493,6 +513,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
       const r = active.rect.current.translated;
       i = rows.indexOf(numOf(over.id)) + (r && r.top + r.height / 2 > over.rect.top + over.rect.height / 2 ? 1 : 0);
     }
+    capture();
     setDrag({ ...drag, at: to, preview: place(drag.preview, status, list, id, to, i, drag.at) });
   };
 
@@ -501,6 +522,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     setSettling(true);
     timers.current.push(setTimeout(() => {
       pin(key);
+      capture();
       setHold(null);
       setSettling(false);
       setReveal(true);
@@ -509,6 +531,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   };
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
+    capture();
     const k = kindOf(active.id) as Kind;
     const d = drag;
     setDrag(null);
@@ -532,6 +555,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   };
 
   const onDragCancel = ({ active }: DragCancelEvent) => {
+    capture();
     setDrag(null);
     if (kindOf(active.id) === "g") settle(numOf(active.id));
   };
@@ -554,13 +578,14 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     <div className="space-y-3 [overflow-anchor:none]">
       <div className="flex flex-wrap items-center justify-between gap-2 max-lg:pr-9">
         {heading(`Claims · process ${day}`)}
-        <SubmitState />
+        {/* a save in flight turns beside the state, so no line opens over the groups and shuts again */}
+        <span className="ml-auto flex items-center gap-1.5">
+          {saving && <LoaderCircle role="status" aria-label="saving" className="size-3.5 animate-spin text-muted-foreground" />}
+          <SubmitState />
+        </span>
       </div>
-      {(error || saving) && (
-        <p className={`flex items-center gap-1.5 text-xs ${error && !error.startsWith("saving") ? "text-destructive" : "text-muted-foreground"}`} aria-live="polite">
-          {saving && <LoaderCircle aria-hidden className="size-3 animate-spin" />}
-          {error ?? "saving…"}
-        </p>
+      {error && (
+        <p className={`text-xs ${error.startsWith("saving") ? "text-muted-foreground" : "text-destructive"}`} aria-live="polite">{error}</p>
       )}
       {groups.length === 0 && (
         <p className="max-w-[40ch] text-sm leading-relaxed text-muted-foreground">
@@ -573,7 +598,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
         <SortableContext items={keys.map((k) => `g${k}`)} strategy={verticalListSortingStrategy}>
           <ol ref={listRef} data-folded={folded || undefined} className="space-y-2.5" style={hold ? { minHeight: hold.h, paddingTop: hold.pad } : undefined}>
             {shown.map((g, i) => (
-              <GroupCard key={keys[i]} g={g} gi={i} gkey={keys[i]} roster={roster} dragging={rowKind} reveal={reveal} settling={settling}
+              <GroupCard key={keys[i]} g={g} gi={i} gkey={keys[i]} roster={roster} dragging={rowKind} reveal={reveal} settling={settling} errors={errorsOf[i]}
                 landing={drag?.at === i && drag.home !== i} cutId={cutId(i)} />
             ))}
           </ol>
