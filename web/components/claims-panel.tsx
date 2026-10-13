@@ -30,6 +30,8 @@ import { Clock } from "./local-time";
 
 const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 const SUB = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-foreground/55";
+// a piece outside the groups that comes or changes fades in (tw-animate)
+const FADE = "animate-in fade-in duration-200 motion-reduce:animate-none";
 const ROW = "grid grid-cols-[1.5rem_1.25rem_minmax(0,1fr)_auto_1.75rem] items-center gap-x-1.5 border-t border-foreground/8 py-1 pointer-coarse:py-2.5";
 // On a touch screen the 24px grips and remove buttons keep their look but take a 44px hit area
 // (an ::after 10px out on every side); the rows grow to 44px there so neighbours never overlap.
@@ -89,7 +91,7 @@ function Line({ id, name, onRemove, removeLabel, disabled, ...face }: Face & {
 }) {
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id, disabled });
   return (
-    <li ref={setNodeRef} data-row={id} style={{ transform: CSS.Translate.toString(transform), transition }}
+    <li ref={setNodeRef} data-row={id} data-lifted={isDragging || undefined} style={{ transform: CSS.Translate.toString(transform), transition }}
       className={`${ROW} ${isDragging ? "rounded-md border-transparent bg-foreground/[0.04] outline-1 -outline-offset-1 outline-foreground/25 outline-dashed *:invisible" : ""}`}>
       <Grip label={`Move ${name}`} handleRef={setActivatorNodeRef} attributes={attributes} listeners={listeners} disabled={disabled} />
       <FaceCells {...face} />
@@ -164,10 +166,10 @@ function Zone({ id, children }: { id: string; children: ReactNode }) {
 // kind is dragged, the slot he would land in, firmer, its words crossfading. One size either way,
 // so lifting a row moves nothing in the list (a slot opening above him would shift his row from
 // under the finger, and dnd-kit takes its one measure of him after that).
-function EmptySlot({ open, rest, drop }: { open: boolean; rest: string; drop: string }) {
+function EmptySlot({ fx, open, rest, drop }: { fx: string; open: boolean; rest: string; drop: string }) {
   const fade = "col-start-1 row-start-1 transition-opacity duration-200";
   return (
-    <p className={`my-1 grid h-8 place-items-center rounded-md px-2 text-center text-xs outline-1 -outline-offset-1 outline-dashed transition-[outline-color,background-color,color] duration-200 pointer-coarse:h-11 ${open ? "bg-foreground/[0.03] text-foreground/75 outline-foreground/35" : "text-muted-foreground outline-foreground/12"}`}>
+    <p data-fx={fx} className={`my-1 grid h-8 place-items-center rounded-md px-2 text-center text-xs outline-1 -outline-offset-1 outline-dashed transition-[outline-color,background-color,color] duration-200 pointer-coarse:h-11 ${open ? "bg-foreground/[0.03] text-foreground/75 outline-foreground/35" : "text-muted-foreground outline-foreground/12"}`}>
       <span className={`${fade} ${open ? "opacity-0" : ""}`} aria-hidden={open}>{rest}</span>
       <span className={`${fade} ${open ? "" : "opacity-0"}`} aria-hidden={!open}>{drop}</span>
     </p>
@@ -204,7 +206,7 @@ function CutPicker({ gi, roster, used, hasFA, disabled }: { gi: number; roster: 
 }
 
 // A group's title and its "get K of N".
-function GroupTitle({ g, gi }: { g: ClaimGroup; gi: number }) {
+function GroupTitle({ g, gi, fx }: { g: ClaimGroup; gi: number; fx?: string }) {
   const { pos } = useClaims();
   const p = groupPos(g, pos);
   return (
@@ -213,7 +215,9 @@ function GroupTitle({ g, gi }: { g: ClaimGroup; gi: number }) {
         {gi + 1}{p && <span className="text-foreground/80"> · {p}</span>}
       </h3>
       {g.targets.length > 0 && (
-        <Badge variant="close" shape="chip" className="ml-auto">get {Math.min(capacity(g), g.targets.length)} of {g.targets.length}</Badge>
+        <Badge variant="close" shape="chip" className="ml-auto" data-fx={fx && `${fx}|${capacity(g)}:${g.targets.length}`}>
+          get {Math.min(capacity(g), g.targets.length)} of {g.targets.length}
+        </Badge>
       )}
     </>
   );
@@ -271,10 +275,10 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
 
   return (
     <li ref={setNodeRef} data-group={gkey} style={{ transform: CSS.Translate.toString(transform), transition }}>
-      <Card size="sm" className={`gap-0 rounded-lg px-3 py-2.5 shadow-[0_6px_18px_-14px_rgb(0_0_0_/_0.45)] ${isDragging ? "bg-foreground/[0.04] shadow-none ring-0 outline-1 -outline-offset-1 outline-foreground/25 outline-dashed *:invisible" : ""} ${landing ? "ring-2 ring-foreground/35" : ""}`}>
+      <Card size="sm" className={`gap-0 rounded-lg px-3 py-2.5 transition-[box-shadow,background-color] duration-200 shadow-[0_6px_18px_-14px_rgb(0_0_0_/_0.45)] ${isDragging ? "bg-foreground/[0.04] shadow-none ring-0 outline-1 -outline-offset-1 outline-foreground/25 outline-dashed *:invisible" : ""} ${landing ? "ring-2 ring-foreground/35" : ""}`}>
         <div className="flex items-center gap-1.5">
           <Grip label={`Move group ${gi + 1}`} handleRef={setActivatorNodeRef} attributes={attributes} listeners={listeners} disabled={submitting} />
-          <GroupTitle g={g} gi={gi} />
+          <GroupTitle g={g} gi={gi} fx={`k${gkey}`} />
           <Button variant="ghost" size="icon-xs" aria-label={`Delete group ${gi + 1}`} disabled={submitting}
             onClick={() => setGroups(removeGroup(groups, gi))} className={`${HIT} text-foreground/45 hover:text-destructive ${g.targets.length ? "" : "ml-auto"}`}>
             <Trash2 aria-hidden />
@@ -286,7 +290,7 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
         <Zone id={`zt${gi}`}>
           <p className={`${SUB} mt-3 mb-0.5`}>targets · best first</p>
           {g.targets.length === 0 && (
-            <EmptySlot open={dragging === "t"} rest="Pick targets with the claim button on any row" drop="Drop to move him into this group" />
+            <EmptySlot fx={`t${gkey}`} open={dragging === "t"} rest="Pick targets with the claim button on any row" drop="Drop to move him into this group" />
           )}
           <SortableContext id={`fa${gi}`} items={fa.map((t) => `t${t.id}`)} strategy={verticalListSortingStrategy}>
             <ol>{fa.map((t, i) => targetLine(t, i + 1))}</ol>
@@ -300,7 +304,7 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
           <p className={`${SUB} mt-3 mb-0.5`}>make room · first to go first</p>
           <ol>
             {g.open > 0 && (
-              <li className={ROW}>
+              <li data-fx={`o${gkey}`} className={ROW}>
                 <span />
                 <span className="text-right font-display text-sm font-semibold tabular-nums text-muted-foreground">{g.open > 1 ? `1–${g.open}` : 1}</span>
                 <span className="text-foreground/70 italic">open roster spot{g.open > 1 && ` ×${g.open}`}</span>
@@ -311,7 +315,7 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
           </ol>
           {/* with no open spot in use the box stands at rest too, saying the group needs a cut */}
           {g.cuts.length === 0 && (g.open === 0 || dragging === "c") && (
-            <EmptySlot open={dragging === "c"} rest={g.targets.length ? "Add a cut: the group gets one target per cut" : "No cuts yet"}
+            <EmptySlot fx={`c${gkey}`} open={dragging === "c"} rest={g.targets.length ? "Add a cut: the group gets one target per cut" : "No cuts yet"}
               drop="Drop to cut him for this group" />
           )}
           <SortableContext id={`cuts${gi}`} items={g.cuts.map(cutId)} strategy={verticalListSortingStrategy}>
@@ -332,7 +336,7 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
           </Label>
         )}
         {errors.length > 0 && (
-          <ul className="mt-2 space-y-0.5 text-xs text-destructive" aria-live="polite">
+          <ul data-fx={`e${gkey}|${errors.map((e) => `${e.player_id}:${e.reason}`).join(";")}`} className="mt-2 space-y-0.5 text-xs text-destructive" aria-live="polite">
             {errors.map((e, i) => <li key={i}>{e.player_id != null && <span className="font-medium">{name(e.player_id)}: </span>}{e.reason}</li>)}
           </ul>
         )}
@@ -346,11 +350,13 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
 // last send, ESPN's list no longer the plan's claims (on_espn: checked against ESPN, not the record), or on ESPN.
 function SubmitState() {
   const { data } = useClaims();
-  if (data.pending_error) return <Badge variant="destructive" className="max-w-full truncate" title={data.pending_error}>ESPN: {data.pending_error}</Badge>;
-  if (!data.last_submit) return <Badge variant="muted">not sent</Badge>;
-  if (data.edited_since_submit) return <Badge variant="warn">edited since submit</Badge>;
-  if (!data.on_espn) return <Badge variant="warn">differs from ESPN</Badge>;
-  return <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />on ESPN · sent <Clock iso={data.last_submit.at} /></Badge>;
+  // a new state fades in where the old one stood
+  const fade = (state: string, badge: ReactNode) => <span key={state} className={`flex min-w-0 ${FADE}`}>{badge}</span>;
+  if (data.pending_error) return fade("error", <Badge variant="destructive" className="max-w-full truncate" title={data.pending_error}>ESPN: {data.pending_error}</Badge>);
+  if (!data.last_submit) return fade("unsent", <Badge variant="muted">not sent</Badge>);
+  if (data.edited_since_submit) return fade("edited", <Badge variant="warn">edited since submit</Badge>);
+  if (!data.on_espn) return fade("differs", <Badge variant="warn">differs from ESPN</Badge>);
+  return fade("sent", <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />on ESPN · sent <Clock iso={data.last_submit.at} /></Badge>);
 }
 
 // A group's list in the order the panel shows it: targets FA block first, cuts as stored.
@@ -586,15 +592,15 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
         {heading(`Claims · process ${day}`)}
         {/* a save in flight turns beside the state, so no line opens over the groups and shuts again */}
         <span className="ml-auto flex items-center gap-1.5">
-          {saving && <LoaderCircle role="status" aria-label="saving" className="size-3.5 animate-spin text-muted-foreground" />}
+          {saving && <span className={FADE}><LoaderCircle role="status" aria-label="saving" className="size-3.5 animate-spin text-muted-foreground" /></span>}
           <SubmitState />
         </span>
       </div>
       {error && (
-        <p className={`text-xs ${error.startsWith("saving") ? "text-muted-foreground" : "text-destructive"}`} aria-live="polite">{error}</p>
+        <p className={`text-xs ${FADE} ${error.startsWith("saving") ? "text-muted-foreground" : "text-destructive"}`} aria-live="polite">{error}</p>
       )}
       {groups.length === 0 && (
-        <p className="max-w-[40ch] text-sm leading-relaxed text-muted-foreground">
+        <p className={`max-w-[40ch] text-sm leading-relaxed text-muted-foreground ${FADE}`}>
           No claims this week. Press <span className="font-medium text-foreground">claim</span> on a player&apos;s row to start a group:
           list the players you&apos;d take, best first, then the roster spots they can fill.
         </p>
