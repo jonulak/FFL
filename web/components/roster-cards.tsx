@@ -313,8 +313,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
                   <span className={`font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
                     {pts(big)}
                   </span>
-                  {/* a fixed slot on every row, spread or not (a bye, a game on), so the numbers keep one right edge */}
-                  <span className="w-[1.875rem] shrink-0 whitespace-nowrap text-left text-xs md:hidden">{!live && <Spread p={c} />}</span>
+                  {!live && <Spread p={c} className="text-xs md:hidden" />}
                 </span>
                 <span className="block whitespace-nowrap font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground max-md:sr-only">
                   {live ? "pts" : "proj"}
