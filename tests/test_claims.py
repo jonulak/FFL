@@ -55,7 +55,15 @@ def test_free_agents_beyond_capacity_are_not_added():
 def test_used_override_frees_rows():   # an instant add failed: its row goes back to the claims
     g = {"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}
     st = {102: FA}
-    assert pairs(C.expand([g], st, used={0: 0})) == [(101, 1), (101, 2), (103, 1), (103, 2)]
+    assert pairs(C.expand([g], st, now=[])) == [(101, 1), (101, 2), (103, 1), (103, 2)]
+
+
+def test_shared_cut_is_each_groups_row_until_an_add_drops_him():
+    gs = [{"targets": [101], "cuts": [1], "open": 0}, {"targets": [201], "cuts": [1, 2], "open": 0}]
+    assert pairs(C.expand(gs, {})) == [(101, 1), (201, 1), (201, 2)]
+    st = {101: FA, 201: FA}
+    assert pairs(C.plan_now(gs, st)) == [(101, 1), (201, 2)]
+    assert C.expand(gs, {101: FA}) == [{"group": 1, "add": 201, "drop": 2}]
 
 
 # ESPN's processing, as journal/DECISIONS.md 2026-09-22 records it: claims in order; a claim is skipped when its add
@@ -111,9 +119,10 @@ def test_valid_plan_has_no_errors():
     assert errs([{"targets": [101, 102], "cuts": [1], "open": 1}]) == []
 
 
-def test_shared_cut_rejected():
+def test_cut_shared_across_groups_allowed_but_not_twice_in_one():
     gs = [{"targets": [101], "cuts": [1], "open": 0}, {"targets": [201], "cuts": [1], "open": 0}]
-    assert any("already a cut in group 1" in r for r in errs(gs))
+    assert errs(gs) == []
+    assert any("listed twice" in r for r in errs([{"targets": [101], "cuts": [1, 1], "open": 0}]))
 
 
 def test_cut_not_on_roster_and_ir_cut():
@@ -254,6 +263,13 @@ def test_run_submit_free_agent_now_then_claims():
     assert w.adds == [(102, 1)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 2), (103, 2)] and r["match"]
 
 
+def test_run_submit_shared_cut_dropped_now_leaves_later_groups():
+    g = [{"targets": [101], "cuts": [1], "open": 0}, {"targets": [201, 202], "cuts": [1, 2], "open": 0}]
+    w = FakeW([])
+    r = C.run_submit(g, {101: "FREEAGENT"}, [], set(), False, w)
+    assert w.adds == [(101, 1)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(201, 2), (202, 2)] and r["match"]
+
+
 def test_run_submit_taken_free_agent_frees_its_row():
     g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
     w = FakeW([], taken={102})
@@ -285,6 +301,11 @@ def test_consume_free_agent_row():
     g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
     assert C.consume(g, [{"group": 0, "add": 102, "drop": 1}]) == [{"targets": [101, 103], "cuts": [2], "open": 0}]
     assert g[0]["cuts"] == [1, 2]   # input untouched
+
+
+def test_consume_shared_cut_leaves_every_group():
+    g = [{"targets": [101], "cuts": [1], "open": 0}, {"targets": [201], "cuts": [1, 2], "open": 0}]
+    assert C.consume(g, [{"group": 0, "add": 101, "drop": 1}]) == [{"targets": [201], "cuts": [2], "open": 0}]
 
 
 def test_consume_open_spot_row_and_empty_group_dropped():

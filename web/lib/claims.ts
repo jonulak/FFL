@@ -50,11 +50,12 @@ export function addTarget(groups: ClaimGroup[], gi: number | "new", id: number):
   return dropEmptied(groups, out);
 }
 
-// A roster player is a cut in one group: adding him takes him out of every other.
+// A roster player can be a cut in several groups (claims sharing a drop exclude each other, so it
+// reads "drop him for group 1, else for group 2"), once in each.
 export function addCut(groups: ClaimGroup[], gi: number, id: number): ClaimGroup[] {
-  const out = copy(groups).map((g) => ({ ...g, cuts: g.cuts.filter((c) => c !== id) }));
-  out[gi].cuts.push(id);
-  return dropEmptied(groups, out);
+  const out = copy(groups);
+  if (!out[gi].cuts.includes(id)) out[gi].cuts.push(id);
+  return out;
 }
 
 export function removeFrom(groups: ClaimGroup[], gi: number, list: List, id: number): ClaimGroup[] {
@@ -80,6 +81,26 @@ export function move(groups: ClaimGroup[], gi: number, list: List, from: number,
 }
 
 export const moveGroup = (groups: ClaimGroup[], from: number, to: number): ClaimGroup[] => arrayMove(copy(groups), from, to);
+
+// Groups carry no id, so the panel keys its cards here: a group unchanged keeps its key wherever it
+// moved (a reorder animates, a delete shifts no state), an edited one the key at its index, a new
+// one a fresh key from `next`.
+export function regroupKeys(before: ClaimGroup[], keys: number[], after: ClaimGroup[], next: number): { keys: number[]; next: number } {
+  const sig = (g: ClaimGroup) => JSON.stringify(g);
+  const pool = new Map<string, number[]>();
+  before.forEach((g, i) => pool.set(sig(g), [...(pool.get(sig(g)) ?? []), keys[i]]));
+  const out: (number | undefined)[] = after.map((g) => pool.get(sig(g))?.shift());
+  const used = new Set(out);
+  return {
+    keys: out.map((k, i) => {
+      if (k != null) return k;
+      const mine = keys[i];
+      if (mine != null && !used.has(mine)) { used.add(mine); return mine; }
+      return next++;
+    }),
+    next,
+  };
+}
 
 // Open spots belong to one group, which uses all of them: switching one group on switches every other off.
 export function setOpen(groups: ClaimGroup[], gi: number, on: boolean, openSpots: number): ClaimGroup[] {
@@ -124,12 +145,14 @@ export function holder(groups: ClaimGroup[], list: List, id: number): number | n
   return gi < 0 ? null : gi;
 }
 
-// A drag's edit: take him out of whichever group holds him and put him in group `gi` at `at`, a
+// A drag's edit: take him out of the group he is dragged from and put him in group `gi` at `at`, a
 // position in the order the panel shows (for targets, the FA block then the waiver block). Inside
-// one group it is an array move. A target is re-sorted into his own block after, so a free agent
-// dropped among the waiver targets lands at the foot of the FA block. Emptied groups are kept: see prune.
-export function place(groups: ClaimGroup[], status: Status, list: List, id: number, gi: number, at: number): ClaimGroup[] {
-  const out = copy(groups).map((g) => ({ ...g, [list]: g[list].filter((x) => x !== id) }));
+// one group it is an array move. A target is in one group, so he leaves whichever holds him; a cut
+// may stand in several, so only `from` loses him (and a group that already cuts him keeps one row).
+// A target is re-sorted into his own block after, so a free agent dropped among the waiver targets
+// lands at the foot of the FA block. Emptied groups are kept: see prune.
+export function place(groups: ClaimGroup[], status: Status, list: List, id: number, gi: number, at: number, from?: number): ClaimGroup[] {
+  const out = copy(groups).map((g, i) => (list === "cuts" && from != null && i !== from && i !== gi ? g : { ...g, [list]: g[list].filter((x) => x !== id) }));
   const shown = list === "targets" ? displayTargets(out[gi], status).map((t) => t.id) : out[gi].cuts;
   shown.splice(Math.max(0, Math.min(at, shown.length)), 0, id);
   out[gi][list] = list === "targets" ? [...shown.filter((t) => isFA(t, status)), ...shown.filter((t) => !isFA(t, status))] : shown;

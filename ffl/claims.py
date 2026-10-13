@@ -5,7 +5,9 @@ its drop is gone (journal/DECISIONS.md 2026-09-22). So claims that share a drop 
 row) pair in rank order lands each target at most once and uses each row at most once; K = rows = cuts + open spots.
 A free agent needs no claim: he is added on Submit, in rank order, taking the group's next row, and the claims get
 the rows left. A no-drop claim lands while the roster has room, so open spots belong to one group and it takes all
-of them; otherwise another group's no-drop claim could fill a spot this group counted on."""
+of them; otherwise another group's no-drop claim could fill a spot this group counted on. A roster player may be a cut
+in several groups: claims sharing a drop exclude each other anyway, so it reads "drop him for group 1, else for group
+2"; once a free-agent add has dropped him he is gone from every group's rows."""
 from __future__ import annotations
 
 from . import decisions
@@ -39,28 +41,29 @@ def waiver_targets(group, status):
 
 
 def plan_now(groups, status):
-    """Instant adds: free agents taking their group's first rows, in rank order."""
-    out = []
+    """Instant adds: free agents taking their group's first rows, in rank order (a cut an earlier add dropped is gone)."""
+    out, gone = [], set()
     for gi, g in enumerate(groups):
-        for t, d in zip(free_targets(g, status), rooms(g)):
+        for t, d in zip(free_targets(g, status), [d for d in rooms(g) if d not in gone]):
             out.append({"group": gi, "add": t, "drop": d})
+            if d is not None:
+                gone.add(d)
     return out
 
 
-def expand(groups, status, used=None):
-    """Waiver claims over each group's WAIVERS targets x rooms left after plan_now.
+def expand(groups, status, now=None):
+    """Waiver claims over each group's WAIVERS targets x rooms left after the instant adds.
 
-    used: dict[group_index, rows_consumed_by_plan_now]; defaults to min(free_targets, capacity) per group.
+    now: the instant adds that landed (run_submit's: a refused one gives its row back); defaults to plan_now. A group
+    loses the open spots its own adds took and every cut any add dropped.
     """
+    if now is None:
+        now = plan_now(groups, status)
+    gone = {m["drop"] for m in now if m["drop"] is not None}
     out = []
     for gi, g in enumerate(groups):
-        r = rooms(g)
-        # How many rows did plan_now take from this group?
-        if used is not None:
-            n = used.get(gi, 0)
-        else:
-            n = min(len(free_targets(g, status)), len(r))
-        left = r[n:]
+        taken = sum(1 for m in now if m["group"] == gi and m["drop"] is None)
+        left = [None] * max(0, g.get("open", 0) - taken) + [c for c in g["cuts"] if c not in gone]
         for t in waiver_targets(g, status):
             seen_open = False
             for d in left:
@@ -121,10 +124,10 @@ def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True):
                 err(gi, t, INSTANT_OFF)
 
         # Cut validation.
-        for c in g["cuts"]:
-            if c in cuts:
-                err(gi, c, f"already a cut in group {cuts[c] + 1}")
-            cuts.setdefault(c, gi)
+        for i, c in enumerate(g["cuts"]):
+            if c in g["cuts"][:i]:
+                err(gi, c, "listed twice in this group's cuts")
+            cuts.setdefault(c, gi)  # another group may cut him too: "drop him for group 1, else for group 2"
             p = by_id.get(c)
             if p is None:
                 err(gi, c, "not on your roster")
@@ -188,9 +191,10 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
     """Free agents first (instant, rank order, each on the group's next row; a refused add leaves its row for the next),
     then clear and repost the whole claim list over the rows left, so a retry after any failure is the same call. Stops
     the claims at the first failed write and still reads ESPN back: the page shows what ESPN holds, never what we hoped."""
-    now, now_failed, used = [], [], {}
+    now, now_failed = [], []
     for gi, g in enumerate(groups):
-        r, n = rooms(g), 0
+        gone = {m["drop"] for m in now if m["drop"] is not None}  # a cut an earlier group's add dropped
+        r, n = [d for d in rooms(g) if d not in gone], 0
         for t in free_targets(g, status):
             if n >= len(r):
                 break
@@ -200,8 +204,7 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
                 n += 1
             except Exception as e:  # noqa: BLE001 — taken or refused: his row goes to the next target
                 now_failed.append({"group": gi, "add": t, "drop": r[n], "error": str(e)})
-        used[gi] = n
-    claims = expand(groups, status, used)
+    claims = expand(groups, status, now)
     # outside claims (filed on ESPN, not by this app) kept on purpose run ahead of ours
     kept_outside = [] if replace_outside else [c["id"] for c in pending if c["id"] not in last_ids]
     sent, error = [], None
@@ -252,6 +255,7 @@ def consume(groups, now):
             g["targets"].remove(m["add"])
         if m["drop"] is None:
             g["open"] = max(0, g["open"] - 1)
-        elif m["drop"] in g["cuts"]:
-            g["cuts"].remove(m["drop"])
+        for o in out:  # he is off the roster: gone from every group that cut him
+            if m["drop"] in o["cuts"]:
+                o["cuts"].remove(m["drop"])
     return [g for g in out if g["targets"]]

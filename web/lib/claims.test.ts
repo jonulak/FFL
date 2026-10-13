@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addTarget, atMost, capacity, cutBlock, displayTargets, groupHasFA, groupPos, move, moveGroup, removeFrom, reorderTargets,
-  addCut, holder, place, processDay, prune, rowTag, setOpen, statusTag, submitFailure, submitSummary,
+  addCut, holder, newGroup, place, processDay, prune, regroupKeys, removeGroup, rowTag, setOpen, statusTag, submitFailure, submitSummary,
 } from "./claims";
 import type { ClaimGroup, ClaimPlayer } from "./api";
 
@@ -87,10 +87,11 @@ describe("empty groups and the process day", () => {
     expect(removeFrom(g, 1, "cuts", 3)).toHaveLength(3);
     expect(addTarget(g, 2, 104)[2]).toEqual({ targets: [104], cuts: [], open: 0 });
   });
-  it("adds a cut, moving it out of another group", () => {
+  it("adds a cut another group also makes, once per group", () => {
     const g = addCut(G, 1, 1);
-    expect(g[0].cuts).toEqual([2]);
+    expect(g[0].cuts).toEqual([1, 2]);
     expect(g[1].cuts).toEqual([3, 1]);
+    expect(addCut(g, 1, 1)[1].cuts).toEqual([3, 1]);
   });
   it("process day is the earliest waiver date's weekday, Wed by default", () => {
     expect(processDay([null, new Date(2026, 9, 8, 3).getTime(), new Date(2026, 9, 7, 3).getTime()])).toBe("Wed");
@@ -115,6 +116,13 @@ describe("dragging between groups", () => {
     expect(g[0].cuts).toEqual([2]);
     expect(g[1].cuts).toEqual([3, 1]);
   });
+  it("moves a shared cut out of the group it is dragged from only", () => {
+    const shared = addCut(G, 1, 1);
+    const g = place(shared, {}, "cuts", 1, 1, 0, 0);
+    expect(g[0].cuts).toEqual([2]);
+    expect(g[1].cuts).toEqual([1, 3]);
+    expect(place(shared, {}, "cuts", 2, 1, 0, 0)[0].cuts).toEqual([1]);
+  });
   it("reorders inside one group like an array move", () => expect(place(G, {}, "targets", 101, 0, 2)[0].targets).toEqual([102, 103, 101]));
   it("a free agent lands in its group's FA block, wherever it is dropped", () => {
     const g = place(G, { "201": "FREEAGENT" }, "targets", 201, 0, 3);
@@ -134,6 +142,15 @@ describe("dragging between groups", () => {
     const before = JSON.stringify(G);
     place(G, {}, "targets", 102, 1, 0);
     expect(JSON.stringify(G)).toBe(before);
+  });
+});
+
+describe("card keys", () => {
+  it("a reorder carries each group's key, an edit keeps its index's, a new group takes the next", () => {
+    expect(regroupKeys(G, [0, 1], moveGroup(G, 0, 1), 2)).toEqual({ keys: [1, 0], next: 2 });
+    expect(regroupKeys(G, [0, 1], addCut(G, 0, 9), 2).keys).toEqual([0, 1]);
+    expect(regroupKeys(G, [0, 1], newGroup(G), 2)).toEqual({ keys: [0, 1, 2], next: 3 });
+    expect(regroupKeys(G, [0, 1], removeGroup(G, 0), 2).keys).toEqual([1]);
   });
 });
 

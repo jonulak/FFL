@@ -1,13 +1,14 @@
 "use client";
 
 import {
-  DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors,
-  type CollisionDetection, type DragEndEvent, type DragOverEvent, type DragStartEvent, type UniqueIdentifier,
+  DndContext, DragOverlay, KeyboardSensor, MeasuringStrategy, MouseSensor, TouchSensor, closestCenter, pointerWithin, useDroppable, useSensor,
+  useSensors, type CollisionDetection, type DragCancelEvent, type DragEndEvent, type DragOverEvent, type DragStartEvent, type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Check, ChevronUp, GripVertical, LoaderCircle, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,7 +19,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import type { ClaimGroup, ClaimPlayer, PoolStatus } from "@/lib/api";
 import {
   addCut, capacity, cutBlock, displayTargets, groupHasFA, groupPos, holder, moveGroup, newGroup, place, processDay, prune,
-  removeFrom, removeGroup, setOpen, statusTag,
+  regroupKeys, removeFrom, removeGroup, setOpen, statusTag,
 } from "@/lib/claims";
 import { pts, signed } from "@/lib/format";
 import { useClaims } from "./claims-context";
@@ -129,11 +130,13 @@ function cutFace(player: Lookup, id: number, hasFA: boolean, rank: number): Face
   };
 }
 
-// Drag ids: `g<i>` a group, `t<player>` a target, `c<player>` a cut, and `zt<i>` / `zc<i>` group
-// i's targets / make-room area, so a group with an empty list still takes a drop.
+// Drag ids: `g<key>` a group (its card key, so the id follows the group when the groups reorder),
+// `t<player>` a target, `c<key>_<player>` a cut (one player can be a cut in several groups), and
+// `zt<i>` / `zc<i>` group i's targets / make-room area, so a group with an empty list still takes a drop.
 type Kind = "g" | "t" | "c";
 const kindOf = (id: UniqueIdentifier) => String(id)[0] as Kind | "z";
-const numOf = (id: UniqueIdentifier) => Number(String(id).replace(/^z?[gtc]/, ""));
+const numOf = (id: UniqueIdentifier) => Number(String(id).replace(/^z?[gtc]/, "").replace(/^\d+_/, ""));
+const cutKey = (id: UniqueIdentifier) => Number(String(id).slice(1).split("_")[0]);
 const listOf = (k: Kind) => (k === "t" ? "targets" : "cuts");
 // what a droppable takes: a group takes groups, a row or an area its own list
 const takes = (id: UniqueIdentifier): Kind => (kindOf(id) === "z" ? (String(id)[1] as Kind) : (kindOf(id) as Kind));
@@ -194,23 +197,67 @@ function CutPicker({ gi, roster, used, hasFA, disabled }: { gi: number; roster: 
   );
 }
 
+// A group's title and its "get K of N".
+function GroupTitle({ g, gi }: { g: ClaimGroup; gi: number }) {
+  const { pos } = useClaims();
+  const p = groupPos(g, pos);
+  return (
+    <>
+      <h3 className="font-display text-xl font-bold leading-none tracking-tight">
+        {gi + 1}{p && <span className="text-foreground/80"> · {p}</span>}
+      </h3>
+      {g.targets.length > 0 && (
+        <Badge variant="close" shape="chip" className="ml-auto">get {Math.min(capacity(g), g.targets.length)} of {g.targets.length}</Badge>
+      )}
+    </>
+  );
+}
+
+// Who the group is after, by name: the line a folded card keeps so the groups can be told apart.
+function GroupNames({ g, className = "" }: { g: ClaimGroup; className?: string }) {
+  const { status, player } = useClaims();
+  const names = displayTargets(g, status).map((t) => player(t.id)?.name ?? `player ${t.id}`);
+  return (
+    <p className={`mt-1.5 pl-[1.875rem] text-xs leading-snug text-muted-foreground ${className}`}>
+      {names.length ? names.join(" · ") : "no targets yet"}
+    </p>
+  );
+}
+
+// The dragged group, lifted off the list: the folded card on the panel's one deep drop.
+function LiftedGroup({ g, gi }: { g: ClaimGroup; gi: number }) {
+  return (
+    <Card size="sm" className="cursor-grabbing gap-0 rounded-lg px-3 py-2.5 ring-1 ring-foreground/10 shadow-[0_14px_28px_-12px_rgb(0_0_0_/_0.55)]">
+      <div className="flex items-center gap-1.5">
+        <span className="flex size-6 items-center justify-center text-foreground"><GripVertical aria-hidden className="size-4" /></span>
+        <GroupTitle g={g} gi={gi} />
+        <span className={`size-6 ${g.targets.length ? "" : "ml-auto"}`} />
+      </div>
+      <GroupNames g={g} />
+    </Card>
+  );
+}
+
 // One group: "get K of N", the targets best first (free agents on top: they are added the moment
 // you submit), then the rows that make room, first to go first. Its grip reorders the groups; a
 // target's or a cut's grip moves him within the group or into another one. `g` is the group as
 // the drag shows it, `dragging` the list a row is being dragged in, `landing` the group a dragged
-// row has moved into.
-function GroupCard({ g, gi, roster, usedCuts, dragging, landing }: {
-  g: ClaimGroup; gi: number; roster: [number, ClaimPlayer][]; usedCuts: Set<number>; dragging: Kind | null; landing: boolean;
+// row has moved into, `cutId` the drag id of each of its cuts. While a group is dragged the list
+// folds every card to its title and its targets' names (`[data-folded]` in globals.css), so all of
+// them are in view and alike in height; the body stays mounted, and `reveal` fades it back in once
+// the dragged one has landed.
+function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, cutId }: {
+  g: ClaimGroup; gi: number; gkey: number; roster: [number, ClaimPlayer][]; dragging: Kind | null; landing: boolean;
+  reveal: boolean; cutId: (c: number) => string;
 }) {
-  const { groups, setGroups, pos, status, player, data, dirty, submitting } = useClaims();
-  const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: `g${gi}`, disabled: submitting });
+  const { groups, setGroups, status, player, data, dirty, submitting } = useClaims();
+  const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: `g${gkey}`, disabled: submitting });
   const shown = displayTargets(g, status);
   const fa = shown.filter((t) => t.now);
   const waiting = shown.filter((t) => !t.now);
   const hasFA = groupHasFA(g, status);
   const errors = dirty ? [] : data.errors.filter((e) => e.group === gi);
   const name = (id: number) => player(id)?.name ?? `player ${id}`;
-  const p = groupPos(g, pos);
 
   const targetLine = (t: { id: number; now: boolean }, rank: number) => (
     <Line key={t.id} id={`t${t.id}`} name={name(t.id)} disabled={submitting} {...targetFace(player, t.id, t.now, rank)}
@@ -218,23 +265,19 @@ function GroupCard({ g, gi, roster, usedCuts, dragging, landing }: {
   );
 
   return (
-    <li ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={isDragging ? "relative z-10" : ""}>
-      <Card size="sm" className={`gap-0 rounded-lg px-3 py-2.5 transition-shadow duration-200 ${isDragging ? "shadow-[0_12px_28px_-12px_rgb(0_0_0_/_0.5)]" : "shadow-[0_6px_18px_-14px_rgb(0_0_0_/_0.45)]"} ${landing ? "ring-2 ring-foreground/35" : ""}`}>
+    <li ref={setNodeRef} data-group={gkey} style={{ transform: CSS.Translate.toString(transform), transition }}>
+      <Card size="sm" className={`gap-0 rounded-lg px-3 py-2.5 shadow-[0_6px_18px_-14px_rgb(0_0_0_/_0.45)] ${isDragging ? "bg-foreground/[0.04] shadow-none ring-0 outline-1 -outline-offset-1 outline-foreground/25 outline-dashed *:invisible" : ""} ${landing ? "ring-2 ring-foreground/35" : ""}`}>
         <div className="flex items-center gap-1.5">
           <Grip label={`Move group ${gi + 1}`} handleRef={setActivatorNodeRef} attributes={attributes} listeners={listeners} disabled={submitting} />
-          <h3 className="font-display text-xl font-bold leading-none tracking-tight">
-            {gi + 1}{p && <span className="text-foreground/80"> · {p}</span>}
-          </h3>
-          {g.targets.length > 0 && (
-            <Badge variant="close" shape="chip" className="ml-auto">get {Math.min(capacity(g), g.targets.length)} of {g.targets.length}</Badge>
-          )}
+          <GroupTitle g={g} gi={gi} />
           <Button variant="ghost" size="icon-xs" aria-label={`Delete group ${gi + 1}`} disabled={submitting}
             onClick={() => setGroups(removeGroup(groups, gi))} className={`${HIT} text-foreground/45 hover:text-destructive ${g.targets.length ? "" : "ml-auto"}`}>
             <Trash2 aria-hidden />
           </Button>
         </div>
+        <GroupNames g={g} className="group-names" />
 
+        <div className={`group-body ${reveal ? "group-reveal" : ""}`}>
         <Zone id={`zt${gi}`}>
           <p className={`${SUB} mt-3 mb-0.5`}>targets · best first</p>
           {g.targets.length === 0 && (dragging === "t"
@@ -262,10 +305,10 @@ function GroupCard({ g, gi, roster, usedCuts, dragging, landing }: {
             )}
           </ol>
           {g.cuts.length === 0 && dragging === "c" && <EmptySlot text="Drop to cut him for this group" />}
-          <SortableContext id={`cuts${gi}`} items={g.cuts.map((c) => `c${c}`)} strategy={verticalListSortingStrategy}>
+          <SortableContext id={`cuts${gi}`} items={g.cuts.map(cutId)} strategy={verticalListSortingStrategy}>
             <ol>
               {g.cuts.map((c, i) => (
-                <Line key={c} id={`c${c}`} name={name(c)} disabled={submitting} {...cutFace(player, c, hasFA, g.open + i + 1)}
+                <Line key={c} id={cutId(c)} name={name(c)} disabled={submitting} {...cutFace(player, c, hasFA, g.open + i + 1)}
                   onRemove={() => setGroups(removeFrom(groups, gi, "cuts", c))} removeLabel={`Remove ${name(c)} from the cuts`} />
               ))}
             </ol>
@@ -274,7 +317,7 @@ function GroupCard({ g, gi, roster, usedCuts, dragging, landing }: {
         {capacity(g) === 0 && g.targets.length > 0 && (
           <p className="py-1 text-xs text-muted-foreground">Add a cut: the group gets one target per row here.</p>
         )}
-        <CutPicker gi={gi} roster={roster} used={usedCuts} hasFA={hasFA} disabled={submitting} />
+        <CutPicker gi={gi} roster={roster} used={new Set(g.cuts)} hasFA={hasFA} disabled={submitting} />
         {data.open_spots > 0 && (
           <Label className="mt-2.5 text-xs font-normal text-foreground/80">
             <Checkbox checked={g.open > 0} disabled={submitting}
@@ -287,6 +330,7 @@ function GroupCard({ g, gi, roster, usedCuts, dragging, landing }: {
             {errors.map((e, i) => <li key={i}>{e.player_id != null && <span className="font-medium">{name(e.player_id)}: </span>}{e.reason}</li>)}
           </ul>
         )}
+        </div>
       </Card>
     </li>
   );
@@ -310,83 +354,195 @@ const order = (g: ClaimGroup, list: "targets" | "cuts", status: Record<string, P
 // The panel's body, shared by the docked column and the phone's sheet. `heading` is the title
 // element each host needs (an h2, or the sheet's labelled title).
 //
+// The card keys for the groups (regroupKeys), held across renders.
+function useGroupKeys(groups: ClaimGroup[]): number[] {
+  const [k, setK] = useState(() => ({ groups, ...regroupKeys([], [], groups, 0) }));
+  if (k.groups === groups) return k.keys;
+  const next = { groups, ...regroupKeys(k.groups, k.keys, groups, k.next) };
+  setK(next);
+  return next.keys;
+}
+
+// The nearest ancestor that scrolls: the sheet's pane, the docked column, else the page.
+function scroller(el: HTMLElement): HTMLElement {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if ((o === "auto" || o === "scroll") && p.scrollHeight > p.clientHeight) return p;
+  }
+  return (document.scrollingElement ?? document.documentElement) as HTMLElement;
+}
+
+const DROP_MS = 240;
+const DROP = { duration: DROP_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)" };
+const REVEAL_MS = 300;
+const REDUCE = "(prefers-reduced-motion: reduce)";
+const stillMotion = () => matchMedia(REDUCE).matches;
+const onMotionChange = (fn: () => void) => {
+  const m = matchMedia(REDUCE);
+  m.addEventListener("change", fn);
+  return () => m.removeEventListener("change", fn);
+};
+// the cards fold and open mid-drag: measure the drop targets again on every change, not once at the start
+const MEASURE = { droppable: { strategy: MeasuringStrategy.Always } };
+const noop = () => () => {};
+
+// A drag: what is moving, the plan when it began, and for a row the group he left (`home`), the
+// group he is in now (`at`) and the plan as the drag shows it (`preview`).
+type Drag = { id: UniqueIdentifier; before: ClaimGroup[]; home: number | null; at: number | null; preview: ClaimGroup[] | null };
+
 // One drag context spans every group, so a row can leave its group. While a row is dragged the
 // plan shown is a preview: crossing into another group moves him there at once (its list opens a
 // slot under the pointer, both "get K of N" counts follow), and only the drop writes the plan,
 // pruning a group the move emptied. Escape puts everything back.
+//
+// A group is dragged among folded cards. Folding moves the dragged card's slot up by everything
+// that folded above it, which would leave the pointer over another card, and shrinks the list,
+// which shrinks the sheet under it. So the pickup folds the list at once, by hand, to measure
+// that, and the first render of the drag pads the list by it and holds its height: dnd-kit's
+// first look at the card (which it keeps) finds it folded and where it was lifted. The cards stay
+// folded while the lifted one flies to its slot, then open, scrolled so it stays where it landed.
+//
+// The lifted copy is portalled to the body: the phone's sheet is transformed, which would make it
+// the frame a fixed overlay is placed in, and draw the copy off the pointer by the sheet's top.
 function PanelBody({ heading, onReview, sheet = false }: { heading: (text: string) => ReactNode; onReview: () => void; sheet?: boolean }) {
   const { data, groups, setGroups, player, status, dirty, saving, error, submitting } = useClaims();
   const sensors = useDragSensors();
   const dndId = useId();
-  const [drag, setDrag] = useState<{ id: UniqueIdentifier; before: ClaimGroup[] } | null>(null);
-  const [preview, setPreview] = useState<ClaimGroup[] | null>(null);
-  const shown = preview ?? groups;
+  const keys = useGroupKeys(groups);
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const [settling, setSettling] = useState(false);
+  const [reveal, setReveal] = useState(false);
+  // while groups fold: the list's height when the drag began, held so the sheet does not shrink
+  // under the pointer, and the room above the cards that keeps the dragged slot where it was
+  const [hold, setHold] = useState<{ h: number; pad: number } | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  const anchor = useRef<{ key: number; top: number; s: HTMLElement } | null>(null);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const still = useSyncExternalStore(onMotionChange, stillMotion, () => false);
+  const client = useSyncExternalStore(noop, () => true, () => false);
+
+  const shown = drag?.preview ?? groups;
   const roster = Object.entries(data.players)
     .filter(([, p]) => p.droppable != null) // roster players only: a free agent's slot reads "FA", his droppable null
     .map(([k, p]) => [Number(k), p] as [number, ClaimPlayer])
     .sort((a, b) => (a[1].ros_adj ?? 0) - (b[1].ros_adj ?? 0));
-  const usedCuts = new Set(groups.flatMap((g) => g.cuts));
   const day = processDay(groups.flatMap((g) => g.targets).filter((t) => status[String(t)] !== "FREEAGENT").map((t) => player(t)?.waiver_date ?? null));
   const moves = data.now.length + data.claims.length;
   const blocked = dirty || saving || submitting || data.errors.length > 0 || moves === 0;
 
-  // the dragged row: its kind, his id, the group he is in now and the one he left
   const rowKind = drag && kindOf(drag.id) !== "g" ? (kindOf(drag.id) as Kind) : null;
   const dragged = drag && rowKind ? numOf(drag.id) : null;
-  const at = rowKind && dragged != null ? holder(shown, listOf(rowKind), dragged) : null;
-  const home = drag && rowKind && dragged != null ? holder(drag.before, listOf(rowKind), dragged) : null;
+  const folded = (drag != null && rowKind == null) || settling;
+  // the dragged cut keeps his drag id in whichever group the preview has him
+  const cutId = (gi: number) => (c: number) => (rowKind === "c" && dragged === c && drag?.at === gi ? String(drag.id) : `c${keys[gi]}_${c}`);
+
+  const cardTop = (key: number) => listRef.current?.querySelector(`[data-group="${key}"]`)?.getBoundingClientRect().top ?? null;
+  // remember where a card stands before the cards fold or open, to put it back there after
+  const pin = (key: number) => {
+    const top = cardTop(key);
+    anchor.current = top != null && listRef.current ? { key, top, s: scroller(listRef.current) } : null;
+  };
+
+  // the cards have opened after a group's drop: scroll so the dropped one stays where it landed
+  useLayoutEffect(() => {
+    const a = anchor.current;
+    anchor.current = null;
+    const top = a && cardTop(a.key);
+    if (a && top != null && !folded) a.s.scrollTop += top - a.top;
+  }, [folded]);
 
   const onDragStart = ({ active }: DragStartEvent) => {
-    setDrag({ id: active.id, before: groups });
-    if (kindOf(active.id) !== "g") setPreview(groups);
+    if (kindOf(active.id) === "g") {
+      const ol = listRef.current;
+      const key = numOf(active.id);
+      const top = cardTop(key);
+      if (ol && top != null) {
+        // measured from the list's own top, which the held height keeps where it is, then put back:
+        // the next render folds, holds and pads in one go
+        const h = ol.offsetHeight;
+        const from = top - ol.getBoundingClientRect().top;
+        ol.style.minHeight = `${h}px`;
+        ol.setAttribute("data-folded", "");
+        const to = (cardTop(key) ?? top) - ol.getBoundingClientRect().top;
+        ol.removeAttribute("data-folded");
+        ol.style.minHeight = "";
+        setHold({ h, pad: Math.max(0, from - to) });
+      }
+      setDrag({ id: active.id, before: groups, home: null, at: null, preview: null });
+      return;
+    }
+    const k = kindOf(active.id) as Kind;
+    const home = k === "c" ? keys.indexOf(cutKey(active.id)) : holder(groups, "targets", numOf(active.id));
+    setDrag({ id: active.id, before: groups, home, at: home, preview: groups });
   };
 
   // Crossing into another group's list moves him there now, above or below the row he is over
   // (to the end of a list he is over but not on a row of); a move inside one group waits for the drop.
   const onDragOver = ({ active, over }: DragOverEvent) => {
     const k = kindOf(active.id) as Kind;
-    if (k === "g" || !over || !preview) return;
+    if (k === "g" || !over || over.id === active.id || !drag?.preview || drag.at == null) return;
     const list = listOf(k);
     const id = numOf(active.id);
-    const from = holder(preview, list, id);
     const onRow = kindOf(over.id) !== "z";
-    const to = onRow ? holder(preview, list, numOf(over.id)) : numOf(over.id);
-    if (from == null || to == null || from === to) return;
-    const rows = order(preview[to], list, status);
+    const to = !onRow ? numOf(over.id) : k === "c" ? keys.indexOf(cutKey(over.id)) : holder(drag.preview, list, numOf(over.id));
+    if (to == null || to < 0 || to === drag.at) return;
+    const rows = order(drag.preview[to], list, status);
     let i = rows.length;
     if (onRow) {
       const r = active.rect.current.translated;
       i = rows.indexOf(numOf(over.id)) + (r && r.top + r.height / 2 > over.rect.top + over.rect.height / 2 ? 1 : 0);
     }
-    setPreview(place(preview, status, list, id, to, i));
+    setDrag({ ...drag, at: to, preview: place(drag.preview, status, list, id, to, i, drag.at) });
+  };
+
+  // A group's drop: the cards hold folded while the lifted one flies home, then open around it.
+  const settle = (key: number) => {
+    setSettling(true);
+    timers.current.push(setTimeout(() => {
+      pin(key);
+      setHold(null);
+      setSettling(false);
+      setReveal(true);
+      timers.current.push(setTimeout(() => setReveal(false), REVEAL_MS));
+    }, still ? 0 : DROP_MS));
   };
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     const k = kindOf(active.id) as Kind;
-    const before = drag?.before ?? groups;
-    const cur = preview;
+    const d = drag;
     setDrag(null);
-    setPreview(null);
     if (k === "g") {
-      if (over && active.id !== over.id) setGroups(moveGroup(groups, numOf(active.id), numOf(over.id)));
+      const from = keys.indexOf(numOf(active.id));
+      const to = over ? keys.indexOf(numOf(over.id)) : -1;
+      if (from >= 0 && to >= 0 && from !== to) setGroups(moveGroup(groups, from, to));
+      settle(numOf(active.id));
       return;
     }
-    if (!cur) return;
+    if (!d?.preview || d.at == null) return;
     const list = listOf(k);
     const id = numOf(active.id);
-    let next = cur;
+    let next = d.preview;
     if (over && kindOf(over.id) === k && over.id !== active.id) {
-      const gi = holder(cur, list, id);
-      if (gi != null && gi === holder(cur, list, numOf(over.id))) next = place(cur, status, list, id, gi, order(cur[gi], list, status).indexOf(numOf(over.id)));
+      const gi = d.at;
+      const og = k === "c" ? keys.indexOf(cutKey(over.id)) : holder(next, list, numOf(over.id));
+      if (gi === og) next = place(next, status, list, id, gi, order(next[gi], list, status).indexOf(numOf(over.id)), gi);
     }
-    if (JSON.stringify(next) !== JSON.stringify(before)) setGroups(prune(before, next));
+    if (JSON.stringify(next) !== JSON.stringify(d.before)) setGroups(prune(d.before, next));
   };
 
-  const onDragCancel = () => { setDrag(null); setPreview(null); };
+  const onDragCancel = ({ active }: DragCancelEvent) => {
+    setDrag(null);
+    if (kindOf(active.id) === "g") settle(numOf(active.id));
+  };
 
   const lifted = () => {
-    if (!rowKind || dragged == null || at == null) return null;
-    const g = shown[at];
+    if (drag && !rowKind) {
+      const gi = keys.indexOf(numOf(drag.id));
+      return gi >= 0 ? <LiftedGroup g={groups[gi]} gi={gi} /> : null;
+    }
+    if (!rowKind || dragged == null || drag?.at == null) return null;
+    const g = shown[drag.at];
     const i = order(g, listOf(rowKind), status).indexOf(dragged);
     return rowKind === "t"
       ? <Lifted {...targetFace(player, dragged, status[String(dragged)] === "FREEAGENT", i + 1)} />
@@ -394,7 +550,8 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   };
 
   return (
-    <div className="space-y-3">
+    // no scroll anchoring (Chrome only): the fold and the drop place the cards themselves
+    <div className="space-y-3 [overflow-anchor:none]">
       <div className="flex flex-wrap items-center justify-between gap-2 max-lg:pr-9">
         {heading(`Claims · process ${day}`)}
         <SubmitState />
@@ -411,17 +568,18 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
           list the players you&apos;d take, best first, then the roster spots they can fill.
         </p>
       )}
-      <DndContext id={dndId} sensors={sensors} collisionDetection={collide}
+      <DndContext id={dndId} sensors={sensors} collisionDetection={collide} measuring={MEASURE}
         onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={onDragCancel}>
-        <SortableContext items={shown.map((_, i) => `g${i}`)} strategy={verticalListSortingStrategy}>
-          <ol className="space-y-2.5">
+        <SortableContext items={keys.map((k) => `g${k}`)} strategy={verticalListSortingStrategy}>
+          <ol ref={listRef} data-folded={folded || undefined} className="space-y-2.5" style={hold ? { minHeight: hold.h, paddingTop: hold.pad } : undefined}>
             {shown.map((g, i) => (
-              <GroupCard key={i} g={g} gi={i} roster={roster} usedCuts={usedCuts} dragging={rowKind} landing={at === i && home !== i} />
+              <GroupCard key={keys[i]} g={g} gi={i} gkey={keys[i]} roster={roster} dragging={rowKind} reveal={reveal}
+                landing={drag?.at === i && drag.home !== i} cutId={cutId(i)} />
             ))}
           </ol>
         </SortableContext>
-        {/* above the sheet (z-50) it is drawn in */}
-        <DragOverlay className="z-[60]">{lifted()}</DragOverlay>
+        {/* on the body, above the sheet (z-50): see the note above */}
+        {client && createPortal(<DragOverlay className="z-[60]" dropAnimation={still ? null : DROP}>{lifted()}</DragOverlay>, document.body)}
       </DndContext>
       {/* In the sheet the actions stay pinned to its foot, thumb-height, above the home indicator;
           docked beside the table they follow the last group at desk size. */}
