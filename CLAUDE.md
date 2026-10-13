@@ -189,7 +189,8 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - Every player dict carries `home` (True hosts, False travels, None unknown): espn-api drops the venue,
   so `espn_season.home_by_team` re-reads ESPN's `proTeamSchedules_wl` view, cached per League build,
   and a failed read leaves every venue None rather than failing the page. Headshots and logos are
-  ESPN's public CDN (`web/lib/teams.ts`); D/ST and any missing portrait fall back to the club mark.
+  ESPN's public CDN (`web/lib/teams.ts`, sized through its resizer; `web/public/sw.js` keeps them in the `espn-img-v1` cache,
+  served first, refetched behind after a week); D/ST and any missing portrait fall back to the club mark.
 - **Live scoring** (`ffl/fastcast.py`, `ffl/live.py`): during games the API holds one subscription to ESPN's
   public FastCast feed (topic `scoreboard-ffl-fantasycast`, no cookies): a CDN checkpoint of every player's raw
   stats plus JSON-Patch pushes every few seconds. `live.Runner` rescores the document with the league's stat
