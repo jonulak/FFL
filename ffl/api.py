@@ -726,9 +726,6 @@ def team(team_id: int):
     return {**data, "side": live.overlay_side(data["side"], _live_points(wk), _live_games(wk), _live_stats(wk), _scoring())}
 
 
-STARTER_KEYS = ("player_id", "name", "pos", "slot", "team", "actual", "stat_line", "game_played")
-
-
 def _nfl_sides(week: int) -> tuple[list[dict], list[dict]]:
     """My starters and my opponent's for `week`, live points laid on (the Matchup board's), for the NFL pages'
     marks. The board failing (ESPN fantasy down) leaves the pages unmarked, never unserved."""
@@ -825,10 +822,9 @@ def nfl_game(week: int, team: str):
     named = lambda ps: {p["player_id"]: p["name"] for p in ps if p["player_id"] > 0}  # noqa: E731
     dst = lambda ps: {p["team"]: p["name"] for p in ps if p["player_id"] < 0}  # noqa: E731
     marked = nfl.mark(drives, named(mine), named(opp), dst(mine), dst(opp), clubs)
-    pick = lambda ps: [{k: p.get(k) for k in STARTER_KEYS} for p in ps]  # noqa: E731
     return {"week": week, "live": nfl.is_live(game),
             "game": {**game, "mine": len(mine), "opp": len(opp)},
-            "starters": {"me": pick(mine), "opp": pick(opp)},
+            "starters": {"me": mine, "opp": opp},  # whole board players: a tap opens the Matchup breakdown
             "scoring": nfl.scoring_plays(marked), "drives": marked, "stale_since": stale or stale2}
 
 

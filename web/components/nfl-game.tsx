@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { NflGame, NflGamePage, NflPlay, NflStarter } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
 import { pts, shortName } from "@/lib/format";
+import { NAME_LINK } from "@/lib/player-log";
 import { gameState, inGameRows, scoreLine, type FeedFilter } from "@/lib/nfl";
 import { KickoffTime } from "./local-time";
 import { NflPlayFeed } from "./nfl-feed";
 import { PossessionDot } from "./nfl-board";
+import { BoxScoreDialog } from "./box-score-dialog";
+import { fetchLog, holdFor, type LogFetch } from "./player-dialog";
 import { TeamLogo } from "./player-media";
 import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
@@ -91,12 +95,13 @@ export function NflPlayRow({ p, g, prev }: { p: NflPlay; g: NflGame; prev?: NflP
   );
 }
 
-function StarterHalf({ s, end }: { s?: NflStarter; end: "me" | "opp" }) {
+function StarterHalf({ s, end, onPick }: { s?: NflStarter; end: "me" | "opp"; onPick: (s: NflStarter) => void }) {
   if (!s) return <span />;
   return (
     <div className={`min-w-0 py-2 ${end === "opp" ? "text-right" : ""}`}>
       <p className={`flex items-baseline gap-2 ${end === "opp" ? "flex-row-reverse" : ""}`}>
-        <span className="truncate font-display text-[1.0625rem] font-semibold leading-none tracking-tight">{shortName(s.name)}</span>
+        <button type="button" onClick={() => onPick(s)} aria-label={`${s.name}: scoring breakdown`}
+          className={`-mb-[0.2em] min-w-0 cursor-pointer truncate rounded-sm pb-[0.2em] font-display text-[1.0625rem] font-semibold leading-none tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${end === "opp" ? "text-right" : "text-left"} ${NAME_LINK}`}>{shortName(s.name)}</button>
         <span className={`${end === "opp" ? "mr-auto" : "ml-auto"} font-display text-[1.25rem] font-bold leading-none tabular-nums`}><Ticker value={s.actual} format={pts} gain /><span className="ml-1 text-[0.6875rem] font-semibold text-muted-foreground">PTS</span></span>
       </p>
       <p className="mt-1 text-xs text-muted-foreground">{s.slot}{s.team && ` · ${s.team}`}</p>
@@ -109,6 +114,21 @@ export function NflGameLive({ initial, path, filter, club }: { initial: NflGameP
   const { data } = useLive(initial, path, { pollMs: GAME_POLL_MS });
   const { game: g, week } = data;
   const rows = inGameRows(data.starters);
+  // A name opens the Matchup board's breakdown (MatchupView's onPick): the dialog holds his id, so a poll
+  // refreshes his numbers while it is open, and it opens once his season log lands (holdFor).
+  const [picked, setPicked] = useState<{ id: number; log: LogFetch } | null>(null);
+  const [open, setOpen] = useState(false);
+  const latest = useRef(0);
+  const player = picked ? [...data.starters.me, ...data.starters.opp].find((p) => p.player_id === picked.id) ?? null : null;
+  const onPick = (p: NflStarter) => {
+    const tap = ++latest.current;
+    const log = fetchLog(p.player_id);
+    void holdFor(log).then(() => {
+      if (tap !== latest.current) return; // a later tap took over
+      setPicked({ id: p.player_id, log });
+      setOpen(true);
+    });
+  };
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -123,13 +143,14 @@ export function NflGameLive({ initial, path, filter, club }: { initial: NflGameP
           <Card className={BOARD_CARD}>
             <CardContent className="divide-y divide-foreground/10 py-1">
               {rows.map(([a, b], i) => (
-                <div key={a?.player_id ?? b?.player_id ?? i} className="grid grid-cols-2 gap-4"><StarterHalf s={a} end="me" /><StarterHalf s={b} end="opp" /></div>
+                <div key={a?.player_id ?? b?.player_id ?? i} className="grid grid-cols-2 gap-4"><StarterHalf s={a} end="me" onPick={onPick} /><StarterHalf s={b} end="opp" onPick={onPick} /></div>
               ))}
             </CardContent>
           </Card>
         </section>
       </Presence>
       <NflPlayFeed data={data} filter={filter} club={club} />
+      <BoxScoreDialog p={player} week={week} log={picked?.log ?? null} open={open && player != null} onOpenChange={setOpen} />
     </div>
   );
 }
