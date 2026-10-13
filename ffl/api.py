@@ -745,6 +745,27 @@ def _nfl_sides(week: int) -> tuple[list[dict], list[dict]]:
     return (data.get("me") or {}).get("lineup", []), (data.get("opp") or {}).get("lineup", [])
 
 
+def _nfl_starters(week: int) -> tuple[list[dict], list[dict]]:
+    """My starters and my opponent's for the scoreboard's per-club counts, which need only each one's club. The
+    Matchup board's week reads its cached board; any other week reads the box scores' starters (league_starters,
+    about a second cold) rather than pricing that week's board, which is 7-10 s cold. Failing, the scoreboard
+    goes unmarked, never unserved."""
+    try:
+        if _board(None, None)["week"] == week:
+            return _nfl_sides(week)
+        me = espn_season.my_team_id(espn_season.fresh_league())
+        for game in espn_season.league_starters(week)["games"]:
+            if any(s["team_id"] == me for s in game):
+                return (next(s["lineup"] for s in game if s["team_id"] == me),
+                        next((s["lineup"] for s in game if s["team_id"] != me), []))
+        return [], []
+    except HTTPException as e:
+        log.warning("nfl marks off, no board for week %s: %s", week, e.detail)
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — ESPN fantasy down, or no league config
+        log.warning("nfl marks off, no starters for week %s: %s", week, e)
+    return [], []
+
+
 def _nfl_scoreboard(week: int | None) -> tuple[dict, str | None]:
     try:
         return nfl.scoreboard(week)
@@ -776,7 +797,7 @@ def nfl_scoreboard(week: int | None = None):
             current = sb["week"]
     wk = sb["week"]
     games = nfl.overlay(sb["games"], _live_games(wk))
-    mine, opp = _nfl_sides(wk)
+    mine, opp = _nfl_starters(wk)
     return {"week": wk, "current": current, "weeks": NFL_WEEKS,
             "live": any(nfl.is_live(g) for g in games),
             "sections": nfl.board(games, _by_club(mine), _by_club(opp)), "byes": sb["byes"], "stale_since": stale}

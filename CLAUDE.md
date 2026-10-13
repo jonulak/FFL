@@ -41,6 +41,7 @@ curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks 
 curl -X POST 127.0.0.1:8300/notify/tick   # sync + injury/waiver checks + push flush + pre-game pull (launchd every 15 min)
 curl -X POST 127.0.0.1:8300/refresh       # force every page, projection and injury cache to refetch now, and wait (no UI button)
 uv run python -m ffl.notify keys       # one-time: VAPID keys for .env
+uv run python scripts/pageload.py       # load time of every season page on a throttled phone (default: prod :3300)
 curl 127.0.0.1:8300/live/status        # the live-scoring feed: connected?, version, players scored (FFL_LIVE=0 keeps a dev API off it)
 cd web && pnpm dev                     # season UI on :3301 against the API above
 scripts/deploy.sh                      # rebuild + restart the launchd agents (post-merge hook runs it)

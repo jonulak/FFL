@@ -38,7 +38,11 @@ CACHE_S = 1800
 # which rebuilds it once an hour; POST /refresh forces it immediately.
 LEAGUE_TTL_S = 3600
 _LEAGUE_BUILT_AT = 0.0
-_SEASON_CACHE: list = []  # [fetched_at, week, lookup]
+# week -> (fetched_at, lookup). A few weeks, not one: the Matchup board prices on the scoring week, the Roster and
+# Players pages on the ROS week (the next one once the week's games are played), and a past week's board on its
+# own, and with one slot each build evicted the others' 5-25 s lookup.
+_SEASON_CACHE: dict[int, tuple[float, dict]] = {}
+SEASON_WEEKS_KEPT = 4
 _SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
 _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
 _INJ: list = []  # [expires_at, data]
@@ -619,8 +623,9 @@ def season_lookup(settings: dict, week: int) -> dict[int, dict]:
     """The whole player pool's season and rest-of-season projections, cached for CACHE_S per week
     (one ESPN call, Sleeper's season and every remaining week, CBS's and FantasySharks' pages)."""
     now = time.time()
-    if _SEASON_CACHE and now - _SEASON_CACHE[0] < CACHE_S and _SEASON_CACHE[1] == week:
-        return _SEASON_CACHE[2]
+    hit = _SEASON_CACHE.get(week)
+    if hit and now - hit[0] < CACHE_S:
+        return hit[1]
     # four independent sources of one to four seconds each, in flight together: in sequence they
     # were most of what the Refresh button waited on
     ks = key_scoring(settings["scoring"])
@@ -642,7 +647,10 @@ def season_lookup(settings: dict, week: int) -> dict[int, dict]:
     for name, d in ros.items():
         if miss := unmatched(d, pool_keys):
             print(f"ROS source {name}: no ESPN player for {', '.join(miss[:10])}")
-    _SEASON_CACHE[:] = [now, week, lookup]
+    _SEASON_CACHE[week] = (now, lookup)
+    # oldest builds go first; list() snapshots, since builder threads may store a week meanwhile
+    for w, _ in sorted(list(_SEASON_CACHE.items()), key=lambda kv: kv[1][0])[:-SEASON_WEEKS_KEPT]:
+        _SEASON_CACHE.pop(w, None)
     return lookup
 
 

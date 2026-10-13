@@ -46,16 +46,44 @@ export function team(abbr: string | null | undefined): Team {
 
 // ESPN's public image CDN. `500-dark` is the same mark re-cut for dark grounds (navy and black
 // logos get a light keyline); not every team differs, but every team has the file.
-const CDN = "https://a.espncdn.com/i";
+// The originals are large (a mark is 500 px and up to 480 KB, a portrait 600 px and ~300 KB) and the
+// pages show them at 13-80 CSS px, so a width asks ESPN's resizer (`combiner/i`, aspect kept) for the
+// smallest bucket that covers it. Few buckets, so the same file is cached across pages; past the
+// largest one the original is served. A missing portrait 404s there too, so onError fallbacks hold.
+const HOST = "https://a.espncdn.com";
+const CDN = `${HOST}/i`;
+const BUCKETS = [48, 96, 160, 240, 400];
 
-export function logoUrl(abbr: string, variant: "light" | "dark" = "light"): string {
-  return `${CDN}/teamlogos/nfl/${variant === "dark" ? "500-dark" : "500"}/${abbr.toLowerCase()}.png`;
+function sized(path: string, w?: number): string {
+  const b = w === undefined ? undefined : BUCKETS.find((b) => b >= w);
+  return b === undefined ? `${CDN}/${path}` : `${HOST}/combiner/i?img=/i/${path}&w=${b}`;
+}
+
+// One candidate per pixel density for an image drawn `css` px wide: a 3x phone gets three times the pixels.
+function densities(path: string, css: number): string {
+  return [1, 2, 3].map((x) => `${sized(path, css * x)} ${x}x`).join(", ");
+}
+
+const logoPath = (abbr: string, variant: "light" | "dark") =>
+  `teamlogos/nfl/${variant === "dark" ? "500-dark" : "500"}/${abbr.toLowerCase()}.png`;
+const headshotPath = (playerId: number) => `headshots/nfl/players/full/${playerId}.png`;
+
+export function logoUrl(abbr: string, variant: "light" | "dark" = "light", w?: number): string {
+  return sized(logoPath(abbr, variant), w);
+}
+
+export function logoSrcSet(abbr: string, variant: "light" | "dark", css: number): string {
+  return densities(logoPath(abbr, variant), css);
 }
 
 // Transparent-background portrait, 600x436, cut at the chest. D/ST entries have negative ids and
 // no portrait: callers show the team logo instead.
-export function headshotUrl(playerId: number): string | null {
-  return playerId > 0 ? `${CDN}/headshots/nfl/players/full/${playerId}.png` : null;
+export function headshotUrl(playerId: number, w?: number): string | null {
+  return playerId > 0 ? sized(headshotPath(playerId), w) : null;
+}
+
+export function headshotSrcSet(playerId: number, css: number): string | undefined {
+  return playerId > 0 ? densities(headshotPath(playerId), css) : undefined;
 }
 
 // A fantasy club's mark. ESPN serves an owner's own upload only with the league cookies, so those

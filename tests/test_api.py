@@ -53,7 +53,7 @@ def test_week_is_cached_within_ttl(client):
 def test_refresh_busts_cache(client):
     client.get("/week/3")
     api.espn_season._SL[3] = (time.time() + 1800, {})
-    api.espn_season._SEASON_CACHE[:] = [time.time(), {}]
+    api.espn_season._SEASON_CACHE[3] = (time.time(), {})
     r = client.post("/refresh")
     assert r.status_code == 200 and "synced" in r.json()
     assert not api.espn_season._SL and not api.espn_season._SEASON_CACHE

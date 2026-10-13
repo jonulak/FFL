@@ -6,7 +6,7 @@ import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/di
 import type { Player, PlayerRow } from "@/lib/api";
 import { injuryTone } from "@/lib/format";
 import { headerInjury } from "@/lib/player-log";
-import { headshotUrl, logoUrl, team } from "@/lib/teams";
+import { headshotSrcSet, headshotUrl, logoSrcSet, logoUrl, team } from "@/lib/teams";
 import { GameLine } from "./local-time";
 
 /* eslint-disable @next/next/no-img-element -- ESPN's CDN, as player-media.tsx */
@@ -30,7 +30,8 @@ const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 // The dialog's close button sits on the band: the DialogContent carries BAND_CLOSE.
 export function PlayerHeader({ p, week, rank, jersey }: { p: PlayerSeed; week?: number; rank?: number; jersey?: string | null }) {
   const t = team(p.team);
-  const src = headshotUrl(p.player_id);
+  // the portrait stands about 200 CSS px wide on the band; the watermark is w-56, the stand-in mark w-24 at most
+  const src = headshotUrl(p.player_id, 200);
   const [portrait, setPortrait] = useState(src !== null);  const hurt = p.injury != null && !HEALTHY.has(p.injury);
   const scheduled = p.opponent !== undefined || p.bye !== undefined;
   return (
@@ -39,7 +40,7 @@ export function PlayerHeader({ p, week, rank, jersey }: { p: PlayerSeed; week?: 
         className="relative isolate h-28 overflow-hidden sm:h-32"
         style={{ background: `linear-gradient(168deg, ${t.primary} 0%, color-mix(in oklab, ${t.primary} 62%, ${t.secondary}) 100%)` }}
       >
-        <img src={logoUrl(p.team)} alt="" aria-hidden loading="lazy" decoding="async"
+        <img src={logoUrl(p.team, "light", 224)} srcSet={logoSrcSet(p.team, "light", 224)} alt="" aria-hidden loading="lazy" decoding="async"
           className="pointer-events-none absolute -top-10 -right-10 -z-10 w-56 max-w-none select-none opacity-[0.18]" />
         {/* Portrait, scrim and caption each hold a compositing layer of their own from the first
             frame (will-change). Left to iOS Safari, the portrait is lifted onto a layer whenever
@@ -49,10 +50,10 @@ export function PlayerHeader({ p, week, rank, jersey }: { p: PlayerSeed; week?: 
         <div aria-hidden className="absolute bottom-0 left-2 h-full w-28 overflow-hidden will-change-transform sm:left-3 sm:w-32">
           {portrait && src ? (
             // No fade of its own: the dialog's entrance already carries it in.
-            <img src={src} alt="" decoding="async" onError={() => setPortrait(false)}
+            <img src={src} srcSet={headshotSrcSet(p.player_id, 200)} alt="" decoding="async" onError={() => setPortrait(false)}
               className="absolute bottom-0 left-1/2 h-[112%] w-auto max-w-none -translate-x-1/2 drop-shadow-[0_8px_12px_rgb(0_0_0_/_0.5)]" />
           ) : (
-            <img src={logoUrl(p.team)} alt="" decoding="async"
+            <img src={logoUrl(p.team, "light", 96)} srcSet={logoSrcSet(p.team, "light", 96)} alt="" decoding="async"
               className="absolute top-1/2 left-1/2 w-20 -translate-x-1/2 -translate-y-1/2 drop-shadow-[0_6px_10px_rgb(0_0_0_/_0.45)] sm:w-24" />
           )}
         </div>

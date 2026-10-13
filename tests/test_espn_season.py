@@ -526,6 +526,23 @@ def test_season_lookup_sums_the_remaining_sleeper_weeks_and_drops_them_on_a_fail
     assert espn_season.season_lookup(settings, week=17) is not out, "another week is another sum"
 
 
+def test_season_lookup_keeps_a_few_weeks_so_a_past_board_never_evicts_the_current_one(monkeypatch):
+    espn_season._SEASON_CACHE.clear()
+    builds = []
+    monkeypatch.setattr(espn_season, "fetch_pool", lambda: builds.append(1) or SEASON_ESPN)
+    monkeypatch.setattr(espn_season, "fetch_sleeper_season", lambda: SEASON_SLEEPER)
+    monkeypatch.setattr(espn_season, "_remaining_sleeper_weeks", lambda week, settings: None)
+    monkeypatch.setattr(espn_season, "ROS_SOURCES", {})
+    settings = {**TWO_QB, "scoring": []}
+    current = espn_season.season_lookup(settings, week=7)
+    espn_season.season_lookup(settings, week=6)  # the Matchup board's scoring week, or a past week's board
+    espn_season.season_lookup(settings, week=2)
+    assert espn_season.season_lookup(settings, week=7) is current and len(builds) == 3
+    for w in range(8, 8 + espn_season.SEASON_WEEKS_KEPT):
+        espn_season.season_lookup(settings, week=w)
+    assert len(espn_season._SEASON_CACHE) == espn_season.SEASON_WEEKS_KEPT, "bounded: the oldest builds go"
+
+
 def test_free_agent_pool_reports_whether_ros_came_from_the_sources(monkeypatch):
     calls = {"box": 0, "fa": []}
     lg = _stub_league(_matchup(), calls)

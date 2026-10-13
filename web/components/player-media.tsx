@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { headshotUrl, logoUrl, team } from "@/lib/teams";
+import { headshotSrcSet, headshotUrl, logoSrcSet, logoUrl, team } from "@/lib/teams";
 
 // Plain <img> on purpose: the files come straight from ESPN's CDN and the launchd box has no
 // business proxying them through the Next image optimizer. Every image degrades to the team
@@ -18,9 +18,10 @@ export function TeamLogo({ abbr, className, size = 20, fallback = false }: { abb
   if (gone) return fallback ? <span className={className}>{abbr}</span> : null;
   return (
     <picture className={className}>
-      <source srcSet={logoUrl(abbr, "dark")} media="(prefers-color-scheme: dark)" />
+      <source srcSet={logoSrcSet(abbr, "dark", size)} media="(prefers-color-scheme: dark)" />
       <img
-        src={logoUrl(abbr)}
+        src={logoUrl(abbr, "light", size)}
+        srcSet={logoSrcSet(abbr, "light", size)}
         alt=""
         width={size}
         height={size}
@@ -40,7 +41,9 @@ export function TeamLogo({ abbr, className, size = 20, fallback = false }: { abb
 // `tile`: the row-scale square on the Matchup page; the portrait is scaled down so the head stays in frame.
 export function TeamPanel({ abbr, playerId, name, muted, tile = false }: { abbr: string; playerId: number; name: string; muted: boolean; tile?: boolean }) {
   const t = team(abbr);
-  const src = headshotUrl(playerId);
+  // the CSS width the portrait and the watermark are drawn at: a tile is about 60 px, the art overhangs it
+  const art = tile ? 80 : 200;
+  const src = headshotUrl(playerId, art);
   const [portrait, setPortrait] = useState(src !== null);
   return (
     <div
@@ -53,7 +56,8 @@ export function TeamPanel({ abbr, playerId, name, muted, tile = false }: { abbr:
     >
       {/* watermark: the mark oversized and trailing off the panel's left edge */}
       <img
-        src={logoUrl(abbr)}
+        src={logoUrl(abbr, "light", art)}
+        srcSet={logoSrcSet(abbr, "light", art)}
         alt=""
         loading="lazy"
         decoding="async"
@@ -64,6 +68,7 @@ export function TeamPanel({ abbr, playerId, name, muted, tile = false }: { abbr:
       {portrait && src && (
         <img
           src={src}
+          srcSet={headshotSrcSet(playerId, art)}
           alt={name}
           loading="lazy"
           decoding="async"

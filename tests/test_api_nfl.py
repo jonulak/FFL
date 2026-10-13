@@ -28,6 +28,7 @@ def c(monkeypatch):
         return SB if "scoreboard" in url else LIVE
     monkeypatch.setattr(nfl, "_get", get)
     monkeypatch.setattr(api, "_nfl_sides", lambda week: (ME, OPP))
+    monkeypatch.setattr(api, "_nfl_starters", lambda week: (ME, OPP))
     yield TestClient(api.app)
     nfl.reset()
 
@@ -98,7 +99,7 @@ def test_pregame_pages_poll_from_fifteen_minutes_out(monkeypatch, c, minutes, li
 def test_cold_outage_is_502(monkeypatch):
     nfl.reset()
     monkeypatch.setattr(nfl, "_get", lambda url, params=None: (_ for _ in ()).throw(RuntimeError("down")))
-    monkeypatch.setattr(api, "_nfl_sides", lambda week: ([], []))
+    monkeypatch.setattr(api, "_nfl_starters", lambda week: ([], []))
     r = TestClient(api.app).get("/nfl")
     assert r.status_code == 502 and r.json()["detail"]["source"] == "espn-nfl"
 
@@ -108,3 +109,31 @@ def test_sides_degrade_to_empty_when_board_fails(monkeypatch):
         raise api.HTTPException(502, {"source": "espn", "error": "down"})
     monkeypatch.setattr(api, "_board", boom)
     assert api._nfl_sides(5) == ([], [])
+
+
+def test_scoreboard_marks_of_another_week_come_off_the_box_scores_not_a_priced_board(monkeypatch):
+    priced = []
+    def board(n, team):
+        priced.append(n)
+        return {"week": 6, "me": {"lineup": ME}, "opp": {"lineup": OPP}}
+    monkeypatch.setattr(api, "_board", board)
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: None)
+    monkeypatch.setattr(api.espn_season, "my_team_id", lambda lg: 7)
+    side = lambda tid, ps: {"team_id": tid, "lineup": ps}  # noqa: E731
+    monkeypatch.setattr(api.espn_season, "league_starters", lambda week: {"week": week, "games": [
+        [side(1, []), side(2, OPP)], [side(9, OPP), side(7, ME)]]})
+    assert api._nfl_starters(2) == (ME, OPP)
+    assert priced == [None], "only the cached current board is read, never week 2's (7-10 s cold)"
+
+
+def test_scoreboard_marks_of_the_boards_week_read_the_board(monkeypatch):
+    monkeypatch.setattr(api, "_board", lambda n, team: {"week": 6})
+    monkeypatch.setattr(api, "_nfl_sides", lambda week: (ME, OPP))
+    monkeypatch.setattr(api.espn_season, "league_starters", lambda week: pytest.fail("the board has them"))
+    assert api._nfl_starters(6) == (ME, OPP)
+
+
+def test_scoreboard_marks_degrade_to_empty_when_the_box_scores_fail(monkeypatch):
+    monkeypatch.setattr(api, "_board", lambda n, team: {"week": 6})
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: (_ for _ in ()).throw(RuntimeError("espn down")))
+    assert api._nfl_starters(2) == ([], [])
