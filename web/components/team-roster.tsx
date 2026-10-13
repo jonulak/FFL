@@ -34,7 +34,7 @@ function Num({ p, now, week }: { p: Player; now: number; week: number }) {
   const phase = gamePhase(p, now);
   const on = phase !== "pending";
   return (
-    <ProjectionTrigger p={p} week={week} className="block text-right tabular-nums"
+    <ProjectionTrigger p={p} week={week} className="ml-auto block text-right tabular-nums"
       label={on ? `${p.name}: ${pts(p.actual)} points, projected ${pts(p.proj)}; show the sources` : undefined}>
       <span className={`block font-display text-[1.25rem] font-bold leading-none tracking-tight sm:text-[1.375rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
         {pts(on ? p.actual : p.proj)}
