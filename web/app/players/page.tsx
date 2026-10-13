@@ -10,6 +10,8 @@ import { ClaimsPanel } from "@/components/claims-panel";
 import { apiGet, type Claims, type Players } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 import { isFreeAgent } from "@/lib/players";
+import { Presence } from "@/components/motion";
+import { ViewTransition } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -43,12 +45,15 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
         <div className="min-w-0 flex-1 sm:order-first"><PosTabs active={q ? null : pos} base="/players" extra={fa ? "" : "&fa=0"} /></div>
         <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} pos={pos} fa={fa} /></div>
       </div>
-      {q && data.rows.length > 0 && (
+      <Presence show={!!q && data.rows.length > 0} fold>
         <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" aria-live="polite">
           {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every player, by add
         </p>
-      )}
-      <WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} fa={fa} />
+      </Presence>
+      {/* another position, the Free agents toggle or a search: the new pool crossfades in over the old, in place */}
+      <ViewTransition update="swap" default="none">
+        <div><WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} fa={fa} /></div>
+      </ViewTransition>
     </div>
   );
   return (
@@ -60,11 +65,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
           <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
         </h1>
         {/* the week's games are all played: ROS starts from the next one, and nothing is left to gain this week */}
-        {data.week_over && (
+        <Presence show={data.week_over}>
           <span className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" title="every game this week has kicked off and finished; ESPN rolls its week later, ROS does not wait">
             games played · ROS from week {data.ros_week}
           </span>
-        )}
+        </Presence>
         <StaleBadge since={data.stale_since} />
       </div>
       {/* The definition is a laptop read; on the phone the first screen belongs to the table. */}
@@ -77,12 +82,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
         name for the rest: the models&apos; ROS and spread, Δ roster and Δ pool, the full form line
         and the game log.
       </p>
-      {data.ros_source === "season" && (
+      <Presence show={data.ros_source === "season"} fold>
         <p className="max-w-[72ch] text-xs leading-relaxed text-close-foreground dark:text-close">
           ROS from season totals: none of the rest-of-season sources
           answered, so every ROS here is a draft-day season projection scaled by the weeks left.
         </p>
-      )}
+      </Presence>
       {claimsFault && (
         <p className="max-w-[72ch] text-xs leading-relaxed text-destructive">
           The claims plan didn&apos;t load ({claimsFault.source} · {claimsFault.message}), so the claim tools are off. The pool below is current.

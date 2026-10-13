@@ -12,6 +12,7 @@ import { Ago } from "./local-time";
 import { Bullets } from "./outlook";
 import { hold, useGrow } from "./player-dialog";
 import { BAND_CLOSE, PlayerHeader } from "./player-header";
+import { Presence, Swap } from "./motion";
 
 // A write is a minute or two of Opus with web search; reading the stored entry every few seconds
 // is a local file read, so the dialog polls rather than holding a request open.
@@ -48,10 +49,10 @@ export function WaiverOutlookButton({ r }: { r: FreeAgentRow }) {
   return (
     <>
       <button type="button" onClick={show} aria-label={`${r.name}'s outlook${written ? "" : " (none written yet)"}`}
-        className="inline-flex min-h-6 items-center gap-1 rounded-sm px-0.5 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 hover:text-foreground focus-visible:outline-2">
+        className="inline-flex min-h-6 items-center gap-1 rounded-sm px-0.5 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2">
         <NotebookText aria-hidden className="size-3.5 stroke-[2.25]" />
         outlook
-        {written && <span aria-hidden className="size-1.5 rounded-full bg-foreground/70" />}
+        <Presence show={written}><span aria-hidden className="size-1.5 rounded-full bg-foreground/70" /></Presence>
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className={`gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-xl ${BAND_CLOSE}`}>
@@ -140,7 +141,9 @@ function Body({ r, first, setWritten }: { r: FreeAgentRow; first: FirstRead; set
       <PlayerHeader p={r} week={log?.current_week} rank={log ? seasonRank(log) : undefined} jersey={log?.jersey} />
       <div ref={grow} className="overflow-hidden">
         <div className="max-h-[60dvh] overflow-y-auto px-4 pt-3 pb-4" aria-live="polite">
-          {fault && <p className="mb-3 text-sm text-out">{fault}</p>}
+          {/* each phase fades in as the dialog grows to it */}
+          {fault && <p key={fault} className="log-in mb-3 text-sm text-out">{fault}</p>}
+          <Swap as="div" k={phase}>
           {phase === "loading" && !fault && <p className="py-3 text-sm text-muted-foreground">Reading…</p>}
           {phase === "writing" && (
             <p className="flex items-start gap-2 py-3 text-sm text-muted-foreground">
@@ -155,6 +158,7 @@ function Body({ r, first, setWritten }: { r: FreeAgentRow; first: FirstRead; set
             <p className="py-3 text-sm text-out">The write failed: {o?.error}</p>
           )}
           {phase === "ready" && o?.bullets && <Bullets bullets={o.bullets} />}
+          </Swap>
         </div>
         {/* pinned under the scrolling bullets, so the stamp and the button stay in reach on a phone */}
         <div className="border-t border-foreground/10 px-4 py-3">
@@ -166,7 +170,7 @@ function Body({ r, first, setWritten }: { r: FreeAgentRow; first: FirstRead; set
             </p>
             {(phase === "empty" || phase === "ready" || phase === "failed") && (
               <Button size="sm" variant={phase === "ready" ? "outline" : "default"} onClick={write} disabled={starting}>
-                {starting ? "Starting…" : phase === "ready" ? "Rewrite" : phase === "failed" ? "Try again" : "Write outlook"}
+                <Swap>{starting ? "Starting…" : phase === "ready" ? "Rewrite" : phase === "failed" ? "Try again" : "Write outlook"}</Swap>
               </Button>
             )}
           </div>

@@ -12,7 +12,7 @@ export function ErrorCard({
   message: string;
 }) {
   return (
-    <Card className="ring-destructive/50">
+    <Card className="log-in ring-destructive/50">
       <CardHeader>
         <CardTitle>Could not load</CardTitle>
       </CardHeader>
@@ -21,7 +21,7 @@ export function ErrorCard({
           {source} · status {status}
         </p>
         <p className="font-mono break-all">{message}</p>
-        <a className="underline" href="">Retry</a>
+        <a className="underline decoration-foreground/40 transition-[text-decoration-color] hover:decoration-foreground" href="">Retry</a>
       </CardContent>
     </Card>
   );

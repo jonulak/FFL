@@ -3,8 +3,8 @@
 import type { Plays } from "@/lib/api";
 import { boardHref } from "@/lib/matchup-link";
 import { PlayFeedCard } from "./play-feed";
-import { Badge } from "./ui/badge";
 import { useLive } from "./use-live";
+import { LiveChip } from "./live-chip";
 
 // One game's whole week: mine at `/plays`, any other at `/plays?team=` (`path`, the GET the live
 // ticks refetch); the card's heading line leads back to that game's board. The heading rides the
@@ -19,7 +19,7 @@ export function PlaysLive({ initial, path }: { initial: Plays; path: string }) {
             Plays
             {data.week != null && <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>}
           </h1>
-          {data.game_on && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
+          <LiveChip on={data.game_on} />
         </div>
         {/* another game's plays say whose they are; my own page needs no caption */}
         {!data.mine && data.me && (

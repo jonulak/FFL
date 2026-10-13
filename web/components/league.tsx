@@ -15,10 +15,15 @@ import { StaleBadge } from "./stale-badge";
 import { TeamLink } from "./team-link";
 import { WeekSelect } from "./week-select";
 import { OddsHalf, TileOdds } from "./win-meter";
+import { LiveChip } from "./live-chip";
+import { Presence, Swap, Ticker, useReorder } from "./motion";
+import { ViewTransition } from "react";
 
 // One full-width table: rank, mark and name, then the record and the points columns in
 // condensed numerals. A heavier rule under the last playoff seed marks the cut line.
 function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffTeams: number }) {
+  // a week's results move the table: each club slides to its new rank
+  const body = useReorder<HTMLTableSectionElement>(rows.map((t) => t.team_id).join());
   return (
     <Card className={BOARD_CARD}>
       <CardContent className="px-0 sm:px-0">
@@ -33,10 +38,11 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
               <TableHead className={`${LABEL} hidden pr-3 text-right sm:table-cell sm:pr-4`}>Strk</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody ref={body}>
             {rows.map((t) => (
               <TableRow
                 key={t.team_id}
+                data-key={t.team_id}
                 className={`hover:bg-transparent ${t.me ? "bg-foreground/[0.05]" : ""} ${t.rank === playoffTeams && t.rank < rows.length ? "border-b-2 border-foreground/35" : "border-foreground/10"}`}
               >
                 <TableCell className="pl-3 text-right font-display text-lg font-semibold tabular-nums text-muted-foreground sm:pl-4">{t.rank}</TableCell>
@@ -55,10 +61,10 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="text-right font-display text-[1.25rem] font-bold tabular-nums tracking-tight">{record(t)}</TableCell>
-                <TableCell className="pr-3 text-right font-display text-lg font-semibold tabular-nums tracking-tight sm:pr-2">{pts(t.points_for)}</TableCell>
-                <TableCell className="hidden text-right font-display text-lg font-medium tabular-nums tracking-tight text-foreground/70 sm:table-cell">{pts(t.points_against)}</TableCell>
-                <TableCell className="hidden pr-3 text-right font-display text-lg font-medium tabular-nums text-foreground/70 sm:table-cell sm:pr-4">{t.streak}</TableCell>
+                <TableCell className="text-right font-display text-[1.25rem] font-bold tabular-nums tracking-tight"><Swap>{record(t)}</Swap></TableCell>
+                <TableCell className="pr-3 text-right font-display text-lg font-semibold tabular-nums tracking-tight sm:pr-2"><Ticker value={t.points_for} format={pts} /></TableCell>
+                <TableCell className="hidden text-right font-display text-lg font-medium tabular-nums tracking-tight text-foreground/70 sm:table-cell"><Ticker value={t.points_against} format={pts} /></TableCell>
+                <TableCell className="hidden pr-3 text-right font-display text-lg font-medium tabular-nums text-foreground/70 sm:table-cell sm:pr-4"><Swap>{t.streak ?? ""}</Swap></TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -75,9 +81,9 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
 // `odds` (the away side's) and `half` draw this row's half of the card's win meter at the edge.
 function ScoreRow({ side, on, trailing, won, odds, half }: { side: ScoreSide; on: boolean; trailing: boolean; won: boolean; odds: number | null; half: "top" | "bottom" }) {
   return (
-    <li className={`relative flex items-center gap-2.5 py-2.5 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
+    <li className={`relative flex items-center gap-2.5 py-2.5 transition-colors duration-500 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
       {odds != null && <OddsHalf p={odds} half={half} />}
-      <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={36} className={trailing ? "opacity-70" : ""} />
+      <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={36} className={`transition-opacity duration-500 ${trailing ? "opacity-70" : ""}`} />
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
           <span className="truncate">{side.team}</span>
@@ -88,13 +94,15 @@ function ScoreRow({ side, on, trailing, won, odds, half }: { side: ScoreSide; on
       <div className="text-right tabular-nums">
         {/* a week beyond the current one has pairings but no projection yet */}
         <p className={`font-display text-[1.5rem] font-bold leading-none tracking-tight ${!on && side.proj === 0 ? "text-muted-foreground" : ""}`}>
-          {on ? pts(side.score) : side.proj > 0 ? pts(side.proj) : "—"}
+          <Swap k={on ? "pts" : side.proj > 0 ? "proj" : "none"}>
+            {on ? <Ticker value={side.score} format={pts} gain /> : side.proj > 0 ? <Ticker value={side.proj} format={pts} /> : "—"}
+          </Swap>
         </p>
-        {on && side.proj > 0 && <p className="mt-0.5 text-xs text-muted-foreground">proj {pts(side.proj)}</p>}
+        <Presence show={on && side.proj > 0}><p className="mt-0.5 text-xs text-muted-foreground">proj {pts(side.proj)}</p></Presence>
       </div>
       {/* the caret's slot is on every row, final or not, so scores line up across tiles in every state */}
       <span className="-ml-1 flex w-2.5 shrink-0 self-start pt-[0.4375rem] sm:-ml-1.5">
-        {won && <><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></>}
+        <Presence show={won}><span className="flex"><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></span></Presence>
       </span>
     </li>
   );
@@ -116,10 +124,12 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
     <Card className={`${BOARD_CARD} ${m.home.me || m.away.me ? "ring-foreground/30" : ""} ${href ? "transition-[box-shadow,background-color] group-hover/tile:bg-foreground/[0.025] group-hover/tile:ring-foreground/35 group-focus-visible/tile:ring-2 group-focus-visible/tile:ring-ring/60" : ""}`}>
       <CardHeader className="flex flex-row items-center justify-between gap-3 bg-foreground/[0.04] py-2.5 sm:py-3">
         <span className={`${LABEL} flex items-center gap-2`}>
-          {final ? <span className="text-foreground">Final</span> : live ? <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge> : projected ? "Matchup" : "Upcoming"}
+          <Swap k={final ? "final" : live ? "live" : projected ? "matchup" : "upcoming"}>
+            {final ? <span className="text-foreground">Final</span> : live ? <LiveChip /> : projected ? "Matchup" : "Upcoming"}
+          </Swap>
         </span>
         <span className={`${LABEL} flex items-center gap-1`}>
-          {on ? "pts" : projected ? "proj" : ""}
+          <Swap>{on ? "pts" : projected ? "proj" : ""}</Swap>
           {href && <ChevronRight aria-hidden className="-mr-1 size-4 text-foreground/40 transition-[color,translate] group-hover/tile:translate-x-0.5 group-hover/tile:text-foreground/80" />}
         </span>
       </CardHeader>
@@ -156,16 +166,19 @@ export function LeagueView({ data }: { data: League }) {
       </section>
       <section className="space-y-3">
         <SectionHeading title="Scoreboard" count={data.scoreboard.length}>
-          {data.scoreboard.some((m) => m.live) && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
+          <LiveChip on={data.scoreboard.some((m) => m.live)} />
           <WeekSelect week={data.week} current={data.current_week} weeks={data.weeks} base="/league" />
         </SectionHeading>
-        {data.scoreboard.length === 0
-          ? <p className="text-sm text-muted-foreground">No matchups scheduled for week {data.week}.</p>
-          : (
-            <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-              {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final || m.final} href={matchupHref(m, data.week, data.current_week)} />)}
-            </div>
-          )}
+        {/* another week crossfades in over the last, in place (globals.css, `.swap`) */}
+        <ViewTransition update="swap" default="none">
+          {data.scoreboard.length === 0
+            ? <p className="text-sm text-muted-foreground">No matchups scheduled for week {data.week}.</p>
+            : (
+              <div className="grid gap-3 md:grid-cols-2 md:gap-4">
+                {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final || m.final} href={matchupHref(m, data.week, data.current_week)} />)}
+              </div>
+            )}
+        </ViewTransition>
       </section>
     </div>
   );

@@ -3,6 +3,7 @@ import { Barlow_Condensed, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { DecisionPrefsProvider } from "@/components/decision-prefs";
 import { Nav } from "@/components/nav";
+import { PageTransition } from "@/components/page-transition";
 import { PlayerDialogProvider } from "@/components/player-dialog";
 import { SwRegister } from "@/components/sw-register";
 import { Toaster } from "@/components/ui/sonner";
@@ -32,7 +33,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <PlayerDialogProvider>
             <Nav />
             {/* the Players page with its claims dock gets 86rem from `xl`, so the table still fits beside it */}
-            <main className="mx-auto max-w-5xl px-3 py-4 xl:has-[[data-claims-dock]]:max-w-[86rem]">{children}</main>
+            <main className="mx-auto max-w-5xl px-3 py-4 xl:has-[[data-claims-dock]]:max-w-[86rem]"><PageTransition>{children}</PageTransition></main>
           </PlayerDialogProvider>
         </DecisionPrefsProvider>
         <Toaster position="bottom-center" />

@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, LoaderCircle, Lock, Plus } from "lucide-react";
-import type { Ref } from "react";
+import { useState, type Ref } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { ProjectionTrigger, Spread } from "./projection";
 import { TeamLogo } from "./player-media";
 import { GameLink } from "./game-link";
 import { StatLine } from "./stat-line";
+import { Presence, Swap, Ticker } from "./motion";
 
 // SIT is his own hand, not a verdict: muted like BENCH.
 const CALL = { START: "start", BENCH: "muted", OUT: "out", BYE: "muted", IR: "out", SIT: "muted" } as const;
@@ -74,7 +75,7 @@ const FACE_OFF =
   "border-close bg-close/25 dark:bg-close/15 " +
   "group-hover/slot:bg-close/40 dark:group-hover/slot:bg-close/25 group-active/slot:bg-close/50";
 const SLOT_FACE =
-  `${SLOT_BOX} border transition-colors ` +
+  `${SLOT_BOX} border transition-[color,background-color,border-color,opacity] duration-200 ` +
   "group-aria-pressed/slot:border-foreground group-aria-pressed/slot:bg-foreground group-aria-pressed/slot:text-background " +
   "group-focus-visible/slot:outline-2 group-focus-visible/slot:outline-offset-2 group-focus-visible/slot:outline-start";
 // The cell reaches into the row's padding (left and both ends) so the target is 44px wide and the row's height.
@@ -122,7 +123,9 @@ function SlotControl({ c, picked, busy, disabled, onPick }: {
       onClick={onPick}
     >
       <span className={`${SLOT_FACE} ${SLOT_TEXT} ${off ? `${FACE_OFF} text-close-foreground dark:text-close` : `${FACE_INK} ${tone}`} ${disabled && !busy ? "opacity-50" : ""}`}>
-        {busy ? <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" /> : <SlotName slot={c.slot} />}
+        <Swap k={busy ? "busy" : c.slot} className="flex items-center">
+          {busy ? <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" /> : <SlotName slot={c.slot} />}
+        </Swap>
       </span>
     </button>
   );
@@ -188,7 +191,7 @@ export function Headshot({ c, idle }: { c: Card; idle: boolean }) {
   const src = headshotUrl(c.player_id);
   return (
     <Avatar
-      className={`size-10 overflow-hidden rounded-md border-l-[3px] bg-foreground/[0.07] after:rounded-md ${idle ? "opacity-70 saturate-[.35]" : ""}`}
+      className={`size-10 overflow-hidden rounded-md border-l-[3px] bg-foreground/[0.07] transition-[opacity,filter] duration-500 after:rounded-md ${idle ? "opacity-70 saturate-[.35]" : ""}`}
       style={{ borderLeftColor: team(c.team).primary }}
     >
       {src && <AvatarImage src={src} alt="" className="rounded-none object-cover object-top" />}
@@ -198,22 +201,29 @@ export function Headshot({ c, idle }: { c: Card; idle: boolean }) {
 }
 
 const hurt = (c: Card) => !HEALTHY.has(c.injury);
+// what the call chip says: a change of it crossfades
+const callKey = (c: Card) => `${c.call}|${c.call_slot ?? ""}|${c.close_call}|${isMismatch(c)}|${c.return_week ?? ""}`;
 // An IR or OUT call on an injured man is his status: the chip says it, with the return week.
 const callIsStatus = (c: Card) => hurt(c) && (c.call === "IR" || c.call === "OUT");
 
 // His injury status as ESPN's own letter after the name (Q, D, O, SUSP), in its colour and without a chip, at every
 // width, as the Matchup board sets it; the full status and the return week are read out and in the title. Left out
 // where the call chip already says it (IR on injury reserve, OUT on out).
+// A new status fades in after the name and a cleared one fades out (still reading as it was).
 export function InjuryMark({ c, week }: { c: Card; week?: number }) {
-  if (!hurt(c)) return null;
-  if ((c.call === "IR" && c.injury === "INJURY_RESERVE") || (c.call === "OUT" && c.injury === "OUT")) return null;
-  const status = c.injury.replaceAll("_", " ");
+  const show = hurt(c) && !((c.call === "IR" && c.injury === "INJURY_RESERVE") || (c.call === "OUT" && c.injury === "OUT"));
+  const [last, setLast] = useState(c.injury);
+  if (show && c.injury !== last) setLast(c.injury);
+  const injury = show ? c.injury : last;
+  const status = injury.replaceAll("_", " ");
   const back = week != null && c.return_week != null && c.return_week > week ? `, back week ${c.return_week}` : "";
   return (
-    <span title={c.injury_note ?? `${status.toLowerCase()}${back}`} className={`shrink-0 text-[0.9375rem] font-bold ${TONE[injuryTone(c.injury)]}`}>
-      <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
-      <span className="sr-only">{status.toLowerCase()}{back}</span>
-    </span>
+    <Presence show={show}>
+      <span key={injury} title={c.injury_note ?? `${status.toLowerCase()}${back}`} className={`shrink-0 text-[0.9375rem] font-bold ${TONE[injuryTone(injury)]}`}>
+        <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
+        <span className="sr-only">{status.toLowerCase()}{back}</span>
+      </span>
+    </Presence>
   );
 }
 
@@ -261,7 +271,7 @@ export function IrBlocked({ c, onFix, disabled }: { c: Card; onFix: () => void; 
 
 export function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
   return (
-    <div role={f.moved ? "status" : "alert"} className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:msg]">
+    <div role={f.moved ? "status" : "alert"} className="log-in flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:msg]">
       <p className={f.moved ? "text-foreground/85" : "text-out"}>{f.text}</p>
       {f.reload && <Button variant="outline" size="sm" className="h-11 px-3.5 md:h-7 md:px-2.5" onClick={reload}>Reload</Button>}
     </div>
@@ -284,7 +294,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
   const now = useNow();
   return (
     <li data-flip={`p${c.player_id}`} data-slot={c.slot} aria-busy={busy || undefined}
-      className={picked ? "bg-foreground/[0.045]" : isMismatch(c) ? "bg-close/[0.08] dark:bg-close/[0.06]" : undefined}>
+      className={`transition-[background-color] duration-300 ${picked ? "bg-foreground/[0.045]" : isMismatch(c) ? "bg-close/[0.08] dark:bg-close/[0.06]" : ""}`}>
       <Collapsible open={open} onOpenChange={onOpen}>
         <div className={GRID}>
           <SlotControl c={c} picked={picked} busy={busy} disabled={anyBusy} onPick={() => swap.pick(c)} />
@@ -293,7 +303,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
             {/* line 1: who, and the number flush right */}
             <div className="flex min-w-0 items-baseline justify-between gap-x-2 md:contents">
               <div className="min-w-0 md:[grid-area:name]">
-                <p className={`flex flex-wrap items-baseline gap-x-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
+                <p className={`flex flex-wrap items-baseline gap-x-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight transition-colors duration-500 md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
                   <PlayerTrigger p={c} className={`min-w-0 break-words text-left rounded-sm ${NAME_LINK}`}>
                     <span className="lg:hidden">{shortName(c.name)}</span>
                     <span className="max-lg:hidden">{c.name}</span>
@@ -310,13 +320,13 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
               <ProjectionTrigger p={c} week={week} className="block shrink-0 text-right md:[grid-area:num]"
                 label={live ? `${c.name}: ${pts(c.actual)} points scored, projected ${pts(c.proj)}; show the sources` : undefined}>
                 <span className="flex items-baseline justify-end gap-1">
-                  <span className={`font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
-                    {pts(big)}
-                  </span>
+                  <Swap k={live ? "pts" : "proj"} className={`font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>
+                    <Ticker value={big} format={pts} gain={live} />
+                  </Swap>
                   {!live && <Spread p={c} className="text-xs md:hidden" />}
                 </span>
                 <span className="block whitespace-nowrap font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground max-md:sr-only">
-                  {live ? "pts" : "proj"}
+                  <Swap>{live ? "pts" : "proj"}</Swap>
                   {!live && <Spread p={c} className="ml-1 normal-case tracking-normal" />}
                 </span>
               </ProjectionTrigger>
@@ -333,7 +343,8 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
                     "F…" at every phone width). As a min-w-0 flex item the chip still shrinks when it must. */}
                 <GameLink href={gameLinkFor(c, week)} className="md:max-w-full"><span className="block min-w-0 md:truncate"><Matchup c={c} /></span></GameLink>
               </div>
-              <div className="flex shrink-0 gap-1 md:[grid-area:call]"><CallChip c={c} week={week} split /></div>
+              {/* a new call (a sit, a lineup that moved under it) crossfades in */}
+              <div className="flex shrink-0 gap-1 md:[grid-area:call]"><Swap k={callKey(c)} className="flex gap-1"><CallChip c={c} week={week} split /></Swap></div>
             </div>
           </div>
           <div className={CTL}>
@@ -341,18 +352,18 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
               render={<Button variant="ghost" size="icon" className={`group/chev -my-2.5 flex-col gap-0.5 ${ACTION} md:my-0`} />}
               aria-label={`${open ? "Hide" : "Show"} ${c.name}'s reason and outlook${outlookAgeLabel(c, now)}`}
             >
-              <ChevronDown aria-hidden className="transition-transform duration-300 ease-(--ease-arrive) group-data-[panel-open]/chev:rotate-180" />
+              <ChevronDown aria-hidden className="transition-transform duration-300 ease-(--ease-arrive) group-data-[panel-open]/chev:rotate-180 motion-reduce:transition-none" />
               {/* the outlook's age, so the collapsed list says which to recheck */}
               <OutlookAge c={c} now={now} />
             </CollapsibleTrigger>
           </div>
           {error && <Failure f={error} reload={swap.reload} />}
-          {notice && !error && <p aria-hidden className="pt-1 text-right text-xs text-muted-foreground [grid-area:msg]">{notice}</p>}
+          {notice && !error && <p aria-hidden className="log-in pt-1 text-right text-xs text-muted-foreground [grid-area:msg]">{notice}</p>}
           {illegal && !error && !notice && (
-            <p className="pt-1 text-right text-xs font-medium text-out [grid-area:msg]">No injury designation — move him off IR</p>
+            <p className="log-in pt-1 text-right text-xs font-medium text-out [grid-area:msg]">No injury designation — move him off IR</p>
           )}
         </div>
-        <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-300 ease-(--ease-arrive) data-[ending-style]:h-0 data-[starting-style]:h-0">
+        <CollapsibleContent>
           {/* under the person column: the slot, tile and their gutters plus the row's own padding */}
           <div className="space-y-2 px-2 pb-3 md:pl-[7rem] md:pr-[3.875rem] lg:pl-[8.25rem] lg:pr-[3.5rem]">
             <Reason text={c.reason} />
@@ -416,11 +427,17 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
   rootRef?: Ref<HTMLDivElement>;
 }) {
   const bad = irIllegal(cards);
+  // the alert keeps its words while it folds away
+  const [lastBad, setLastBad] = useState(bad);
+  if (bad && bad !== lastBad) setLastBad(bad);
   return (
     <div ref={rootRef} className="space-y-7">
       {/* read out from here; shown beside the row that moved, which may be far down the page */}
       <p aria-live="polite" className="sr-only">{notice?.text}</p>
-      {bad && <IrBlocked c={bad} onFix={() => swap.pick(bad)} disabled={swap.pending.length > 0} />}
+      {/* folds open above the lineup when ESPN starts blocking moves, and away once he is off IR */}
+      <Presence show={bad != null} fold>
+        <div>{(bad ?? lastBad) && <IrBlocked c={(bad ?? lastBad)!} onFix={() => bad && swap.pick(bad)} disabled={!bad || swap.pending.length > 0} />}</div>
+      </Presence>
       {GROUPS.map(({ key, title }) => {
         const rows = items(cards, key, empty);
         if (rows.length === 0) return null;
@@ -430,7 +447,7 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
             <h2 id={`group-${key}`} className="flex items-baseline gap-3">
               <span className="font-display text-xl font-semibold uppercase tracking-[0.14em]">{title}</span>
               <span className="font-display text-sm font-medium tabular-nums text-muted-foreground">
-                {filled === rows.length ? filled : `${filled} of ${rows.length}`}
+                <Swap>{filled === rows.length ? String(filled) : `${filled} of ${rows.length}`}</Swap>
               </span>
               <Separator className="mb-1.5 flex-1 self-end bg-foreground/12" />
             </h2>

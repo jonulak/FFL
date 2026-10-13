@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { addTarget, capacity, groupPos, removeFrom, rowTag } from "@/lib/claims";
 import { useClaimsMaybe } from "./claims-context";
+import { Swap } from "./motion";
 
 // A free agent's place in the week's claims, on his row: "+ claim" when he is in no group, his
 // position and rank in his group ("WR·2") when he is. The menu puts him in a group (moving him
@@ -27,7 +28,7 @@ export function ClaimControl({ id, name, className = "" }: { id: number; name: s
           <Button size="xs" variant={tag ? "default" : "outline"} aria-label={tag ? `${name}: ${tag} in claim group ${at + 1}, change` : `Add ${name} to a claim group`}
             className="sm:min-w-[4.25rem] font-display text-[0.8125rem] font-semibold uppercase tracking-[0.08em] tabular-nums" />
         }>
-        {tag ?? <><Plus aria-hidden className="stroke-[2.5]" />claim</>}
+        <Swap k={tag ?? "+"} className="inline-flex items-center gap-1">{tag ?? <><Plus aria-hidden className="stroke-[2.5]" />claim</>}</Swap>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-auto min-w-52">
         {groups.length > 0 && (

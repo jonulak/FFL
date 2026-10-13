@@ -410,3 +410,75 @@ tr[data-fold="shut"] > td > .fold {
   .group-reveal { animation: log-fade 200ms ease-out both; }
 }
 @keyframes stage-fade-out { to { opacity: 0; } }
+
+/* Page change (page-transition.tsx, React's <ViewTransition>): the page left behind goes quickly,
+   the one arriving rises 6px into place on the arrival curve, and the bar under the nav's current
+   tab slides to the new tab on the same clock. A query change on the same page (a week, a
+   position, a filter) crossfades only the part it changes (`.swap`), in place. The live page
+   under the overlay keeps taking taps. Reduced motion keeps the crossfades and drops the travel. */
+::view-transition { pointer-events: none; }
+::view-transition-old(.page-out) { animation: vt-out 120ms var(--ease-leave) both; }
+::view-transition-new(.page-in) { animation: vt-in 300ms var(--ease-arrive) 40ms both; }
+::view-transition-group(.nav-tab) { animation-duration: 340ms; animation-timing-function: var(--ease-arrive); }
+::view-transition-group(.swap) { animation-duration: 300ms; animation-timing-function: var(--ease-arrive); }
+::view-transition-old(.swap) { animation: vt-out 120ms var(--ease-leave) both; }
+::view-transition-new(.swap) { animation: log-fade 240ms var(--ease-arrive) 60ms both; }
+@keyframes vt-out { to { opacity: 0; } }
+@keyframes vt-in { from { opacity: 0; translate: 0 0.375rem; } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(.page-in) { animation-name: log-fade; }
+  ::view-transition-group(.nav-tab), ::view-transition-group(.swap) { animation-duration: 0s; }
+}
+
+/* State changes (motion.tsx). Anything that appears with the data fades in where it lands, and
+   what goes fades out where it stood (Presence, `data-presence`); a label that changes crossfades
+   through a breath of blur (Swap); a number counts to its new value (Ticker) and, when it is a
+   points gain, the play feed's lime wash rises behind it and fades. None of it plays on the
+   first paint. Reduced motion keeps every fade and the wash, and drops the movement. */
+.fx-in, [data-presence="in"] { animation: fx-in 240ms var(--ease-arrive) both; }
+[data-presence="out"] { animation: fx-out 150ms var(--ease-leave) both; pointer-events: none; }
+.fx-swap { animation: fx-swap 260ms var(--ease-arrive) both; }
+/* a block's room opens with it and closes after it, its column's margin with it (play-open's fold) */
+.fx-fold { display: grid; grid-template-rows: 1fr; }
+.fx-fold > * { min-height: 0; }
+.fx-fold[data-presence] > * { overflow: clip; overflow-clip-margin: 1.75rem; }
+.fx-fold[data-presence="in"] { animation: fold-open 380ms var(--ease-arrive) both; }
+.fx-fold[data-presence="in"] > * { animation: log-fade 280ms var(--ease-arrive) 100ms both; }
+.fx-fold[data-presence="out"] { animation: fold-close 300ms var(--ease-arrive) both; }
+@keyframes fold-open { from { grid-template-rows: 0fr; margin-block: 0; } }
+@keyframes fold-close { from { opacity: 1; } 40% { opacity: 0; } to { grid-template-rows: 0fr; margin-block: 0; opacity: 0; } }
+@keyframes fx-in { from { opacity: 0; scale: 0.94; } }
+@keyframes fx-out { to { opacity: 0; scale: 0.97; } }
+@keyframes fx-swap { from { opacity: 0; filter: blur(2px); } }
+.ticker {
+  position: relative;
+  isolation: isolate;
+}
+.ticker-wash {
+  position: absolute;
+  inset: -0.08em -0.22em;
+  z-index: -1;
+  border-radius: 0.25rem;
+  background: color-mix(in oklab, var(--start) 38%, transparent);
+  pointer-events: none;
+  animation: play-wash 1.8s ease-out both;
+}
+
+/* The skeleton waits a beat before showing, so a quick answer never flashes grey, then pulses. */
+.skeleton { animation: log-fade 200ms ease-out 140ms both, skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 340ms infinite; }
+@keyframes skeleton-pulse { 50% { opacity: 0.5; } }
+
+/* A control waiting on the server: what it changes steps back while the answer is on its way. */
+.pending-dim { transition: opacity 200ms var(--ease-arrive), color 150ms, background-color 150ms, border-color 150ms; }
+.pending-dim[data-pending] { opacity: 0.6; transition-delay: 120ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-in, [data-presence="in"] { animation-name: log-fade; }
+  [data-presence="out"] { animation-name: stage-fade-out; }
+  .fx-swap { animation-name: log-fade; }
+  .skeleton { animation: log-fade 200ms ease-out 140ms both; }
+  .fx-fold[data-presence="in"] { animation: none; }
+  /* tw-animate's popups (select, menu, combobox): a fade, no zoom or slide */
+  .animate-in, .animate-out { --tw-enter-scale: 1; --tw-exit-scale: 1; --tw-enter-translate-x: 0; --tw-enter-translate-y: 0; --tw-exit-translate-x: 0; --tw-exit-translate-y: 0; }
+  .animate-spin { animation-duration: 1.6s; }
+}

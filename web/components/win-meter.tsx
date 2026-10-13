@@ -1,5 +1,6 @@
 import { Meter } from "@base-ui/react/meter";
 import { fill, halfFill, outcome, pct } from "@/lib/win-prob";
+import { Swap, Ticker } from "./motion";
 
 // What a screen reader hears: the favourite and its share, or the result once it is final.
 // `p` is the first (left, or top) side's odds; `teams` the two names in that order.
@@ -17,8 +18,9 @@ function oddsLabel(p: number, teams: [string, string], final: boolean) {
 // the fill is drawn here. The Matchup scorebug's meter; a League card's is TileOdds + OddsHalf.
 export function WinMeter({ p, teams, final = false }: { p: number; teams: [string, string]; final?: boolean }) {
   const { left: from, width, end } = fill(p);
-  const left = final ? outcome(p) : pct(p);
-  const right = final ? outcome(1 - p) : pct(1 - p);
+  // the shares count with the fill; a final hands over to W/L in a crossfade
+  const left = final ? outcome(p) : <Ticker value={p} format={pct} />;
+  const right = final ? outcome(1 - p) : <Ticker value={1 - p} format={pct} />;
   // From `sm` the numbers close the bar at each end; on the phone they sit above it so the bar
   // keeps the bug's whole width. The favourite's number is full ink, the other steps back. The
   // unit runs under it all, as every big numeral carries one.
@@ -27,7 +29,7 @@ export function WinMeter({ p, teams, final = false }: { p: number; teams: [strin
   return (
     <Meter.Root value={Math.round(Math.max(p, 1 - p) * 100)} aria-label={oddsLabel(p, teams, final)}
       className="grid grid-cols-2 items-center gap-x-3 gap-y-1.5 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-      <span aria-hidden className={`${num} ${end === "right" ? dim : ""}`}>{left}</span>
+      <span aria-hidden className={`${num} transition-colors duration-500 ${end === "right" ? dim : ""}`}><Swap k={String(final)}>{left}</Swap></span>
       <div className="col-span-2 row-start-2 sm:col-span-1 sm:col-start-2 sm:row-start-1">
         <Meter.Track className="relative h-1.5 w-full overflow-hidden rounded-full bg-foreground/12">
           <span aria-hidden style={{ left: `${from}%`, width: `${width}%` }}
@@ -36,9 +38,9 @@ export function WinMeter({ p, teams, final = false }: { p: number; teams: [strin
           <span aria-hidden className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-foreground/45" />
         </Meter.Track>
       </div>
-      <span aria-hidden className={`${num} text-right sm:col-start-3 sm:row-start-1 ${end === "left" && p !== 0.5 ? dim : ""}`}>{right}</span>
+      <span aria-hidden className={`${num} text-right transition-colors duration-500 sm:col-start-3 sm:row-start-1 ${end === "left" && p !== 0.5 ? dim : ""}`}><Swap k={String(final)}>{right}</Swap></span>
       <span aria-hidden className="col-span-2 text-center font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground sm:col-span-3">
-        {final ? "final" : "win prob"}
+        <Swap>{final ? "final" : "win prob"}</Swap>
       </span>
     </Meter.Root>
   );

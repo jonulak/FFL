@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { DEFAULT_DECISION_PREFS, type DecisionPrefs } from "@/lib/api";
+import { Swap } from "./motion";
 
 // The Settings switches, read once by the layout and handed to every page: the nav's Decisions tab, the player
 // dialog's Decisions section and the moves' "Why?" prompts all follow them. A save refreshes the layout.
@@ -45,13 +46,13 @@ export function DecisionSettings() {
             <Label key={k} className="flex items-center justify-between gap-4">
               <span>
                 <span className="font-medium">{label}</span>
-                <span className="block text-xs text-muted-foreground">{held ? "Off while the Decisions page is off" : hint}</span>
+                <span className="block text-xs text-muted-foreground"><Swap>{held ? "Off while the Decisions page is off" : hint}</Swap></span>
               </span>
               <Switch checked={prefs[k]} onCheckedChange={(v) => save({ [k]: v })} disabled={busy || held} />
             </Label>
           );
         })}
-        {msg && <p role="status" className="text-sm">{msg}</p>}
+        {msg && <p key={msg} role="status" className="log-in text-sm">{msg}</p>}
       </CardContent>
     </Card>
   );

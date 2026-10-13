@@ -45,11 +45,14 @@ export function WaiverSearch({ q, pos, fa }: { q: string; pos: string; fa: boole
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const Icon = pending ? LoaderCircle : Search;
   return (
     <InputGroup className="h-10 rounded-md border-foreground/15 bg-card sm:h-8 sm:w-64 dark:bg-card">
       <InputGroupAddon>
-        <Icon aria-hidden className={`size-4 ${pending ? "animate-spin" : ""}`} />
+        {/* the glass turns into the spinner while the page is fetched: both in one cell, crossfading */}
+        <span aria-hidden className="grid *:col-start-1 *:row-start-1 *:transition-[opacity,scale] *:duration-200 *:ease-(--ease-arrive)">
+          <Search className={`size-4 ${pending ? "scale-75 opacity-0" : ""}`} />
+          <LoaderCircle className={`size-4 ${pending ? "animate-spin" : "scale-75 opacity-0"}`} />
+        </span>
       </InputGroupAddon>
       <InputGroupInput
         ref={input}
@@ -73,11 +76,11 @@ export function WaiverSearch({ q, pos, fa }: { q: string; pos: string; fa: boole
       />
       <InputGroupAddon align="inline-end">
         {value ? (
-          <InputGroupButton size="icon-xs" aria-label="Clear the search" onClick={() => { setValue(""); input.current?.focus(); }}>
+          <InputGroupButton key="clear" size="icon-xs" aria-label="Clear the search" className="fx-in" onClick={() => { setValue(""); input.current?.focus(); }}>
             <X aria-hidden />
           </InputGroupButton>
         ) : (
-          <kbd aria-hidden className="hidden rounded border border-foreground/15 px-1.5 font-mono text-[0.6875rem] leading-5 text-muted-foreground md:inline">/</kbd>
+          <kbd key="hint" aria-hidden className="hidden rounded border border-foreground/15 px-1.5 font-mono text-[0.6875rem] leading-5 text-muted-foreground md:inline">/</kbd>
         )}
       </InputGroupAddon>
     </InputGroup>

@@ -27,6 +27,7 @@ import { ClaimName } from "./claim-name";
 import { useClaimsFlip } from "./claims-flip";
 import { ClaimsSubmit, PHONE_ACTION, PHONE_INSET, ReviewBody } from "./claims-submit";
 import { Clock } from "./local-time";
+import { Presence, Swap } from "./motion";
 
 const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 const SUB = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-foreground/55";
@@ -54,7 +55,7 @@ function Grip({ label, handleRef, attributes, listeners, disabled }: {
 }) {
   return (
     <button type="button" ref={handleRef} {...attributes} {...listeners} disabled={disabled} aria-label={label} data-base-ui-swipe-ignore
-      className={`${HIT} flex size-6 cursor-grab touch-none items-center justify-center rounded-sm text-foreground/40 hover:text-foreground focus-visible:outline-2 active:cursor-grabbing disabled:cursor-default disabled:opacity-40`}>
+      className={`${HIT} flex size-6 cursor-grab touch-none items-center justify-center rounded-sm text-foreground/40 transition-[color,opacity] hover:text-foreground focus-visible:outline-2 active:cursor-grabbing disabled:cursor-default disabled:opacity-40`}>
       <GripVertical aria-hidden className="size-4" />
     </button>
   );
@@ -418,6 +419,9 @@ type Drag = { id: UniqueIdentifier; before: ClaimGroup[]; home: number | null; a
 // the frame a fixed overlay is placed in, and draw the copy off the pointer by the sheet's top.
 function PanelBody({ heading, onReview, sheet = false }: { heading: (text: string) => ReactNode; onReview: () => void; sheet?: boolean }) {
   const { data, groups, setGroups, player, status, dirty, saving, error, submitting } = useClaims();
+  // the error keeps its words while it folds away
+  const [lastError, setLastError] = useState(error);
+  if (error && error !== lastError) setLastError(error);
   const sensors = useDragSensors();
   const dndId = useId();
   const keys = useGroupKeys(groups);
@@ -592,19 +596,20 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
         {heading(`Claims · process ${day}`)}
         {/* a save in flight turns beside the state, so no line opens over the groups and shuts again */}
         <span className="ml-auto flex items-center gap-1.5">
-          {saving && <span className={FADE}><LoaderCircle role="status" aria-label="saving" className="size-3.5 animate-spin text-muted-foreground" /></span>}
+          <Presence show={saving}><span className="flex"><LoaderCircle role="status" aria-label="saving" className="size-3.5 animate-spin text-muted-foreground" /></span></Presence>
           <SubmitState />
         </span>
       </div>
-      {error && (
-        <p className={`text-xs ${FADE} ${error.startsWith("saving") ? "text-muted-foreground" : "text-destructive"}`} aria-live="polite">{error}</p>
-      )}
-      {groups.length === 0 && (
-        <p className={`max-w-[40ch] text-sm leading-relaxed text-muted-foreground ${FADE}`}>
+      {/* both fold out of the way when they go, so the groups below rise rather than jump */}
+      <Presence show={error != null} fold>
+        <p className={`text-xs ${(error ?? lastError ?? "").startsWith("saving") ? "text-muted-foreground" : "text-destructive"}`} aria-live="polite">{error ?? lastError}</p>
+      </Presence>
+      <Presence show={groups.length === 0} fold>
+        <p className="max-w-[40ch] text-sm leading-relaxed text-muted-foreground">
           No claims this week. Press <span className="font-medium text-foreground">claim</span> on a player&apos;s row to start a group:
           list the players you&apos;d take, best first, then the roster spots they can fill.
         </p>
-      )}
+      </Presence>
       <DndContext id={dndId} sensors={sensors} collisionDetection={collide} measuring={MEASURE}
         onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={onDragCancel}>
         <SortableContext items={keys.map((k) => `g${k}`)} strategy={verticalListSortingStrategy}>
@@ -726,7 +731,7 @@ export function ClaimsPanel() {
         <Button variant="ghost" className="h-12 w-full justify-between px-3" onClick={() => setSheet(true)}>
           <span className="font-display text-base font-semibold uppercase tracking-[0.1em]">
             Claims
-            <span className="text-muted-foreground"> · {groups.length ? `${groups.length} group${groups.length > 1 ? "s" : ""} · ${n} move${n === 1 ? "" : "s"}` : "none yet"}</span>
+            <span className="text-muted-foreground"> · <Swap>{groups.length ? `${groups.length} group${groups.length > 1 ? "s" : ""} · ${n} move${n === 1 ? "" : "s"}` : "none yet"}</Swap></span>
           </span>
           <ChevronUp aria-hidden className="size-5" />
         </Button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition, type CSSProperties } from "react";
+import { useMemo, useOptimistic, useState, useTransition, ViewTransition, type CSSProperties } from "react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardContent } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -12,6 +12,7 @@ import { KickoffTime } from "./local-time";
 import { NflPlayRow } from "./nfl-game";
 import { useLedger } from "./play-feed";
 import { SectionHeading } from "./section-heading";
+import { Presence } from "./motion";
 
 const FILTERS: [FeedFilter, string][] = [["all", "All"], ["mine", "My players"], ["scoring", "Scoring"]];
 
@@ -22,7 +23,7 @@ function DriveHeader({ d }: { d: NflDrive }) {
     <AccordionTrigger className="items-center gap-2 rounded-none border-0 bg-foreground/[0.04] px-(--card-spacing) py-2.5 hover:bg-foreground/[0.07] hover:no-underline focus-visible:ring-inset">
       <span className={`${LABEL} text-foreground`}>{d.team ?? "—"}</span>
       <span className="min-w-0 flex-1 text-xs font-normal text-muted-foreground">{d.description}</span>
-      {d.result && <span className={`${LABEL} shrink-0`}>{d.result}</span>}
+      <Presence show={d.result != null}><span className={`${LABEL} shrink-0`}>{d.result}</span></Presence>
     </AccordionTrigger>
   );
 }
@@ -55,6 +56,8 @@ function Plays({ plays, g, entering, prior }: { plays: NflPlay[]; g: NflGame; en
 export function NflPlayFeed({ data, filter, club }: { data: NflGamePage; filter: FeedFilter; club: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  // the toggle pressed takes at once; the page's own filter takes over when it lands
+  const [shown, setShown] = useOptimistic(filter);
   // memoised: useLedger compares `items` by identity, so a fresh array every render would loop
   const all = useMemo(() => data.drives.flatMap((d) => d.plays), [data.drives]);
   const ledger = useLedger(all, (p) => p.id);
@@ -87,13 +90,18 @@ export function NflPlayFeed({ data, filter, club }: { data: NflGamePage; filter:
   return (
     <section className="space-y-2">
       <SectionHeading title="Plays" count={total} />
-      <ToggleGroup value={[filter]} onValueChange={(v: string[]) => {
+      <ToggleGroup value={[shown]} onValueChange={(v: string[]) => {
         const f = v[0] as FeedFilter | undefined;
-        if (f && f !== filter) start(() => router.replace(feedHref(data.week, club, f), { scroll: false }));
-      }} className={pending ? "opacity-60" : ""} aria-label="Filter plays">
+        if (f && f !== filter) start(() => {
+          setShown(f);
+          router.replace(feedHref(data.week, club, f), { scroll: false });
+        });
+      }} aria-label="Filter plays">
         {FILTERS.map(([f, label]) => <ToggleGroupItem key={f} value={f} className="font-display text-sm font-semibold uppercase tracking-[0.1em]">{label}</ToggleGroupItem>)}
       </ToggleGroup>
-      <Card className={`${BOARD_CARD} overflow-hidden`}>
+      {/* the list steps back while the filter is fetched, then the new one crossfades in over it */}
+      <Card data-pending={pending || undefined} className={`${BOARD_CARD} pending-dim overflow-hidden`}>
+        <ViewTransition update="swap" default="none">
         <CardContent className="px-0 py-0">
           {drives.length === 0
             ? <p className="py-6 text-center text-xs text-muted-foreground">{empty}</p>
@@ -108,6 +116,7 @@ export function NflPlayFeed({ data, filter, club }: { data: NflGamePage; filter:
               </Accordion>
             )}
         </CardContent>
+        </ViewTransition>
       </Card>
     </section>
   );

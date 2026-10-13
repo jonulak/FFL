@@ -27,6 +27,8 @@ import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 import { TeamLink } from "./team-link";
 import { WinMeter } from "./win-meter";
+import { LiveChip } from "./live-chip";
+import { Presence, Swap, Ticker, useReorder } from "./motion";
 
 // The board's grid, shared by every line so the slot column runs in one spine from the header to
 // the footer: my half, the slot, the opponent's half.
@@ -46,7 +48,7 @@ function sideState(side: Side, now: number) {
 
 // The small uppercase unit on a numeral's baseline: PROJ for a forecast, PTS for a posted score.
 function Unit({ fact, className = "" }: { fact: boolean; className?: string }) {
-  return <span className={`font-display font-semibold uppercase tracking-[0.12em] text-muted-foreground ${className}`}>{fact ? "pts" : "proj"}</span>;
+  return <span className={`font-display font-semibold uppercase tracking-[0.12em] text-muted-foreground ${className}`}><Swap>{fact ? "pts" : "proj"}</Swap></span>;
 }
 
 // The scorebug: both clubs and their totals, the way a broadcast holds the score in the corner.
@@ -74,13 +76,14 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
       {/* From `sm` the totals meet at VS, so the one comparison the bug exists for is one glance,
           not a jump across the card; the marks and names stay at the outer edges. */}
       <div className={`mt-2 flex items-baseline gap-1.5 ${opp ? "justify-end sm:justify-start" : "sm:justify-end"}`}>
-        <span className="font-display text-[2.6rem] font-bold leading-none tracking-tight sm:text-[3.25rem]">{pts(big)}</span>
+        {/* the projection hands over to the score at the first kickoff (a crossfade); the score then counts up */}
+        <Swap k={on ? "pts" : "proj"} className="font-display text-[2.6rem] font-bold leading-none tracking-tight sm:text-[3.25rem]"><Ticker value={big} format={pts} gain={on} /></Swap>
         <Unit fact={on} className="text-sm" />
       </div>
       {/* Two facts, each on its own line, so they never read as one sentence. */}
       <p className={`mt-2 min-h-4 text-xs tabular-nums text-muted-foreground ${opp ? "sm:text-left" : "sm:text-right"}`}>
-        {on && <span className="block whitespace-nowrap">proj {pts(side.proj_total)} <span aria-hidden>·</span> {left > 0 ? `${left} to play` : "final"}</span>}
-        {gain > 0.05 && <span className="block whitespace-nowrap">by projection {pts(side.optimal_total)} <span className="text-foreground/80">({signed(gain)})</span></span>}
+        <Presence show={on}><span className="block whitespace-nowrap">proj {pts(side.proj_total)} <span aria-hidden>·</span> <Swap>{left > 0 ? `${left} to play` : "final"}</Swap></span></Presence>
+        <Presence show={gain > 0.05}><span className="block whitespace-nowrap">by projection <Ticker value={side.optimal_total} format={pts} /> <span className="text-foreground/80">(<Ticker value={gain} format={signed} />)</span></span></Presence>
       </p>
     </div>
   );
@@ -108,10 +111,12 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
           ? <Total side={data.opp} now={now} end="opp" />
           : <p className="row-span-3 self-center text-right text-sm text-muted-foreground">No opponent this week</p>}
         {/* the odds under both totals, my share from the left; context beside the call, never the call */}
-        {data.opp && odds != null && (
-          <div className="col-span-3 mt-4 border-t border-foreground/10 pt-3 sm:mt-5 sm:pt-4">
-            <WinMeter p={odds} teams={[data.me.team, data.opp.team]} final={over} />
-          </div>
+        {data.opp && (
+          <Presence show={odds != null}>
+            <div className="col-span-3 mt-4 border-t border-foreground/10 pt-3 sm:mt-5 sm:pt-4">
+              <WinMeter p={odds ?? 0.5} teams={[data.me.team, data.opp.team]} final={over} />
+            </div>
+          </Presence>
         )}
       </CardContent>
     </Card>
@@ -129,9 +134,9 @@ function Num({ p, now, end }: { p: Player; now: number; end: End }) {
   return (
     <div className={`tabular-nums ${opp ? "text-left" : "text-right"}`}>
       <div className={`flex items-baseline gap-1.5 ${opp ? "justify-start" : "justify-end"}`}>
-        <span className={`font-display text-[1.125rem] font-bold leading-none tracking-tight sm:text-[1.375rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
-          {pts(on ? p.actual : p.proj)}
-        </span>
+        <Swap k={on ? "pts" : "proj"} className={`font-display text-[1.125rem] font-bold leading-none tracking-tight transition-colors duration-500 sm:text-[1.375rem] ${!on && p.proj === 0 ? "text-muted-foreground" : ""}`}>
+          <Ticker value={on ? p.actual : p.proj} format={pts} gain={on} />
+        </Swap>
         {/* the phone's game line has no room for it: the ± stands beside the number there */}
         {!on && <Spread p={p} className="text-[0.6875rem] sm:hidden" />}
         <Unit fact={on} className="hidden text-[0.6875rem] sm:inline" />
@@ -151,11 +156,15 @@ function NumNote({ p, now }: { p: Player; now: number }) {
   const dot = field === "red_zone" ? "bg-redzone" : field === "on" ? "bg-onfield" : "bg-foreground/75";
   return (
     <span className="flex shrink-0 items-center gap-x-1 whitespace-nowrap text-[0.6875rem] leading-4 tabular-nums text-muted-foreground sm:text-xs">
-      {phase === "live" && <><span aria-hidden className={`size-1.5 rounded-full transition-colors duration-700 ${dot}`} /><span className="max-sm:sr-only">live</span><span aria-hidden className="max-sm:hidden">·</span></>}
+      <Presence show={phase === "live"}>
+        <span className="flex items-center gap-x-1"><span aria-hidden className={`size-1.5 rounded-full transition-colors duration-700 ${dot}`} /><span className="max-sm:sr-only">live</span><span aria-hidden className="max-sm:hidden">·</span></span>
+      </Presence>
       {!on && <Unit fact={false} className="sm:hidden" />}
-      {on
-        ? <span>proj {pts(p.proj)}</span>
-        : <Spread p={p} className="max-sm:hidden" />}
+      <Swap k={on ? "on" : "pending"}>
+        {on
+          ? <span>proj {pts(p.proj)}</span>
+          : <Spread p={p} className="max-sm:hidden" />}
+      </Swap>
     </span>
   );
 }
@@ -199,16 +208,16 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
       <button type="button" onClick={() => onPick(p)} aria-label={`${p.name}${field ? `, ${FIELD[field].sr}` : ""}: scoring breakdown`}
         className="absolute inset-0 z-0 cursor-pointer rounded-md outline-none" />
       <ItemContent className={`min-w-0 gap-0 ${opp ? "items-end text-right" : ""}`}>
-        <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 gap-y-0.5 flex-wrap font-display text-[1rem] font-semibold leading-none tracking-tight sm:gap-x-2 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/40" : ""}`}>
+        <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 gap-y-0.5 flex-wrap font-display text-[1rem] font-semibold leading-none tracking-tight transition-colors duration-700 sm:gap-x-2 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/40" : ""}`}>
           {/* a name and its chip wrap rather than cut the name: `A. St. Brown BYE` is wider than a phone half */}
           <span className="min-w-0 break-words"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
-          {hurt && (
+          <Presence show={hurt}>
             <span title={p.injury_note ?? status} className={`shrink-0 font-bold ${TONE[injuryTone(p.injury)]}`}>
               <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
               <span className="sr-only">{status.toLowerCase()}</span>
             </span>
-          )}
-          {p.bye && <Badge variant="muted" shape="chip">bye</Badge>}
+          </Presence>
+          <Presence show={p.bye}><Badge variant="muted" shape="chip">bye</Badge></Presence>
         </ItemTitle>
         {/* `max-sm:hidden!`: the `flex!` that beats shadcn's line-clamp reset would beat a plain `max-sm:hidden` too */}
         <ItemDescription className={`mt-2 line-clamp-none flex! flex-wrap items-center gap-x-1.5 text-xs leading-4 tabular-nums max-sm:hidden! ${opp ? "justify-end text-right" : ""}`}>
@@ -255,9 +264,9 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
 // One line of the board: my player, the slot he fills, the opponent's player in the same slot.
 // The slot code is the spine; bench and IR lines leave it blank. An empty half (a shorter bench)
 // keeps its cell so the grid stays in step.
-function Pair({ a, b, slot, week, now, grid, onPick }: { a?: Player; b?: Player; slot: string | null; week: number; now: number; grid: string; onPick: Pick }) {
+function Pair({ a, b, slot, week, now, grid, onPick, k }: { a?: Player; b?: Player; slot: string | null; week: number; now: number; grid: string; onPick: Pick; k: string }) {
   return (
-    <div role="listitem" className={`${grid} items-start py-1`}>
+    <div role="listitem" data-key={k} className={`${grid} items-start py-1`}>
       {a ? <Half p={a} week={week} now={now} end="me" onPick={onPick} /> : <span />}
       <span className="self-center text-center font-display text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:text-xs">{slot}</span>
       {grid === HALF_GRID && (b ? <Half p={b} week={week} now={now} end="opp" onPick={onPick} /> : <span />)}
@@ -274,6 +283,9 @@ function zip(a: Player[], b: Player[]): [Player | undefined, Player | undefined]
 
 function Group({ title, a, b, week, slot, now, grid, onPick }: { title: string | null; a: Player[]; b: Player[]; week: number; slot: boolean; now: number; grid: string; onPick: Pick }) {
   const rows = zip(a, b);
+  const key = ([x, y]: [Player | undefined, Player | undefined], i: number) => String(x?.player_id ?? y?.player_id ?? i);
+  // a lineup changed on ESPN: the rows slide to their new places rather than jump
+  const list = useReorder<HTMLDivElement>(rows.map(key).join());
   if (rows.length === 0) return null;
   const label = (p?: Player) => (slot && p ? (SLOT_LABEL[p.slot] ?? p.slot) : null);
   return (
@@ -295,9 +307,9 @@ function Group({ title, a, b, week, slot, now, grid, onPick }: { title: string |
           )}
         </div>
       )}
-      <ItemGroup className="gap-0 divide-y divide-foreground/10">
-        {rows.map(([x, y], i) => (
-          <Pair key={x?.player_id ?? y?.player_id ?? i} a={x} b={y} slot={label(x) ?? label(y)} week={week} now={now} grid={grid} onPick={onPick} />
+      <ItemGroup ref={list} className="gap-0 divide-y divide-foreground/10">
+        {rows.map((r, i) => (
+          <Pair key={key(r, i)} k={key(r, i)} a={r[0]} b={r[1]} slot={label(r[0]) ?? label(r[1])} week={week} now={now} grid={grid} onPick={onPick} />
         ))}
       </ItemGroup>
     </div>
@@ -312,26 +324,27 @@ function Group({ title, a, b, week, slot, now, grid, onPick }: { title: string |
 function SideTotals({ side, now, end }: { side: Side; now: number; end: End }) {
   const t = sideTotals(side.lineup, isIdle, now);
   const opp = end === "opp";
-  const cell = (label: string, n: number, lead = false) => (
+  // the points posted count up under a lime wash; what is left to play and the estimate only count
+  const cell = (label: string, n: number, lead = false, gain = false) => (
     <div className={`whitespace-nowrap ${opp ? "mr-5 text-left last:mr-0 sm:mr-7" : "ml-5 text-right first:ml-0 sm:ml-7"}`}>
       <p className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
-      <p className={`mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums ${lead ? "" : "text-foreground/70"}`}>{pts(n)}</p>
+      <p className={`mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums ${lead ? "" : "text-foreground/70"}`}><Ticker value={n} format={pts} gain={gain} /></p>
     </div>
   );
   return (
     <div className={`border-t-2 border-foreground/35 pt-3 pb-1 ${opp ? "text-left" : "text-right"}`} aria-label={`${side.team} totals`}>
       <div className={`hidden items-end sm:flex ${opp ? "justify-start" : "justify-end"}`}>
         {opp ? (
-          <>{cell("Est. final", t.estimate, true)}{cell("To play", t.toCome)}{cell("Scored", t.scored)}</>
+          <>{cell("Est. final", t.estimate, true)}{cell("To play", t.toCome)}{cell("Scored", t.scored, false, true)}</>
         ) : (
-          <>{cell("Scored", t.scored)}{cell("To play", t.toCome)}{cell("Est. final", t.estimate, true)}</>
+          <>{cell("Scored", t.scored, false, true)}{cell("To play", t.toCome)}{cell("Est. final", t.estimate, true)}</>
         )}
       </div>
       <div className="sm:hidden">
         <p className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Est. final</p>
-        <p className="mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums">{pts(t.estimate)}</p>
+        <p className="mt-0.5 font-display text-[1.25rem] font-bold leading-none tracking-tight tabular-nums"><Ticker value={t.estimate} format={pts} /></p>
         <p className="mt-1 text-xs tabular-nums text-muted-foreground">
-          scored {pts(t.scored)} <span aria-hidden>·</span> to play {pts(t.toCome)}
+          scored <Ticker value={t.scored} format={pts} /> <span aria-hidden>·</span> to play <Ticker value={t.toCome} format={pts} />
         </p>
       </div>
     </div>
@@ -346,7 +359,7 @@ function Swaps({ side, end }: { side: Side; end: End }) {
   return (
     <div className={`flex flex-col gap-1 ${opp ? "text-right" : ""}`}>
       <p className="text-[0.9375rem] font-medium leading-snug">
-        By projection {signed(side.optimal_total - side.proj_total)}
+        By projection <Ticker value={side.optimal_total - side.proj_total} format={signed} />
       </p>
       <ul className="space-y-0.5 text-xs text-muted-foreground">
         {side.optimal_swaps.map((s, i) => (
@@ -398,7 +411,7 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
           <h2 className="min-w-0 break-words font-display text-xl font-semibold uppercase tracking-[0.14em]">
             {data.mine !== false ? "My lineup" : <TeamName side={me} />}
           </h2>
-          <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{mine.label}</span>
+          <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}><Swap>{mine.label}</Swap></span>
         </div>
         <span />
         {opp && theirs && (
@@ -406,7 +419,7 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
             <h2 className="min-w-0 break-words text-right font-display text-xl font-semibold uppercase tracking-[0.14em]">
               <TeamName side={opp} />
             </h2>
-            <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}>{theirs.label}</span>
+            <span className={`${LABEL} shrink-0 whitespace-nowrap tabular-nums`}><Swap>{theirs.label}</Swap></span>
           </div>
         )}
       </CardHeader>
@@ -420,13 +433,14 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
         <Group title="Bench" a={me.bench} b={opp?.bench ?? []} week={week} slot={false} now={now} grid={grid} onPick={onPick} />
         <Group title="IR" a={me.ir} b={opp?.ir ?? []} week={week} slot={false} now={now} grid={grid} onPick={onPick} />
       </CardContent>
-      {swaps && (
+      {/* the lineup by projection opens under the board when one differs, and folds away once set */}
+      <Presence show={swaps} fold>
         <CardFooter className={`${grid} items-start rounded-none border-t border-foreground/10 bg-transparent pt-3 pb-3`}>
           <Swaps side={me} end="me" />
           <span />
           {opp && <Swaps side={opp} end="opp" />}
         </CardFooter>
-      )}
+      </Presence>
     </Card>
   );
 }
@@ -476,12 +490,14 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
           Matchup
           <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
         </h1>
-        {gameOn([...data.me.lineup, ...(data.opp?.lineup ?? [])]) && <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>}
+        <LiveChip on={gameOn([...data.me.lineup, ...(data.opp?.lineup ?? [])])} />
         <StaleBadge since={data.stale_since} />
       </div>
       <Scorebug data={data} now={now} />
       {/* The feed only earns its place once something has happened; before kickoff it stays out of the way. */}
-      {data.plays.length > 0 && <PlayFeedStrip plays={data.plays} href={playsHref(data.mine !== false, data.me.team_id)} pick={pickById} />}
+      <Presence show={data.plays.length > 0} fold>
+        <div><PlayFeedStrip plays={data.plays} href={playsHref(data.mine !== false, data.me.team_id)} pick={pickById} /></div>
+      </Presence>
       <Board data={data} now={now} onPick={onPick} />
       <BoxScoreDialog p={player} week={data.week} log={picked?.log ?? null} open={open && player != null} onOpenChange={setOpen} />
     </div>

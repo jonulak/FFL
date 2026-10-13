@@ -45,7 +45,7 @@ export function TeamPanel({ abbr, playerId, name, muted, tile = false }: { abbr:
   return (
     <div
       aria-hidden
-      className={`relative h-full overflow-hidden ${muted ? "saturate-[.35] opacity-80" : ""}`}
+      className={`relative h-full overflow-hidden transition-[filter,opacity] duration-500 ${muted ? "saturate-[.35] opacity-80" : ""}`}
       style={{
         background: `linear-gradient(168deg, ${t.primary} 0%, color-mix(in oklab, ${t.primary} 62%, ${t.secondary}) 100%)`,
         boxShadow: "inset -1px 0 0 rgb(255 255 255 / 0.08)",

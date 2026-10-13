@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, BriefcaseMedical, LoaderCircle, Lock } from "lucide-react";
+import { ArrowDownToLine, BriefcaseMedical, Lock } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -10,6 +10,7 @@ import { pts, shortName } from "@/lib/format";
 import { accepts, type Fill, type FillOption, gainText, recommendedFill, recommendedTarget, slotLabel, type SwapOption, type Target } from "@/lib/lineup";
 import { PHONE_INSET } from "./claims-submit";
 import { CallChip, Headshot, InjuryMark, IrBlocked } from "./roster-cards";
+import { Spinner, Swap } from "./motion";
 
 // md and up gets the centred dialog; the phone and tablet get the bottom sheet. Closed on the server, so the
 // first render never needs to know.
@@ -40,15 +41,15 @@ function SitToggle({ c, week, sit, disabled }: { c: Card; week: number; sit: Sit
         <span className="min-w-0 flex-1">
           <span className="block font-display text-[1.0625rem] font-semibold leading-tight tracking-tight">Sit this week</span>
           <span className="mt-0.5 block text-xs text-pretty text-muted-foreground">
-            {c.sat ? `Out of the lineup call for week ${week}` : "Leave him out of the lineup call"}{" "}
+            <Swap>{c.sat ? `Out of the lineup call for week ${week}` : "Leave him out of the lineup call"}</Swap>{" "}
             {/* the dot travels with its clause, so a wrapped line never ends on it */}
             <span className="whitespace-nowrap"><span aria-hidden>· </span>ESPN unchanged</span>
           </span>
         </span>
-        {busy && <LoaderCircle aria-hidden className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none" />}
+        <span className="text-muted-foreground"><Spinner on={busy} gap="-mr-3" /></span>
         <Switch id={id} className="data-unchecked:bg-foreground/20 dark:data-unchecked:bg-foreground/25" checked={c.sat} disabled={disabled || busy} onCheckedChange={(on) => sit.set(c, on)} />
       </label>
-      {error && <p role="alert" className="px-2 pb-1.5 text-sm text-out">{error}</p>}
+      {error && <p key={error} role="alert" className="log-in px-2 pb-1.5 text-sm text-out">{error}</p>}
     </div>
   );
 }

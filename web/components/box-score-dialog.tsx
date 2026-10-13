@@ -8,6 +8,7 @@ import { seasonRank } from "@/lib/player-log";
 import { BoxTable } from "./box-table";
 import { BAND_CLOSE, PlayerHeader } from "./player-header";
 import { Heading, PlayerRecord, useLog, type LogFetch } from "./player-dialog";
+import { Swap, Ticker } from "./motion";
 // One player's points taken apart, in a matchup view: this week first, then his season log (this
 // season's weeks and the games ahead, and the past seasons) as the season modal sets it, under the
 // same team-colour header. The week's items are summed here; when that sum and ESPN's posted
@@ -38,17 +39,20 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
       <div className="overflow-y-auto overscroll-contain">
         <section aria-labelledby="box-week" className="space-y-1.5 px-4 pt-4">
           <Heading id="box-week" title={`Week ${week}`} note={box.length > 0 ? `${pts(p.actual)} pts` : undefined} />
-          {box.length === 0 ? (
-            <p className="py-1 text-sm text-muted-foreground">
-              {p.bye ? "On bye this week." : p.game ? "Nothing that scores yet." : "No stats until his game kicks off."}
-            </p>
-          ) : (
-            <BoxTable box={box} />
-          )}
+          {/* his first scoring play turns the waiting line into the box score: a crossfade, while the dialog is open */}
+          <Swap as="div" k={box.length === 0 ? "none" : "box"}>
+            {box.length === 0 ? (
+              <p className="py-1 text-sm text-muted-foreground">
+                {p.bye ? "On bye this week." : p.game ? "Nothing that scores yet." : "No stats until his game kicks off."}
+              </p>
+            ) : (
+              <BoxTable box={box} />
+            )}
+          </Swap>
           <p className="pt-1.5 text-xs tabular-nums text-muted-foreground">
-            {vol && <><span className="text-foreground/80">{vol}</span> <span aria-hidden>·</span> </>}
+            {vol && <><span className="text-foreground/80"><Swap>{vol}</Swap></span> <span aria-hidden>·</span> </>}
             proj {pts(p.proj)}
-            {off && <> <span aria-hidden>·</span> ESPN posts {pts(p.actual)}</>}
+            {off && <> <span aria-hidden>·</span> ESPN posts <Ticker value={p.actual} format={pts} /></>}
           </p>
         </section>
         <PlayerRecord load={load} retry={retry} fetch={log} className="px-4 pt-7 pb-5" />

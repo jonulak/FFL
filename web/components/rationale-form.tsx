@@ -1,6 +1,5 @@
 "use client";
 
-import { LoaderCircle } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
@@ -10,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Decision, Presets } from "@/lib/api";
 import { changedReason, formError } from "@/lib/decisions";
 import { PHONE_ACTION } from "./claims-submit";
+import { Spinner, Swap } from "./motion";
 
 // The reasons offered per kind, asked once per page load and shared by every form on it.
 let presetsLoad: Promise<Presets> | null = null;
@@ -79,7 +79,7 @@ export function RationaleForm({ decision, targets, presets, withOutcome = false,
         </SelectContent>
       </Select>
       <div className="space-y-1.5">
-        <Label htmlFor={`note-${uid}`}>{key === "other" ? "Note" : "Add a note (optional)"}</Label>
+        <Label htmlFor={`note-${uid}`}><Swap>{key === "other" ? "Note" : "Add a note (optional)"}</Swap></Label>
         <Textarea id={`note-${uid}`} value={note} onChange={(e) => { setNote(e.target.value); setError(null); }} />
       </div>
       {withOutcome && (
@@ -90,12 +90,12 @@ export function RationaleForm({ decision, targets, presets, withOutcome = false,
       )}
       <div className="flex gap-2">
         <Button type="submit" disabled={saving} className={PHONE_ACTION}>
-          {saving && <LoaderCircle aria-hidden className="size-4 animate-spin" />}
+          <Spinner on={saving} />
           Save
         </Button>
         {onLater && <Button type="button" variant="outline" disabled={saving} onClick={onLater} className={PHONE_ACTION}>Later</Button>}
       </div>
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && <p key={error} role="alert" className="log-in text-sm text-destructive">{error}</p>}
     </form>
   );
 }

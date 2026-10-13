@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, ViewTransition } from "react";
 import { useDecisionPrefs } from "./decision-prefs";
 
 const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], ["/nfl", "NFL"], ["/transactions", "Transactions"], ["/players", "Players"], ["/decisions", "Decisions"]] as const;
@@ -16,6 +16,7 @@ export function NavLinks() {
   const { page } = useDecisionPrefs(); // the Decisions tab goes with the page (Settings)
   useEffect(() => {
     // centred, not nearest: nearest parks the tab under the strip's fade at the right edge
+    // at once, not smooth: the page change has already captured where the tab bar lands
     current.current?.scrollIntoView({ inline: "center", block: "nearest" });
   }, [path]);
   return (
@@ -31,9 +32,15 @@ export function NavLinks() {
             href={href}
             ref={active ? current : undefined}
             aria-current={active ? "page" : undefined}
-            className="relative flex items-center px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] whitespace-nowrap text-foreground/55 transition-colors hover:text-foreground/85 aria-[current=page]:text-foreground after:absolute after:inset-x-2.5 after:bottom-0 after:h-0.5 after:bg-foreground after:opacity-0 aria-[current=page]:after:opacity-100"
+            className="relative flex items-center px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] whitespace-nowrap text-foreground/55 transition-colors duration-300 hover:text-foreground/85 aria-[current=page]:text-foreground"
           >
             {label}
+            {/* one bar, named for the page change: it slides from the tab left to the one arrived at */}
+            {active && (
+              <ViewTransition name="nav-tab" share="nav-tab" default="none">
+                <span aria-hidden className="absolute inset-x-2.5 bottom-0 h-0.5 bg-foreground" />
+              </ViewTransition>
+            )}
           </Link>
         );
       })}

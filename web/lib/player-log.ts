@@ -38,9 +38,10 @@ export function headerInjury(status: string, returnWeek: number | null, week?: n
   return week == null ? status : injuryLabel(status, returnWeek, week);
 }
 
-// A name that opens the season modal: plain type at rest, underlined under a pointer. Here, not in
-// the client module, so server components (the play feed) can read the string.
-export const NAME_LINK = "decoration-foreground/35 decoration-1 underline-offset-[0.2em] hover:underline";
+// A name that opens the season modal: plain type at rest, the underline inking in under a pointer
+// (always drawn, transparent at rest, so it fades rather than snaps). Here, not in the client
+// module, so server components (the play feed) can read the string.
+export const NAME_LINK = "underline decoration-transparent decoration-1 underline-offset-[0.2em] transition-[text-decoration-color] duration-200 hover:decoration-foreground/35";
 
 // His rank at his position on this season's points to date, for the modal header; undefined until
 // the log lands or when ESPN has no list for the position.

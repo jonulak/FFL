@@ -3,7 +3,7 @@
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useOptimistic, useState, useTransition, ViewTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -16,6 +16,7 @@ import { Markdown } from "./markdown";
 import { PlayerTrigger } from "./player-dialog";
 import { RationaleDialog } from "./rationale-dialog";
 import { SectionHeading } from "./section-heading";
+import { Swap } from "./motion";
 
 export type Filters = { week: number | null; kind: string | null; open: boolean };
 
@@ -62,17 +63,20 @@ function Row({ d, presets, onEdit }: { d: Decision; presets: Presets; onEdit: ()
   return (
     <li className="border-t border-foreground/10 first:border-t-0">
       <Collapsible>
-        <CollapsibleTrigger className="group flex w-full items-start gap-3 px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:px-4">
+        <CollapsibleTrigger className="group flex w-full items-start gap-3 px-3 py-3 text-left outline-none transition-colors hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-ring/60 sm:px-4">
           <Badge variant="muted" shape="chip" className="mt-0.5 shrink-0">{KIND_LABEL[d.kind] ?? d.kind}</Badge>
           <span className="min-w-0 flex-1 space-y-0.5">
             <span className="block font-medium leading-snug">{d.title}</span>
-            {needsRationale(d)
-              ? <Badge variant="warn">Needs a reason</Badge>
-              : reason && <span className="block text-sm text-muted-foreground">{reason}</span>}
+            {/* given its reason, the amber ask crossfades into it */}
+            <Swap k={needsRationale(d) ? "ask" : `r:${reason ?? ""}`} className="block">
+              {needsRationale(d)
+                ? <Badge variant="warn">Needs a reason</Badge>
+                : reason && <span className="block text-sm text-muted-foreground">{reason}</span>}
+            </Swap>
             {d.outcome && <span className="block text-sm text-muted-foreground">{d.outcome}</span>}
           </span>
           <time dateTime={d.at} className="shrink-0 text-xs tabular-nums text-muted-foreground">{d.at.slice(0, 10)}</time>
-          <ChevronDown aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-aria-expanded:rotate-180" />
+          <ChevronDown aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-(--ease-arrive) group-aria-expanded:rotate-180 motion-reduce:transition-none" />
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="space-y-3 px-3 pb-3 text-sm sm:px-4">
@@ -100,7 +104,7 @@ function FilterSelect({ label, value, shown, options, onChange }: {
   return (
     <Select value={value} onValueChange={(v) => v != null && v !== value && onChange(v)}>
       <SelectTrigger size="sm" aria-label={label} className="font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em]">
-        <SelectValue>{shown}</SelectValue>
+        <SelectValue><Swap>{shown}</Swap></SelectValue>
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false}>
         {options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
@@ -120,7 +124,14 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
   if (seen !== data.decisions) { setSeen(data.decisions); setRows(data.decisions); }
 
   const kinds = Object.keys(KIND_LABEL);
-  const go = (next: Partial<Filters>) => router.push(href({ ...filters, ...next }), { scroll: false });
+  // the controls take the new filter at once and the list steps back until the page lands, then
+  // crossfades to it (globals.css `.swap`)
+  const [pending, start] = useTransition();
+  const [shown, setShown] = useOptimistic(filters);
+  const go = (next: Partial<Filters>) => start(() => {
+    setShown({ ...filters, ...next });
+    router.push(href({ ...filters, ...next }), { scroll: false });
+  });
   const groups = byWeek(rows);
 
   return (
@@ -130,21 +141,23 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <Toggle
             variant="outline"
-            pressed={filters.open}
+            pressed={shown.open}
             onPressedChange={(on) => go({ open: on })}
             className="h-10 rounded-md border-foreground/15 px-3 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/70 hover:text-foreground sm:h-8 aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/85"
           >
             Open
           </Toggle>
-          <FilterSelect label="Week" value={filters.week == null ? ALL : String(filters.week)} shown={filters.week == null ? "All weeks" : `Week ${filters.week}`}
+          <FilterSelect label="Week" value={shown.week == null ? ALL : String(shown.week)} shown={shown.week == null ? "All weeks" : `Week ${shown.week}`}
             options={[{ value: ALL, label: "All weeks" }, ...data.weeks.map((w) => ({ value: String(w), label: `Week ${w}` }))]}
             onChange={(v) => go({ week: v === ALL ? null : Number(v) })} />
-          <FilterSelect label="Kind" value={filters.kind ?? ALL} shown={filters.kind ? KIND_LABEL[filters.kind] ?? filters.kind : "All kinds"}
+          <FilterSelect label="Kind" value={shown.kind ?? ALL} shown={shown.kind ? KIND_LABEL[shown.kind] ?? shown.kind : "All kinds"}
             options={[{ value: ALL, label: "All kinds" }, ...kinds.map((k) => ({ value: k, label: KIND_LABEL[k] }))]}
             onChange={(v) => go({ kind: v === ALL ? null : v })} />
         </div>
       </div>
 
+      <ViewTransition update="swap" default="none">
+      <div data-pending={pending || undefined} className="pending-dim space-y-4">
       {groups.length === 0 && (
         <p className="py-6 text-center text-muted-foreground">
           {filters.open ? "Nothing open" : "No decisions yet"}
@@ -159,6 +172,8 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
           </ul>
         </section>
       ))}
+      </div>
+      </ViewTransition>
 
       <RationaleDialog decision={editing} presets={presets} withOutcome onClose={() => setEditing(null)}
         onSaved={(saved) => {

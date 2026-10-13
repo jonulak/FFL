@@ -4,7 +4,7 @@ import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
   type Column, type ColumnDef, type Row as TRow, type SortingState,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
+import { ArrowDown, ChevronDown } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import { ClaimControl } from "./claim-control";
 import { statusTag } from "@/lib/claims";
 import { isFreeAgent, ownerLabel, rowKind } from "@/lib/players";
 import { TeamLink } from "./team-link";
+import { useReorder } from "./motion";
 
 // A worth-to-me number, or a dash where there is none (my own player).
 const dash = (v: number | null) => (v == null ? "—" : signed(v));
@@ -99,13 +100,13 @@ function Week({ r }: { r: PlayerRow | RosterRow }) {
 function SortHead({ column, label, title }: { column: Column<PlayerRow>; label: string; title?: string }) {
   const dir = column.getIsSorted();
   const right = column.id !== "name";
-  const Arrow = dir === "asc" ? ArrowUp : ArrowDown;
   return (
     <button type="button" onClick={column.getToggleSortingHandler()} title={title}
-      className={`${LABEL} flex h-9 w-full items-center gap-0.5 ${PAD} hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] ${right ? "justify-end" : ""} ${dir ? "text-foreground" : ""}`}>
+      className={`${LABEL} flex h-9 w-full items-center gap-0.5 ${PAD} transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] ${right ? "justify-end" : ""} ${dir ? "text-foreground" : ""}`}>
       {label}
-      {/* only the active column carries the arrow, so the others stay as narrow as their label */}
-      {dir && <Arrow aria-hidden className="size-3 stroke-[2.5]" />}
+      {/* only the active column carries the arrow, so the others stay as narrow as their label; it fades in
+          on the column tapped and turns over when the order flips */}
+      {dir && <ArrowDown aria-hidden className={`fx-in size-3 stroke-[2.5] transition-transform duration-300 ease-(--ease-arrive) ${dir === "asc" ? "rotate-180" : ""}`} />}
     </button>
   );
 }
@@ -136,7 +137,7 @@ function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
   const idle = r.bye || injuryTone(r.injury) === "bad";
   return (
     <TableCell className={`w-full max-w-0 py-2 whitespace-normal ${PAD} ${mine ? "pl-4 sm:pl-5" : ""}`}>
-      <p className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-display text-base font-semibold leading-tight tracking-tight sm:text-[1.1875rem] ${idle ? "text-foreground/70" : ""} ${WRAP_CHIPS}`}>
+      <p className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-display text-base font-semibold leading-tight tracking-tight transition-colors duration-500 sm:text-[1.1875rem] ${idle ? "text-foreground/70" : ""} ${WRAP_CHIPS}`}>
         <PlayerTrigger p={r} className={`max-w-full break-words rounded-sm ${NAME_LINK}`}>{r.name}</PlayerTrigger>
         {chip}
         {hurt && (
@@ -292,17 +293,17 @@ function Chevron({ row }: { row: TRow<PlayerRow> }) {
   const what = [...comparePositions(row.original.pos)].join("/");
   return (
     <button type="button" onClick={row.getToggleExpandedHandler()} aria-expanded={open} aria-label={open ? `hide my ${what}s` : `compare with my ${what}s`}
-      className="flex h-9 w-7 items-center justify-center rounded-md text-foreground/55 hover:text-foreground focus-visible:outline-2 sm:w-8">
-      <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180" : ""}`} />
+      className="flex h-9 w-7 items-center justify-center rounded-md text-foreground/55 transition-colors hover:text-foreground focus-visible:outline-2 sm:w-8">
+      <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-300 ease-(--ease-arrive) motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
     </button>
   );
 }
 
 // One of my players under a free agent, tinted, his slot as a muted chip; in the decision column
 // the free agent's ROS minus his, so the drop reads straight down.
-function CompareRow({ fa, mine, week, showPos, cols }: { fa: PlayerRow; mine: RosterRow; week: number; showPos: boolean; cols: Column<PlayerRow>[] }) {
+function CompareRow({ fa, mine, week, showPos, cols, k }: { fa: PlayerRow; mine: RosterRow; week: number; showPos: boolean; cols: Column<PlayerRow>[]; k: string }) {
   return (
-    <TableRow className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
+    <TableRow data-key={k} className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
       {cols.map((c) => {
         const meta = c.columnDef.meta as Meta;
         if (c.id === "expand") return <TableCell key={c.id} className="w-0 p-0" />;
@@ -334,6 +335,10 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
     getRowId: (r) => String(r.player_id), getRowCanExpand: (r) => rowKind(r.original) !== "mine",
     enableSortingRemoval: false,
   });
+  // a re-sort slides every row to its new place; opening a comparison slides the rows below down
+  // to make room while my players fade in under him (motion.tsx)
+  const order = table.getRowModel().rows.map((r) => `${r.id}${r.getIsExpanded() ? "+" : ""}`).join();
+  const body = useReorder<HTMLTableSectionElement>(order);
   if (rows.length === 0) {
     // every rostered player is in the pool, the free agents only to ESPN's top 150 at each position (espn_season.POOL_SIZE)
     return (
@@ -369,12 +374,12 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody>
+          <TableBody ref={body}>
             {table.getRowModel().rows.map((row) => {
               const open = row.getIsExpanded();
               const mine = open ? roster.filter((m) => comparePositions(row.original.pos).has(m.pos)) : [];
               return [
-                <TableRow key={row.id} className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
+                <TableRow key={row.id} data-key={row.id} className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
                   {row.getVisibleCells().map((cell) => {
                     const meta = cell.column.columnDef.meta as Meta;
                     if (cell.column.id === "expand") return <TableCell key={cell.id} className="w-0 py-2 pr-0 pl-0.5 sm:pl-1.5"><Chevron row={row} /></TableCell>;
@@ -383,9 +388,9 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
                     return <TableCell key={cell.id} className={cellClass(cell.column.id, meta)}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>;
                   })}
                 </TableRow>,
-                ...mine.map((m) => <CompareRow key={`${row.id}-${m.player_id}`} fa={row.original} mine={m} week={week} showPos={showPos} cols={leaf} />),
+                ...mine.map((m) => <CompareRow key={`${row.id}-${m.player_id}`} k={`${row.id}-${m.player_id}`} fa={row.original} mine={m} week={week} showPos={showPos} cols={leaf} />),
                 open && mine.length === 0 && (
-                  <TableRow key={`${row.id}-none`} className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
+                  <TableRow key={`${row.id}-none`} data-key={`${row.id}-none`} className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
                     <TableCell colSpan={leaf.length} className="py-2 pl-4 text-xs text-muted-foreground sm:pl-5">nobody at {row.original.pos} on my roster</TableCell>
                   </TableRow>
                 ),

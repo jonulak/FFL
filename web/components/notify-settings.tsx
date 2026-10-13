@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { NotifyConfig, NotifyPrefs } from "@/lib/api";
 import { isHm, pushSupport, readPushEnv, urlBase64ToUint8Array } from "@/lib/notify";
+import { Spinner, Swap } from "./motion";
 
 const KINDS = [["move", "League moves", "Adds, drops and trades, batched per sync"],
                ["injury", "My starter hurt", "OUT, Doubtful or IR before his game locks"],
@@ -96,21 +97,25 @@ export function NotifySettings({ config }: { config: NotifyConfig }) {
       <Card>
         <CardHeader><CardTitle>This device</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">
+          {/* the browser check resolves after the page draws: its answer crossfades in over "Checking" */}
+          <Swap as="div" k={String(support)}>
           {support === null && <p className="text-muted-foreground">Checking this browser…</p>}
           {support === "needs-install" && <p>On iPhone, notifications work only from the Home Screen app: Share → Add to Home Screen, then open FFL from there.</p>}
           {support === "unsupported" && <p>This browser cannot receive push notifications.</p>}
           {support === "ready" && (
             <div className="flex flex-wrap items-center gap-2">
               {subscribed
-                ? <Button variant="outline" onClick={disable} disabled={busy}>Turn off on this device</Button>
-                : <Button onClick={enable} disabled={busy}>Enable on this device</Button>}
+                ? <Button key="off" variant="outline" onClick={disable} disabled={busy} className="fx-in">Turn off on this device</Button>
+                : <Button key="on" onClick={enable} disabled={busy} className="fx-in">Enable on this device</Button>}
               <Button variant="outline" onClick={test} disabled={busy || !config.enabled}>Send test</Button>
+              <span className="text-muted-foreground"><Spinner on={busy} gap="-ml-2" /></span>
             </div>
           )}
+          </Swap>
           <p className="text-muted-foreground">
             {config.devices} device{config.devices === 1 ? "" : "s"} subscribed{config.enabled ? "" : " · sending is off on this API"}
           </p>
-          {msg && <p role="status">{msg}</p>}
+          {msg && <p key={msg} role="status" className="log-in">{msg}</p>}
         </CardContent>
       </Card>
 

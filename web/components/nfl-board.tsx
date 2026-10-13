@@ -14,9 +14,10 @@ import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
 import { useLive } from "./use-live";
 import { WeekSelect } from "./week-select";
+import { LiveChip } from "./live-chip";
+import { Presence, Swap, Ticker, useReorder } from "./motion";
 
 const POLL_MS = 30_000;
-const LiveChip = () => <Badge variant="muted" shape="chip"><span aria-hidden className="size-1.5 rounded-full bg-foreground/75" />live</Badge>;
 
 const noSubscribe = () => () => {};
 
@@ -24,15 +25,18 @@ const noSubscribe = () => () => {};
 // of the same height and the browser fills in the label once mounted (no hydration mismatch, no stale text).
 function WindowLabel({ iso }: { iso: string }) {
   const mounted = useSyncExternalStore(noSubscribe, () => true, () => false);
-  return mounted ? <>{windowLabel(iso)}</> : <span aria-hidden className="invisible">&nbsp;</span>;
+  return mounted ? <span className="fx-in inline-block">{windowLabel(iso)}</span> : <span aria-hidden className="invisible">&nbsp;</span>;
 }
 
 // The club with the ball: the on-field orange the Matchup board's halves use, red inside the 20.
-export function PossessionDot({ red }: { red: boolean }) {
+// It fades over to the other club on a change of possession and warms to red crossing the 20.
+export function PossessionDot({ red, on = true }: { red: boolean; on?: boolean }) {
   return (
-    <span className={`size-2 shrink-0 rounded-full ${red ? "bg-redzone" : "bg-onfield"}`}>
+    <Presence show={on}>
+    <span className={`size-2 shrink-0 rounded-full transition-colors duration-700 ${red ? "bg-redzone" : "bg-onfield"}`}>
       <span className="sr-only">{red ? "has the ball in the red zone" : "has the ball"}</span>
     </span>
+    </Presence>
   );
 }
 
@@ -42,19 +46,19 @@ export function PossessionDot({ red }: { red: boolean }) {
 export function NflClubRow({ c, g, trailing }: { c: NflClub; g: NflGame; trailing: boolean }) {
   const final = g.status === "post";
   return (
-    <li className={`flex items-center gap-2.5 py-2.5 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
-      <TeamLogo abbr={c.abbr} size={36} fallback className={trailing ? "opacity-70" : ""} />
+    <li className={`flex items-center gap-2.5 py-2.5 transition-colors duration-500 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
+      <TeamLogo abbr={c.abbr} size={36} fallback className={`transition-opacity duration-500 ${trailing ? "opacity-70" : ""}`} />
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-2 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
           <span className="truncate">{c.name ?? c.abbr}</span>
-          {g.ball === c.abbr && <PossessionDot red={g.red_zone} />}
+          <PossessionDot red={g.red_zone} on={g.ball === c.abbr} />
         </p>
         <p className="mt-1 text-xs text-muted-foreground">{c.record ?? c.abbr}</p>
       </div>
-      <p className="font-display text-[1.5rem] font-bold leading-none tabular-nums tracking-tight">{c.score ?? ""}</p>
+      <p className="font-display text-[1.5rem] font-bold leading-none tabular-nums tracking-tight">{c.score != null && <Ticker value={c.score} format={String} gain />}</p>
       {/* the caret's slot is on every row, final or not, so scores line up across cards in every state */}
       <span className="-ml-1 flex w-2.5 shrink-0 items-center self-stretch">
-        {final && c.winner && <><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></>}
+        <Presence show={final && !!c.winner}><span className="flex"><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></span></Presence>
       </span>
     </li>
   );
@@ -71,10 +75,12 @@ function GameCard({ g, week }: { g: NflGame; week: number }) {
       <Card className={`${BOARD_CARD} ${g.mine ? "ring-foreground/30" : ""} transition-[box-shadow,background-color] group-hover/tile:bg-foreground/[0.025] group-hover/tile:ring-foreground/35 group-focus-visible/tile:ring-2 group-focus-visible/tile:ring-ring/60`}>
         <CardHeader className="flex flex-row items-center justify-between gap-3 bg-foreground/[0.04] py-2.5 sm:py-3">
           <span className={`${LABEL} flex items-center gap-2`}>
-            {g.status === "in" && <LiveChip />}
-            {g.status === "pre"
-              ? <span><KickoffTime iso={g.kickoff} />{g.network && <> · {g.network}</>}</span>
-              : <span className={g.status === "post" ? "text-foreground" : "text-foreground/85"}>{gameState(g)}</span>}
+            <LiveChip on={g.status === "in"} />
+            <Swap k={g.status}>
+              {g.status === "pre"
+                ? <span><KickoffTime iso={g.kickoff} />{g.network && <> · {g.network}</>}</span>
+                : <span className={g.status === "post" ? "text-foreground" : "text-foreground/85"}>{gameState(g)}</span>}
+            </Swap>
           </span>
           <span className={`${LABEL} flex items-center gap-1`}>
             {hint && <Badge variant="muted" shape="chip">{hint}</Badge>}
@@ -95,14 +101,16 @@ function GameCard({ g, week }: { g: NflGame; week: number }) {
 export function NflBoardLive({ initial, path }: { initial: NflBoard; path: string }) {
   const { data } = useLive(initial, path, { pollMs: POLL_MS });
   const count = data.sections.reduce((n, s) => n + s.games.length, 0);
+  // a game moving between windows (kickoff, the whistle) slides from its old section to its new one
+  const board = useReorder<HTMLDivElement>(data.sections.map((s) => s.games.map((g) => g.event_id).join()).join("|"));
   return (
-    <div className="space-y-5">
+    <div ref={board} className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <h1 className="font-display text-4xl font-bold leading-none tracking-tight">NFL</h1>
         <StaleBadge since={data.stale_since} />
       </div>
       <SectionHeading title={`Week ${data.week}`} count={count}>
-        {data.live && <LiveChip />}
+        <LiveChip on={data.live} />
         <WeekSelect week={data.week} current={data.current} weeks={data.weeks} base="/nfl" />
       </SectionHeading>
       {count === 0 && <p className="text-sm text-muted-foreground">No NFL games in week {data.week}.</p>}
@@ -112,7 +120,7 @@ export function NflBoardLive({ initial, path }: { initial: NflBoard; path: strin
             {s.live ? "Live" : <>{s.final && "Final · "}{s.kickoff ? <WindowLabel iso={s.kickoff} /> : "Time TBD"}</>}
           </h2>
           <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-            {s.games.map((g) => <GameCard key={g.event_id} g={g} week={data.week} />)}
+            {s.games.map((g) => <div key={g.event_id} data-key={g.event_id}><GameCard g={g} week={data.week} /></div>)}
           </div>
         </section>
       ))}

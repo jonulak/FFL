@@ -1,8 +1,8 @@
 "use client";
 
-import { Check, ChevronLeft, LoaderCircle, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronLeft, TriangleAlert, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,6 +14,7 @@ import { ClaimName } from "./claim-name";
 import { SubmitError, useClaims } from "./claims-context";
 import { useDecisionPrefs } from "./decision-prefs";
 import { RationaleForm, usePresets } from "./rationale-form";
+import { Spinner, Swap } from "./motion";
 
 const SUB = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
@@ -112,7 +113,7 @@ function ClaimsWhy({ targets, presets }: { targets: Promise<number[]>; presets: 
     <section className="space-y-1.5">
       <h3 className={SUB}>Why these claims?</h3>
       {saved
-        ? <p className="text-sm text-muted-foreground">{saved}</p>
+        ? <p className="log-in text-sm text-muted-foreground">{saved}</p>
         // kind "claims" even when the first row is a free add: the two kinds offer the same reasons
         : <RationaleForm decision={{ kind: "claims" }} targets={targets} presets={presets}
             onSaved={(_, failed) => setSaved(savedNote(failed))} />}
@@ -247,32 +248,33 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
             {atMost(groups, pos) && <p className="text-xs text-muted-foreground">{atMost(groups, pos)}.</p>}
           </section>
         )}
-        {result && verdict && <Outcome r={result} verdict={verdict} name={name} />}
+        {/* ESPN's answer rises into the room the review leaves */}
+        {result && verdict && <div className="log-in"><Outcome r={result} verdict={verdict} name={name} /></div>}
         {/* the read on open can turn up problems the panel didn't have (a status moved): Send waits for a fix */}
         {!result && !loading && blocked && (
-          <div role="alert" className="space-y-1 rounded-md bg-destructive/10 px-3 py-2 text-destructive">
+          <div role="alert" className="log-in space-y-1 rounded-md bg-destructive/10 px-3 py-2 text-destructive">
             <p className="font-medium">Can&apos;t send: the plan has problems. Fix them in the claims.</p>
             <ul className="list-disc pl-5">
               {data.errors.map((e, i) => <li key={i}>Group {e.group + 1}{e.player_id != null && `, ${name(e.player_id)}`}: {e.reason}</li>)}
             </ul>
           </div>
         )}
-        {why && <ClaimsWhy targets={why.rows.promise} presets={presets} />}
-        {fault && <Failure f={fault} name={name} />}
+        {why && <div className="log-in" style={{ "--i": 1 } as CSSProperties}><ClaimsWhy targets={why.rows.promise} presets={presets} /></div>}
+        {fault && <div className="log-in"><Failure f={fault} name={name} /></div>}
       </div>
       {/* PHONE_INSET, written out: Tailwind only generates a variant it can read in the source */}
       <DialogFooter className={phone ? `mb-0 gap-3 rounded-none px-5 pt-3 ${PHONE_INSET}` : "gap-2 max-sm:rounded-none max-sm:gap-3 max-sm:px-5 max-sm:pt-3 max-sm:pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))]"}>
-        {result && <Button variant={resend ? "outline" : "default"} onClick={onClose} className={PHONE_ACTION}>Done</Button>}
+        {result && <Button variant={resend ? "outline" : "default"} onClick={onClose} className={`fx-in ${PHONE_ACTION}`}>Done</Button>}
         {resend && (
-          <Button onClick={reviewAgain} disabled={loading} className={`min-w-24 ${PHONE_ACTION}`}>
-            {loading && <LoaderCircle aria-hidden className="animate-spin" />}
+          <Button onClick={reviewAgain} disabled={loading} className={`fx-in min-w-24 ${PHONE_ACTION}`}>
+            <Spinner on={loading} />
             Review again
           </Button>
         )}
         {!result && (
           <Button onClick={send} disabled={submitting || loading || blocked} className={`min-w-24 ${PHONE_ACTION}`}>
-            {(submitting || loading) && <LoaderCircle aria-hidden className="animate-spin" />}
-            {submitting ? "Sending…" : loading ? "Checking ESPN…" : "Send"}
+            <Spinner on={submitting || loading} />
+            <Swap>{submitting ? "Sending…" : loading ? "Checking ESPN…" : "Send"}</Swap>
           </Button>
         )}
       </DialogFooter>

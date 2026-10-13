@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeftRight, Minus, Plus, UserRound } from "lucide-react";
-import { useState } from "react";
+import { startTransition, useState, ViewTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +17,7 @@ import { TeamLogo, TeamPanel } from "./player-media";
 import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
 import { TeamLink } from "./team-link";
+import { Ticker } from "./motion";
 
 // The league's wire, on the board: every move a week's ledger, newest first. An add/drop move is
 // one line, the team at the left, then what came in beside what went out, so the pair reads
@@ -165,6 +166,9 @@ function TradeRow({ m, me }: { m: TxMove; me: number }) {
 export function TransactionsView({ data }: { data: Transactions }) {
   const [filter, setFilter] = useState<TxFilter>("all");
   const [mineOnly, setMineOnly] = useState(false);
+  // a filter change is a transition, so the list crossfades to the new one (globals.css `.swap`)
+  const pick = (f: TxFilter) => startTransition(() => setFilter(f));
+  const mine = (on: boolean) => startTransition(() => setMineOnly(on));
   const shown = filterMoves(data.moves, filter, mineOnly ? data.me : null);
   const count = (f: TxFilter) => filterMoves(data.moves, f, mineOnly ? data.me : null).length;
   return (
@@ -172,7 +176,7 @@ export function TransactionsView({ data }: { data: Transactions }) {
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
           Transactions
-          <span className="ml-2.5 font-semibold text-muted-foreground">{data.moves.length}</span>
+          <span className="ml-2.5 font-semibold text-muted-foreground"><Ticker value={data.moves.length} format={whole} /></span>
         </h1>
         <StaleBadge since={data.stale_since} />
         {/* on the title line, so the filter strip keeps the full width on a phone */}
@@ -180,28 +184,30 @@ export function TransactionsView({ data }: { data: Transactions }) {
           size="sm"
           variant="outline"
           pressed={mineOnly}
-          onPressedChange={setMineOnly}
+          onPressedChange={mine}
           className="ml-auto shrink-0 border-foreground/15 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] aria-pressed:border-foreground/40 aria-pressed:bg-foreground aria-pressed:text-background"
         >
           My team
         </Toggle>
       </div>
       <div className="border-b border-foreground/12">
-        <Tabs value={filter} onValueChange={(v) => setFilter(v as TxFilter)} aria-label="Kind of move">
-          <TabsList variant="line" className="h-10 w-full justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 [scrollbar-width:none]">
+        <Tabs value={filter} onValueChange={(v) => pick(v as TxFilter)} aria-label="Kind of move">
+          <TabsList variant="line" indicatorInset="0.625rem" className="h-10 w-full justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 [scrollbar-width:none]">
             {TX_FILTERS.map((f) => (
               <TabsTrigger
                 key={f.value}
                 value={f.value}
-                className="h-full flex-none gap-1.5 rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground after:inset-x-2.5! after:bottom-0! dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
+                className="h-full flex-none gap-1.5 rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
               >
                 {f.label}
-                <span className="font-medium tracking-normal text-muted-foreground">{count(f.value)}</span>
+                <span className="font-medium tracking-normal text-muted-foreground"><Ticker value={count(f.value)} format={whole} /></span>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
       </div>
+      <ViewTransition update="swap" default="none">
+      <div className="space-y-5">
       {shown.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           {mineOnly ? "No moves of yours here yet." : "No moves of this kind yet."}
@@ -226,6 +232,10 @@ export function TransactionsView({ data }: { data: Transactions }) {
           </section>
         ))
       )}
+      </div>
+      </ViewTransition>
     </div>
   );
 }
+
+const whole = (n: number) => String(Math.round(n));
