@@ -526,7 +526,7 @@ def test_season_lookup_sums_the_remaining_sleeper_weeks_and_drops_them_on_a_fail
     assert espn_season.season_lookup(settings, week=17) is not out, "another week is another sum"
 
 
-def test_season_lookup_keeps_a_few_weeks_so_a_past_board_never_evicts_the_current_one(monkeypatch):
+def test_season_lookup_keeps_every_week_so_a_past_board_never_evicts_the_current_one(monkeypatch):
     espn_season._SEASON_CACHE.clear()
     builds = []
     monkeypatch.setattr(espn_season, "fetch_pool", lambda: builds.append(1) or SEASON_ESPN)
@@ -538,9 +538,9 @@ def test_season_lookup_keeps_a_few_weeks_so_a_past_board_never_evicts_the_curren
     espn_season.season_lookup(settings, week=6)  # the Matchup board's scoring week, or a past week's board
     espn_season.season_lookup(settings, week=2)
     assert espn_season.season_lookup(settings, week=7) is current and len(builds) == 3
-    for w in range(8, 8 + espn_season.SEASON_WEEKS_KEPT):
+    for w in range(8, 19):
         espn_season.season_lookup(settings, week=w)
-    assert len(espn_season._SEASON_CACHE) == espn_season.SEASON_WEEKS_KEPT, "bounded: the oldest builds go"
+    assert espn_season.season_lookup(settings, week=2) and len(builds) == 14, "nothing is dropped to make room"
 
 
 def test_free_agent_pool_reports_whether_ros_came_from_the_sources(monkeypatch):
@@ -782,6 +782,86 @@ def test_week_state_carries_the_odds_of_its_game(monkeypatch):
     assert abs(odds["me"] + odds["opp"] - 1) < 0.002
 
 
+def _finished_week(monkeypatch, rows):
+    """Week 1 of a league now in week 3: the board of a finished week, its kickoff projections in `rows`."""
+    def league():
+        lg = _two_games()
+        lg.current_week = 3
+        return lg
+    monkeypatch.setattr(espn_season, "league", league)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season.db, "projection_rows", lambda kind, week=None: [
+        r for r in rows if r["week"] == week and r.get("kind", "week") == kind])
+    saved = []
+    monkeypatch.setattr(espn_season.db, "put_projection_rows",
+                        lambda week, kind, rs: saved.append((week, kind, rs)) or len(rs))
+    monkeypatch.setattr(espn_season, "_SAVED_LATE", saved, raising=False)
+    looked = []
+    monkeypatch.setattr(espn_season, "season_lookup", lambda settings, week: looked.append(week) or {})
+    _fallback_sigma(monkeypatch)
+    return looked
+
+
+def test_a_finished_weeks_board_reads_the_projections_frozen_at_its_kickoffs(monkeypatch):
+    """Not a refetch of every source (9-15 s cold, and a source may rewrite a week once it is played)."""
+    qb = season_roster()[0]
+    looked = _finished_week(monkeypatch, [
+        {"week": 1, "player_id": qb["player_id"], "source": "sleeper", "points": 30.0},
+        {"week": 1, "player_id": qb["player_id"], "source": "cbs", "points": 26.0},
+        {"week": 2, "player_id": qb["player_id"], "source": "cbs", "points": 1.0}])
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: pytest.fail("the week is recorded"))
+    st = espn_season.week_state(week=1, injuries={})
+    me = next(p for p in st["me"]["lineup"] if p["player_id"] == qb["player_id"])
+    assert me["proj_src"]["sleeper"] == 30.0 and me["proj_src"]["cbs"] == 26.0
+    assert looked == [3], "ROS from today's lookup (the warm one), not a 5-25 s build of week 1's"
+
+
+def test_a_finished_week_without_recorded_projections_fetches_them_once_and_keeps_them(monkeypatch):
+    """Recording began in week 5: an earlier week asks the sources the first time, and what they said is saved
+    under its own kind (fetched after the games, so never mistaken for a kickoff number by calibration)."""
+    _finished_week(monkeypatch, [])
+    qb = season_roster()[0]
+    key = espn_season.source_key(espn_season.flatten_box_player(as_box(qb)))
+    fetched = []
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: fetched.append(week) or {
+        "sleeper": {key: 24.0}, "sharks": {key: 22.0}, "cbs": {key: 99.0}, "fleaflicker": {}})
+    st = espn_season.week_state(week=1, injuries={})
+    assert fetched == [1]
+    (week, kind, rows), = espn_season._SAVED_LATE
+    assert (week, kind) == (1, espn_season.LATE)
+    assert {"player_id": qb["player_id"], "source": "sleeper", "points": 24.0} in rows
+    assert not any(r["source"] == "cbs" for r in rows), "CBS's week page is the current week's, whatever week"
+    assert "cbs" not in next(p for p in st["me"]["lineup"] if p["player_id"] == qb["player_id"])["proj_src"]
+
+
+def test_a_finished_week_is_not_kept_while_a_source_is_down(monkeypatch):
+    _finished_week(monkeypatch, [])
+    key = espn_season.source_key(espn_season.flatten_box_player(as_box(season_roster()[0])))
+    monkeypatch.setattr(espn_season, "weekly_sources",
+                        lambda week, settings: {"sleeper": {key: 24.0}, "sharks": {}})
+    espn_season.week_state(week=1, injuries={})
+    assert espn_season._SAVED_LATE == [], "asked again next time, not frozen without FantasySharks"
+
+
+def test_a_finished_week_reads_projections_saved_after_its_games(monkeypatch):
+    qb = season_roster()[0]
+    _finished_week(monkeypatch, [{"week": 1, "kind": espn_season.LATE, "player_id": qb["player_id"],
+                                  "source": "cbs", "points": 24.0}])
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: pytest.fail("saved already"))
+    st = espn_season.week_state(week=1, injuries={})
+    assert next(p for p in st["me"]["lineup"] if p["player_id"] == qb["player_id"])["proj_src"]["cbs"] == 24.0
+    assert espn_season._SAVED_LATE == []
+
+
+def test_the_current_weeks_board_fetches_live(monkeypatch):
+    looked = _finished_week(monkeypatch, [{"week": 3, "player_id": 1, "source": "cbs", "points": 1.0}])
+    fetched = []
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: fetched.append(week) or {})
+    espn_season.week_state(week=3, injuries={})
+    assert fetched == [3] and looked == [3]
+
+
 def test_league_state_survives_sleeper_down(monkeypatch):
     """The scoreboard did not need Sleeper before the odds; an outage falls back to ESPN's numbers."""
     club = dict(team_abbrev="X", logo_url="", wins=1, losses=0, ties=0, points_for=1.0, points_against=1.0)
@@ -986,3 +1066,14 @@ def test_projection_rows_for_freezes_at_kickoff():
     assert {(r["player_id"], r["source"]) for r in ros} == {(1, "cbs"), (3, "sharks")}
     _, ros_all = espn_season.projection_rows_for([ahead, gone, idle], src, lookup, now, ros_ahead=True)
     assert {r["player_id"] for r in ros_all} == {1, 2, 3}, "ESPN's week is over: the ROS week has not begun"
+
+
+def test_a_finished_week_fetches_when_the_db_cannot_answer(monkeypatch):
+    _finished_week(monkeypatch, [])
+    def down(kind, week=None):
+        raise espn_season.db.DBError("locked")
+    monkeypatch.setattr(espn_season.db, "projection_rows", down)
+    fetched = []
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: fetched.append(week) or {})
+    espn_season.week_state(week=1, injuries={})
+    assert fetched == [1]

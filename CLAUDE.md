@@ -90,7 +90,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   CBS, FantasySharks and FleaFlicker. `ffl/sources/` holds cbs, sharks, fleaflicker (`Cached`: TTL + last good + thin guard); health is
   `STATUS` / the `source_status` state, `GET /sources/status`, `ffl.sources status`, and a notice after 24 h failing. K and D/ST use
   Sleeper's standard points. Merge is on normalized name + position (D/ST on team): `espn_season.weekly_sources(week, settings)` →
-  `merge_weekly(players, sources)`. The payload carries only `proj`/`spread`/`n_src` and `ros_proj`/`ros_spread`/`ros_n`. Each source's
+  `merge_weekly(players, sources)`. A finished week's board (`week_state`, week < ESPN's) prices from `projection_rows` (kind `week`, the kickoff record; else kind `week_late`, what Sleeper and FantasySharks answered the first time the week was opened, saved so it is fetched once; CBS's week page serves the current week whatever week is asked, FleaFlicker has no past weeks) and takes today's ROS lookup. The payload carries only `proj`/`spread`/`n_src` and `ros_proj`/`ros_spread`/`ros_n`. Each source's
   number is written to `projection_rows` by the notify tick (`record_projections`, frozen at kickoff); `source_weights` are fitted
   Wednesdays by `ffl.calibrate wednesday` and apply only after `ffl.calibrate sources --activate`. Props keep their own ESPN+Sleeper
   `baseline`. `uv run python -m ffl.sources compare` is the before/after check.

@@ -510,10 +510,12 @@ def put_projection_rows(week: int, kind: str, rows: list[dict], season: int = SE
     return len(vals)
 
 
-def projection_rows(kind: str, season: int = SEASON) -> list[dict]:
+def projection_rows(kind: str, season: int = SEASON, week: int | None = None) -> list[dict]:
     t = projection_rows_table
     q = sa.select(t.c.week, t.c.player_id, t.c.source, t.c.points, t.c.taken_at).where(
         t.c.season == season, t.c.kind == kind).order_by(t.c.week, t.c.player_id, t.c.source)
+    if week is not None:
+        q = q.where(t.c.week == week)
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 

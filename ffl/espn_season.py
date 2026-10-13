@@ -38,11 +38,10 @@ CACHE_S = 1800
 # which rebuilds it once an hour; POST /refresh forces it immediately.
 LEAGUE_TTL_S = 3600
 _LEAGUE_BUILT_AT = 0.0
-# week -> (fetched_at, lookup). A few weeks, not one: the Matchup board prices on the scoring week, the Roster and
-# Players pages on the ROS week (the next one once the week's games are played), and a past week's board on its
-# own, and with one slot each build evicted the others' 5-25 s lookup.
+# week -> (fetched_at, lookup), every week asked for and none dropped: the Matchup board prices on the scoring
+# week, the Roster and Players pages on the ROS week (the next one once the week's games are played), and with
+# one slot each build evicted the other's 5-25 s lookup. An entry refetches only once it is CACHE_S old.
 _SEASON_CACHE: dict[int, tuple[float, dict]] = {}
-SEASON_WEEKS_KEPT = 4
 _SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
 _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
 _INJ: list = []  # [expires_at, data]
@@ -648,9 +647,6 @@ def season_lookup(settings: dict, week: int) -> dict[int, dict]:
         if miss := unmatched(d, pool_keys):
             print(f"ROS source {name}: no ESPN player for {', '.join(miss[:10])}")
     _SEASON_CACHE[week] = (now, lookup)
-    # oldest builds go first; list() snapshots, since builder threads may store a week meanwhile
-    for w, _ in sorted(list(_SEASON_CACHE.items()), key=lambda kv: kv[1][0])[:-SEASON_WEEKS_KEPT]:
-        _SEASON_CACHE.pop(w, None)
     return lookup
 
 
@@ -984,6 +980,54 @@ def owners_in(boxes: list) -> dict[int, dict]:
     return out
 
 
+# projection_rows kinds for a finished week's board: KICKOFF is the notify tick's record, each source's number
+# while the game was ahead (calibration fits on it); LATE is what the sources answered when a week with no record
+# (before 2026's week 5) was first opened after its games, kept so it is asked once, apart from calibration's rows.
+KICKOFF, LATE = "week", "week_late"
+
+
+def _box_players(boxes: list) -> list[dict]:
+    return [flatten_box_player(bp) for m in boxes for lineup in (m.away_lineup, m.home_lineup) for bp in lineup or []]
+
+
+def recorded_sources(week: int, boxes: list) -> dict[str, dict[tuple[str, str], float]] | None:
+    """A finished week's projections from projection_rows (the kickoff record, else the saved late fetch), keyed
+    like weekly_sources for the week's box players. None when neither is there or the DB cannot answer."""
+    try:
+        rows = db.projection_rows(KICKOFF, week=week) or db.projection_rows(LATE, week=week)
+    except db.DBError as e:
+        print(f"recorded projections for week {week} unreadable, fetching the sources: {e}")
+        return None
+    if not rows:
+        return None
+    keys = {p["player_id"]: source_key(p) for p in _box_players(boxes)}
+    out: dict[str, dict[tuple[str, str], float]] = {}
+    for r in rows:
+        if (key := keys.get(r["player_id"])) is not None:
+            out.setdefault(r["source"], {})[key] = r["points"]
+    return out
+
+
+# The weekly sources that answer for a week already played (checked 2026-10-13): CBS's week page serves the
+# current week whatever week is asked, and FleaFlicker has no rows for a past week.
+PLAYED_WEEK_SOURCES = ("sleeper", "sharks")
+
+
+def _fetch_and_keep(week: int, settings: dict, boxes: list) -> dict[str, dict[tuple[str, str], float]]:
+    """A finished week with nothing recorded: ask the sources that serve a played week, and keep what they said
+    (kind LATE) for every box player of the week, so no later build asks again. Kept only when each answered: a
+    source down today is asked again next time rather than missing from the week for good."""
+    src = {name: d for name, d in weekly_sources(week, settings).items() if name in PLAYED_WEEK_SOURCES}
+    if all(src.get(name) for name in PLAYED_WEEK_SOURCES):
+        rows = [{"player_id": p["player_id"], "source": s, "points": v}
+                for p in _box_players(boxes) for s, v in source_values(p, src).items()]
+        try:
+            db.put_projection_rows(week, LATE, rows)
+        except db.DBError as e:
+            print(f"week {week}'s fetched projections not saved: {e}")
+    return src
+
+
 def week_state(week: int | None = None, sources: dict | None = None, season: dict | None = None,
                injuries: dict | None = None, team: int | None = None) -> dict:
     """The matchup board for `team`'s game (mine by default). `me` is the left side and `opp`
@@ -994,11 +1038,21 @@ def week_state(week: int | None = None, sources: dict | None = None, season: dic
     week = week or lg.current_week
     me = my_team_id(lg)
     team = team or me
-    src = sources if sources is not None else weekly_sources(week, settings)
-    seas = _season_for(settings, season, week)
+    boxes = box_scores(lg, week)
+    # A finished week is priced as it stood at kickoff where the notify tick recorded it, and its ROS is
+    # today's (the lookup the current board already holds): refetching every source and building that week's
+    # ROS made a past board 9-15 s cold, and a source may rewrite a week once it is played.
+    finished = week < lg.current_week
+    if sources is not None:
+        src = sources
+    elif finished:
+        src = recorded_sources(week, boxes) or _fetch_and_keep(week, settings, boxes)
+    else:
+        src = weekly_sources(week, settings)
+    seas = _season_for(settings, season, lg.current_week if finished else week)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     home = home_by_team(lg, week)
-    for m in box_scores(lg, week):
+    for m in boxes:
         sides = [(m.away_team, m.away_lineup), (m.home_team, m.home_lineup)]
         ids = [getattr(t, "team_id", None) for t, _ in sides]
         if team not in ids:
