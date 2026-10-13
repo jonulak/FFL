@@ -160,11 +160,16 @@ function Zone({ id, children }: { id: string; children: ReactNode }) {
   return <div ref={setNodeRef}>{children}</div>;
 }
 
-// Where a dragged row would land in an empty list: a dashed slot the height of a row.
-function EmptySlot({ text }: { text: string }) {
+// An empty list's place: at rest a faint dashed box saying what goes there; while a row of its
+// kind is dragged, the slot he would land in, firmer, its words crossfading. One size either way,
+// so lifting a row moves nothing in the list (a slot opening above him would shift his row from
+// under the finger, and dnd-kit takes its one measure of him after that).
+function EmptySlot({ open, rest, drop }: { open: boolean; rest: string; drop: string }) {
+  const fade = "col-start-1 row-start-1 transition-opacity duration-200";
   return (
-    <p className="my-1 flex h-8 items-center justify-center rounded-md text-xs text-muted-foreground outline-1 -outline-offset-1 outline-foreground/25 outline-dashed pointer-coarse:h-11">
-      {text}
+    <p className={`my-1 grid h-8 place-items-center rounded-md px-2 text-center text-xs outline-1 -outline-offset-1 outline-dashed transition-[outline-color,background-color,color] duration-200 pointer-coarse:h-11 ${open ? "bg-foreground/[0.03] text-foreground/75 outline-foreground/35" : "text-muted-foreground outline-foreground/12"}`}>
+      <span className={`${fade} ${open ? "opacity-0" : ""}`} aria-hidden={open}>{rest}</span>
+      <span className={`${fade} ${open ? "" : "opacity-0"}`} aria-hidden={!open}>{drop}</span>
     </p>
   );
 }
@@ -280,9 +285,9 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
         <div className={`group-body ${reveal ? "group-reveal" : ""}`}>
         <Zone id={`zt${gi}`}>
           <p className={`${SUB} mt-3 mb-0.5`}>targets · best first</p>
-          {g.targets.length === 0 && (dragging === "t"
-            ? <EmptySlot text="Drop to move him into this group" />
-            : <p className="py-1.5 text-xs text-muted-foreground">Pick targets with the claim button on any row of the table.</p>)}
+          {g.targets.length === 0 && (
+            <EmptySlot open={dragging === "t"} rest="Pick targets with the claim button on any row" drop="Drop to move him into this group" />
+          )}
           <SortableContext id={`fa${gi}`} items={fa.map((t) => `t${t.id}`)} strategy={verticalListSortingStrategy}>
             <ol>{fa.map((t, i) => targetLine(t, i + 1))}</ol>
           </SortableContext>
@@ -304,7 +309,11 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
               </li>
             )}
           </ol>
-          {g.cuts.length === 0 && dragging === "c" && <EmptySlot text="Drop to cut him for this group" />}
+          {/* with no open spot in use the box stands at rest too, saying the group needs a cut */}
+          {g.cuts.length === 0 && (g.open === 0 || dragging === "c") && (
+            <EmptySlot open={dragging === "c"} rest={g.targets.length ? "Add a cut: the group gets one target per cut" : "No cuts yet"}
+              drop="Drop to cut him for this group" />
+          )}
           <SortableContext id={`cuts${gi}`} items={g.cuts.map(cutId)} strategy={verticalListSortingStrategy}>
             <ol>
               {g.cuts.map((c, i) => (
@@ -314,9 +323,6 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
             </ol>
           </SortableContext>
         </Zone>
-        {capacity(g) === 0 && g.targets.length > 0 && (
-          <p className="py-1 text-xs text-muted-foreground">Add a cut: the group gets one target per row here.</p>
-        )}
         <CutPicker gi={gi} roster={roster} used={new Set(g.cuts)} hasFA={hasFA} disabled={submitting} />
         {data.open_spots > 0 && (
           <Label className="mt-2.5 text-xs font-normal text-foreground/80">

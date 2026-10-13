@@ -33,9 +33,13 @@ function measure(list: HTMLElement, scroller: HTMLElement | null): Snap {
     if (!card || !item.offsetParent) continue;
     const cTop = card.getBoundingClientRect().top;
     cards.set(item.dataset.group!, cTop - top);
+    // a row against the card's body, which carries his cells: the body's own fade-down as the cards
+    // open (group-reveal) moves both, so it never reads as the row moving
+    const body = card.querySelector<HTMLElement>(".group-body");
+    const bTop = body ? body.getBoundingClientRect().top : cTop;
     for (const row of item.querySelectorAll<HTMLElement>("[data-row]")) {
       const cell = row.firstElementChild as HTMLElement | null;
-      if (cell && row.offsetParent) rows.set(row.dataset.row!, { card: item.dataset.group!, rel: cell.getBoundingClientRect().top - cTop });
+      if (cell && row.offsetParent) rows.set(row.dataset.row!, { card: item.dataset.group!, rel: cell.getBoundingClientRect().top - bTop });
     }
   }
   return { top, scroll: scroller?.scrollTop ?? 0, cards, rows };
