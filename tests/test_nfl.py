@@ -267,3 +267,22 @@ def test_is_live_from_fifteen_minutes_before_kickoff():
     assert nfl.is_live({"status": "in", "kickoff": None}, now)
     assert not nfl.is_live({"status": "post", "kickoff": "2026-10-11T17:00Z"}, now)
     assert not nfl.is_live(pre(None), now)
+
+
+def test_shown_week_rolls_once_every_game_is_four_hours_old():
+    sb = nfl.parse_scoreboard(load("scoreboard-w5.json"))  # last kickoff Mon 2026-10-13 00:15Z
+    assert sb["season_type"] == 2
+    assert nfl.shown_week(sb, datetime(2026, 10, 13, 2, 0, tzinfo=timezone.utc)) == 5  # Monday night still on
+    assert nfl.shown_week(sb, datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)) == 6  # Tuesday: the league's week
+    later = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
+    assert nfl.shown_week({**sb, "season_type": 3}, later) == 5  # a playoff week is not regular-season week n+1
+
+
+def test_current_scoreboard_serves_the_rolled_week(monkeypatch):
+    calls = []
+    raw = load("scoreboard-w5.json")
+    six = {**raw, "week": {**raw["week"], "number": 6}}
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: calls.append(params) or (six if params else raw))
+    monkeypatch.setattr(nfl, "shown_week", lambda sb, now=None: 6)
+    sb, stale = nfl.scoreboard(None)
+    assert sb["week"] == 6 and stale is None and calls == [None, {"week": 6, "seasontype": 2}]

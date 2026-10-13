@@ -8,10 +8,12 @@ import logging
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable
 
 import requests
+
+from . import season as S
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +71,7 @@ def parse_scoreboard(data: dict) -> dict:
             "down": sit.get("downDistanceText") if ball else None,
         })
     wk = data.get("week") or {}
-    return {"week": wk.get("number"), "games": games,
+    return {"week": wk.get("number"), "season_type": (data.get("season") or {}).get("type"), "games": games,
             "byes": sorted(club(t.get("abbreviation", "")) for t in wk.get("teamsOnBye", []))}
 
 
@@ -264,10 +266,23 @@ def drives_ttl(status: str, seen_final: bool = False) -> float:
     return {"in": 15, "pre": 600}.get(status, 86400)
 
 
+def shown_week(sb: dict, now: datetime | None = None) -> int | None:
+    """The week the tab opens on: ESPN's, or the next once every game in it is played (season.ros_week, the rule the
+    league pages follow). The site scoreboard holds the finished week until about Wednesday; the league rolls Tuesday."""
+    if sb.get("season_type") != 2 or not sb.get("week"):
+        return sb.get("week")
+    kicks = [datetime.fromtimestamp(t, timezone.utc) for g in sb["games"] if (t := _ts(g.get("kickoff")))]
+    return S.ros_week(sb["week"], kicks, now)
+
+
 def scoreboard(week: int | None) -> tuple[dict, str | None]:
-    """The week's games (ESPN's current week when None), parsed."""
-    params = {"week": week, "seasontype": 2} if week else None
-    return _BOARDS.get(week or "current", lambda: parse_scoreboard(_get(SCOREBOARD, params)), scoreboard_ttl)
+    """The week's games (the shown week when None), parsed."""
+    if week is None:
+        sb, stale = _BOARDS.get("current", lambda: parse_scoreboard(_get(SCOREBOARD)), scoreboard_ttl)
+        wk = shown_week(sb)
+        return (sb, stale) if wk == sb["week"] else scoreboard(wk)
+    params = {"week": week, "seasontype": 2}
+    return _BOARDS.get(week, lambda: parse_scoreboard(_get(SCOREBOARD, params)), scoreboard_ttl)
 
 
 def drives(event_id: str, status: str, ids: dict[str, str]) -> tuple[list[dict], str | None]:
