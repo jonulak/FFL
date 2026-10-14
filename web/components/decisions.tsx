@@ -10,7 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Toggle } from "@/components/ui/toggle";
 import type { Decision, Decisions, Presets } from "@/lib/api";
-import { SLOT_LABEL } from "@/lib/board";
+import { slotLabel } from "@/lib/lineup";
 import { byWeek, KIND_LABEL, needsRationale, reasonText } from "@/lib/decisions";
 import { NAME_LINK } from "@/lib/player-log";
 import { Markdown } from "./markdown";
@@ -35,7 +35,7 @@ const ALL = "all";
 
 type Move = { player_id: number; name: string; pos?: string; from?: string; to?: string; call?: string; gap?: number | null };
 
-// "Name: call START, gap +2.5 · BE → FLEX", the lineup move as it was recorded.
+// "Name: call START, gap +2.5 · Bench → FLEX", the lineup move as it was recorded.
 function MoveLine({ m }: { m: Move }) {
   const gap = m.gap == null ? null : `${m.gap >= 0 ? "+" : "−"}${Math.abs(m.gap).toFixed(2)}`;
   const seed = { player_id: m.player_id, name: m.name, pos: m.pos ?? "", team: "" };
@@ -43,7 +43,7 @@ function MoveLine({ m }: { m: Move }) {
     <li>
       <PlayerTrigger p={seed} className={`rounded-sm ${NAME_LINK}`}>{m.name}</PlayerTrigger>
       <span className="text-muted-foreground">
-        : call {m.call}{gap && `, gap ${gap}`}{m.from && m.to && ` · ${SLOT_LABEL[m.from] ?? m.from} → ${SLOT_LABEL[m.to] ?? m.to}`}
+        : call {m.call}{gap && `, gap ${gap}`}{m.from && m.to && ` · ${slotLabel(m.from)} → ${slotLabel(m.to)}`}
       </span>
     </li>
   );

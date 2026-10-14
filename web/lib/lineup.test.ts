@@ -14,7 +14,7 @@ const all = [qb, flex, rb, benchRb, benchQb, lockedWr, ir];
 describe("slots", () => {
   it("flex takes RB/WR/TE, not QB", () => expect([...accepts("RB/WR/TE")].sort()).toEqual(["RB", "TE", "WR"]));
   it("OP takes a QB", () => expect(accepts("OP").has("QB")).toBe(true));
-  it("labels", () => { expect(slotLabel("RB/WR/TE")).toBe("FLEX"); expect(slotLabel("BE")).toBe("Bench"); });
+  it("labels", () => { expect(slotLabel("RB/WR/TE")).toBe("FLEX"); expect(slotLabel("RB/WR")).toBe("FLEX"); expect(slotLabel("WR/TE")).toBe("FLEX"); expect(slotLabel("OP")).toBe("OP"); expect(slotLabel("BE")).toBe("Bench"); });
 });
 
 describe("mismatch", () => {
