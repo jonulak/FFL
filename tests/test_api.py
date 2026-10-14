@@ -79,6 +79,7 @@ def test_refresh_502s_when_espn_is_down(client, monkeypatch):
 
 def test_transactions_sync_answers_the_new_count(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
+    monkeypatch.setattr(api, "load", lambda: {})
     monkeypatch.setattr(api, "sync_transactions", lambda lg: [{}, {}])
     results = []
     monkeypatch.setattr(api, "sync_results", lambda lg, settings: results.append(lg))
