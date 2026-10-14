@@ -223,7 +223,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   to the next kickoff (+5 s), between 20 s and 10 min, and 20 s while a game is on or a `pre` game is past its kickoff; drives 10 min pregame, 15 s while on, a final game's first fetch 10 min (ESPN's drives can lag the status flip) and a refetch of it a day, its `pre`/`in` entries dropped; not `ffl/sources`, so an
   outage never pushes a notice; `/refresh` expires it). Plays are marked `mine`/`opp` against this week's two lineups
   (`api._nfl_sides`, the Matchup board; D/ST by club on defence for a score, turnover, sack or safety; on HTTPException or
-  SystemExit it degrades to no marks rather than failing the page); FastCast's clock and score lie over the scoreboard
+  SystemExit it degrades to no marks rather than failing the page, and the game payload's `marked` is false so My players says so); FastCast's clock and score lie over the scoreboard
   (`nfl.overlay`). The game page polls every 15 s (`useLive` `pollMs`) since `/live` ticks only on fantasy points, and the feed
   keeps one arrival ledger over the whole game (not per drive or per filter) so only plays that land after the page opened
   slide in, each only the first time it is on screen. The payloads' `live` is true from 15 minutes before kickoff (`nfl.is_live`) so a

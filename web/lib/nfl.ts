@@ -81,3 +81,17 @@ export function priorScores(plays: NflPlay[]): Record<string, NflPlay["score"] |
   const sc = plays.filter((p) => p.scoring);
   return Object.fromEntries(sc.map((p, i) => [p.id, sc[i + 1]?.score ?? null]));
 }
+
+// Which plays slide in on this render of the game feed, and what to remember for the next. `arrived` is every play
+// the page's ledger saw land after it opened (useLedger's "enter", which it keeps saying forever); `onScreen` the
+// plays drawn now (the filter's, in open drives). A play slides in the first render it is on screen, keeps the mark
+// while it stays there (so a poll does not drop it mid-animation), and never gets it back once it has left: a filter
+// or a folded drive that hides it and shows it again remounts the row, and the mark would replay the slide-in.
+// `next` is null when nothing changed (the caller sets it in render, so it must settle).
+export type FeedSeen = { shown: ReadonlySet<string>; animated: ReadonlySet<string> };
+export function slideIns(seen: FeedSeen, arrived: ReadonlySet<string>, onScreen: string[]): { entering: Set<string>; next: FeedSeen | null } {
+  const here = new Set(onScreen);
+  const entering = new Set(onScreen.filter((id) => arrived.has(id) && (!seen.shown.has(id) || seen.animated.has(id))));
+  const changed = onScreen.some((id) => !seen.shown.has(id)) || [...seen.animated].some((id) => !here.has(id));
+  return { entering, next: changed ? { shown: new Set([...seen.shown, ...onScreen]), animated: entering } : null };
+}

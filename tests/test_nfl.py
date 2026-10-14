@@ -252,6 +252,19 @@ def test_failed_refetch_does_not_overwrite_a_newer_entry():
     assert c.get("k", lambda: {"v": 3}, lambda _: 100) == ({"v": 2}, None)  # still fresh
 
 
+@pytest.mark.parametrize("wipe", ["clear", "drop"])
+def test_failed_refetch_after_the_entry_is_gone_serves_last_good(wipe):
+    c = nfl.TtlCache()
+    c.get("k", lambda: {"v": 1}, lambda _: 0)  # expired at once
+
+    def wiped_then_fail():
+        c.clear() if wipe == "clear" else c.drop("k")  # reset() (tests) or drop() lands mid-fetch
+        raise RuntimeError("down")
+    data, stale = c.get("k", wiped_then_fail, lambda _: 100)
+    assert data == {"v": 1} and stale is not None
+    assert not c.has("k"), "a wiped entry is not brought back by a failure"
+
+
 def test_overlay_keeps_quarter_when_feed_has_none():
     g = {"away": {"abbr": "CHI", "score": 0}, "home": {"abbr": "GB", "score": 7}, "status": "in", "quarter": 3,
          "clock": "5:51", "ball": None, "red_zone": False, "down": None}

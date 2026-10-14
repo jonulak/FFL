@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { NflDrive, NflGame, NflGamePage, NflPlay } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
-import { feedHref, filterDrives, priorScores, type FeedFilter } from "@/lib/nfl";
+import { feedHref, filterDrives, priorScores, slideIns, type FeedFilter, type FeedSeen } from "@/lib/nfl";
 import { KickoffTime } from "./local-time";
 import { NflPlayRow } from "./nfl-game";
 import { useLedger } from "./play-feed";
@@ -63,29 +63,25 @@ export function NflPlayFeed({ data, filter, club }: { data: NflGamePage; filter:
   const ledger = useLedger(all, (p) => p.id);
   const drives = filterDrives(data.drives, filter);
   const prior = useMemo(() => priorScores(all), [all]);
-  // A row animates only the first time it is on screen: the ledger keeps saying "enter" for a play that arrived
-  // after the page opened, so a filter switch would replay it. `shown` is every id ever rendered; `animated` those
-  // rendered entering (they keep the flag through their own animation and later renders).
-  const [seen, setSeen] = useState({ shown: new Set<string>(), animated: new Set<string>() });
-  const entering = new Set(ledger.filter((r) => r.state === "enter" && (!seen.shown.has(r.p.id) || seen.animated.has(r.p.id))).map((r) => r.p.id));
-  const rendered = drives.flatMap((d) => d.plays.map((p) => p.id));
-  if (!rendered.every((id) => seen.shown.has(id))) {  // derived state, set in render like useLedger's
-    setSeen({
-      shown: new Set([...seen.shown, ...rendered]),
-      animated: new Set([...seen.animated, ...rendered.filter((id) => entering.has(id))]),
-    });
-  }
   // Every drive starts collapsed but the one on the field (no result yet, game on). When the next drive takes the
   // field it opens in the finished one's place; drives opened by hand stay open through polls and filters.
   const live = data.game.status === "in" ? data.drives.find((d) => !d.result)?.id ?? null : null;
   const [open, setOpen] = useState<{ ids: string[]; live: string | null }>({ ids: live ? [live] : [], live });
-  if (live !== open.live) {  // derived state, set in render like `seen`
+  if (live !== open.live) {  // derived state, set in render like useLedger's
     setOpen({ ids: [...open.ids.filter((id) => id !== open.live), ...(live ? [live] : [])], live });
   }
+  // A row slides in once per page life, the first time it is on screen (lib/nfl slideIns): the ledger keeps saying
+  // "enter" for a play that arrived after the page opened, and a filter or a folded drive that hides the row and
+  // shows it again remounts it, which would replay the animation.
+  const [seen, setSeen] = useState<FeedSeen>({ shown: new Set(), animated: new Set() });
+  const arrived = new Set(ledger.filter((r) => r.state === "enter").map((r) => r.p.id));
+  const onScreen = drives.filter((d) => open.ids.includes(d.id)).flatMap((d) => d.plays.map((p) => p.id));
+  const { entering, next } = slideIns(seen, arrived, onScreen);
+  if (next) setSeen(next);  // derived state, set in render like `open`
   const total = data.drives.reduce((n, d) => n + d.plays.length, 0);
   const empty = data.game.status === "pre"
     ? <>Kickoff <KickoffTime iso={data.game.kickoff} />. Plays appear here once the game starts.</>
-    : filter === "mine" ? "None of your starters has been in a play yet."
+    : filter === "mine" ? (data.marked ? "None of your starters has been in a play yet." : "Can't pick out your starters: the Matchup board didn't load.")
     : filter === "scoring" ? "No points yet." : "No plays yet.";
   return (
     <section className="space-y-2">

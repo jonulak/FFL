@@ -108,7 +108,57 @@ def test_sides_degrade_to_empty_when_board_fails(monkeypatch):
     def boom(n, team):
         raise api.HTTPException(502, {"source": "espn", "error": "down"})
     monkeypatch.setattr(api, "_board", boom)
-    assert api._nfl_sides(5) == ([], [])
+    assert api._nfl_sides(5) is None  # unknown, not "no starters": the game page says so
+
+
+def test_game_route_says_when_marks_are_off(monkeypatch, c):
+    assert c.get("/nfl/5/gb").json()["marked"] is True
+    monkeypatch.setattr(api, "_nfl_sides", lambda week: None)
+    r = c.get("/nfl/5/gb").json()
+    assert r["marked"] is False and r["starters"] == {"me": [], "opp": []}
+    assert all(p["mine"] == [] for d in r["drives"] for p in d["plays"])
+
+
+def test_game_route_marked_with_none_of_mine_in_the_game(monkeypatch, c):
+    monkeypatch.setattr(api, "_nfl_sides", lambda week: ([], []))
+    r = c.get("/nfl/5/gb").json()
+    assert r["marked"] is True and r["starters"]["me"] == []
+
+
+def _no_week_sb():
+    sb = json.loads(json.dumps(SB))
+    del sb["week"]["number"]
+    return sb
+
+
+FEED = {"GB": {"status": "in", "quarter": 4, "clock": "0:30", "score": {"GB": 99, "CHI": 98}}}
+
+
+@pytest.mark.parametrize("feed_week,overlaid", [(4, False), (5, True)])
+def test_scoreboard_without_espns_week_gates_the_feed_on_the_week_asked(monkeypatch, c, feed_week, overlaid):
+    sb = _no_week_sb()
+    nfl.reset()
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: sb)
+    monkeypatch.setattr(api.live.STATE, "games", FEED)
+    monkeypatch.setattr(api.live.STATE, "week", feed_week)
+    asked = []
+    monkeypatch.setattr(api, "_nfl_starters", lambda week: asked.append(week) or (ME, OPP))
+    r = c.get("/nfl?week=5").json()
+    gb = next(g for s in r["sections"] for g in s["games"] if g["home"]["abbr"] == "GB")
+    assert r["week"] == 5 and asked == [5]
+    assert (gb["home"]["score"] == 99) is overlaid, "last week's feed must not land on this week's games"
+
+
+def test_current_scoreboard_without_espns_week_lays_no_feed(monkeypatch, c):
+    sb = _no_week_sb()
+    nfl.reset()
+    monkeypatch.setattr(nfl, "_get", lambda url, params=None: sb)
+    monkeypatch.setattr(api.live.STATE, "games", FEED)
+    monkeypatch.setattr(api.live.STATE, "week", 4)
+    monkeypatch.setattr(api, "_nfl_starters", lambda week: pytest.fail("no week known to mark"))
+    r = c.get("/nfl").json()
+    gb = next(g for s in r["sections"] for g in s["games"] if g["home"]["abbr"] == "GB")
+    assert r["week"] is None and gb["home"]["score"] != 99
 
 
 def test_scoreboard_marks_of_another_week_come_off_the_box_scores_not_a_priced_board(monkeypatch):

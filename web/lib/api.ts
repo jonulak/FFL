@@ -161,7 +161,7 @@ export type NflPlay = {
 export type NflDrive = { id: string; team: string | null; description: string | null; result: string | null; plays: NflPlay[] };
 // the Matchup board's players, whole: a tap opens the same breakdown (BoxScoreDialog)
 export type NflStarter = Player;
-export type NflGamePage = { week: number; live: boolean; game: NflGame; starters: { me: NflStarter[]; opp: NflStarter[] }; scoring: NflPlay[]; drives: NflDrive[]; stale_since: string | null };
+export type NflGamePage = { week: number; live: boolean; game: NflGame; marked: boolean; starters: { me: NflStarter[]; opp: NflStarter[] }; scoring: NflPlay[]; drives: NflDrive[]; stale_since: string | null };
 // `me` is the left side of the board, `opp` the right: I stand left of my own game (`mine`); any other
 // game (a League scoreboard tile) reads away then home.
 // win_prob is the left side's odds (and the right's) off season.win_prob, re-priced by the live

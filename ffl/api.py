@@ -726,19 +726,20 @@ def team(team_id: int):
     return {**data, "side": live.overlay_side(data["side"], _live_points(wk), _live_games(wk), _live_stats(wk), _scoring())}
 
 
-def _nfl_sides(week: int) -> tuple[list[dict], list[dict]]:
+def _nfl_sides(week: int) -> tuple[list[dict], list[dict]] | None:
     """My starters and my opponent's for `week`, live points laid on (the Matchup board's), for the NFL pages'
-    marks. The board failing (ESPN fantasy down) leaves the pages unmarked, never unserved."""
+    marks. The board failing (ESPN fantasy down) answers None: the pages go unmarked, never unserved, and the game
+    page says so rather than reading as "none of mine played"."""
     try:
         data = _week_payload(_board(None, None))
         if data["week"] != week:
             data = _week_payload(_board(week, None))
     except HTTPException as e:
         log.warning("nfl marks off, no board for week %s: %s", week, e.detail)
-        return [], []
+        return None
     except SystemExit as e:  # config.league() exits when .env is missing; the NFL pages need no ESPN login
         log.warning("nfl marks off, no league config for week %s: %s", week, e)
-        return [], []
+        return None
     return (data.get("me") or {}).get("lineup", []), (data.get("opp") or {}).get("lineup", [])
 
 
@@ -749,7 +750,7 @@ def _nfl_starters(week: int) -> tuple[list[dict], list[dict]]:
     goes unmarked, never unserved."""
     try:
         if _board(None, None)["week"] == week:
-            return _nfl_sides(week)
+            return _nfl_sides(week) or ([], [])
         me = espn_season.my_team_id(espn_season.fresh_league())
         for game in espn_season.league_starters(week)["games"]:
             if any(s["team_id"] == me for s in game):
@@ -792,9 +793,12 @@ def nfl_scoreboard(week: int | None = None):
             current = _nfl_scoreboard(None)[0]["week"]
         except HTTPException:  # the picker's "this week" mark is not worth failing the requested week
             current = sb["week"]
-    wk = sb["week"]
-    games = nfl.overlay(sb["games"], _live_games(wk))
-    mine, opp = _nfl_starters(wk)
+    # ESPN's page names its week; when it does not, the week asked for. With neither, no week is known and the
+    # live gate would pass anything for None, so the feed's clocks stay off (another week's must not land on these
+    # games) and so do the marks.
+    wk = sb["week"] or week
+    games = nfl.overlay(sb["games"], _live_games(wk)) if wk is not None else sb["games"]
+    mine, opp = _nfl_starters(wk) if wk is not None else ([], [])
     return {"week": wk, "current": current, "weeks": NFL_WEEKS,
             "live": any(nfl.is_live(g) for g in games),
             "sections": nfl.board(games, _by_club(mine), _by_club(opp)), "byes": sb["byes"], "stale_since": stale}
@@ -818,12 +822,14 @@ def nfl_game(week: int, team: str):
         drives, stale2 = nfl.drives(game["event_id"], game["status"], ids)
     except Exception as e:  # noqa: BLE001 — cold outage on this game's feed
         raise HTTPException(502, {"source": "espn-nfl", "error": str(e)})
-    mine, opp = ([p for p in side if p.get("team") in clubs] for side in _nfl_sides(week))
+    sides = _nfl_sides(week)
+    mine, opp = ([p for p in side if p.get("team") in clubs] for side in (sides or ([], [])))
     named = lambda ps: {p["player_id"]: p["name"] for p in ps if p["player_id"] > 0}  # noqa: E731
     dst = lambda ps: {p["team"]: p["name"] for p in ps if p["player_id"] < 0}  # noqa: E731
     marked = nfl.mark(drives, named(mine), named(opp), dst(mine), dst(opp), clubs)
     return {"week": week, "live": nfl.is_live(game),
             "game": {**game, "mine": len(mine), "opp": len(opp)},
+            "marked": sides is not None,  # False: the Matchup board failed, so no play could be marked
             "starters": {"me": mine, "opp": opp},  # whole board players: a tap opens the Matchup breakdown
             "scoring": nfl.scoring_plays(marked), "drives": marked, "stale_since": stale or stale2}
 
