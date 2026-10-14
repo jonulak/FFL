@@ -1,11 +1,12 @@
 import type { Card } from "./api";
+import { SLOT_LABEL } from "./board";
 
 // ESPN's lineup order, as on its team page; season.py's SLOT_ORDER.
 export const SLOT_ORDER = ["QB", "RB", "WR", "TE", "RB/WR/TE", "RB/WR", "WR/TE", "OP", "D/ST", "K"];
 const FLEX = new Set(["RB/WR/TE", "RB/WR", "WR/TE"]);
 
 export function slotLabel(slot: string): string {
-  return FLEX.has(slot) ? "FLEX" : slot === "BE" ? "Bench" : slot;
+  return slot === "BE" ? "Bench" : (SLOT_LABEL[slot] ?? slot);
 }
 
 // Which positions a slot takes: season._slot_accepts. "OP" is the superflex.
@@ -34,6 +35,11 @@ export function irIllegal(cards: Card[]): Card | null {
   return cards.find((c) => c.slot === "IR" && NO_DESIGNATION.has(c.injury ?? "")) ?? null;
 }
 
+// His game has started, so ESPN will not move him: the roster build's `locked`, or the live overlay's `game` once
+// his club has kicked off (fastcast.game_states: "in" or "post"), which lands before the next roster build does.
+export const isLocked = (c: Pick<Card, "locked"> & Partial<Pick<Card, "game">>) =>
+  c.locked || c.game?.status === "in" || c.game?.status === "post";
+
 const fits = (p: Card, slot: string) =>
   slot === "BE" || (slot === "IR" ? p.slot === "IR" || irEligible(p) : accepts(slot).has(p.pos));
 const starts = (slot: string) => slot !== "BE" && slot !== "IR";
@@ -45,10 +51,10 @@ const round = (n: number) => Math.round(n * 100) / 100 || 0;  // never −0
 // each player to fit the other's slot (IR takes only a player listed IR or Out); locked players are never
 // offered; two bench players never swap.
 export function targets(cards: Card[], picked: Card, empty: string[]): Target[] {
-  if (picked.locked) return [];
+  if (isLocked(picked)) return [];
   const out: Target[] = [];
   for (const q of cards) {
-    if (q.player_id === picked.player_id || q.locked || q.slot === picked.slot) continue;
+    if (q.player_id === picked.player_id || isLocked(q) || q.slot === picked.slot) continue;
     if (q.slot === "BE" && picked.slot === "BE") continue;
     if (!fits(picked, q.slot) || !fits(q, picked.slot)) continue;
     const gain = worth(picked, q.slot) + worth(q, picked.slot) - worth(picked, picked.slot) - worth(q, q.slot);
@@ -109,7 +115,7 @@ export function recommendedFill<T extends FillOption>(slot: string, options: T[]
 // after them the partners who would be legal but whose game has started. Nothing for a locked player. While an IR
 // player has no designation (irIllegal), anyone else is offered only the move that takes his place on IR.
 export function swapOptions(cards: Card[], picked: Card, empty: string[]): SwapOption[] {
-  if (picked.locked) return [];
+  if (isLocked(picked)) return [];
   const bad = irIllegal(cards);
   if (bad && bad.player_id !== picked.player_id) {
     return targets(cards, picked, []).filter((t) => t.kind === "swap" && t.with.player_id === bad.player_id);
@@ -118,8 +124,8 @@ export function swapOptions(cards: Card[], picked: Card, empty: string[]): SwapO
   const best = recommendedTarget(picked, open);
   if (best) open.splice(0, 0, ...open.splice(open.indexOf(best), 1));
   const byId = new Map(cards.map((c) => [c.player_id, c]));
-  const shut: SwapOption[] = targets(cards.map((c) => (c.locked ? { ...c, locked: false } : c)), picked, [])
-    .flatMap((t) => (t.kind === "swap" && byId.get(t.with.player_id)?.locked
+  const shut: SwapOption[] = targets(cards.map((c) => (isLocked(c) ? { ...c, locked: false, game: undefined } : c)), picked, [])
+    .flatMap((t) => (t.kind === "swap" && isLocked(byId.get(t.with.player_id)!)
       ? [{ kind: "locked" as const, with: byId.get(t.with.player_id)! }] : []))
     .sort(bySlotName);
   return [...open, ...shut];
@@ -136,12 +142,12 @@ export function fillOptions(cards: Card[], slot: string): FillOption[] {
   const bad = irIllegal(cards);
   const fit = cards.filter((c) => c.slot !== slot && fits(c, slot) && (!bad || c.player_id === bad.player_id));
   const byName = (a: Card, b: Card) => a.name.localeCompare(b.name);
-  const open: FillOption[] = fit.filter((c) => !c.locked)
+  const open: FillOption[] = fit.filter((c) => !isLocked(c))
     .map((c) => ({ kind: "fill" as const, who: c, gain: round(worth(c, slot) - worth(c, c.slot)) }))
     .sort((a, b) => b.gain - a.gain || byName(a.who, b.who));
   const best = recommendedFill(slot, open);
   if (best) open.splice(0, 0, ...open.splice(open.indexOf(best), 1));
-  const shut: FillOption[] = fit.filter((c) => c.locked).sort(byName).map((c) => ({ kind: "locked" as const, with: c }));
+  const shut: FillOption[] = fit.filter(isLocked).sort(byName).map((c) => ({ kind: "locked" as const, with: c }));
   return [...open, ...shut];
 }
 

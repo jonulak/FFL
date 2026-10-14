@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addTarget, atMost, capacity, cutBlock, displayTargets, groupHasFA, groupPos, move, moveGroup, removeFrom, reorderTargets,
   addCut, holder, newGroup, place, processDay, prune, regroupKeys, removeGroup, rowTag, setOpen, statusTag, submitFailure, submitSummary,
+  SUBMIT_CEILING_MS, SUBMIT_FLOOR_MS, SUBMIT_MARGIN_MS, SUBMIT_PER_WRITE_MS, errorWhere, submitTimeoutMs,
 } from "./claims";
 import type { ClaimGroup, ClaimPlayer } from "./api";
 
@@ -175,6 +176,47 @@ describe("submit summary", () => {
   it("kept outside claims ahead of ours", () =>
     expect(submitSummary({ ...ok, sent, pending: [{ id: "o", add: 9, drop: 1 }, ...sent], match: true }, 2, 1)).toEqual({
       ok: true, text: "ESPN holds all 2 of yours, in this order · plus 1 filed on ESPN directly, ahead of these" }));
+  it("an empty plan that cancelled claims is a withdrawal", () => {
+    expect(submitSummary({ ...ok, sent: [], pending: [], match: true }, 0, 0, { withdrawn: 3 })).toEqual({ ok: true, text: "Withdrawn 3: ESPN holds none of yours" });
+    expect(submitSummary({ ...ok, sent: [], pending: [{ id: "o", add: 9, drop: 1 }], match: true }, 0, 1, { withdrawn: 3 })).toEqual({
+      ok: true, text: "Withdrawn 3: ESPN holds none of yours · 1 filed on ESPN directly left as it was" });
+  });
+  it("a withdrawal that failed or could not be read back is not ok and never reads as 'nothing was sent'", () => {
+    expect(submitSummary({ sent: [], pending: [{ id: "a", add: 1, drop: 2 }], match: false, error: "x", readback_failed: false }, 0, 0, { withdrawn: 2 }))
+      .toEqual({ ok: false, text: "The withdrawal didn't finish: see what ESPN still holds" });
+    expect(submitSummary({ sent: [], pending: [], match: false, error: "x", readback_failed: true }, 0, 0, { withdrawn: 2 }))
+      .toEqual({ ok: false, text: "Withdrawal sent, but couldn't read ESPN back" });
+  });
+  it("test mode never says ESPN holds anything", () => {
+    const t = { writes: false };
+    const texts = [
+      submitSummary({ ...ok, sent, pending: sent, match: true }, 2, 0, t),
+      submitSummary({ ...ok, sent, pending: sent.slice(0, 1), match: false }, 2, 0, t),
+      submitSummary({ ...ok, sent: [], pending: [], match: true }, 0, 0, { ...t, withdrawn: 2 }),
+      submitSummary({ ...ok, sent, pending: [], match: false, readback_failed: true }, 2, 0, t),
+      submitSummary({ ...ok, sent, pending: [{ id: "o", add: 9, drop: 1 }, ...sent], match: true }, 2, 1, t),
+      submitSummary({ ...ok, sent: [], pending: [{ id: "o", add: 9, drop: 1 }], match: true }, 0, 1, { ...t, withdrawn: 2 }),
+      submitSummary({ sent: [], pending: [], match: false, error: "x", readback_failed: false }, 2, 0, t),
+    ].map((v) => v.text);
+    expect(texts[0]).toBe("Test mode: the fake holds all 2, in this order");
+    expect(texts[2]).toBe("Test mode: Withdrawn 2: the fake holds none of yours");
+    expect(texts[4]).toBe("Test mode: the fake holds all 2 of yours, in this order · plus 1 filed outside the app, ahead of these");
+    for (const t of texts) expect(t).not.toMatch(/ESPN/);
+  });
+});
+
+describe("errorWhere", () => {
+  it("names the group, or the roster for a group-less error", () => {
+    expect(errorWhere({ group: 1 })).toBe("Group 2");
+    expect(errorWhere({ group: null })).toBe("Roster");
+  });
+});
+
+describe("submitTimeoutMs", () => {
+  it("never waits under a minute", () => expect(submitTimeoutMs(0, 1)).toBe(SUBMIT_FLOOR_MS));
+  it("grows with every cancel and post (plus the reorder and the read-back)", () =>
+    expect(submitTimeoutMs(20, 20)).toBe(42 * SUBMIT_PER_WRITE_MS + SUBMIT_MARGIN_MS));
+  it("never waits past the proxy's ceiling", () => expect(submitTimeoutMs(500, 500)).toBe(SUBMIT_CEILING_MS));
 });
 
 describe("submitFailure", () => {

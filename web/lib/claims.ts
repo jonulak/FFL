@@ -2,7 +2,7 @@
 // and the labels it shows). A group gets min(rows, targets) of its targets, best first, where the
 // rows are its open roster spots (first) and its cuts (first to go first). Every edit returns new
 // groups; nothing here mutates its input.
-import type { ClaimGroup, ClaimPlayer, PoolStatus, SubmitResult } from "./api";
+import type { ClaimErr, ClaimGroup, ClaimPlayer, PoolStatus, SubmitResult } from "./api";
 
 type List = "targets" | "cuts";
 type Status = Record<string, PoolStatus>;
@@ -176,24 +176,66 @@ export function cutBlock(p: ClaimPlayer, groupHasFA: boolean): string | null {
   return null;
 }
 
+// Where a plan error sits, for a list that mixes both: a group's, or the roster's (group null: an IR
+// player with no injury designation, which blocks every add and claim).
+export const errorWhere = (e: Pick<ClaimErr, "group">): string => (e.group == null ? "Roster" : `Group ${e.group + 1}`);
+
 // The Submit dialog's claims verdict. `planned` is the claim count frozen when Send was pressed;
 // `keptOutside` the claims filed on ESPN directly that were kept (they run ahead of ours). Never ok
 // unless the server matched with no error and a read-back; a failed read-back says so, not "holds 0".
+// `withdrawn`: an empty plan sent to cancel that many claims, so "no claims" reads as a withdrawal.
+// `writes` false (a test server, FFL_WRITES=0): the fake held them, the text says "Test mode" first and never
+// says ESPN holds anything.
 export function submitSummary(
   r: Pick<SubmitResult, "sent" | "pending" | "match" | "error" | "readback_failed">, planned: number, keptOutside = 0,
+  { withdrawn = 0, writes = true }: { withdrawn?: number; writes?: boolean } = {},
+): { ok: boolean; text: string } {
+  const v = verdict(r, planned, keptOutside, withdrawn, writes ? "ESPN" : "the fake", outsideWhere(writes));
+  return writes ? v : { ...v, text: `Test mode: ${v.text}` };
+}
+
+// "filed on ESPN directly" / "filed outside the app": where a claim not sent from here came from.
+export const outsideWhere = (writes: boolean) => (writes ? "filed on ESPN directly" : "filed outside the app");
+
+function verdict(
+  r: Pick<SubmitResult, "sent" | "pending" | "match" | "error" | "readback_failed">, planned: number, keptOutside: number,
+  withdrawn: number, who: string, outside: string,
 ): { ok: boolean; text: string } {
   const n = r.sent.length;
   if (r.match && !r.error && !r.readback_failed) {
-    if (!planned) return { ok: true, text: "No claims to send" };
+    if (!planned) {
+      if (!withdrawn) return { ok: true, text: "No claims to send" };
+      return keptOutside
+        ? { ok: true, text: `Withdrawn ${withdrawn}: ${who} holds none of yours · ${keptOutside} ${outside} left as ${keptOutside === 1 ? "it was" : "they were"}` }
+        : { ok: true, text: `Withdrawn ${withdrawn}: ${who} holds none of yours` };
+    }
     return keptOutside
-      ? { ok: true, text: `ESPN holds all ${n} of yours, in this order · plus ${keptOutside} filed on ESPN directly, ahead of these` }
-      : { ok: true, text: `ESPN holds all ${n}, in this order` };
+      ? { ok: true, text: `${who} holds all ${n} of yours, in this order · plus ${keptOutside} ${outside}, ahead of these` }
+      : { ok: true, text: `${who} holds all ${n}, in this order` };
   }
-  if (r.readback_failed) return { ok: false, text: `Sent ${n}, but couldn't read ESPN back` };
+  if (r.readback_failed) return { ok: false, text: withdrawn && !planned ? `Withdrawal sent, but couldn't read ${who} back` : `Sent ${n}, but couldn't read ${who} back` };
   const held = new Set(r.pending.map((p) => p.id));
   const k = r.sent.filter((c) => held.has(c.id)).length;
-  if (!n) return { ok: false, text: planned ? `Nothing was sent: ESPN holds 0 of ${planned}` : "Nothing was sent" };
-  return { ok: false, text: k === n && n === planned ? `ESPN holds all ${n}, in a different order` : `ESPN holds ${k} of ${planned}` };
+  if (!n) {
+    if (withdrawn && !planned) return { ok: false, text: `The withdrawal didn't finish: see what ${who} still holds` };
+    return { ok: false, text: planned ? `Nothing was sent: ${who} holds 0 of ${planned}` : "Nothing was sent" };
+  }
+  return { ok: false, text: k === n && n === planned ? `${who} holds all ${n}, in a different order` : `${who} holds ${k} of ${planned}` };
+}
+
+// How long the dialog waits for a submit. The server cancels every claim sent before, posts each
+// instant add and claim, numbers the list and reads it back, one ESPN call each in turn (each allowed
+// espn_write.TIMEOUT, 15 s, but a few seconds as a rule), then rebuilds the roster pages inline after an
+// instant add: the wait grows with the plan, never under a minute, SUBMIT_PER_WRITE_MS a call plus the
+// rebuild's margin, and never past SUBMIT_CEILING_MS, which next.config.ts's proxyTimeout matches (Next
+// cuts a rewrite at 30 s by default).
+export const SUBMIT_FLOOR_MS = 60_000;
+export const SUBMIT_PER_WRITE_MS = 5_000;
+export const SUBMIT_MARGIN_MS = 30_000;
+export const SUBMIT_CEILING_MS = 300_000;
+export function submitTimeoutMs(cancels: number, posts: number): number {
+  const calls = cancels + posts + 2; // the reorder and the read-back
+  return Math.min(SUBMIT_CEILING_MS, Math.max(SUBMIT_FLOOR_MS, calls * SUBMIT_PER_WRITE_MS + SUBMIT_MARGIN_MS));
 }
 
 // A submit the API refused, sorted for the dialog: 409 one is running, or (an object detail) the

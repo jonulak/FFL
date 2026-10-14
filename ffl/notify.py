@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timedelta
 
 from . import db
+from .season import slot_label
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ def injury_notices(flags: dict[int, dict], week: int, at: str) -> list[dict]:
             continue
         out.append({"key": f"injury:{week}:{pid}:{status}", "kind": "injury",
                     "title": f"{f.get('name') or f'Player {pid}'} {INJURY_LABEL[status]}",
-                    "body": f"Starting at {slot}. Tap to make the call.", "url": "/roster", "created_at": at})
+                    "body": f"Starting at {slot_label(slot)}. Tap to make the call.", "url": "/roster", "created_at": at})
     return out
 
 

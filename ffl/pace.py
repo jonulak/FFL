@@ -137,7 +137,7 @@ def render(report: dict) -> str:
                   f"{'ros':>6}{'adj':>6}{'snap':>5}{'opp':>5}{'tr':>5}{'tsn':>5}{'ypt':>5}  opponents"]
         for r in rows:
             fm = r["form"]
-            where = ("ME " if r["mine"] else "") + (f"{r['owner'][:26]} {r['slot']}" if r["owner"] != "FA" else "FA")
+            where = ("ME " if r["mine"] else "") + (f"{r['owner'][:26]} {S.slot_label(r['slot'])}" if r["owner"] != "FA" else "FA")
             lines.append(f"{r['name'][:21]:22}{r['team']:4}{where[:37]:38}{r['injury'][:4]:5}{_f(r['exp'], 0):>4}"
                          f"{fm['games']:>2}{_f(fm['l3']):>6}{_f(fm['beat']):>6}{_f(fm['pace_gap'], 0):>6}{_f(r['ros'], 0):>6}"
                          f"{_f(r['adj'], 0):>6}{_f(fm['snap_pct'], 0):>5}{_f(fm['opp']):>5}{_f(fm['opp_trend']):>5}"
@@ -153,7 +153,7 @@ def render(report: dict) -> str:
                   f"{'player':22}{'pos':4}{'slot':10}{'inj':5}{'g':>2}{'ppg':>6}{'ros':>6}{'adj':>6}{'snap':>5}{'opp':>5}{'tr':>5}"]
         for r in mine:
             fm = r["form"] or {}
-            lines.append(f"{r['name'][:21]:22}{r['pos']:4}{r['slot'][:9]:10}{r['injury'][:4]:5}{_f(fm.get('games'), 0):>2}"
+            lines.append(f"{r['name'][:21]:22}{r['pos']:4}{S.slot_label(r['slot'])[:9]:10}{r['injury'][:4]:5}{_f(fm.get('games'), 0):>2}"
                          f"{_f(fm.get('l3')):>6}{_f(r['ros'], 0):>6}{_f(r['adj'], 0):>6}{_f(fm.get('snap_pct'), 0):>5}"
                          f"{_f(fm.get('opp')):>5}{_f(fm.get('opp_trend')):>5}")
     return "\n".join(lines)

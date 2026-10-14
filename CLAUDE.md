@@ -113,7 +113,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   the `calibration_snapshots`/`calibration_rows` tables, once per ROS week: the first build stands) and `ffl.calibrate` scores the Ks against what happened.
 - Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
   (`espn_season.game_from_stats` off espn-api's per-week `stats`; every rostered player's earlier weeks come from
-  each earlier form week's box scores (`_roster_games`, so the replacement line runs on adjusted ROS too), free agents' from
+  each earlier form week's box scores (`_roster_games`, so the replacement line runs on adjusted ROS too; a week he was on no
+  fantasy roster, a pickup's free-agent weeks, from one `kona_player_info` call per such week by ids, `_gap_games`, kept for the
+  process, cleared by `/refresh`: `free_agents` filters by today's status, so it never has him), free agents' from
   one `free_agents(week=w)` call per position and form week) with Sleeper's snaps (`SLEEPER_STATS`,
   `off_snp`/`tm_off_snp`, a day behind the games) joined per week. Every Roster card and Waiver row carries
   `form` (None before his first game); the columns are shown raw, and only the snap-weighted `l3` reaches `add`,
@@ -223,7 +225,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   to the next kickoff (+5 s), between 20 s and 10 min, and 20 s while a game is on or a `pre` game is past its kickoff; drives 10 min pregame, 15 s while on, a final game's first fetch 10 min (ESPN's drives can lag the status flip) and a refetch of it a day, its `pre`/`in` entries dropped; not `ffl/sources`, so an
   outage never pushes a notice; `/refresh` expires it). Plays are marked `mine`/`opp` against this week's two lineups
   (`api._nfl_sides`, the Matchup board; D/ST by club on defence for a score, turnover, sack or safety; on HTTPException or
-  SystemExit it degrades to no marks rather than failing the page); FastCast's clock and score lie over the scoreboard
+  SystemExit it degrades to no marks rather than failing the page, and the game payload's `marked` is false so My players says so); FastCast's clock and score lie over the scoreboard
   (`nfl.overlay`). The game page polls every 15 s (`useLive` `pollMs`) since `/live` ticks only on fantasy points, and the feed
   keeps one arrival ledger over the whole game (not per drive or per filter) so only plays that land after the page opened
   slide in, each only the first time it is on screen. The payloads' `live` is true from 15 minutes before kickoff (`nfl.is_live`) so a

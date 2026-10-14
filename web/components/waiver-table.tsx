@@ -20,6 +20,7 @@ import { TeamLogo } from "./player-media";
 import { WaiverOutlookButton } from "./waiver-outlook";
 import { ClaimControl } from "./claim-control";
 import { statusTag } from "@/lib/claims";
+import { SLOT_LABEL } from "@/lib/board";
 import { isFreeAgent, ownerLabel, rowKind } from "@/lib/players";
 import { TeamLink } from "./team-link";
 import { useReorder } from "./motion";
@@ -114,7 +115,7 @@ function SortHead({ column, label, title }: { column: Column<PlayerRow>; label: 
 // A rostered player's ESPN slot as the comparison row names it: BE reads "bench", the flex
 // slot "FLEX", anything else is the slot itself.
 function slotName(slot: string): string {
-  return slot === "BE" ? "bench" : slot === "RB/WR/TE" || slot === "RB/WR" || slot === "WR/TE" ? "FLEX" : slot;
+  return slot === "BE" ? "bench" : (SLOT_LABEL[slot] ?? slot);
 }
 
 // The positions a free agent is compared against on my roster: a flex-eligible player against

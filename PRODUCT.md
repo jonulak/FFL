@@ -65,7 +65,7 @@ no voice guide. No visual constraints were volunteered; none are recorded here.
 ## Evidence on Hand
 
 - Real league data via ESPN and Sleeper APIs (regenerated into gitignored `data/`).
-- Real season record in `journal/` (decisions, transactions, weekly results, standings, draft picks with reasoning).
+- Real season record in the SQLite DB (`data/ffl.db`: decisions, transactions, weekly results, draft picks; standings read live from ESPN), with the pre-DB prose history in `journal/`.
 - Strategy and the formulas that drive every number: `STRATEGY.md`.
 - Absent, and not to be fabricated: other users, testimonials, comparisons to other apps, historical seasons before 2026.
 

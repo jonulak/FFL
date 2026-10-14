@@ -56,6 +56,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/lineup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lineup
+         * @description Move players between ESPN slots (one transaction), then answer with the Roster page as ESPN now has it.
+         *     Locks are re-read here, not trusted from the page: a game can kick off between the load and the tap.
+         */
+        post: operations["lineup_lineup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roster/sit/{player_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Roster Sit
+         * @description Sit him for the week, or stand him back up: the call is re-made without him (season.roster_cards) and the
+         *     page answers at once. Nothing reaches ESPN. Under the lineup lock, so a move's read-back and a sit never land
+         *     over each other.
+         */
+        post: operations["roster_sit_roster_sit__player_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/week": {
         parameters: {
             query?: never;
@@ -134,6 +177,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/nfl": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Nfl Scoreboard
+         * @description Every NFL game of the week, live first then by kickoff window, my games first in each (the NFL tab).
+         */
+        get: operations["nfl_scoreboard_nfl_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nfl/{week}/{team}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Nfl Game
+         * @description One game, by either club: its header, the starters of mine and my opponent's in it, its scoring plays and
+         *     every drive, plays marked for those starters. 404 for an unknown club or a bye.
+         */
+        get: operations["nfl_game_nfl__week___team__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/player/{player_id}": {
         parameters: {
             query?: never;
@@ -163,8 +247,9 @@ export interface paths {
         };
         /**
          * Live Stream
-         * @description Server-sent events: one `data: <version>` line whenever live points change, and a comment
-         *     every 15 s so the proxy keeps the connection open. The page refetches its GET on a tick.
+         * @description Server-sent events: `data: <version>` whenever live points change, `data: m<n>` when a league move was
+         *     logged (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live
+         *     page refetches its GET on either; Transactions and Players refresh on a move only.
          */
         get: operations["live_stream_live_get"];
         put?: never;
@@ -184,6 +269,27 @@ export interface paths {
         };
         /** Live Status */
         get: operations["live_status_live_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sources/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sources Status
+         * @description Each projection source's health: last success, rows per position, the error while failing
+         *     (this process's view over the last one saved, so a fresh restart still shows yesterday's).
+         */
+        get: operations["sources_status_sources_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -261,6 +367,84 @@ export interface paths {
         get: operations["transactions_transactions_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Decisions
+         * @description The decision journal, newest first: the app's moves and what sessions recorded, filtered for the page.
+         */
+        get: operations["decisions__decisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/decisions/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Decision Presets */
+        get: operations["decision_presets_decisions_presets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/decisions/prefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Decision Prefs */
+        get: operations["decision_prefs_decisions_prefs_get"];
+        put?: never;
+        /**
+         * Decision Prefs Set
+         * @description Settings: `log` off stops the app recording its moves (and asking why); `page` off hides the Decisions page.
+         */
+        post: operations["decision_prefs_set_decisions_prefs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/decisions/{decision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decision Edit
+         * @description Give a decision its reason (presets, or Other with a note) and, later, its outcome. Only the fields sent change.
+         */
+        post: operations["decision_edit_decisions__decision_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -366,6 +550,151 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/transactions/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transactions Sync
+         * @description The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
+         *     the DB's transactions table, so the record keeps up with no page open, and the weekly results into
+         *     `results` (the nav's Refresh did that until it went). Concurrent syncs are safe: the table's
+         *     (season, id) key dedupes.
+         */
+        post: operations["transactions_sync_transactions_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notify/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Notify Config */
+        get: operations["notify_config_notify_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notify/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Notify Subscribe */
+        post: operations["notify_subscribe_notify_subscribe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notify/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Notify Unsubscribe */
+        post: operations["notify_unsubscribe_notify_unsubscribe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notify/prefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Notify Prefs */
+        post: operations["notify_prefs_notify_prefs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notify/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Notify Test */
+        post: operations["notify_test_notify_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notify/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Notify Recent */
+        get: operations["notify_recent_notify_recent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notify/tick": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Notify Tick
+         * @description launchd/com.jonulak.ffl-notify every 15 minutes: sync, detect, flush (notify.tick), then the pre-game pull.
+         */
+        post: operations["notify_tick_notify_tick_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/refresh": {
         parameters: {
             query?: never;
@@ -375,7 +704,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh */
+        /**
+         * Refresh
+         * @description A forced pull by hand (curl; the nav button is gone, the notify tick's pregame_pull runs one before games).
+         *     Waits for every page to rebuild.
+         */
         post: operations["refresh_refresh_post"];
         delete?: never;
         options?: never;
@@ -387,6 +720,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** DecisionEdit */
+        DecisionEdit: {
+            /** Rationale */
+            rationale?: string[] | null;
+            /** Note */
+            note?: string | null;
+            /** Outcome */
+            outcome?: string | null;
+        };
+        /** EndpointIn */
+        EndpointIn: {
+            /** Endpoint */
+            endpoint: string;
+        };
         /** GroupIn */
         GroupIn: {
             /** Targets */
@@ -404,6 +751,18 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** LineupIn */
+        LineupIn: {
+            /** Moves */
+            moves: components["schemas"]["LineupMove"][];
+        };
+        /** LineupMove */
+        LineupMove: {
+            /** Player Id */
+            player_id: number;
+            /** To Slot */
+            to_slot: string;
+        };
         /** MoveIn */
         MoveIn: {
             /** Group */
@@ -418,6 +777,11 @@ export interface components {
             /** Groups */
             groups: components["schemas"]["GroupIn"][];
         };
+        /** SitIn */
+        SitIn: {
+            /** Sat */
+            sat: boolean;
+        };
         /** SubmitIn */
         SubmitIn: {
             /**
@@ -430,6 +794,20 @@ export interface components {
              * @default []
              */
             expect_now: components["schemas"]["MoveIn"][];
+        };
+        /** SubscriptionIn */
+        SubscriptionIn: {
+            /** Endpoint */
+            endpoint: string;
+            /** Keys */
+            keys: {
+                [key: string]: string;
+            };
+            /**
+             * Ua
+             * @default
+             */
+            ua: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -570,6 +948,74 @@ export interface operations {
             };
         };
     };
+    lineup_lineup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LineupIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    roster_sit_roster_sit__player_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                player_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SitIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     week_current_week_get: {
         parameters: {
             query?: never;
@@ -685,6 +1131,69 @@ export interface operations {
             };
         };
     };
+    nfl_scoreboard_nfl_get: {
+        parameters: {
+            query?: {
+                week?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    nfl_game_nfl__week___team__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                week: number;
+                team: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     player_player__player_id__get: {
         parameters: {
             query?: never;
@@ -737,6 +1246,26 @@ export interface operations {
         };
     };
     live_status_live_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    sources_status_sources_status_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -867,6 +1396,149 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    decisions__decisions_get: {
+        parameters: {
+            query?: {
+                week?: number | null;
+                kind?: string | null;
+                open?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decision_presets_decisions_presets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    decision_prefs_decisions_prefs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    decision_prefs_set_decisions_prefs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decision_edit_decisions__decision_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionEdit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1062,6 +1734,207 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transactions_sync_transactions_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    notify_config_notify_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    notify_subscribe_notify_subscribe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubscriptionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notify_unsubscribe_notify_unsubscribe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EndpointIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notify_prefs_notify_prefs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notify_test_notify_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    notify_recent_notify_recent_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    notify_tick_notify_tick_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

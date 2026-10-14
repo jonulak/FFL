@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NflDrive, NflGame, NflPlay } from "./api";
-import { feedHref, filterDrives, gameHref, gameLinkFor,gameState, inGameRows, parseFilter, parseGameParams, priorScores, scoreLine, windowLabel } from "./nfl";
+import { feedHref, filterDrives, gameHref, gameLinkFor,gameState, inGameRows, parseFilter, parseGameParams, priorScores, scoreLine, slideIns, windowLabel, type FeedSeen } from "./nfl";
 
 const play = (o: Partial<NflPlay>): NflPlay => ({ id: "1", quarter: 1, clock: "1:00", team: "GB", down: null, text: "", kind: null,
   scoring: false, turnover: false, penalty: false, score: { away: 0, home: 7 }, athletes: [], mine: [], opp: [], ...o });
@@ -96,5 +96,48 @@ describe("gameLinkFor", () => {
   it("does not link a bye or a player without a game", () => {
     expect(gameLinkFor({ bye: true, opponent: null, team: "KC" }, 5)).toBeNull();
     expect(gameLinkFor({ bye: false, opponent: null, team: "FA" }, 5)).toBeNull();
+  });
+});
+
+describe("slideIns", () => {
+  // drive the helper the way the feed renders: settle each render (the component sets `next` in render)
+  const render = (seen: FeedSeen, arrived: string[], onScreen: string[]) => {
+    let s = seen;
+    let out = slideIns(s, new Set(arrived), onScreen);
+    for (let n = 0; out.next && n < 5; n++) { s = out.next; out = slideIns(s, new Set(arrived), onScreen); }
+    expect(out.next).toBeNull();  // it settles
+    return { entering: [...out.entering].sort(), seen: s };
+  };
+  const empty: FeedSeen = { shown: new Set(), animated: new Set() };
+
+  it("never slides in what was on screen when the page opened", () => {
+    expect(render(empty, [], ["1", "2"]).entering).toEqual([]);
+  });
+
+  it("slides a new play in and keeps the mark through later polls", () => {
+    let r = render(empty, [], ["1"]);
+    r = render(r.seen, ["2"], ["2", "1"]);
+    expect(r.entering).toEqual(["2"]);
+    r = render(r.seen, ["2", "3"], ["3", "2", "1"]);
+    expect(r.entering).toEqual(["2", "3"]);
+  });
+
+  it("does not replay a play a filter hid and showed again", () => {
+    let r = render(empty, [], ["1"]);
+    r = render(r.seen, ["2"], ["2", "1"]);  // arrives under All, slides in
+    r = render(r.seen, ["2"], ["1"]);        // Scoring hides it
+    expect(r.entering).toEqual([]);
+    r = render(r.seen, ["2"], ["2", "1"]);  // back to All
+    expect(r.entering).toEqual([]);
+  });
+
+  it("slides in once, on first showing, a play that arrived while hidden", () => {
+    let r = render(empty, [], ["1"]);
+    r = render(r.seen, ["2"], ["1"]);        // lands in a folded drive or outside the filter
+    r = render(r.seen, ["2"], ["2", "1"]);  // first time on screen
+    expect(r.entering).toEqual(["2"]);
+    r = render(r.seen, ["2"], ["1"]);
+    r = render(r.seen, ["2"], ["2", "1"]);
+    expect(r.entering).toEqual([]);
   });
 });

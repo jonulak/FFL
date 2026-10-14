@@ -58,3 +58,16 @@ def test_backup_of_an_empty_file_is_refused_and_publishes_nothing(tmp_path, monk
     with pytest.raises(RuntimeError, match="schema"):
         db_backup.backup(bk, today=date(2026, 10, 8))
     assert not list(bk.glob("ffl-*.db")) and not list(bk.glob(".*"))
+
+
+def test_backup_reads_a_db_whose_path_needs_uri_quoting(tmp_path, monkeypatch):
+    # the source goes through a URI (the Drive destination does not): a space, '#' or '?' in its path must be quoted
+    odd = tmp_path / "My Drive #1 ?x" / "ffl.db"
+    odd.parent.mkdir()
+    src, out = sqlite3.connect(db.url().removeprefix("sqlite:///")), sqlite3.connect(odd)
+    src.backup(out)
+    out.close()
+    src.close()
+    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{odd}")
+    bk = db_backup.backup(tmp_path / "bk", today=date(2026, 10, 8))
+    assert sqlite3.connect(bk).execute("PRAGMA integrity_check").fetchone()[0] == "ok"

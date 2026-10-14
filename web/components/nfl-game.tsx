@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { NflGame, NflGamePage, NflPlay, NflStarter } from "@/lib/api";
-import { BOARD_CARD, LABEL } from "@/lib/board";
+import { BOARD_CARD, LABEL, SLOT_LABEL } from "@/lib/board";
 import { pts, shortName } from "@/lib/format";
 import { NAME_LINK } from "@/lib/player-log";
 import { gameState, inGameRows, scoreLine, type FeedFilter } from "@/lib/nfl";
@@ -104,7 +104,7 @@ function StarterHalf({ s, end, onPick }: { s?: NflStarter; end: "me" | "opp"; on
           className={`-mb-[0.2em] min-w-0 cursor-pointer truncate rounded-sm pb-[0.2em] font-display text-[1.0625rem] font-semibold leading-none tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${end === "opp" ? "text-right" : "text-left"} ${NAME_LINK}`}>{shortName(s.name)}</button>
         <span className={`${end === "opp" ? "mr-auto" : "ml-auto"} font-display text-[1.25rem] font-bold leading-none tabular-nums`}><Ticker value={s.actual} format={pts} gain /><span className="ml-1 text-[0.6875rem] font-semibold text-muted-foreground">PTS</span></span>
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">{s.slot}{s.team && ` · ${s.team}`}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{SLOT_LABEL[s.slot] ?? s.slot}{s.team && ` · ${s.team}`}</p>
       {s.stat_line && <StatLine text={s.stat_line} className="mt-1 text-xs" wrap />}
     </div>
   );

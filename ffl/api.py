@@ -348,8 +348,15 @@ def _players(groups, data):
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
 
 
+def _claims_roster(data):
+    """My roster as the claims read it: the cached pool's rows with the slots a fake lineup move (FFL_WRITES=0) put
+    players in laid over, as the Roster page does, so a fake move off IR clears the IR block here too."""
+    fake = espn_write.fake_slots()
+    return [{**p, "slot": fake.get(p["player_id"], p.get("slot"))} for p in data.get("roster", [])]
+
+
 def _claims_payload(plan, data, status=None):
-    roster, status = data.get("roster", []), _status(data) if status is None else status
+    roster, status = _claims_roster(data), _status(data) if status is None else status
     last = plan["submits"][-1] if plan["submits"] else None
     ids = set(last["ids"]) if last else set()
     now, expansion = claims_mod.plan_now(plan["groups"], status), claims_mod.expand(plan["groups"], status)
@@ -372,6 +379,8 @@ def _claims_payload(plan, data, status=None):
             # claims only: instant adds already happened, and the plan's free agents are on the roster after a refresh
             "edited_since_submit": bool(last) and key(last["claims"]) != key(expansion),
             "on_espn": on_espn,
+            # False under FFL_WRITES=0: every submit goes to the in-memory fake, and the UI must say so
+            "writes": espn_write.writes(),
             "players": _players(plan["groups"], data)}
 
 
@@ -402,7 +411,7 @@ def claims_submit(body: SubmitIn):
         raise HTTPException(409, "a submit is already running")
     try:
         data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-        plan, roster = _load_plan(data["week"]), data.get("roster", [])
+        plan, roster = _load_plan(data["week"]), _claims_roster(data)
         status = _fresh_status(data)
         # the dialog showed an "Add now" list from its own read: instant adds can't be undone, so any other is a 409
         now = claims_mod.plan_now(plan["groups"], status)
@@ -565,6 +574,9 @@ def lineup(body: LineupIn):
                 log.warning("lineup moved but its rows not kept: %s", e)
             espn_season._BOXES.pop(data["week"], None)  # the box scores carry the slots; read them again
             cache.expire("week")  # the Matchup board shows this lineup too
+            # the claims validate against the pool's roster slots (an IR player with no designation blocks every
+            # claim): the next /claims or /players builds it from the moved roster, never from the pre-move one
+            cache.drop("waivers")
             if uncertain:
                 cache.drop("roster")
                 raise HTTPException(502, {"source": "espn", "error": "ESPN did not answer — it may have moved; reload", "moved": True})
@@ -726,19 +738,20 @@ def team(team_id: int):
     return {**data, "side": live.overlay_side(data["side"], _live_points(wk), _live_games(wk), _live_stats(wk), _scoring())}
 
 
-def _nfl_sides(week: int) -> tuple[list[dict], list[dict]]:
+def _nfl_sides(week: int) -> tuple[list[dict], list[dict]] | None:
     """My starters and my opponent's for `week`, live points laid on (the Matchup board's), for the NFL pages'
-    marks. The board failing (ESPN fantasy down) leaves the pages unmarked, never unserved."""
+    marks. The board failing (ESPN fantasy down) answers None: the pages go unmarked, never unserved, and the game
+    page says so rather than reading as "none of mine played"."""
     try:
         data = _week_payload(_board(None, None))
         if data["week"] != week:
             data = _week_payload(_board(week, None))
     except HTTPException as e:
         log.warning("nfl marks off, no board for week %s: %s", week, e.detail)
-        return [], []
+        return None
     except SystemExit as e:  # config.league() exits when .env is missing; the NFL pages need no ESPN login
         log.warning("nfl marks off, no league config for week %s: %s", week, e)
-        return [], []
+        return None
     return (data.get("me") or {}).get("lineup", []), (data.get("opp") or {}).get("lineup", [])
 
 
@@ -749,7 +762,7 @@ def _nfl_starters(week: int) -> tuple[list[dict], list[dict]]:
     goes unmarked, never unserved."""
     try:
         if _board(None, None)["week"] == week:
-            return _nfl_sides(week)
+            return _nfl_sides(week) or ([], [])
         me = espn_season.my_team_id(espn_season.fresh_league())
         for game in espn_season.league_starters(week)["games"]:
             if any(s["team_id"] == me for s in game):
@@ -792,9 +805,12 @@ def nfl_scoreboard(week: int | None = None):
             current = _nfl_scoreboard(None)[0]["week"]
         except HTTPException:  # the picker's "this week" mark is not worth failing the requested week
             current = sb["week"]
-    wk = sb["week"]
-    games = nfl.overlay(sb["games"], _live_games(wk))
-    mine, opp = _nfl_starters(wk)
+    # ESPN's page names its week; when it does not, the week asked for. With neither, no week is known and the
+    # live gate would pass anything for None, so the feed's clocks stay off (another week's must not land on these
+    # games) and so do the marks.
+    wk = sb["week"] or week
+    games = nfl.overlay(sb["games"], _live_games(wk)) if wk is not None else sb["games"]
+    mine, opp = _nfl_starters(wk) if wk is not None else ([], [])
     return {"week": wk, "current": current, "weeks": NFL_WEEKS,
             "live": any(nfl.is_live(g) for g in games),
             "sections": nfl.board(games, _by_club(mine), _by_club(opp)), "byes": sb["byes"], "stale_since": stale}
@@ -818,12 +834,14 @@ def nfl_game(week: int, team: str):
         drives, stale2 = nfl.drives(game["event_id"], game["status"], ids)
     except Exception as e:  # noqa: BLE001 — cold outage on this game's feed
         raise HTTPException(502, {"source": "espn-nfl", "error": str(e)})
-    mine, opp = ([p for p in side if p.get("team") in clubs] for side in _nfl_sides(week))
+    sides = _nfl_sides(week)
+    mine, opp = ([p for p in side if p.get("team") in clubs] for side in (sides or ([], [])))
     named = lambda ps: {p["player_id"]: p["name"] for p in ps if p["player_id"] > 0}  # noqa: E731
     dst = lambda ps: {p["team"]: p["name"] for p in ps if p["player_id"] < 0}  # noqa: E731
     marked = nfl.mark(drives, named(mine), named(opp), dst(mine), dst(opp), clubs)
     return {"week": week, "live": nfl.is_live(game),
             "game": {**game, "mine": len(mine), "opp": len(opp)},
+            "marked": sides is not None,  # False: the Matchup board failed, so no play could be marked
             "starters": {"me": mine, "opp": opp},  # whole board players: a tap opens the Matchup breakdown
             "scoring": nfl.scoring_plays(marked), "drives": marked, "stale_since": stale or stale2}
 
@@ -1192,6 +1210,7 @@ def expire_everything() -> None:
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
     espn_season._BOXES.clear()
+    espn_season._GAP_GAMES.clear()
     if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
         espn_season._INJ[0] = 0.0
     sources.expire_all()  # same reason: the last good scrape stays for an outage

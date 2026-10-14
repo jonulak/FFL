@@ -11,6 +11,7 @@ in several groups: claims sharing a drop exclude each other anyway, so it reads 
 from __future__ import annotations
 
 from . import decisions
+from .season import ir_illegal
 
 FREE = "FREEAGENT"
 
@@ -77,16 +78,23 @@ def expand(groups, status, now=None):
 
 
 INSTANT_OFF = "instant adds are switched off (FFL_INSTANT_ADDS=0)"
+IR_BLOCK = "on IR without an injury designation: ESPN allows no add or claim until he is off IR"
 
 
 def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True):
     """Check the plan for errors. Returns list of dicts: {"group": int, "player_id": int|None, "reason": str}.
 
-    instant_adds False (FFL_INSTANT_ADDS off): every free-agent target is an error, since Submit would add him."""
+    instant_adds False (FFL_INSTANT_ADDS off): every free-agent target is an error, since Submit would add him.
+    An IR player with no injury designation (season.ir_illegal) is a roster error (group None): ESPN refuses every
+    add and claim until he is off IR. An empty plan carries none, so the claims it sent can still be withdrawn."""
     errs = []
 
     def err(gi, pid, reason):
         errs.append({"group": gi, "player_id": pid, "reason": reason})
+
+    if groups:
+        for p in ir_illegal(roster):
+            err(None, p["player_id"], IR_BLOCK)
 
     by_id = {p["player_id"]: p for p in roster}
     free = open_spots(roster, roster_size)

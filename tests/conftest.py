@@ -79,6 +79,13 @@ def _reconciled_reset(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _gap_games_reset(monkeypatch):
+    """A pickup's free-agent weeks are kept for the process (espn_season._gap_games); no test inherits another's."""
+    from ffl import espn_season
+    monkeypatch.setattr(espn_season, "_GAP_GAMES", {})
+
+
+@pytest.fixture(autouse=True)
 def _fresh_box_scores():
     """A finished week's box scores are kept for the process (espn_season.box_scores); one test's stub League
     must not answer another's."""

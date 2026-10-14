@@ -161,7 +161,7 @@ export type NflPlay = {
 export type NflDrive = { id: string; team: string | null; description: string | null; result: string | null; plays: NflPlay[] };
 // the Matchup board's players, whole: a tap opens the same breakdown (BoxScoreDialog)
 export type NflStarter = Player;
-export type NflGamePage = { week: number; live: boolean; game: NflGame; starters: { me: NflStarter[]; opp: NflStarter[] }; scoring: NflPlay[]; drives: NflDrive[]; stale_since: string | null };
+export type NflGamePage = { week: number; live: boolean; game: NflGame; marked: boolean; starters: { me: NflStarter[]; opp: NflStarter[] }; scoring: NflPlay[]; drives: NflDrive[]; stale_since: string | null };
 // `me` is the left side of the board, `opp` the right: I stand left of my own game (`mine`); any other
 // game (a League scoreboard tile) reads away then home.
 // win_prob is the left side's odds (and the right's) off season.win_prob, re-priced by the live
@@ -209,7 +209,8 @@ export type Players = {
 // A Claim is one move (the Python "Move"): an instant free-agent add (`now`) or a waiver claim.
 export type ClaimGroup = { targets: number[]; cuts: number[]; open: number };
 export type Claim = { group: number; add: number; drop: number | null };
-export type ClaimErr = { group: number; player_id: number | null; reason: string };
+// group null: a roster error, not a group's (an IR player with no injury designation blocks every add and claim).
+export type ClaimErr = { group: number | null; player_id: number | null; reason: string };
 // ESPN's pending claims; from_app marks the ones the last submit from here sent.
 export type PendingClaim = { id: string; add: number; drop: number | null; priority: number | null; from_app: boolean };
 // match: ESPN held what was sent, in order, at the read-back (absent on records from before it was kept).
@@ -224,7 +225,10 @@ export type Claims = {
   week: number; groups: ClaimGroup[]; now: Claim[]; claims: Claim[]; errors: ClaimErr[]; open_spots: number;
   status: Record<string, PoolStatus>; pending: PendingClaim[]; pending_error: string | null; last_submit: ClaimSubmit | null;
   // on_espn: ESPN's pending list, less the claims filed there directly, is this plan's claims in order (false unsent)
-  edited_since_submit: boolean; on_espn: boolean; players: Record<string, ClaimPlayer>;
+  edited_since_submit: boolean; on_espn: boolean;
+  // writes false (FFL_WRITES=0, a test server): a submit goes to an in-memory fake, nothing reaches ESPN
+  writes: boolean;
+  players: Record<string, ClaimPlayer>;
 };
 // POST /claims/submit. readback_failed: ESPN's list could not be read after sending, so `pending`
 // is empty for that reason, not because ESPN holds nothing.

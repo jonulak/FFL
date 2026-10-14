@@ -79,13 +79,24 @@ def test_client_reports_each_failure_as_it_happens():
     assert seen == ["RuntimeError: bad doc", "RuntimeError: bad doc"] and c.last_error == "RuntimeError: bad doc"
 
 
-def test_a_patch_frame_without_a_payload_names_what_it_carried():
-    """Seen live 2026-09-28 after Monday night: a patch frame whose inner JSON had no `pl`. The
-    reconnect recovers; the error has to say what the frame was, or the next one is a guess too."""
-    frame = json.dumps({"op": "P", "mid": 7, "pl": json.dumps({"ts": 1, "~c": 0, "other": "x"})})
-    with pytest.raises(ValueError) as e:
-        fc.decode(frame)
-    assert "['ts', '~c', 'other']" in str(e.value) and '"mid": 7' in str(e.value)
+def test_a_patch_frame_without_a_payload_is_skipped(capsys):
+    """Seen live 2026-09-17 and 2026-09-28: a patch frame with no `pl`. Raising made run()
+    reconnect; there is nothing to apply, so the frame is skipped and the socket stays up."""
+    no_outer = json.dumps({"op": "P", "mid": 7, "tc": "t"})
+    no_inner = json.dumps({"op": "R", "mid": 8, "pl": json.dumps({"ts": 1, "~c": 0, "other": "x"})})
+    for frame in (no_outer, no_inner):
+        assert "patch" not in fc.decode(frame)
+    seen = []
+    c = fc.Client(seen.append)
+    c.doc, c.mid = {"statistics": {"1": {"stats": {"42": 1.0}}}}, 6
+    c._frame(no_outer)
+    c._frame(no_inner)
+    assert seen == [] and c.mid == 6 and c.doc == {"statistics": {"1": {"stats": {"42": 1.0}}}}
+    out = capsys.readouterr().out  # each one's shape reaches the API log
+    assert '"mid": 7' in out and '\\"other\\": \\"x\\"' in out
+    ops = [{"op": "replace", "path": "/statistics/1/stats/42", "value": 3.0}]
+    c._frame(r_frame(ops, mid=9, op="P"))  # a well-formed frame after them still applies
+    assert c.mid == 9 and c.doc["statistics"]["1"]["stats"]["42"] == 3.0 and len(seen) == 1
 
 
 def test_a_fresh_checkpoint_clears_the_last_error(monkeypatch):

@@ -6,9 +6,10 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, ChevronUp, GripVertical, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronUp, GripVertical, LoaderCircle, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,7 +26,7 @@ import { pts, signed } from "@/lib/format";
 import { useClaims } from "./claims-context";
 import { ClaimName } from "./claim-name";
 import { useClaimsFlip } from "./claims-flip";
-import { ClaimsSubmit, PHONE_ACTION, PHONE_INSET, ReviewBody } from "./claims-submit";
+import { ClaimsSubmit, PHONE_ACTION, PHONE_INSET, ReviewBody, TestModeAlert } from "./claims-submit";
 import { Clock } from "./local-time";
 import { Presence, Swap } from "./motion";
 
@@ -348,16 +349,42 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
 }
 
 // Where the plan stands against ESPN: its claim list unreadable, never sent, changed since the
-// last send, ESPN's list no longer the plan's claims (on_espn: checked against ESPN, not the record), or on ESPN.
+// last send, ESPN's list no longer the plan's claims (on_espn: checked against ESPN, not the record),
+// withdrawn (an empty plan sent), or on ESPN. In test mode (writes false) the holder is the fake, never ESPN.
 function SubmitState() {
   const { data } = useClaims();
+  const who = data.writes ? "ESPN" : "the fake";
   // a new state fades in where the old one stood
   const fade = (state: string, badge: ReactNode) => <span key={state} className={`flex min-w-0 ${FADE}`}>{badge}</span>;
   if (data.pending_error) return fade("error", <Badge variant="destructive" className="max-w-full truncate" title={data.pending_error}>ESPN: {data.pending_error}</Badge>);
   if (!data.last_submit) return fade("unsent", <Badge variant="muted">not sent</Badge>);
   if (data.edited_since_submit) return fade("edited", <Badge variant="warn">edited since submit</Badge>);
-  if (!data.on_espn) return fade("differs", <Badge variant="warn">differs from ESPN</Badge>);
-  return fade("sent", <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />on ESPN · sent <Clock iso={data.last_submit.at} /></Badge>);
+  if (!data.on_espn) return fade("differs", <Badge variant="warn">differs from {who}</Badge>);
+  // an empty plan was sent (a refused instant add also records nothing sent, but its group stays in the plan)
+  if (data.groups.length === 0 && data.last_submit.claims.length === 0 && data.last_submit.now.length === 0)
+    return fade("withdrawn", <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />withdrawn <Clock iso={data.last_submit.at} /></Badge>);
+  return fade("sent", <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />{data.writes ? "on ESPN" : "sent to the fake"} · <Clock iso={data.last_submit.at} /></Badge>);
+}
+
+// The roster errors (group null): an IR player with no injury designation, whom ESPN refuses every add
+// and claim for. Shown above the groups, since no card is his.
+function RosterBlock() {
+  const { data, player } = useClaims();
+  const errors = data.errors.filter((e) => e.group == null);
+  if (!errors.length) return null;
+  return (
+    <Alert variant="destructive" className="border-destructive/40 bg-destructive/10">
+      <TriangleAlert aria-hidden />
+      <AlertTitle>Can&apos;t send until the roster is legal</AlertTitle>
+      <AlertDescription>
+        <ul className="space-y-0.5">
+          {errors.map((e, i) => (
+            <li key={i}>{e.player_id != null && <span className="font-medium">{player(e.player_id)?.name ?? `player ${e.player_id}`} </span>}{e.reason}. Move him off IR on the Roster page first.</li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
+  );
 }
 
 // A group's list in the order the panel shows it: targets FA block first, cuts as stored.
@@ -446,7 +473,12 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     .sort((a, b) => (a[1].ros_adj ?? 0) - (b[1].ros_adj ?? 0));
   const day = processDay(groups.flatMap((g) => g.targets).filter((t) => status[String(t)] !== "FREEAGENT").map((t) => player(t)?.waiver_date ?? null));
   const moves = data.now.length + data.claims.length;
-  const blocked = dirty || saving || submitting || data.errors.length > 0 || moves === 0;
+  // An empty plan withdraws: a Send that cancels the claims sent from here (and, in the review, the
+  // outside ones with the box ticked), so a pending claim can be taken back without ESPN's site. With only
+  // outside claims pending the review opens for its box, and its Send stays off until the box is ticked.
+  const fromApp = data.pending.filter((c) => c.from_app).length;
+  const withdraw = moves === 0 && data.pending.length > 0;
+  const blocked = dirty || saving || submitting || data.errors.length > 0 || (moves === 0 && !withdraw);
 
   const rowKind = drag && kindOf(drag.id) !== "g" ? (kindOf(drag.id) as Kind) : null;
   const dragged = drag && rowKind ? numOf(drag.id) : null;
@@ -600,6 +632,8 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
           <SubmitState />
         </span>
       </div>
+      {!data.writes && <TestModeAlert />}
+      <RosterBlock />
       {/* both fold out of the way when they go, so the groups below rise rather than jump */}
       <Presence show={error != null} fold>
         <p className={`text-xs ${(error ?? lastError ?? "").startsWith("saving") ? "text-muted-foreground" : "text-destructive"}`} aria-live="polite">{error ?? lastError}</p>
@@ -632,9 +666,11 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
           className={sheet ? PHONE_ACTION : undefined} onClick={() => setGroups(newGroup(groups))}>
           <Plus aria-hidden />New group
         </Button>
-        {groups.length > 0 && (
-          <Button className={sheet ? `flex-1 ${PHONE_ACTION}` : "ml-auto"} disabled={blocked} onClick={onReview}>
-            Review {moves} move{moves === 1 ? "" : "s"}
+        {(groups.length > 0 || withdraw) && (
+          <Button variant={withdraw ? "outline" : "default"} className={sheet ? `flex-1 ${PHONE_ACTION}` : "ml-auto"} disabled={blocked} onClick={onReview}>
+            {withdraw
+              ? fromApp ? `Withdraw ${fromApp} claim${fromApp === 1 ? "" : "s"}` : "Withdraw claims"
+              : `Review ${moves} move${moves === 1 ? "" : "s"}`}
           </Button>
         )}
       </div>

@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import sqlite3
 
 import sqlalchemy as sa
 import pytest
@@ -24,6 +25,15 @@ def test_unmigrated_db_raises(monkeypatch, tmp_path):
     monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{tmp_path / 'empty.db'}")
     db.reset()
     with pytest.raises(db.SchemaError, match="alembic upgrade head"):
+        db.engine()
+
+
+def test_existing_db_without_the_head_schema_raises(monkeypatch, tmp_path):
+    path = tmp_path / "bare.db"
+    sqlite3.connect(path).close()  # the file exists, so the missing-file branch cannot be the one that fires
+    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{path}")
+    db.reset()
+    with pytest.raises(db.SchemaError, match="is at schema None"):
         db.engine()
 
 
