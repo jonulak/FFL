@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { Decision, Presets } from "@/lib/api";
@@ -78,15 +78,15 @@ export function RationaleForm({ decision, targets, presets, withOutcome = false,
           {options.map((o) => <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>)}
         </SelectContent>
       </Select>
-      <div className="space-y-1.5">
-        <Label htmlFor={`note-${uid}`}><Swap>{key === "other" ? "Note" : "Add a note (optional)"}</Swap></Label>
+      <Field>
+        <FieldLabel htmlFor={`note-${uid}`}><Swap>{key === "other" ? "Note" : "Add a note (optional)"}</Swap></FieldLabel>
         <Textarea id={`note-${uid}`} value={note} onChange={(e) => { setNote(e.target.value); setError(null); }} />
-      </div>
+      </Field>
       {withOutcome && (
-        <div className="space-y-1.5">
-          <Label htmlFor={`outcome-${uid}`}>Outcome</Label>
+        <Field>
+          <FieldLabel htmlFor={`outcome-${uid}`}>Outcome</FieldLabel>
           <Textarea id={`outcome-${uid}`} value={outcome} onChange={(e) => setOutcome(e.target.value)} />
-        </div>
+        </Field>
       )}
       <div className="flex gap-2">
         <Button type="submit" disabled={saving} className={PHONE_ACTION}>
@@ -95,7 +95,7 @@ export function RationaleForm({ decision, targets, presets, withOutcome = false,
         </Button>
         {onLater && <Button type="button" variant="outline" disabled={saving} onClick={onLater} className={PHONE_ACTION}>Later</Button>}
       </div>
-      {error && <p key={error} role="alert" className="log-in text-sm text-destructive">{error}</p>}
+      {error && <FieldError key={error} className="log-in">{error}</FieldError>}
     </form>
   );
 }

@@ -8,6 +8,7 @@ import {
 import { ArrowDown, ChevronDown } from "lucide-react";
 import { Fragment, memo, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Form, Owner, PlayerRow, RosterRow } from "@/lib/api";
@@ -294,10 +295,10 @@ function Chevron({ row }: { row: TRow<PlayerRow> }) {
   const open = row.getIsExpanded();
   const what = [...comparePositions(row.original.pos)].join("/");
   return (
-    <button type="button" onClick={row.getToggleExpandedHandler()} aria-expanded={open} aria-label={open ? `hide my ${what}s` : `compare with my ${what}s`}
-      className="flex h-9 w-7 items-center justify-center rounded-md text-foreground/55 transition-colors hover:text-foreground focus-visible:outline-2 sm:w-8">
+    <Button type="button" variant="ghost" size="icon-sm" onClick={row.getToggleExpandedHandler()} aria-expanded={open} aria-label={open ? `hide my ${what}s` : `compare with my ${what}s`}
+      className="h-9 w-7 rounded-md text-foreground/55 hover:bg-transparent hover:text-foreground sm:w-8">
       <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-300 ease-(--ease-arrive) motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
-    </button>
+    </Button>
   );
 }
 

@@ -3,6 +3,7 @@
 import { ArrowDownToLine, BriefcaseMedical, Lock } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Item } from "@/components/ui/item";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import type { Card } from "@/lib/api";
@@ -122,8 +123,8 @@ function OptionRow({ r, rec, onPick }: { r: Row; rec: boolean; onPick: () => voi
           The call
         </p>
       )}
-      <button type="button" onClick={onPick} disabled={locked} aria-label={rec ? `The call: ${r.label}` : r.label}
-        className={`grid min-h-14 w-full grid-cols-[1.75rem_2.5rem_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-md px-2 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-55 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_auto] md:min-h-12 ${face}`}>
+      <Item size="xs" render={<button type="button" onClick={onPick} disabled={locked} aria-label={rec ? `The call: ${r.label}` : r.label} />}
+        className={`grid min-h-14 w-full grid-cols-[1.75rem_2.5rem_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-md border-0 px-2 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-55 md:grid-cols-[3.25rem_2.5rem_minmax(0,1fr)_auto] md:min-h-12 ${face}`}>
         <span className={`${SLOT} ${r.slot === "BE" ? "text-muted-foreground" : ""}`}>{r.slot === "BE" ? "BE" : slotLabel(r.slot)}</span>
         {shot}
         <span className="min-w-0">
@@ -140,7 +141,7 @@ function OptionRow({ r, rec, onPick }: { r: Row; rec: boolean; onPick: () => voi
             </span>
           )}
         </span>
-      </button>
+      </Item>
     </li>
   );
 }

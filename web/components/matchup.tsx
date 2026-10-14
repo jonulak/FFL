@@ -4,6 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
@@ -480,7 +481,7 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
       {back && (
         <Link
           href={back}
-          className="-ml-1 -mb-2 inline-flex items-center gap-0.5 rounded-sm pr-1 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 outline-none transition-colors hover:text-foreground/85 focus-visible:ring-2 focus-visible:ring-ring/60"
+          className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2 -mb-2 gap-0.5 px-1 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:bg-transparent hover:text-foreground/85" })}
         >
           <ChevronLeft aria-hidden className="size-4" />
           Scoreboard

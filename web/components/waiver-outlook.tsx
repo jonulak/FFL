@@ -49,12 +49,12 @@ export function WaiverOutlookButton({ r }: { r: FreeAgentRow }) {
   };
   return (
     <>
-      <button type="button" onClick={show} aria-label={`${r.name}'s outlook${written ? "" : " (none written yet)"}`}
-        className="inline-flex min-h-6 items-center gap-1 rounded-sm px-0.5 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2">
+      <Button type="button" variant="ghost" size="xs" onClick={show} aria-label={`${r.name}'s outlook${written ? "" : " (none written yet)"}`}
+        className="h-auto min-h-6 rounded-sm px-0.5 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 hover:bg-transparent hover:text-foreground">
         <NotebookText aria-hidden className="size-3.5 stroke-[2.25]" />
         outlook
         <Presence show={written}><span aria-hidden className="size-1.5 rounded-full bg-foreground/70" /></Presence>
-      </button>
+      </Button>
       {/* the dialog mounts with the first tap's read, not with the row: the Players table holds two
           of these buttons per free agent on 150 rows */}
       {first && (

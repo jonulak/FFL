@@ -4,6 +4,7 @@ import { Search, X } from "lucide-react";
 import { Spinner as Spin } from "@/components/ui/spinner";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { Kbd } from "@/components/ui/kbd";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { playersHref } from "@/lib/players";
 
@@ -81,7 +82,7 @@ export function WaiverSearch({ q, pos, fa }: { q: string; pos: string; fa: boole
             <X aria-hidden />
           </InputGroupButton>
         ) : (
-          <kbd key="hint" aria-hidden className="hidden rounded border border-foreground/15 px-1.5 font-mono text-[0.6875rem] leading-5 text-muted-foreground md:inline">/</kbd>
+          <Kbd key="hint" aria-hidden className="hidden border border-foreground/15 bg-transparent font-mono text-[0.6875rem] md:inline-flex">/</Kbd>
         )}
       </InputGroupAddon>
     </InputGroup>

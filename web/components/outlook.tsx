@@ -1,6 +1,7 @@
 "use client";
 
 import { RotateCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Spinner as Spin } from "@/components/ui/spinner";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -101,17 +102,17 @@ function useRewrite(c: Card) {
 function RewriteButton({ c, running, runBusy, onClick }: { c: Card; running: boolean; runBusy: boolean; onClick: () => void }) {
   const verb = c.outlook?.length ? "Rewrite" : "Write";
   return (
-    <button type="button" onClick={onClick} disabled={running || runBusy}
+    <Button type="button" variant="ghost" size="xs" onClick={onClick} disabled={running || runBusy}
       aria-label={running ? `Writing ${c.name}'s outlook` : `${verb} ${c.name}'s outlook`}
       title={runBusy && !running ? "The full run is writing every card" : undefined}
-      className="-my-1 -mr-1 inline-flex min-h-8 shrink-0 items-center gap-1 rounded-sm px-1 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2 disabled:pointer-events-none disabled:text-muted-foreground/70">
+      className="-my-1 -mr-1 h-auto min-h-8 rounded-sm px-1 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 hover:bg-transparent hover:text-foreground disabled:text-muted-foreground/70 disabled:opacity-100">
       <Swap k={running ? "running" : verb} className="inline-flex items-center gap-1">
         {running
           ? <Spin aria-hidden role="presentation" className="size-3.5 stroke-[2.25]" />
           : <RotateCw aria-hidden className="size-3.5 stroke-[2.25]" />}
         {running ? "Writing" : verb}
       </Swap>
-    </button>
+    </Button>
   );
 }
 

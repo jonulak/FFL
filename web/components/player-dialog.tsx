@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { clientGet } from "@/app/api-client";
+import { Meter } from "@base-ui/react/meter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -473,12 +474,13 @@ function Rank({ r, pos }: { r: OppRank | null | undefined; pos: string }) {
 function Allowed({ r }: { r: OppRank | null | undefined }) {
   if (!r) return null;
   return (
-    <span className="inline-flex items-center justify-end gap-2.5">
-      <span className="text-xs text-foreground/70">{pts(r.allowed)}<span className="text-muted-foreground">/g<span className="sr-only"> allowed</span></span></span>
-      <span aria-hidden className="relative h-1 w-12 overflow-hidden rounded-full bg-foreground/10 sm:w-16">
-        <span className="absolute inset-y-0 left-0 rounded-full bg-foreground/60" style={{ width: `${(r.rank / r.of) * 100}%` }} />
-      </span>
-    </span>
+    <Meter.Root value={r.rank} max={r.of} aria-label={`${pts(r.allowed)} per game allowed, rank ${r.rank} of ${r.of}`}
+      className="inline-flex items-center justify-end gap-2.5">
+      <span aria-hidden className="text-xs text-foreground/70">{pts(r.allowed)}<span className="text-muted-foreground">/g</span></span>
+      <Meter.Track className="relative h-1 w-12 overflow-hidden rounded-full bg-foreground/10 sm:w-16">
+        <Meter.Indicator className="h-full rounded-full bg-foreground/60" />
+      </Meter.Track>
+    </Meter.Root>
   );
 }
 
