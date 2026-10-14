@@ -7,6 +7,7 @@ import { PageTransition } from "@/components/page-transition";
 import { PlayerDialogProvider } from "@/components/player-dialog";
 import { SwRegister } from "@/components/sw-register";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { apiGet, DEFAULT_DECISION_PREFS, type DecisionPrefs } from "@/lib/api";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
@@ -29,13 +30,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-dvh bg-background text-foreground antialiased">
         <SwRegister />
         {/* the season modal: one dialog for the app, opened from any player row */}
-        <DecisionPrefsProvider prefs={prefs}>
-          <PlayerDialogProvider>
-            <Nav />
-            {/* one 64rem column on every page, the nav's width; the Players page's claims dock stands outside it */}
-            <main className="mx-auto max-w-5xl px-3 py-4"><PageTransition>{children}</PageTransition></main>
-          </PlayerDialogProvider>
-        </DecisionPrefsProvider>
+        <TooltipProvider>
+          <DecisionPrefsProvider prefs={prefs}>
+            <PlayerDialogProvider>
+              <Nav />
+              {/* one 64rem column on every page, the nav's width; the Players page's claims dock stands outside it */}
+              <main className="mx-auto max-w-5xl px-3 py-4"><PageTransition>{children}</PageTransition></main>
+            </PlayerDialogProvider>
+          </DecisionPrefsProvider>
+        </TooltipProvider>
         <Toaster position="bottom-center" />
       </body>
     </html>

@@ -26,6 +26,7 @@ import { SLOT_LABEL } from "@/lib/board";
 import { isFreeAgent, ownerLabel, rowKind } from "@/lib/players";
 import { TeamLink } from "./team-link";
 import { useReorder } from "./motion";
+import { Hint } from "./hint";
 
 // A worth-to-me number, or a dash where there is none (my own player).
 const dash = (v: number | null) => (v == null ? "—" : signed(v));
@@ -104,13 +105,15 @@ function SortHead({ column, label, title }: { column: Column<PlayerRow>; label: 
   const dir = column.getIsSorted();
   const right = column.id !== "name";
   return (
-    <button type="button" onClick={column.getToggleSortingHandler()} title={title}
-      className={`${LABEL} flex h-9 w-full items-center gap-0.5 ${PAD} transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] ${right ? "justify-end" : ""} ${dir ? "text-foreground" : ""}`}>
-      {label}
-      {/* only the active column carries the arrow, so the others stay as narrow as their label; it fades in
-          on the column tapped and turns over when the order flips */}
-      {dir && <ArrowDown aria-hidden className={`fx-in size-3 stroke-[2.5] transition-transform duration-300 ease-(--ease-arrive) ${dir === "asc" ? "rotate-180" : ""}`} />}
-    </button>
+    <Hint text={title} side="bottom">
+      <button type="button" onClick={column.getToggleSortingHandler()}
+        className={`${LABEL} flex h-9 w-full items-center gap-0.5 ${PAD} transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] ${right ? "justify-end" : ""} ${dir ? "text-foreground" : ""}`}>
+        {label}
+        {/* only the active column carries the arrow, so the others stay as narrow as their label; it fades in
+            on the column tapped and turns over when the order flips */}
+        {dir && <ArrowDown aria-hidden className={`fx-in size-3 stroke-[2.5] transition-transform duration-300 ease-(--ease-arrive) ${dir === "asc" ? "rotate-180" : ""}`} />}
+      </button>
+    </Hint>
   );
 }
 

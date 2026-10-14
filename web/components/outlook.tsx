@@ -10,6 +10,7 @@ import type { Card, CardOutlook, OutlookBullet } from "@/lib/api";
 import { minutesSince, shortAge } from "@/lib/format";
 import { Ago } from "./local-time";
 import { Presence, Swap } from "./motion";
+import { Hint } from "./hint";
 
 // One block per label: the label as a small heading over its text, so the sentence gets the card's full
 // width, and the sources trailing it as small dotted links that open in a new tab. Each link keeps its
@@ -102,9 +103,9 @@ function useRewrite(c: Card) {
 function RewriteButton({ c, running, runBusy, onClick }: { c: Card; running: boolean; runBusy: boolean; onClick: () => void }) {
   const verb = c.outlook?.length ? "Rewrite" : "Write";
   return (
+    <Hint text={runBusy && !running ? "The full run is writing every card" : undefined}>
     <Button type="button" variant="ghost" size="xs" onClick={onClick} disabled={running || runBusy}
       aria-label={running ? `Writing ${c.name}'s outlook` : `${verb} ${c.name}'s outlook`}
-      title={runBusy && !running ? "The full run is writing every card" : undefined}
       className="-my-1 -mr-1 h-auto min-h-8 rounded-sm px-1 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 hover:bg-transparent dark:hover:bg-transparent hover:text-foreground disabled:text-muted-foreground/70 disabled:opacity-100">
       <Swap k={running ? "running" : verb} className="inline-flex items-center gap-1">
         {running
@@ -113,6 +114,7 @@ function RewriteButton({ c, running, runBusy, onClick }: { c: Card; running: boo
         {running ? "Writing" : verb}
       </Swap>
     </Button>
+    </Hint>
   );
 }
 
