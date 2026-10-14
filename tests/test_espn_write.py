@@ -190,6 +190,21 @@ def test_a_read_without_an_http_error_is_couldnt_reach_espn(monkeypatch, exc):
     assert type(exc).__name__ in e.detail  # the cause is kept for the log
 
 
+@pytest.mark.parametrize("doc", [
+    {"pendingTransactions": [{"teamId": 7, "type": "WAIVER", "status": "PENDING",
+                              "items": [{"playerId": 101, "type": "ADD"}]}]},  # a claim with no id
+    {"scoringPeriodId": "six", "pendingTransactions": []},
+    ["not", "a", "document"],
+])
+def test_an_unreadable_pending_document_is_a_write_error(monkeypatch, doc):
+    monkeypatch.setenv("FFL_WRITES", "1")
+    monkeypatch.setattr(W.config, "raw_league_get", lambda view: doc)
+    monkeypatch.setattr(W, "_team_id", lambda: 7)
+    with pytest.raises(W.WriteError) as e:
+        W.pending_state()
+    assert e.value.status == 0 and not e.value.expired and e.value.message == W.UNREACHABLE
+
+
 def test_submit_claim_without_an_id_in_the_answer_is_a_write_error(monkeypatch):
     _live_add(monkeypatch, {"status": "PENDING"})
     with pytest.raises(W.WriteError) as e:

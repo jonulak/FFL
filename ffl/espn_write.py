@@ -182,8 +182,12 @@ def pending_state() -> tuple[list[dict], int | None]:
         doc = config.raw_league_get(["mPendingTransactions", "mTeam"])
     except Exception as e:  # noqa: BLE001 — every read failure is a WriteError, sorted by _read_error
         raise _read_error(e) from e
-    period = doc.get("scoringPeriodId")
-    return parse_pending(doc, _team_id()), None if period is None else int(period)
+    team = _team_id()
+    try:
+        period = doc.get("scoringPeriodId")
+        return parse_pending(doc, team), None if period is None else int(period)
+    except (AttributeError, KeyError, TypeError, ValueError) as e:  # an answer this code cannot read (a row with no id)
+        raise WriteError(0, f"unreadable pending claims ({type(e).__name__}: {e})"[:300]) from e
 
 
 def last_waiver_run() -> str | None:
@@ -210,7 +214,7 @@ def submit_claim(add: int, drop: int | None, week: int) -> str:
         _FAKE.append({"id": cid, "add": add, "drop": drop})
         return cid
     res = _post(submit_body(add, drop, week, _team_id(), config.SWID))
-    if not isinstance(res, dict) or res.get("id") is None:  # the claim may stand: the caller's read-back says
+    if not isinstance(res, dict) or res.get("id") is None:  # ESPN may hold it anyway: the read-back shows it
         raise WriteError(200, "claim sent but ESPN's answer carries no id")
     return str(res["id"])
 
