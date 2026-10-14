@@ -356,7 +356,7 @@ function SubmitState() {
   const who = data.writes ? "ESPN" : "the fake";
   // a new state fades in where the old one stood
   const fade = (state: string, badge: ReactNode) => <span key={state} className={`flex min-w-0 ${FADE}`}>{badge}</span>;
-  if (data.pending_error) return fade("error", <Badge variant="destructive" className="max-w-full truncate" title={data.pending_error}>ESPN: {data.pending_error}</Badge>);
+  if (data.pending_error) return fade("error", <Badge variant="destructive" className="max-w-full truncate" title={data.pending_error}>{/^ESPN/.test(data.pending_error) ? data.pending_error : `ESPN: ${data.pending_error}`}</Badge>);
   if (!data.last_submit) return fade("unsent", <Badge variant="muted">not sent</Badge>);
   if (data.edited_since_submit) return fade("edited", <Badge variant="warn">edited since submit</Badge>);
   if (!data.on_espn) return fade("differs", <Badge variant="warn">differs from {who}</Badge>);

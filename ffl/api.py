@@ -363,7 +363,8 @@ def _claims_payload(plan, data, status=None):
     try:
         pending, perr = espn_write.pending_claims(), None
     except espn_write.WriteError as e:
-        pending, perr = [], ("ESPN login expired, refresh .env" if e.expired else str(e))
+        log.warning("pending claims not read: %s", e)  # the page shows only e.message; the cause is here
+        pending, perr = [], e.message
     key = lambda ms: [(m["add"], m["drop"]) for m in ms]  # noqa: E731
     # ESPN holds the plan's claims, in order, once the claims filed on ESPN directly (kept outside) are set aside
     # and only when ESPN numbered them: an unnumbered claim (priority None) means its order is unknown
@@ -423,7 +424,7 @@ def claims_submit(body: SubmitIn):
         try:
             pending, period = espn_write.pending_state()
         except espn_write.WriteError as e:
-            raise HTTPException(502, {"source": "espn", "error": "ESPN login expired, refresh .env" if e.expired else str(e)})
+            raise _espn_error(e)
         # ESPN's current scoring period, which is what its write bodies want; the plan's week is the cached pool's
         if period is not None and period != data["week"]:
             # as /lineup does: drop the cached League and pool, or the reload serves the same old week
@@ -515,7 +516,8 @@ def _record(row: dict) -> dict | None:
 
 
 def _espn_error(e: espn_write.WriteError) -> HTTPException:
-    return HTTPException(502, {"source": "espn", "error": "ESPN login expired, refresh .env" if e.expired else str(e)})
+    log.warning("ESPN: %s", e)  # the page shows only e.message; the cause is here
+    return HTTPException(502, {"source": "espn", "error": e.message})
 
 
 @app.post("/lineup")

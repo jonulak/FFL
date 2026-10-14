@@ -66,7 +66,7 @@ function Failure({ f, name, writes }: { f: SubmitFailure; name: (id: number) => 
   return (
     <div role="alert" className="space-y-1 rounded-md bg-destructive/10 px-3 py-2 text-destructive">
       {f.kind === "running" && <p>A submit is already running. Wait for it, then look at what {who} holds before sending again.</p>}
-      {f.kind === "espn" && <p>ESPN refused: {f.error}. Nothing was sent.</p>}
+      {f.kind === "espn" && <p>{/^ESPN/.test(f.error) ? f.error : `ESPN: ${f.error}`}. Nothing was sent.</p>}
       {f.kind === "changed" && <p>Nothing was sent: {f.error}. The list below is what {who} says now.</p>}
       {f.kind === "other" && <p>{f.error}</p>}
       {f.kind === "invalid" && (
