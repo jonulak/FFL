@@ -189,7 +189,9 @@ class TtlCache:
                 cur = self._d.get(key)
                 if cur is None:  # dropped or cleared while this one failed: serve the last good, store nothing
                     return hit[1], _hhmm(hit[2])
-                if cur is not hit:  # another call stored a newer entry while this one failed: keep it
+                # another call stored a newer fetch while this one failed: keep it (by fetch time, not identity:
+                # expire() rebuilds every entry, and that same answer must still come back stale)
+                if cur[2] > hit[2]:
                     return cur[1], (_hhmm(cur[2]) if cur[3] else None)
                 self._d[key] = (now + RETRY_S, hit[1], hit[2], True)
             return hit[1], _hhmm(hit[2])

@@ -66,10 +66,11 @@ export function NflPlayFeed({ data, filter, club }: { data: NflGamePage; filter:
   // Every drive starts collapsed but the one on the field (no result yet, game on). When the next drive takes the
   // field it opens in the finished one's place; drives opened by hand stay open through polls and filters.
   const live = data.game.status === "in" ? data.drives.find((d) => !d.result)?.id ?? null : null;
-  const [open, setOpen] = useState<{ ids: string[]; live: string | null }>({ ids: live ? [live] : [], live });
-  if (live !== open.live) {  // derived state, set in render like useLedger's
-    setOpen({ ids: [...open.ids.filter((id) => id !== open.live), ...(live ? [live] : [])], live });
-  }
+  const [stored, setOpen] = useState<{ ids: string[]; live: string | null }>({ ids: live ? [live] : [], live });
+  // derived state, set in render like useLedger's; the rest of this render reads the new value, or `seen` below
+  // would record a play of the drive just folded as shown and it would never slide in when opened
+  const open = live === stored.live ? stored : { ids: [...stored.ids.filter((id) => id !== stored.live), ...(live ? [live] : [])], live };
+  if (open !== stored) setOpen(open);
   // A row slides in once per page life, the first time it is on screen (lib/nfl slideIns): the ledger keeps saying
   // "enter" for a play that arrived after the page opened, and a filter or a folded drive that hides the row and
   // shows it again remounts it, which would replay the animation.
@@ -81,7 +82,7 @@ export function NflPlayFeed({ data, filter, club }: { data: NflGamePage; filter:
   const total = data.drives.reduce((n, d) => n + d.plays.length, 0);
   const empty = data.game.status === "pre"
     ? <>Kickoff <KickoffTime iso={data.game.kickoff} />. Plays appear here once the game starts.</>
-    : filter === "mine" ? (data.marked ? "None of your starters has been in a play yet." : "Can't pick out your starters: the Matchup board didn't load.")
+    : filter === "mine" ? (data.marked !== false ? "None of your starters has been in a play yet." : "Can't pick out your starters: the Matchup board didn't load.")
     : filter === "scoring" ? "No points yet." : "No plays yet.";
   return (
     <section className="space-y-2">

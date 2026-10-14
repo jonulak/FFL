@@ -265,6 +265,18 @@ def test_failed_refetch_after_the_entry_is_gone_serves_last_good(wipe):
     assert not c.has("k"), "a wiped entry is not brought back by a failure"
 
 
+def test_failed_refetch_during_expire_is_still_stale():
+    c = nfl.TtlCache()
+    c.get("k", lambda: {"v": 1}, lambda _: 0)
+
+    def expired_then_fail():
+        c.expire()  # /refresh or the pregame pull lands mid-fetch
+        raise RuntimeError("down")
+    data, stale = c.get("k", expired_then_fail, lambda _: 100)
+    assert data == {"v": 1} and stale is not None
+    assert c._d["k"][3] is True and c._d["k"][0] > time.time(), "stored as a failed entry, retried later"
+
+
 def test_overlay_keeps_quarter_when_feed_has_none():
     g = {"away": {"abbr": "CHI", "score": 0}, "home": {"abbr": "GB", "score": 7}, "status": "in", "quarter": 3,
          "clock": "5:51", "ball": None, "red_zone": False, "down": None}
