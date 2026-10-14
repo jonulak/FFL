@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle } from "lucide-react";
+import { Spinner as Spin } from "@/components/ui/spinner";
 import { cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 
 // The board's small motion vocabulary (globals.css, "State changes"): every state that changes
@@ -98,7 +98,7 @@ export function Swap({ children, k, className = "", as: Tag = "span" }: { childr
 export function Spinner({ on, gap = "-mr-1.5", className = "size-4" }: { on: boolean; gap?: string; className?: string }) {
   return (
     <span aria-hidden className={`grid transition-[grid-template-columns,opacity,margin] duration-200 ease-(--ease-arrive) motion-reduce:transition-[opacity] ${on ? "grid-cols-[1fr] opacity-100" : `grid-cols-[0fr] opacity-0 ${gap}`}`}>
-      <span className="overflow-hidden"><LoaderCircle className={`${className} ${on ? "animate-spin" : ""}`} /></span>
+      <span className="overflow-hidden"><Spin aria-hidden role="presentation" className={`${className} ${on ? "" : "animate-none"}`} /></span>
     </span>
   );
 }

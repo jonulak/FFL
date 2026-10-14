@@ -1,6 +1,7 @@
 "use client";
 
-import { LoaderCircle, NotebookText } from "lucide-react";
+import { NotebookText } from "lucide-react";
+import { Spinner as Spin } from "@/components/ui/spinner";
 import { useEffect, useRef, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
@@ -151,7 +152,7 @@ function Body({ r, first, setWritten }: { r: FreeAgentRow; first: FirstRead; set
           {phase === "loading" && !fault && <p className="py-3 text-sm text-muted-foreground">Reading…</p>}
           {phase === "writing" && (
             <p className="flex items-start gap-2 py-3 text-sm text-muted-foreground">
-              <LoaderCircle aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" />
+              <Spin aria-hidden role="presentation" className="mt-0.5 size-4 shrink-0" />
               <span>Writing — usually a minute or two. You can close this; the write keeps going.</span>
             </p>
           )}

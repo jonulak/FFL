@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDown, LoaderCircle, Lock, Plus } from "lucide-react";
+import { ChevronDown, Lock, Plus } from "lucide-react";
+import { Spinner as Spin } from "@/components/ui/spinner";
 import { useState, type Ref } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -125,7 +126,7 @@ function SlotControl({ c, picked, busy, disabled, onPick }: {
     >
       <span className={`${SLOT_FACE} ${SLOT_TEXT} ${off ? `${FACE_OFF} text-close-foreground dark:text-close` : `${FACE_INK} ${tone}`} ${disabled && !busy ? "opacity-50" : ""}`}>
         <Swap k={busy ? "busy" : c.slot} className="flex items-center">
-          {busy ? <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" /> : <SlotName slot={c.slot} />}
+          {busy ? <Spin aria-hidden role="presentation" className="size-3.5" /> : <SlotName slot={c.slot} />}
         </Swap>
       </span>
     </button>

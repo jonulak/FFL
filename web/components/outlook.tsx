@@ -1,6 +1,7 @@
 "use client";
 
-import { LoaderCircle, RotateCw } from "lucide-react";
+import { RotateCw } from "lucide-react";
+import { Spinner as Spin } from "@/components/ui/spinner";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
@@ -106,7 +107,7 @@ function RewriteButton({ c, running, runBusy, onClick }: { c: Card; running: boo
       className="-my-1 -mr-1 inline-flex min-h-8 shrink-0 items-center gap-1 rounded-sm px-1 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2 disabled:pointer-events-none disabled:text-muted-foreground/70">
       <Swap k={running ? "running" : verb} className="inline-flex items-center gap-1">
         {running
-          ? <LoaderCircle aria-hidden className="size-3.5 animate-spin stroke-[2.25] motion-reduce:animate-none" />
+          ? <Spin aria-hidden role="presentation" className="size-3.5 stroke-[2.25]" />
           : <RotateCw aria-hidden className="size-3.5 stroke-[2.25]" />}
         {running ? "Writing" : verb}
       </Swap>
@@ -170,7 +171,7 @@ const AGE_TONE = { fresh: "text-muted-foreground", stale: "text-close-foreground
 export function OutlookAge({ c, now }: { c: Card; now: number }) {
   const a = outlookAge(c, now);
   if (c.outlook_running) {
-    return <Swap k="running" className="flex"><LoaderCircle aria-hidden className="size-3 animate-spin stroke-[2.5] text-muted-foreground motion-reduce:animate-none" /></Swap>;
+    return <Swap k="running" className="flex"><Spin aria-hidden role="presentation" className="size-3 stroke-[2.5] text-muted-foreground" /></Swap>;
   }
   if (!a) return null;
   return (

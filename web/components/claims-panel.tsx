@@ -6,7 +6,8 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, ChevronUp, GripVertical, LoaderCircle, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronUp, GripVertical, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import { Spinner as Spin } from "@/components/ui/spinner";
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -628,7 +629,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
         {heading(`Claims · process ${day}`)}
         {/* a save in flight turns beside the state, so no line opens over the groups and shuts again */}
         <span className="ml-auto flex items-center gap-1.5">
-          <Presence show={saving}><span className="flex"><LoaderCircle role="status" aria-label="saving" className="size-3.5 animate-spin text-muted-foreground" /></span></Presence>
+          <Presence show={saving}><span className="flex"><Spin aria-label="saving" className="size-3.5 text-muted-foreground" /></span></Presence>
           <SubmitState />
         </span>
       </div>

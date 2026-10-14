@@ -1,6 +1,7 @@
 "use client";
 
-import { LoaderCircle, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
+import { Spinner as Spin } from "@/components/ui/spinner";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
@@ -51,7 +52,7 @@ export function WaiverSearch({ q, pos, fa }: { q: string; pos: string; fa: boole
         {/* the glass turns into the spinner while the page is fetched: both in one cell, crossfading */}
         <span aria-hidden className="grid *:col-start-1 *:row-start-1 *:transition-[opacity,scale] *:duration-200 *:ease-(--ease-arrive)">
           <Search className={`size-4 ${pending ? "scale-75 opacity-0" : ""}`} />
-          <LoaderCircle className={`size-4 ${pending ? "animate-spin" : "scale-75 opacity-0"}`} />
+          <Spin aria-hidden role="presentation" className={`size-4 ${pending ? "" : "scale-75 opacity-0 animate-none"}`} />
         </span>
       </InputGroupAddon>
       <InputGroupInput
