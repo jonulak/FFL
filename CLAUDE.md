@@ -168,7 +168,11 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   scores, grouped like the board, with the club and its rank; live points through `live.overlay_side`).
 - **Push notifications** (`ffl/notify.py`): detectors (new transaction rows, my starters' injuries, waiver-run results) →
   `notices` outbox (`key` = dedupe) → `/notify/tick` flush (quiet hours, moves batched, 24 h drop; one tick at a time, 409
-  otherwise) → pywebpush → `web/public/sw.js`; `/settings` holds the device, switches and quiet window.
+  otherwise) → pywebpush → `web/public/sw.js`; `/settings` holds the device, switches and quiet window. The message
+  is Declarative Web Push (`notify.payload_for`: `web_push` 8030, `notification.navigate` absolute off `FFL_APP_URL`):
+  Safari shows and opens it without the worker, since iOS often never fires `notificationclick` for a backgrounded
+  Home Screen app (WebKit bug 268797, ffl-e9x.10); the legacy fields beside it feed sw.js's push handler elsewhere.
+  The tap path is traced on-device (`POST /trace` → `data/trace.jsonl`, rows from sw.js and `SwRegister`).
   After the tick, `api.pregame_pull`: once per kickoff time (`season.pregame_due`, inside `PREGAME_PULL_MIN` = 85 min,
   after the inactives are out; done ones in the `pregame_pulls` state) it expires every page and source cache and rebuilds
   on a thread. Refresh keeps a source entry fetched with a long TTL (FantasySharks' far weeks): re-scraping 14 weeks

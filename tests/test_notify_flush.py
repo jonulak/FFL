@@ -65,6 +65,15 @@ def test_flush_holds_in_quiet_hours_and_sends_after():
     assert out["sent"] == 1 and sent[0]["url"] == "/transactions" and db.unsent_notices() == []
 
 
+def test_payload_is_declarative_with_the_legacy_fields_beside():
+    push = {"keys": ["move:1"], "title": "1 league move", "body": "Bears +X", "url": "/transactions", "tag": "moves"}
+    p = notify.payload_for(push, app_url="https://ffl.example:3300/")
+    assert p["web_push"] == 8030
+    assert p["notification"] == {"title": "1 league move", "body": "Bears +X", "tag": "moves",
+                                 "navigate": "https://ffl.example:3300/transactions"}
+    assert {k: p[k] for k in ("title", "body", "url", "tag")} == {k: push[k] for k in ("title", "body", "url", "tag")}
+
+
 def test_a_dead_subscription_beside_a_live_one_still_counts_as_sent():
     db.add_notices([_n("move:1")])
     db.put_subscription("https://push/dead", {"p256dh": "k", "auth": "a"})

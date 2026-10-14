@@ -1,5 +1,8 @@
-// Web Push for the season UI (ffl/notify.py sends {title, body, url, tag}). A tap focuses an open FFL window
-// and takes it to the notice's page, or opens one. Also keeps ESPN's images for a cold open.
+// Web Push for the season UI. ffl/notify.py sends a Declarative Web Push message (web_push 8030 + notification with
+// an absolute navigate): Safari shows it and opens the page itself without waking this worker, since iOS often never
+// fires notificationclick for a backgrounded Home Screen app (WebKit bug 268797). The legacy {title, body, url, tag}
+// ride beside it for a browser that ignores web_push and fires the push event here: then a tap focuses an open FFL
+// window and takes it to the notice's page, or opens one. Also keeps ESPN's images for a cold open.
 
 // ESPN's headshots and club marks (web/lib/teams.ts), kept here so a cold open draws them without the network: the
 // CDN's own cache lasts a day and iOS clears a Home Screen app's often. A kept image is served at once, and one older

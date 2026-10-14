@@ -205,9 +205,23 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
     return pushes, marks
 
 
+# Where a notification opens: Declarative Web Push wants the absolute URL (the app on the tailnet, scripts/install.sh).
+APP_URL = os.environ.get("FFL_APP_URL", "https://macbook-pro.tailnet.ts.net:3300")
+
+
+def payload_for(push: dict, app_url: str = APP_URL) -> dict:
+    """The push message. Declarative Web Push (`web_push` 8030, Safari 18.4+): Safari shows the notification and opens
+    `navigate` itself, with no service worker in the way; iOS often never fires the worker's notificationclick for a
+    Home Screen app in the background (WebKit bug 268797; ffl-e9x.10). The legacy top-level fields stay for a browser
+    that ignores `web_push` and hands the message to sw.js's push handler as before."""
+    legacy = {k: push[k] for k in ("title", "body", "url", "tag")}
+    return {"web_push": 8030, "notification": {"title": push["title"], "body": push["body"], "tag": push["tag"],
+                                               "navigate": app_url.rstrip("/") + push["url"]}, **legacy}
+
+
 def deliver(push: dict, subs: list[dict], send) -> tuple[bool, list[str]]:
     """Send to every device. Accepted when any device took it; a 404/410 names a dead subscription."""
-    payload = {k: push[k] for k in ("title", "body", "url", "tag")}
+    payload = payload_for(push)
     ok, dead = False, []
     for sub in subs:
         try:
