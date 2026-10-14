@@ -25,7 +25,7 @@ so drops and the flex rule are judged from the same output.
 
 | column | meaning |
 |---|---|
-| where | `ME` + slot; owner's team + slot; `FA`. Slot `BE` is benched production, `IR` is the IR slot, `RB/WR/TE` is a flex, which the write-up calls "flex" |
+| where | `ME` + slot; owner's team + slot; `FA`. Slot `BE` is benched production, `IR` is the IR slot, `FLEX` is the flex (ESPN's `RB/WR/TE`) |
 | ppg / beat | points a game over the window; over ESPN's weekly projection for those games. `beat` can be negative on a row the model has low: "on projection, model behind him", not a breakout |
 | pace | ppg × games left − model ROS. Two hot games times fifteen is a big number: rank by it, judge by the rest |
 | ros → adj | model ROS (consensus of Sleeper, CBS, FantasySharks) → usage-adjusted ROS (STRATEGY.md) |

@@ -51,3 +51,10 @@ def test_render_marks_my_players_and_free_agents():
     text = pace.render({"week": 3, "ros_week": 3, "min_games": 2, "positions": {"WR": rows}, "rows": rows})
     assert "ME My Team WR" in text and "Wire" in text and " FA " in text and "GB#30" in text
     assert "== my roster" in text and text.count("Mine") == 2, "my players are listed again under the tables, for drops"
+
+
+def test_render_names_the_flex_slot_flex_and_keeps_the_raw_slot_in_the_row():
+    r = pace.row(_player("Flexed", "WR", 20.0, 120.0), 3, "My Team", "RB/WR/TE", True, {}, {}, [1])
+    text = pace.render({"week": 3, "ros_week": 3, "min_games": 2, "positions": {"WR": [r]}, "rows": [r]})
+    assert "ME My Team FLEX" in text and "RB/WR/TE" not in text
+    assert r["slot"] == "RB/WR/TE", "the report's data keeps ESPN's slot; only the table names it"

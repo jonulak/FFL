@@ -1,11 +1,12 @@
 import type { Card } from "./api";
+import { SLOT_LABEL } from "./board";
 
 // ESPN's lineup order, as on its team page; season.py's SLOT_ORDER.
 export const SLOT_ORDER = ["QB", "RB", "WR", "TE", "RB/WR/TE", "RB/WR", "WR/TE", "OP", "D/ST", "K"];
 const FLEX = new Set(["RB/WR/TE", "RB/WR", "WR/TE"]);
 
 export function slotLabel(slot: string): string {
-  return FLEX.has(slot) ? "FLEX" : slot === "BE" ? "Bench" : slot;
+  return slot === "BE" ? "Bench" : (SLOT_LABEL[slot] ?? slot);
 }
 
 // Which positions a slot takes: season._slot_accepts. "OP" is the superflex.

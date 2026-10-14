@@ -46,7 +46,7 @@ def _flag(slot, injury, locked=False, name="Isiah Pacheco"):
 def test_unlocked_starter_out_is_a_notice():
     out = notify.injury_notices({9: _flag("RB/WR/TE", "OUT")}, 5, AT)
     assert out == [{"key": "injury:5:9:OUT", "kind": "injury", "title": "Isiah Pacheco OUT",
-                    "body": "Starting at RB/WR/TE. Tap to make the call.", "url": "/roster", "created_at": AT}]
+                    "body": "Starting at FLEX. Tap to make the call.", "url": "/roster", "created_at": AT}]
 
 
 def test_doubtful_and_ir_count_questionable_does_not():

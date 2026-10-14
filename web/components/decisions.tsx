@@ -10,6 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Toggle } from "@/components/ui/toggle";
 import type { Decision, Decisions, Presets } from "@/lib/api";
+import { SLOT_LABEL } from "@/lib/board";
 import { byWeek, KIND_LABEL, needsRationale, reasonText } from "@/lib/decisions";
 import { NAME_LINK } from "@/lib/player-log";
 import { Markdown } from "./markdown";
@@ -42,7 +43,7 @@ function MoveLine({ m }: { m: Move }) {
     <li>
       <PlayerTrigger p={seed} className={`rounded-sm ${NAME_LINK}`}>{m.name}</PlayerTrigger>
       <span className="text-muted-foreground">
-        : call {m.call}{gap && `, gap ${gap}`}{m.from && m.to && ` · ${m.from} → ${m.to}`}
+        : call {m.call}{gap && `, gap ${gap}`}{m.from && m.to && ` · ${SLOT_LABEL[m.from] ?? m.from} → ${SLOT_LABEL[m.to] ?? m.to}`}
       </span>
     </li>
   );
