@@ -1192,6 +1192,7 @@ def expire_everything() -> None:
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
     espn_season._BOXES.clear()
+    espn_season._GAP_GAMES.clear()
     if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
         espn_season._INJ[0] = 0.0
     sources.expire_all()  # same reason: the last good scrape stays for an outage

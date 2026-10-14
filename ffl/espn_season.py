@@ -1277,20 +1277,71 @@ def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]
     """Game rows for every rostered player: this week's off the box score (fresh every minute), the
     earlier form weeks off those weeks' box scores (one cached call a week). A Player on lg.teams
     rosters carries only the current scoring period's stats, so it cannot supply them (ffl-rns). A
-    player on no fantasy roster in an earlier week has no row for it."""
+    week he sat on no fantasy roster (a pickup's free-agent weeks, a drop he was re-added after) comes
+    off that week's player info (_gap_games, ffl-iig), so a recent pickup's window is as full as a free
+    agent's; a week whose box scores failed stays empty."""
     games = {bp.playerId: player_games(bp, [week], week) for lineup in boxes.values() for bp in lineup}
     earlier: dict[int, list[dict]] = {pid: [] for pid in games}
+    gaps: dict[int, list[int]] = {}
     for w in form_weeks(week)[:-1]:
         try:
             by_team = _boxes_by_team(lg, w)
         except Exception as e:  # noqa: BLE001 — one week's history is not worth the page (ffl-qf7)
             logging.getLogger(__name__).warning("week %s box scores not read; no form rows for it: %s", w, e)
             continue
+        seen = set()
         for lineup in by_team.values():
             for bp in lineup:
-                if bp.playerId in earlier:
+                if bp.playerId in earlier and bp.playerId not in seen:
+                    seen.add(bp.playerId)
                     earlier[bp.playerId] += player_games(bp, [w], week)
+        for pid in earlier.keys() - seen:  # in any box score that week he was rostered (a bye there is no gap)
+            gaps.setdefault(pid, []).append(w)
+    for pid, rows in _gap_games(gaps, week).items():
+        earlier[pid] = sorted(earlier[pid] + rows, key=lambda g: g["week"])
     return {pid: earlier[pid] + g for pid, g in games.items()}
+
+
+GAP_BATCH = 40  # ids per kona_player_info call, as tx_player_info asks (no `limit`: ESPN 400s on it)
+_GAP_GAMES: dict[tuple[int, int], list[dict]] = {}  # (player, finished week) -> his rows; a played week never changes
+
+
+def _gap_games(gaps: dict[int, list[int]], week: int) -> dict[int, list[dict]]:
+    """Game rows for the earlier weeks a rostered player sat on no fantasy roster (player -> weeks): one
+    kona_player_info call per such week (GAP_BATCH ids each) for the players missing from it, with that
+    week's scoringPeriodId, the same call free_agents(week=w) makes, so the row (points and that week's
+    projection) is the one a free agent's window reads. The free-agent lists themselves cannot supply him:
+    ESPN filters them by today's status, so a man rostered now is in none of them; and his player card
+    has no past week's projection. Each (player, week) is kept for the process once read (a finished
+    week; POST /refresh clears it), so a build after the first asks for nothing. A failed call leaves
+    that week without rows, as a failed week's box scores does."""
+    from espn_api.football.player import Player
+
+    asks: list[tuple[int, list[int]]] = []
+    for w in sorted({w for ws in gaps.values() for w in ws}):
+        ids = sorted(pid for pid, ws in gaps.items() if w in ws and (pid, w) not in _GAP_GAMES)
+        asks += [(w, ids[i:i + GAP_BATCH]) for i in range(0, len(ids), GAP_BATCH)]
+
+    def read(ask: tuple[int, list[int]]) -> None:
+        w, ids = ask
+        filt = {"players": {"filterIds": {"value": ids}}}
+        try:
+            doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=w)
+            players = [Player(p, SEASON) for p in doc.get("players") or []]
+        except Exception as e:  # noqa: BLE001 — a pickup's free-agent weeks are not worth the page
+            logging.getLogger(__name__).warning("week %s player info not read; no free-agent rows for %s: %s", w, ids, e)
+            return
+        for pl in players:
+            if pl.playerId in ids:  # ESPN answering without one leaves him to be asked again next build
+                _GAP_GAMES[(pl.playerId, w)] = player_games(pl, [w], week)
+    if asks:
+        with ThreadPoolExecutor(len(asks)) as pool:  # all in flight together, like the free-agent asks
+            list(pool.map(read, asks))
+    out: dict[int, list[dict]] = {}
+    for pid, ws in gaps.items():
+        if rows := [g for w in ws for g in _GAP_GAMES.get((pid, w), [])]:
+            out[pid] = rows
+    return out
 
 
 def with_espn_slots(rows: list[dict], flags: dict[int, dict], fake: dict[int, str],

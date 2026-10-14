@@ -1,5 +1,6 @@
 """Recent form, the I/O side: ESPN's weekly stat rows and Sleeper's snaps flattened to the game
 rows season.recent_form reads, and the builders carrying `form` on every player (no network)."""
+import json
 from types import SimpleNamespace
 
 from ffl import db, espn_season, season
@@ -212,7 +213,100 @@ def test_roster_games_read_earlier_weeks_off_those_weeks_box_scores(monkeypatch)
     games = espn_season._roster_games(SimpleNamespace(teams=[]), now, week=3)
     assert [g["week"] for g in games[4]] == [1, 2, 3]
     assert [g["week"] for g in games[1]] == [1, 2, 3] and games[1][0]["pts"] == 20.0, "another club's history too"
-    assert [g["week"] for g in games[5]] == [3], "no earlier rows borrowed for a new arrival"
+    assert [g["week"] for g in games[5]] == [3], "ESPN has no free-agent weeks for him (the stub answers {})"
+
+
+def _info_doc(pid: int, w: int, pts: float, proj: float, carries: int) -> dict:
+    """One player as kona_player_info answers for scoringPeriodId w: that week's actual and projected rows."""
+    def row(source, total):
+        return {"seasonId": espn_season.SEASON, "scoringPeriodId": w, "statSourceId": source, "statSplitTypeId": 1,
+                "appliedTotal": total, "stats": {"23": carries}}
+    return {"id": pid, "player": {"id": pid, "fullName": f"Player {pid}", "eligibleSlots": [2, 20], "proTeamId": 1,
+                                  "defaultPositionId": 2, "stats": [row(0, pts), row(1, proj)]}}
+
+
+def _info_by_week(docs: dict[tuple[int, int], dict], asked: list):
+    """A raw_league_get stub: kona_player_info by ids and week, recording each ask as (week, ids)."""
+    def get(view, headers=None, **params):
+        assert view == "kona_player_info"
+        ids = json.loads(headers["x-fantasy-filter"])["players"]["filterIds"]["value"]
+        w = params["scoringPeriodId"]
+        asked.append((w, sorted(ids)))
+        return {"players": [docs[(pid, w)] for pid in ids if (pid, w) in docs]}
+    return get
+
+
+def _rb_box(pid, w, pts, proj=14.0):
+    return SimpleNamespace(playerId=pid, position="RB", game_played=100,
+                           stats={w: week_stats(pts, proj, rushingAttempts=12)})
+
+
+def test_roster_games_fill_a_pickups_free_agent_weeks_off_that_weeks_player_info(monkeypatch):
+    """ffl-iig: a week he sat on no fantasy roster comes off that week's player info, one call a week for
+    every player missing from it, and is read once for the process."""
+    past = {1: {7: [_rb_box(4, 1, 15.0)]}, 2: {7: [_rb_box(4, 2, 11.0)]}}
+    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w: past[w])
+    asked = []
+    docs = {(5, 1): _info_doc(5, 1, 6.0, 4.0, 5), (5, 2): _info_doc(5, 2, 18.0, 5.0, 16),
+            (6, 2): _info_doc(6, 2, 3.0, 2.0, 2)}
+    monkeypatch.setattr(espn_season, "raw_league_get", _info_by_week(docs, asked))
+    past[1][2] = [_rb_box(6, 1, 9.0)]  # 6 was rostered in week 1, dropped for week 2, re-added now
+    now = {7: [_rb_box(4, 3, 9.0), _rb_box(5, 3, 21.0), _rb_box(6, 3, 7.0)]}
+    games = espn_season._roster_games(SimpleNamespace(teams=[]), now, week=3)
+    assert sorted(asked) == [(1, [5]), (2, [5, 6])], "one call a week, only for the players no box had"
+    assert [g["week"] for g in games[5]] == [1, 2, 3]
+    assert [(g["pts"], g["proj"], g["car"]) for g in games[5][:2]] == [(6.0, 4.0, 5.0), (18.0, 5.0, 16.0)], \
+        "the week's points and its projection, as a free agent's row reads"
+    assert [g["week"] for g in games[6]] == [1, 2, 3] and games[6][0]["pts"] == 9.0, "box week kept, gap filled, once each"
+    assert [g["week"] for g in games[4]] == [1, 2, 3], "a man rostered all along asks for nothing"
+    espn_season._roster_games(SimpleNamespace(teams=[]), now, week=3)
+    assert len(asked) == 2, "a finished week is read once for the process"
+
+
+def test_roster_games_ask_nothing_for_a_rostered_man_on_bye(monkeypatch):
+    """In a lineup that week but without a game (a bye, a week out): rostered, so no gap and no call."""
+    bye = SimpleNamespace(playerId=4, position="RB", game_played=100, stats={})
+    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w: {7: [bye]})
+    monkeypatch.setattr(espn_season, "raw_league_get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
+    games = espn_season._roster_games(SimpleNamespace(teams=[]), {7: [_rb_box(4, 3, 9.0)]}, week=3)
+    assert [g["week"] for g in games[4]] == [3]
+
+
+def test_roster_games_keep_the_box_weeks_when_the_player_info_read_fails(monkeypatch):
+    past = {1: {7: [_rb_box(4, 1, 15.0)]}, 2: {7: [_rb_box(4, 2, 11.0)]}}
+    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w: past[w])
+    asked = []
+
+    def get(view, headers=None, **params):
+        asked.append(params["scoringPeriodId"])
+        if params["scoringPeriodId"] == 1:
+            raise RuntimeError("ESPN 500")
+        return {"players": [_info_doc(5, 2, 18.0, 5.0, 16)]}
+    monkeypatch.setattr(espn_season, "raw_league_get", get)
+    now = {7: [_rb_box(4, 3, 9.0), _rb_box(5, 3, 21.0)]}
+    games = espn_season._roster_games(SimpleNamespace(teams=[]), now, week=3)
+    assert [g["week"] for g in games[5]] == [2, 3] and [g["week"] for g in games[4]] == [1, 2, 3]
+    espn_season._roster_games(SimpleNamespace(teams=[]), now, week=3)
+    assert sorted(asked) == [1, 1, 2], "the failed week is asked again; the read one is not"
+
+
+def test_roster_games_ask_no_player_info_for_a_week_whose_box_scores_failed(monkeypatch):
+    """A failed week's box scores leave it empty for everyone: it is not filled from player info."""
+    def boxes(lg, w):
+        if w == 1:
+            raise RuntimeError("ESPN 500")
+        return {7: [_rb_box(4, 2, 11.0)]}
+    monkeypatch.setattr(espn_season, "_boxes_by_team", boxes)
+    asked = []
+    monkeypatch.setattr(espn_season, "raw_league_get", _info_by_week({(5, 2): _info_doc(5, 2, 18.0, 5.0, 16)}, asked))
+    games = espn_season._roster_games(SimpleNamespace(teams=[]), {7: [_rb_box(4, 3, 9.0), _rb_box(5, 3, 21.0)]}, week=3)
+    assert asked == [(2, [5])] and [g["week"] for g in games[5]] == [2, 3]
+
+
+def test_roster_games_ask_nothing_in_week_one(monkeypatch):
+    monkeypatch.setattr(espn_season, "raw_league_get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
+    games = espn_season._roster_games(SimpleNamespace(teams=[]), {7: [_rb_box(5, 1, 21.0)]}, week=1)
+    assert [g["week"] for g in games[5]] == [1]
 
 
 def test_free_agent_pool_starts_ros_from_the_next_week_once_this_weeks_games_are_played(monkeypatch):
