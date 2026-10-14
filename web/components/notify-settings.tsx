@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,7 +90,7 @@ export function NotifySettings({ config }: { config: NotifyConfig }) {
 
   const test = () => run(async () => {
     const r = await clientPost<{ devices: number; accepted: boolean }>("/notify/test");
-    return r.accepted ? `Sent to ${r.devices} device${r.devices === 1 ? "" : "s"}.` : "No device took it.";
+    toast(r.accepted ? `Sent to ${r.devices} device${r.devices === 1 ? "" : "s"}.` : "No device took it.");
   });
 
   return (
