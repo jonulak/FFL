@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ClientError, clientGet, clientPost } from "@/app/api-client";
 import type { Claim, ClaimGroup, ClaimPlayer, Claims, PoolStatus, SubmitResult, FreeAgentRow } from "@/lib/api";
-import { submitFailure, type SubmitFailure } from "@/lib/claims";
+import { SUBMIT_FLOOR_MS, submitFailure, type SubmitFailure } from "@/lib/claims";
 
 export type { SubmitFailure };
 
@@ -21,8 +21,9 @@ type Ctx = {
   saving: boolean;
   error: string | null;
   submitting: boolean;
-  // expectNow: the "Add now" list the dialog showed; the server refuses (409) when its fresh read differs
-  submit: (replaceOutside: boolean, expectNow: Claim[]) => Promise<SubmitResult>;
+  // expectNow: the "Add now" list the dialog showed; the server refuses (409) when its fresh read differs.
+  // timeoutMs: how long to wait, from the plan's size (submitTimeoutMs); a minute when not given
+  submit: (replaceOutside: boolean, expectNow: Claim[], timeoutMs?: number) => Promise<SubmitResult>;
   // fresh: statuses re-read from ESPN (the Submit dialog), not the cached pool's
   refresh: (fresh?: boolean) => Promise<void>;
 };
@@ -31,8 +32,6 @@ const Context = createContext<Ctx | null>(null);
 
 const DEBOUNCE_MS = 400;
 const RETRY_MS = 2_000;
-// a submit cancels and reposts ESPN's whole list, then reads it back: give it a minute
-const SUBMIT_MS = 60_000;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -135,7 +134,7 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
     }
   }, []);
 
-  const submit = useCallback(async (replaceOutside: boolean, expectNow: Claim[]): Promise<SubmitResult> => {
+  const submit = useCallback(async (replaceOutside: boolean, expectNow: Claim[], timeoutMs = SUBMIT_FLOOR_MS): Promise<SubmitResult> => {
     // the submit reads the saved plan: save the latest edits first
     clearTimeout(timer.current);
     if ((dirty || deferred.current) && !(await save(latest.current)))
@@ -144,7 +143,7 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
     setSubmitting(true);
     try {
       const expect_now = expectNow.map(({ group, add, drop }) => ({ group, add, drop }));
-      return await clientPost<SubmitResult>("/claims/submit", { replace_outside: replaceOutside, expect_now }, SUBMIT_MS);
+      return await clientPost<SubmitResult>("/claims/submit", { replace_outside: replaceOutside, expect_now }, timeoutMs);
     } catch (e) {
       throw new SubmitError(failure(e));
     } finally {
