@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 from datetime import datetime
 
 import requests
@@ -33,14 +34,25 @@ _FAKE_LAST_RUN: str | None = None  # dev/tests under FFL_WRITES=0: the last waiv
 _IDS = itertools.count(1)
 
 
+EXPIRED = "ESPN login expired, refresh .env"
+UNREACHABLE = "ESPN couldn't be reached, try again"
+
+
 class WriteError(Exception):
+    """`status` is ESPN's HTTP status, or 0 when ESPN gave no usable answer (network, timeout, an unreadable body)."""
+
     def __init__(self, status: int, detail: str):
-        super().__init__(f"ESPN {status}: {detail}")
+        super().__init__(f"{UNREACHABLE} ({detail})" if status == 0 else f"ESPN {status}: {detail}")
         self.status, self.detail = status, detail
 
     @property
     def expired(self) -> bool:
         return self.status in (401, 403)
+
+    @property
+    def message(self) -> str:
+        """What the page shows: only a real 401/403 says the login expired."""
+        return EXPIRED if self.expired else UNREACHABLE if self.status == 0 else str(self)
 
 
 def _writes() -> bool:
@@ -142,6 +154,24 @@ def _post(body: dict | list, url: str = WRITE_URL) -> dict | list:
     return r.json()
 
 
+def _read_error(e: Exception) -> WriteError:
+    """A failed ESPN read as a WriteError. espn-api raises ESPNAccessDenied for a 401 (after trying its other
+    endpoint), ESPNInvalidLeague for a 404 and ESPNUnknownError("ESPN returned an HTTP <n>") for any other status,
+    403 included; anything else (timeout, connection, an unreadable body) had no HTTP status to blame, so it is
+    "couldn't reach ESPN", never "login expired"."""
+    from espn_api.requests.espn_requests import ESPNAccessDenied, ESPNInvalidLeague, ESPNUnknownError
+    if isinstance(e, ESPNAccessDenied):
+        return WriteError(401, str(e))
+    if isinstance(e, ESPNInvalidLeague):
+        return WriteError(404, str(e))
+    if isinstance(e, ESPNUnknownError) and (m := re.search(r"HTTP (\d+)", str(e))):
+        return WriteError(int(m.group(1)), str(e))
+    status = getattr(getattr(e, "response", None), "status_code", None)
+    if isinstance(status, int) and status >= 400:
+        return WriteError(status, str(e))
+    return WriteError(0, f"{type(e).__name__}: {e}"[:300])
+
+
 def pending_state() -> tuple[list[dict], int | None]:
     """My pending waiver claims in ESPN's processing order, and ESPN's current scoring period (the week its write
     bodies want), from one mPendingTransactions read. The period is None when the document has none."""
@@ -150,8 +180,8 @@ def pending_state() -> tuple[list[dict], int | None]:
     try:
         # mTeam is what makes ESPN include subOrder (the priority) on each pending claim
         doc = config.raw_league_get(["mPendingTransactions", "mTeam"])
-    except Exception as e:  # espn-api raises its own types for 401/403
-        raise WriteError(getattr(getattr(e, "response", None), "status_code", 0) or 401, str(e))
+    except Exception as e:  # noqa: BLE001 — every read failure is a WriteError, sorted by _read_error
+        raise _read_error(e) from e
     period = doc.get("scoringPeriodId")
     return parse_pending(doc, _team_id()), None if period is None else int(period)
 
@@ -180,6 +210,8 @@ def submit_claim(add: int, drop: int | None, week: int) -> str:
         _FAKE.append({"id": cid, "add": add, "drop": drop})
         return cid
     res = _post(submit_body(add, drop, week, _team_id(), config.SWID))
+    if not isinstance(res, dict) or res.get("id") is None:  # the claim may stand: the caller's read-back says
+        raise WriteError(200, "claim sent but ESPN's answer carries no id")
     return str(res["id"])
 
 

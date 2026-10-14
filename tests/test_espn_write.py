@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
+from espn_api.requests.espn_requests import ESPNAccessDenied, ESPNInvalidLeague, ESPNUnknownError
 
 from ffl import espn_write as W
 
@@ -130,16 +132,69 @@ def test_live_submit_and_cancel_send_what_espn_expects(monkeypatch):
     assert sent[0][2]["x-fantasy-source"] == "kona" and sent[0][2]["x-fantasy-platform"] == "espn-fantasy-web"
 
 
-def test_pending_claims_wraps_read_errors(monkeypatch):
+def _read_fails(monkeypatch, exc):
     monkeypatch.setenv("FFL_WRITES", "1")
 
     def boom(view):
-        raise RuntimeError("nope")
+        raise exc
 
     monkeypatch.setattr(W.config, "raw_league_get", boom)
     with pytest.raises(W.WriteError) as e:
         W.pending_claims()
-    assert e.value.status == 401
+    return e.value
+
+
+def test_pending_claims_wraps_read_errors(monkeypatch):
+    e = _read_fails(monkeypatch, RuntimeError("nope"))
+    assert e.status == 0 and not e.expired and e.message == W.UNREACHABLE and "nope" in str(e)
+
+
+def _http(status):
+    r = requests.Response()
+    r.status_code = status
+    return requests.HTTPError(f"{status} error", response=r)
+
+
+@pytest.mark.parametrize("exc,status", [
+    (ESPNAccessDenied("League 1 cannot be accessed with the provided credentials"), 401),
+    (ESPNUnknownError("ESPN returned an HTTP 403"), 403),
+    (_http(401), 401),
+    (_http(403), 403),
+])
+def test_only_a_real_401_or_403_reads_as_login_expired(monkeypatch, exc, status):
+    e = _read_fails(monkeypatch, exc)
+    assert e.status == status and e.expired and e.message == W.EXPIRED
+
+
+@pytest.mark.parametrize("exc,status", [
+    (ESPNUnknownError("ESPN returned an HTTP 503"), 503),
+    (ESPNInvalidLeague("League 1 does not exist"), 404),
+    (_http(500), 500),
+])
+def test_other_http_statuses_keep_their_code(monkeypatch, exc, status):
+    e = _read_fails(monkeypatch, exc)
+    assert e.status == status and not e.expired and e.message == str(e) and str(status) in e.message
+
+
+@pytest.mark.parametrize("exc", [
+    requests.Timeout("read timed out"),
+    requests.ConnectionError("connection reset"),
+    requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0),
+    json.JSONDecodeError("Expecting value", "<html>", 0),
+    ESPNUnknownError("something odd"),
+    _http(200),  # a response without an error status is no HTTP failure to blame
+])
+def test_a_read_without_an_http_error_is_couldnt_reach_espn(monkeypatch, exc):
+    e = _read_fails(monkeypatch, exc)
+    assert e.status == 0 and not e.expired and e.message == W.UNREACHABLE
+    assert type(exc).__name__ in e.detail  # the cause is kept for the log
+
+
+def test_submit_claim_without_an_id_in_the_answer_is_a_write_error(monkeypatch):
+    _live_add(monkeypatch, {"status": "PENDING"})
+    with pytest.raises(W.WriteError) as e:
+        W.submit_claim(101, 1, 5)
+    assert e.value.status == 200 and not e.value.expired and "no id" in e.value.message
 
 
 def test_parse_pending_skips_a_row_without_an_add():

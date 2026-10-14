@@ -691,6 +691,20 @@ def test_submit_expired_login(claims_env, monkeypatch):
     assert r.status_code == 502 and "login expired" in r.json()["detail"]["error"]
 
 
+def test_unreachable_espn_is_not_a_login_expired(claims_env, monkeypatch):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+
+    def boom():
+        raise api.espn_write.WriteError(0, "ReadTimeout: read timed out")
+
+    monkeypatch.setattr(api.espn_write, "pending_state", boom)
+    r = claims_env.post("/claims/submit", json={"replace_outside": False})
+    assert r.status_code == 502 and r.json()["detail"]["error"] == api.espn_write.UNREACHABLE
+    assert claims_env.get("/claims").json()["pending_error"] == api.espn_write.UNREACHABLE
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda: (_ for _ in ()).throw(api.espn_write.WriteError(403, "x")))
+    assert claims_env.get("/claims").json()["pending_error"] == api.espn_write.EXPIRED
+
+
 def test_new_week_starts_empty(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
@@ -988,6 +1002,9 @@ def test_lineup_maps_errors_from_the_concurrent_reads_as_before(lineup_env, monk
     monkeypatch.setattr(api.espn_write, "pending_state", lambda: (_ for _ in ()).throw(api.espn_write.WriteError(401, "x")))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN login expired, refresh .env"
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda: (_ for _ in ()).throw(api.espn_write.WriteError(0, "Timeout: t")))
+    r = lineup_env.post("/lineup", json=SWAP)
+    assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN couldn't be reached, try again"
     monkeypatch.setattr(api.espn_season, "roster_flags", lambda lg: (_ for _ in ()).throw(RuntimeError("mRoster down")))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"] == {"source": "espn", "error": "mRoster down"}
