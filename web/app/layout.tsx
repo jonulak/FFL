@@ -30,7 +30,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-dvh bg-background text-foreground antialiased">
         <SwRegister />
         {/* the season modal: one dialog for the app, opened from any player row */}
-        <TooltipProvider>
+        <TooltipProvider delay={400}>
           <DecisionPrefsProvider prefs={prefs}>
             <PlayerDialogProvider>
               <Nav />

@@ -104,9 +104,9 @@ function RewriteButton({ c, running, runBusy, onClick }: { c: Card; running: boo
   const verb = c.outlook?.length ? "Rewrite" : "Write";
   return (
     <Hint text={runBusy && !running ? "The full run is writing every card" : undefined}>
-    <Button type="button" variant="ghost" size="xs" onClick={onClick} disabled={running || runBusy}
+    <Button type="button" variant="ghost" size="xs" onClick={onClick} disabled={running || runBusy} focusableWhenDisabled
       aria-label={running ? `Writing ${c.name}'s outlook` : `${verb} ${c.name}'s outlook`}
-      className="-my-1 -mr-1 h-auto min-h-8 rounded-sm px-1 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 hover:bg-transparent dark:hover:bg-transparent hover:text-foreground disabled:text-muted-foreground/70 disabled:opacity-100">
+      className="-my-1 -mr-1 h-auto min-h-8 rounded-sm px-1 font-display text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-foreground/60 hover:bg-transparent dark:hover:bg-transparent hover:text-foreground aria-disabled:cursor-default aria-disabled:translate-y-0! aria-disabled:text-muted-foreground/70 aria-disabled:hover:text-muted-foreground/70">
       <Swap k={running ? "running" : verb} className="inline-flex items-center gap-1">
         {running
           ? <Spin aria-hidden role="presentation" className="size-3.5 stroke-[2.25]" />
