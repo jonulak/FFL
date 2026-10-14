@@ -474,7 +474,7 @@ function Rank({ r, pos }: { r: OppRank | null | undefined; pos: string }) {
 function Allowed({ r }: { r: OppRank | null | undefined }) {
   if (!r) return null;
   return (
-    <Meter.Root value={r.rank} max={r.of} aria-label={`${pts(r.allowed)} per game allowed, rank ${r.rank} of ${r.of}`}
+    <Meter.Root value={r.rank} max={r.of} aria-label={`${pts(r.allowed)} per game allowed`} getAriaValueText={() => `rank ${r.rank} of ${r.of}`}
       className="inline-flex items-center justify-end gap-2.5">
       <span aria-hidden className="text-xs text-foreground/70">{pts(r.allowed)}<span className="text-muted-foreground">/g</span></span>
       <Meter.Track className="relative h-1 w-12 overflow-hidden rounded-full bg-foreground/10 sm:w-16">

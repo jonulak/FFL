@@ -134,7 +134,7 @@ export function NflGameLive({ initial, path, filter, club }: { initial: NflGameP
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link href={week ? `/nfl?week=${week}` : "/nfl"} className={buttonVariants({ variant: "ghost", size: "sm", className: `-ml-2 gap-0.5 px-1 ${LABEL} hover:bg-transparent hover:text-foreground` })}>
+        <Link href={week ? `/nfl?week=${week}` : "/nfl"} className={buttonVariants({ variant: "ghost", size: "sm", className: `-ml-2 gap-0.5 px-1 ${LABEL} hover:bg-transparent dark:hover:bg-transparent hover:text-foreground` })}>
           <ChevronLeft aria-hidden className="size-4" />
           Week {week}
         </Link>

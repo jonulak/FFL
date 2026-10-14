@@ -481,7 +481,7 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
       {back && (
         <Link
           href={back}
-          className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2 -mb-2 gap-0.5 px-1 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:bg-transparent hover:text-foreground/85" })}
+          className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2 -mb-2 gap-0.5 px-1 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:bg-transparent dark:hover:bg-transparent hover:text-foreground/85" })}
         >
           <ChevronLeft aria-hidden className="size-4" />
           Scoreboard

@@ -78,13 +78,13 @@ export function RationaleForm({ decision, targets, presets, withOutcome = false,
           {options.map((o) => <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>)}
         </SelectContent>
       </Select>
-      <Field>
-        <FieldLabel htmlFor={`note-${uid}`}><Swap>{key === "other" ? "Note" : "Add a note (optional)"}</Swap></FieldLabel>
+      <Field className="gap-1.5" role={undefined}>
+        <FieldLabel className="leading-none" htmlFor={`note-${uid}`}><Swap>{key === "other" ? "Note" : "Add a note (optional)"}</Swap></FieldLabel>
         <Textarea id={`note-${uid}`} value={note} onChange={(e) => { setNote(e.target.value); setError(null); }} />
       </Field>
       {withOutcome && (
-        <Field>
-          <FieldLabel htmlFor={`outcome-${uid}`}>Outcome</FieldLabel>
+        <Field className="gap-1.5" role={undefined}>
+          <FieldLabel className="leading-none" htmlFor={`outcome-${uid}`}>Outcome</FieldLabel>
           <Textarea id={`outcome-${uid}`} value={outcome} onChange={(e) => setOutcome(e.target.value)} />
         </Field>
       )}
