@@ -44,7 +44,7 @@ def backup(dest: Path, keep: int = 14, today: date | None = None) -> Path:
     with tempfile.TemporaryDirectory() as tmp:
         local = Path(tmp) / name
         # read-only: a missing DB must raise, not be created empty and published as tonight's snapshot
-        src = sqlite3.connect(f"file:{_source()}?mode=ro", uri=True, timeout=5)
+        src = sqlite3.connect(f"{_source().resolve().as_uri()}?mode=ro", uri=True, timeout=5)  # as_uri: spaces, #, ?
         out = sqlite3.connect(local)
         try:
             _check_head(src)

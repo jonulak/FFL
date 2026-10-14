@@ -413,10 +413,12 @@ class Runner(threading.Thread):
         if week.get("week") != self.week:
             try:
                 store = P.Store(week["week"])  # before the week advances: a failed read must retry next refresh
-            except db.DBError as e:
+            except (db.DBError, db.SchemaError) as e:  # a stale schema is a RuntimeError, not a DBError
                 self.state.error = f"plays store not loaded: {e}"
                 return
             self.week, self.store = week["week"], store
+            if (self.state.error or "").startswith("plays store not loaded"):
+                self.state.error = None  # the load recovered; leave any other error alone
 
     def _on_doc(self, doc: dict) -> None:
         self._refresh_roster()
@@ -427,12 +429,13 @@ class Runner(threading.Thread):
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if self.store is not None and not first:
+            rows = P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays, stats_before)
             try:
-                self.store.add(P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays,
-                                               stats_before))
-                if (self.state.error or "").startswith("plays not saved"):
-                    self.state.error = None  # the write recovered; leave any other error alone
-            except db.DBError as e:  # the board keeps the rows in memory; a DB hiccup must not drop the feed
+                self.store.add(rows)
+                # only a write that happened proves the DB recovered: add([]) writes nothing
+                if rows and (self.state.error or "").startswith("plays not saved"):
+                    self.state.error = None  # leave any other error alone
+            except (db.DBError, db.SchemaError) as e:  # the board keeps the rows in memory; a DB hiccup must not drop the feed
                 self.state.error = f"plays not saved: {e}"
         idle = idle_for(doc)
         if idle is not None:

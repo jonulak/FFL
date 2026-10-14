@@ -387,12 +387,72 @@ def test_a_failed_plays_read_leaves_the_week_unadvanced_and_retries(monkeypatch)
 
 
 def test_a_recovered_plays_write_clears_only_its_own_error(monkeypatch):
+    from ffl import plays
+
+    class Recording:
+        def __init__(self):
+            self.written = []
+
+        def add(self, rows):
+            self.written.extend(rows)
+
+    events = []
+    monkeypatch.setattr(plays, "events_from", lambda *a, **k: list(events))
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
     r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
     r._on_doc(copy.deepcopy(FIX))  # the baseline
+    r.store = Recording()
     r.state.error = "plays not saved: database is locked"
     r._on_doc(copy.deepcopy(FIX))
-    assert r.state.error is None
+    assert r.state.error.startswith("plays not saved"), "add([]) wrote nothing, so nothing has recovered"
+    events.append({"player_id": 1})
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.store.written == [{"player_id": 1}] and r.state.error is None
     r.state.error = "roster refresh failed: boom"
     r._on_doc(copy.deepcopy(FIX))
     assert r.state.error == "roster refresh failed: boom"
+
+
+def test_a_stale_schema_at_runtime_is_recorded_not_raised(monkeypatch):
+    from ffl import db, plays
+
+    def stale(*a, **k):
+        raise db.SchemaError("ffl.db is at schema 'x', code wants 'y': run: uv run alembic upgrade head")
+
+    class Stale:
+        def add(self, rows):
+            stale()
+
+    monkeypatch.setattr(db, "plays_rows", stale)
+    monkeypatch.setattr(plays, "events_from", lambda *a, **k: [{"player_id": 1}])
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r._refresh_roster()
+    assert r.store is None and r.week is None and r.state.error.startswith("plays store not loaded")
+    r._on_doc(copy.deepcopy(FIX))  # the baseline
+    r.store = Stale()  # the load keeps failing, so the store is only ever the one set here
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.state.error.startswith("plays not saved")
+
+
+def test_a_recovered_plays_load_clears_only_its_own_error(monkeypatch):
+    from ffl import db
+
+    real, calls = db.plays_rows, []
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise db.DBError("database is locked")
+        return real(*a, **k)
+
+    monkeypatch.setattr(db, "plays_rows", flaky)
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r._refresh_roster()
+    assert r.state.error.startswith("plays store not loaded")
+    r._refresh_roster()
+    assert r.week == 1 and r.state.error is None
+    r.week, r.state.error = None, "roster refresh failed: boom"  # a new week loads; an unrelated error stays
+    r._refresh_roster()
+    assert r.week == 1 and r.state.error == "roster refresh failed: boom"
