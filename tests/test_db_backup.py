@@ -61,7 +61,7 @@ def test_backup_of_an_empty_file_is_refused_and_publishes_nothing(tmp_path, monk
 
 
 def test_backup_reads_a_db_whose_path_needs_uri_quoting(tmp_path, monkeypatch):
-    # the real backup paths hold spaces ("My Drive"); a '#' or '?' would end a hand-built URI's path
+    # the source goes through a URI (the Drive destination does not): a space, '#' or '?' in its path must be quoted
     odd = tmp_path / "My Drive #1 ?x" / "ffl.db"
     odd.parent.mkdir()
     src, out = sqlite3.connect(db.url().removeprefix("sqlite:///")), sqlite3.connect(odd)
