@@ -12,7 +12,7 @@ const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], [
 // Keyboard activation arrives as a plain click (button 0) and still lights the tab at once.
 const newTab = (e: Event) => e instanceof MouseEvent && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0);
 
-const activeOf =(path: string) => LINKS.find(([href]) => (href === "/" ? path === "/" : path.startsWith(href)))?.[0] ?? null;
+const activeOf = (path: string) => LINKS.find(([href]) => (href === "/" ? path === "/" : path.startsWith(href)))?.[0] ?? null;
 
 // The page tabs, set like the chyron of a broadcast board: shadcn Tabs in the line variant, each tab a Link
 // (pos-tabs' pattern). The strip lives in the layout, so a page change keeps it mounted and Base UI's

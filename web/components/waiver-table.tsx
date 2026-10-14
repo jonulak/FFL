@@ -299,7 +299,7 @@ function Chevron({ row }: { row: TRow<PlayerRow> }) {
   const what = [...comparePositions(row.original.pos)].join("/");
   return (
     <Button type="button" variant="ghost" size="icon-sm" onClick={row.getToggleExpandedHandler()} aria-expanded={open} aria-label={open ? `hide my ${what}s` : `compare with my ${what}s`}
-      className="h-9 w-7 rounded-md text-foreground/55 hover:bg-transparent dark:hover:bg-transparent hover:text-foreground sm:w-8">
+      className="h-9 w-7 rounded-md text-foreground/55 hover:bg-transparent dark:hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent aria-expanded:text-foreground/55 sm:w-8">
       <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-300 ease-(--ease-arrive) motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
     </Button>
   );
