@@ -45,13 +45,16 @@ PATCH_OPS = ("R", "P")  # R: replay of recent messages right after subscribing; 
 
 
 def decode(text: str) -> dict:
-    """A frame as a dict; a patch frame (R or P) gains `patch`, the decoded JSON-Patch op list."""
+    """A frame as a dict; a patch frame (R or P) gains `patch`, the decoded JSON-Patch op list.
+
+    A patch frame with no payload, outer or inner, gains no `patch`: there is nothing to apply,
+    and `Client._frame` skips it rather than reconnect (seen 2026-09-17 and 2026-09-28)."""
     f = json.loads(text)
     if f.get("op") in PATCH_OPS:
-        inner = json.loads(f["pl"])
-        if "pl" not in inner:
-            # seen once after Monday night (2026-09-28) with the shape unrecorded: say what it was
-            raise ValueError(f"patch frame without a payload, keys {list(inner)}: {text[:500]}")
+        inner = f.get("pl")
+        inner = json.loads(inner) if isinstance(inner, str) else inner
+        if not isinstance(inner, dict) or "pl" not in inner:
+            return f
         raw = inner["pl"]
         if inner.get("~c"):
             raw = zlib.decompress(base64.b64decode(raw)).decode()
@@ -254,6 +257,10 @@ class Client:
         elif op in PATCH_OPS:
             if not self.doc:
                 return  # a delta before the checkpoint: nothing to apply it to
+            if "patch" not in f:
+                # no payload: nothing to apply. Log its shape, since none has been captured yet
+                print(f"fastcast: skipped a patch frame without a payload: {text[:500]}")
+                return
             # ESPN publishes a checkpoint only every so often, so a failed patch cannot be
             # repaired from the checkpoint at this mid: raise, and run() reconnects, which
             # hands us a fresh H frame naming a checkpoint that exists.
