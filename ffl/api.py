@@ -18,6 +18,7 @@ Every GET is read-only.
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 import os
 import threading
@@ -33,7 +34,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from . import calibrate, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, season, sources
+from . import calibrate, config, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, season, sources
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -1182,6 +1183,24 @@ def notify_test():
     if out.get("disabled"):
         raise HTTPException(status_code=503, detail="notifications are off on this API (FFL_NOTIFY=0 or no VAPID key)")
     return out
+
+
+class TraceIn(BaseModel):
+    event: str
+    fields: dict = {}
+
+
+TRACE_PATH = config.DATA / "trace.jsonl"
+
+
+@app.post("/trace")
+def trace(body: TraceIn):
+    """On-device trace of the push tap path (ffl-e9x.10): the worker and the page beacon each step here, and the
+    server stamps the time, since uvicorn's access log carries none. One JSON line per event in data/trace.jsonl."""
+    row = {"at": datetime.now().astimezone().isoformat(timespec="milliseconds"), "event": body.event, **body.fields}
+    with open(TRACE_PATH, "a") as f:
+        f.write(json.dumps(row) + "\n")
+    return {"ok": True}
 
 
 @app.get("/notify/recent")

@@ -1,4 +1,5 @@
 """API glue: caching, stale fallback, validation. espn_season is stubbed; no network."""
+import json
 import threading
 import time
 from types import SimpleNamespace
@@ -1447,3 +1448,12 @@ def test_notify_tick_pulls_once_before_a_kickoff(client, monkeypatch):
     assert client.post("/notify/tick").json()["pregame"] == [], "once per kickoff"
     monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg: (_ for _ in ()).throw(RuntimeError("espn down")))
     assert client.post("/notify/tick").json()["pregame"] == {"error": "espn down"}
+
+
+def test_trace_appends_a_stamped_row(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(api, "TRACE_PATH", tmp_path / "trace.jsonl")
+    assert client.post("/trace", json={"event": "click", "fields": {"url": "/transactions"}}).status_code == 200
+    assert client.post("/trace", json={"event": "hello"}).status_code == 200
+    rows = [json.loads(line) for line in (tmp_path / "trace.jsonl").read_text().splitlines()]
+    assert [r["event"] for r in rows] == ["click", "hello"]
+    assert rows[0]["url"] == "/transactions" and rows[0]["at"][:4].isdigit()

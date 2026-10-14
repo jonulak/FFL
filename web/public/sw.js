@@ -59,6 +59,7 @@ self.addEventListener("push", (event) => {
       d = { title: "FFL", body: event.data.text() };
     }
   }
+  event.waitUntil(trace("push", { title: d.title, url: d.url, tag: d.tag }));
   event.waitUntil(
     self.registration.showNotification(d.title || "FFL", {
       body: d.body || "", tag: d.tag, renotify: Boolean(d.tag), icon: "/icon-192.png", badge: "/icon-192.png", data: { url: d.url || "/" },
@@ -74,6 +75,14 @@ self.addEventListener("push", (event) => {
 const REPLAY_MS = 30_000;
 let pending = null;
 
+// On-device trace of the tap path (ffl-e9x.10): each step is posted to the API, which stamps the server time.
+// A failed post is nothing: the trace never blocks or breaks the tap.
+function trace(event, fields = {}) {
+  return fetch("/api/trace", {
+    method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ event, fields }),
+  }).catch(() => {});
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const asked = new URL(event.notification.data?.url || "/", self.location.origin);
@@ -85,6 +94,7 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     (async () => {
       const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      trace("click", { url, windows: wins.map((w) => ({ url: w.url, focused: w.focused, visibility: w.visibilityState })) });
       if (wins.length === 0) await self.clients.openWindow(url);
       else {
         for (const w of wins) w.postMessage({ type: "open", url });
@@ -94,17 +104,24 @@ self.addEventListener("notificationclick", (event) => {
           // focus() needs the click's user activation; the message has been sent either way
         }
       }
+      const at = pending.at;
       await done;
+      trace("click-done", { url, landed: pending === null, ms: Date.now() - at });
     })(),
   );
 });
 
 self.addEventListener("message", (event) => {
   const type = event.data?.type;
+  // waitUntil: the worker may be stopped as soon as the handler returns, and the row has to get out first
   if (type === "opened" && pending) {
+    event.waitUntil(trace("opened", { url: pending.url, ms: Date.now() - pending.at }));
     pending.landed();
     pending = null;
-  } else if (type === "hello" && pending && Date.now() - pending.at < REPLAY_MS) {
-    event.source?.postMessage({ type: "open", url: pending.url });
+  } else if (type === "hello") {
+    const age = pending ? Date.now() - pending.at : null;
+    const replay = pending !== null && age < REPLAY_MS;
+    event.waitUntil(trace("hello", { from: event.source?.url, pending: pending?.url ?? null, age, replay }));
+    if (replay) event.source?.postMessage({ type: "open", url: pending.url });
   }
 });
