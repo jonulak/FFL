@@ -372,6 +372,8 @@ def _claims_payload(plan, data, status=None):
             # claims only: instant adds already happened, and the plan's free agents are on the roster after a refresh
             "edited_since_submit": bool(last) and key(last["claims"]) != key(expansion),
             "on_espn": on_espn,
+            # False under FFL_WRITES=0: every submit goes to the in-memory fake, and the UI must say so
+            "writes": espn_write.writes(),
             "players": _players(plan["groups"], data)}
 
 

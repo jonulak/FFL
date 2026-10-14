@@ -2,8 +2,8 @@ from itertools import product
 from ffl import claims as C
 
 
-def R(pid, slot="BE", droppable=True, locked=False):
-    return {"player_id": pid, "slot": slot, "droppable": droppable, "locked": locked}
+def R(pid, slot="BE", droppable=True, locked=False, injury="INJURY_RESERVE"):
+    return {"player_id": pid, "name": f"R{pid}", "slot": slot, "droppable": droppable, "locked": locked, "injury": injury}
 
 
 ROSTER = [R(i) for i in range(1, 17)] + [R(99, "IR")]   # 16 non-IR on a 17 roster -> 1 open spot
@@ -123,6 +123,15 @@ def test_cut_shared_across_groups_allowed_but_not_twice_in_one():
     gs = [{"targets": [101], "cuts": [1], "open": 0}, {"targets": [201], "cuts": [1], "open": 0}]
     assert errs(gs) == []
     assert any("listed twice" in r for r in errs([{"targets": [101], "cuts": [1, 1], "open": 0}]))
+
+
+def test_an_undesignated_ir_player_blocks_every_plan_but_not_a_withdrawal():
+    roster = ROSTER[:-1] + [R(99, "IR", injury="ACTIVE")]
+    g = [{"targets": [101], "cuts": [1], "open": 0}]
+    block = [e for e in C.validate(g, roster, {101}, 17, {}) if e["reason"] == C.IR_BLOCK]
+    assert block == [{"group": None, "player_id": 99, "reason": C.IR_BLOCK}]
+    assert C.validate([], roster, {101}, 17, {}) == [], "an empty plan only withdraws claims: no add for ESPN to refuse"
+    assert errs(g, roster=ROSTER[:-1] + [R(99, "IR", injury="QUESTIONABLE")]) == [], "any designation keeps IR legal"
 
 
 def test_cut_not_on_roster_and_ir_cut():
