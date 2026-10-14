@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from ffl import espn_season
+from ffl.adp import norm_name
 from tests.test_season import TWO_QB, roster as season_roster
 
 
@@ -1050,6 +1051,13 @@ def test_unmatched_lists_a_sources_top_rows_espn_does_not_know():
 def test_aliases_rename_a_source_key(monkeypatch):
     monkeypatch.setitem(espn_season.ALIASES, ("hollywood brown", "WR"), ("marquise brown", "WR"))
     assert espn_season.canon({("hollywood brown", "WR"): 120.0}) == {("marquise brown", "WR"): 120.0}
+
+
+def test_aliases_are_written_normalized():
+    # an entry typed as the site spells him would never match: both sides must be what norm_name makes
+    for src, espn in espn_season.ALIASES.items():
+        assert src == (norm_name(src[0]), src[1]) and espn == (norm_name(espn[0]), espn[1]), (src, espn)
+        assert src[1] == espn[1]
 
 
 def test_projection_rows_for_freezes_at_kickoff():

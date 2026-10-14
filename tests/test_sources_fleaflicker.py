@@ -28,6 +28,12 @@ def test_rb_rows_read_receiving_and_fumbles_by_group():
     assert out[("jahmyr gibbs", "RB")] == pytest.approx(9.66 + 6 + 4.7 + 3.99 + 2.4 - .2, abs=.06)
 
 
+def test_an_injury_tag_is_not_part_of_the_name():
+    out = fleaflicker.parse_page(RB, "RB", KS, 5)
+    assert ("ashton jeanty", "RB") in out, "the cell reads 'Q Ashton Jeanty RB LV': the name is the link"
+    assert not [k for k in out if k[0].startswith(("q ", "ir ", "ird ", "o ", "d "))]
+
+
 def test_another_week_is_idle():
     with pytest.raises(Idle):   # the page shows week 5 whatever was asked
         fleaflicker.parse_page(QB, "QB", KS, 6)

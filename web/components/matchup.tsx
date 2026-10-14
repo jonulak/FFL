@@ -241,8 +241,9 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
       </ItemActions>
       {/* The phone's game line spans the half, the PROJ unit at its inner end by the spine; the
           opponent's is mirrored, his game at the outer edge. Once his game is on the score line
-          needs the width, so the note (`proj 17.8`) closes the stat line beneath instead. */}
-      <ItemFooter className={`mt-1 gap-x-1.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
+          needs the width, so the note (`proj 17.8`) closes the stat line beneath instead. The game
+          chip overhangs its line by 4px (GameLink's -mx-1), so the gap is 10px to leave 6 showing. */}
+      <ItemFooter className={`mt-1 gap-x-2.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
         <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 ${opp ? "justify-end" : ""}`}>
           {!p.bye && <GameLink href={gameLinkFor(p, week)} className="-my-1 py-1"><GameLine p={p} size={13} className={opp ? "justify-end" : ""} /></GameLink>}
           {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}

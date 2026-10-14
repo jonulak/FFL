@@ -62,13 +62,18 @@ def parse_page(html: str, pos: str, ks: dict, week: int) -> dict[tuple[str, str]
     opp = names.index("Opp")
     out, played = {}, 0
     for tr in trs[2:]:
-        tds = [c.get_text(" ", strip=True) for c in tr.find_all("td")]
+        cells = tr.find_all("td")
+        tds = [c.get_text(" ", strip=True) for c in cells]
         if len(tds) != len(names) or not (m := NAME_RE.match(tds[0])):
             continue
         if PLAYED_RE.search(tds[opp]):
             played += 1
             continue
-        out[(norm_name(m.group(1)), pos)] = round(score({stat: _num(tds[i]) for i, stat in cols}, ks), 1)
+        # the injury tag ("Q", "IR-D") is a span before the name link, so the cell's text reads
+        # "Q Jaxon Smith-Njigba WR SEA": the link alone is his name
+        link = cells[0].select_one(".player-name a.player-text")
+        name = link.get_text(" ", strip=True) if link else m.group(1)
+        out[(norm_name(name), pos)] = round(score({stat: _num(tds[i]) for i, stat in cols}, ks), 1)
     if not out and played:
         raise Idle("every game played")
     return out

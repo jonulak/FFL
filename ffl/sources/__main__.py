@@ -24,8 +24,9 @@ def compare() -> None:
     week = lg.current_week
     rw = E.ros_week_for(lg, week)
     players = [E.flatten_box_player(bp) for lineup in E._boxes_by_team(lg, week).values() for bp in lineup]
-    src = E.weekly_sources(week, settings)
+    # the season lookup first: it sets the ESPN pool keys the weekly unmatched-name log is read against
     lookup = E.season_lookup(settings, rw)
+    src = E.weekly_sources(week, settings)
     print("sources this week:", {name: len(d) for name, d in src.items()})
     rows = []
     for p, m in zip(players, E.merge_weekly(players, src)):

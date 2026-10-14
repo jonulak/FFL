@@ -428,7 +428,11 @@ def parse_sleeper_rows(rows: list[dict], ks: dict) -> dict[tuple[str, str], floa
 
 # A source's name for a player -> ESPN's, when norm_name alone does not match them (add as the
 # unmatched log names them)
-ALIASES: dict[tuple[str, str], tuple[str, str]] = {}
+ALIASES: dict[tuple[str, str], tuple[str, str]] = {
+    ("chigoziem okonkwo", "TE"): ("chig okonkwo", "TE"),     # CBS, FantasySharks
+    ("josh palmer", "WR"): ("joshua palmer", "WR"),           # CBS
+    ("kenneth gainwell", "RB"): ("kenny gainwell", "RB"),     # FantasySharks
+}
 _POOL_KEYS: list = []   # [the ESPN pool's source keys], set by season_lookup for the weekly unmatched log
 
 
