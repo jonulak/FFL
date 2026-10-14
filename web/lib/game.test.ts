@@ -33,6 +33,9 @@ describe("gamePhase", () => {
     expect(gamePhase(p({ bye: true, kickoff: null }), T0 + 3_600_000)).toBe("pending");
     expect(gamePhase(p({ kickoff: null }), T0 + 3_600_000)).toBe("pending");
   });
+  it("a bye stays pending though ESPN marks it played (game_played 100, all week)", () => {
+    expect(gamePhase(p({ bye: true, kickoff: null, game_played: 100 }), T0 - 60_000)).toBe("pending");
+  });
 });
 
 describe("toPlay", () => {
