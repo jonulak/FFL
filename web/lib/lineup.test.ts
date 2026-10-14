@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, afterFailure, applyMoves, fillOptions, gainText, irEligible, irIllegal, isMismatch, lineupFailure, movesFor, recommendedTarget, slotLabel, swapOptions, targets, wantedSlot } from "./lineup";
+import { accepts, afterFailure, applyMoves, fillOptions, gainText, irEligible, irIllegal, isLocked, isMismatch, lineupFailure, movesFor, recommendedTarget, slotLabel, swapOptions, targets, wantedSlot } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
@@ -222,6 +222,37 @@ describe("fillOptions", () => {
   it("OP takes a QB from the bench", () => expect(fillOptions(all, "OP").map(key)).toContain("fill:5:0"));
   it("nobody already in a slot of that type", () =>
     expect(fillOptions(all, "RB").map(key)).toEqual(["fill:4:11"]));
+});
+
+describe("kickoff locks (live overlay's game, before the roster build's `locked`)", () => {
+  const game = (status: "in" | "post") => ({ status, quarter: 1, clock: "15:00", score: {} });
+  const key = (o: { kind: string; with?: Card; who?: Card; slot?: string }) =>
+    `${o.kind}:${o.with?.player_id ?? o.who?.player_id ?? o.slot ?? ""}`;
+  const liveWr = c(30, "WR", "WR", 14, { game: game("in") }), finalRb = c(31, "RB", "BE", 11, { game: game("post") });
+  const benchWr = c(32, "WR", "BE", 10);
+  const roster = [qb, flex, rb, liveWr, finalRb, benchWr];
+
+  it("in progress or final is locked; no game, or the flag alone, as before", () => {
+    expect(isLocked(liveWr)).toBe(true);
+    expect(isLocked(finalRb)).toBe(true);
+    expect(isLocked(benchWr)).toBe(false);
+    expect(isLocked(lockedWr)).toBe(true);
+  });
+  it("a player whose game is on or over has no targets and no sheet", () => {
+    expect(targets(roster, liveWr, ["RB/WR/TE"])).toEqual([]);
+    expect(swapOptions(roster, finalRb, [])).toEqual([]);
+  });
+  it("a partner whose game is on is never a target, but is listed shut", () => {
+    expect(targets(roster, benchWr, []).map(key)).toEqual(["swap:2"]);
+    expect(swapOptions(roster, benchWr, []).map(key)).toEqual(["swap:2", "locked:30"]);
+    expect(swapOptions(roster, flex, []).map(key)).toEqual(["swap:32", "bench:", "locked:30", "locked:31"]);
+  });
+  it("a shut row keeps his live game", () => {
+    const shut = swapOptions(roster, benchWr, []).find((o) => o.kind === "locked");
+    expect(shut).toMatchObject({ with: { player_id: 30, game: { status: "in" } } });
+  });
+  it("an empty slot lists him shut, not as a fill", () =>
+    expect(fillOptions(roster.filter((x) => x.player_id !== 2), "RB/WR/TE").map(key)).toEqual(["fill:32", "fill:3", "locked:30", "locked:31"]));
 });
 
 describe("IR", () => {

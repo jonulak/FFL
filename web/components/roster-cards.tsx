@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import type { Card } from "@/lib/api";
 import { STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
-import { irIllegal, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure } from "@/lib/lineup";
+import { irIllegal, isLocked, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure } from "@/lib/lineup";
 import { gameLinkFor } from "@/lib/nfl";
 import { NAME_LINK } from "@/lib/player-log";
 import { headshotSrcSet, headshotUrl, team } from "@/lib/teams";
@@ -101,7 +101,7 @@ function SlotControl({ c, picked, busy, disabled, onPick }: {
 }) {
   const tone = c.slot === "BE" || c.slot === "IR" ? "text-muted-foreground" : "text-foreground/85";
   const off = isMismatch(c);
-  if (c.locked) {
+  if (isLocked(c)) {
     return (
       <div className={SLOT_CELL} title="his game has started">
         <span className={`${SLOT_BOX} gap-0.5 ${SLOT_TEXT} ${tone}`}>
@@ -262,7 +262,7 @@ export function IrBlocked({ c, onFix, disabled }: { c: Card; onFix: () => void; 
       <p className="min-w-0 flex-1 basis-56 text-[0.9375rem] leading-snug text-pretty">
         <span className="font-semibold">{c.name}</span> is on IR with no injury designation — ESPN blocks every move until he comes off IR.
       </p>
-      <Button variant="outline" className="h-11 shrink-0 px-4 md:h-9" disabled={disabled || c.locked} onClick={onFix}>
+      <Button variant="outline" className="h-11 shrink-0 px-4 md:h-9" disabled={disabled || isLocked(c)} onClick={onFix}>
         Move {shortName(c.name)}
       </Button>
     </div>
