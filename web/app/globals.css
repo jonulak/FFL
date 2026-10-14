@@ -208,6 +208,9 @@
   }
   html {
     @apply font-sans;
+    /* The scrollbar's lane is always held: a page change empties the page for a moment, and a scrollbar that
+       came and went with it slid the centred nav sideways on every tab tap. */
+    scrollbar-gutter: stable;
   }
   /* The browser's own surfaces, set from the board's palette rather than left at defaults. */
   ::selection {
