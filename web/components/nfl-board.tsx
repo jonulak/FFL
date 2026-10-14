@@ -1,6 +1,6 @@
 "use client";
 
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ChevronRight, Triangle } from "lucide-react";
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
@@ -114,7 +114,7 @@ export function NflBoardLive({ initial, path }: { initial: NflBoard; path: strin
         <LiveChip on={data.live} />
         <WeekSelect week={data.week} current={data.current} weeks={data.weeks} base="/nfl" />
       </SectionHeading>
-      {count === 0 && <Empty className="py-6"><EmptyHeader><EmptyTitle>No NFL games in week {data.week}.</EmptyTitle></EmptyHeader></Empty>}
+      {count === 0 && <Empty className="py-6"><EmptyHeader><EmptyDescription>No NFL games in week {data.week}.</EmptyDescription></EmptyHeader></Empty>}
       {data.sections.map((s) => (
         <section key={s.live ? "live" : `${s.final ? "final-" : ""}${s.kickoff ?? "tbd"}`} className="space-y-3">
           <h2 className={`${LABEL} text-foreground/80`}>

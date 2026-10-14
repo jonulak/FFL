@@ -1,5 +1,5 @@
 import { ChevronRight, Triangle } from "lucide-react";
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -173,7 +173,7 @@ export function LeagueView({ data }: { data: League }) {
         {/* another week crossfades in over the last, in place (globals.css, `.swap`) */}
         <ViewTransition update="swap" default="none">
           {data.scoreboard.length === 0
-            ? <Empty className="py-6"><EmptyHeader><EmptyTitle>No matchups scheduled for week {data.week}.</EmptyTitle></EmptyHeader></Empty>
+            ? <Empty className="py-6"><EmptyHeader><EmptyDescription>No matchups scheduled for week {data.week}.</EmptyDescription></EmptyHeader></Empty>
             : (
               <div className="grid gap-3 md:grid-cols-2 md:gap-4">
                 {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final || m.final} href={matchupHref(m, data.week, data.current_week)} />)}

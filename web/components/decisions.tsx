@@ -1,6 +1,6 @@
 "use client";
 
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -163,8 +163,10 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
       {groups.length === 0 && (
         <Empty className="py-6">
           <EmptyHeader>
-            <EmptyTitle className="text-base">{filters.open ? "Nothing open" : "No decisions yet"}</EmptyTitle>
-            {(filters.open || filters.week != null || filters.kind) && <EmptyDescription><Link href="/decisions">clear filters</Link></EmptyDescription>}
+            <EmptyDescription>
+              {filters.open ? "Nothing open" : "No decisions yet"}
+              {(filters.open || filters.week != null || filters.kind) && <> · <Link href="/decisions">clear filters</Link></>}
+            </EmptyDescription>
           </EmptyHeader>
         </Empty>
       )}

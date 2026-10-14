@@ -1,6 +1,6 @@
 "use client";
 
-import { Empty as EmptyState, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Empty as EmptyState, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ArrowLeftRight, Minus, Plus, UserRound } from "lucide-react";
 import { startTransition, useState, ViewTransition } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -211,7 +211,7 @@ export function TransactionsView({ data }: { data: Transactions }) {
       <div className="space-y-5">
       {shown.length === 0 ? (
         <EmptyState className="py-6">
-          <EmptyHeader><EmptyTitle>{mineOnly ? "No moves of yours here yet." : "No moves of this kind yet."}</EmptyTitle></EmptyHeader>
+          <EmptyHeader><EmptyDescription>{mineOnly ? "No moves of yours here yet." : "No moves of this kind yet."}</EmptyDescription></EmptyHeader>
         </EmptyState>
       ) : (
         byWeek(shown).map(({ week, moves }) => (
