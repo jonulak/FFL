@@ -57,7 +57,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
     </div>
   );
   return (
-    <div className={`space-y-5 ${claims ? "max-lg:pb-28" : ""}`}>
+    <div className={`space-y-5 ${claims ? "max-[112rem]:pb-28" : ""}`}>
       <RefreshOnMoves />
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <h1 className="font-display text-4xl font-bold leading-none tracking-tight">
@@ -93,14 +93,14 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
           The claims plan didn&apos;t load ({claimsFault.source} · {claimsFault.message}), so the claim tools are off. The pool below is current.
         </p>
       )}
-      {/* the table, with the week's claim groups docked to its right from `lg` (a bottom sheet below). The page
-          keeps every other page's 64rem column, so the table lines up with the nav: once the margin can hold the
-          22rem dock (112rem viewport) it stands outside the column and the table takes the column's full width */}
+      {/* the table takes every other page's 64rem column, lined up with the nav. The week's claim groups stand
+          outside it, to the right, once the margin holds the 22rem dock (112rem viewport); below that they are a
+          bottom bar and sheet, so the table never gives up width */}
       {claims ? (
         <ClaimsProvider initial={claims} players={tab}>
-          <div data-claims-dock className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6 min-[112rem]:relative min-[112rem]:block">
+          <div data-claims-dock className="min-[112rem]:relative">
             {table}
-            <div className="lg:self-stretch min-[112rem]:absolute min-[112rem]:inset-y-0 min-[112rem]:left-[calc(100%+1.5rem)] min-[112rem]:w-[22rem]">
+            <div className="min-[112rem]:absolute min-[112rem]:inset-y-0 min-[112rem]:left-[calc(100%+1.5rem)] min-[112rem]:w-[22rem]">
               <ClaimsPanel />
             </div>
           </div>

@@ -624,7 +624,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   return (
     // no scroll anchoring (Chrome only): the fold and the drop place the cards themselves
     <div className="space-y-3 [overflow-anchor:none]">
-      <div className="flex flex-wrap items-center justify-between gap-2 max-lg:pr-9">
+      <div className="flex flex-wrap items-center justify-between gap-2 max-[112rem]:pr-9">
         {heading(`Claims · process ${day}`)}
         {/* a save in flight turns beside the state, so no line opens over the groups and shuts again */}
         <span className="ml-auto flex items-center gap-1.5">
@@ -730,7 +730,7 @@ function ClaimsSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
     <Sheet open={open} onOpenChange={(o) => { if (!submitting) onOpenChange(o); }}
       onOpenChangeComplete={(o) => { if (!o) { setStep("claims"); setLeaving(null); } }}>
       <SheetContent ref={popup} side="bottom" showCloseButton={!submitting}
-        className={`gap-0 overflow-hidden p-0 ${forward ? "max-h-dvh rounded-none data-[side=bottom]:h-dvh" : "max-h-[85dvh] rounded-t-xl"}`}>
+        className={`gap-0 overflow-hidden p-0 md:mx-auto md:max-w-xl ${forward ? "max-h-dvh rounded-none data-[side=bottom]:h-dvh" : "max-h-[85dvh] rounded-t-xl"}`}>
         <SheetDescription className="sr-only">The week&apos;s claim groups: drag the handles to reorder or to move a player to another group, then review and send.</SheetDescription>
         <div className="relative grid min-h-0 flex-auto grid-rows-1" style={{ "--stage-from": forward ? "1.25rem" : "-0.75rem" } as CSSProperties}>
           {(step === "claims" || leaving === "claims") && (
@@ -751,7 +751,7 @@ function ClaimsSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
   );
 }
 
-// The week's claim groups: a column docked beside the table from `lg`, a bottom sheet behind a
+// The week's claim groups: a column docked beside the table's column from 112rem, a bottom sheet behind a
 // fixed bar below it. The column opens the Submit dialog; the sheet turns into the review itself.
 export function ClaimsPanel() {
   const { data, groups } = useClaims();
@@ -760,11 +760,11 @@ export function ClaimsPanel() {
   const n = data.claims.length + data.now.length;
   return (
     <>
-      <aside aria-label="Claims" className="hidden lg:sticky lg:top-16 lg:block lg:max-h-[calc(100dvh-5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pb-4">
+      <aside aria-label="Claims" className="hidden min-[112rem]:sticky min-[112rem]:top-16 min-[112rem]:block min-[112rem]:max-h-[calc(100dvh-5rem)] min-[112rem]:overflow-y-auto min-[112rem]:overscroll-contain min-[112rem]:pb-4">
         <PanelBody heading={(t) => <h2 className={LABEL}>{t}</h2>} onReview={() => setReview(true)} />
       </aside>
-      <div className={`fixed inset-x-0 bottom-0 z-20 border-t border-foreground/10 bg-card/95 px-4 pt-2 shadow-[0_-8px_24px_-16px_rgb(0_0_0_/_0.5)] lg:hidden ${PHONE_INSET}`}>
-        <Button variant="ghost" className="h-12 w-full justify-between px-3" onClick={() => setSheet(true)}>
+      <div className={`fixed inset-x-0 bottom-0 z-20 border-t border-foreground/10 bg-card/95 px-4 pt-2 shadow-[0_-8px_24px_-16px_rgb(0_0_0_/_0.5)] min-[112rem]:hidden ${PHONE_INSET}`}>
+        <Button variant="ghost" className="mx-auto flex h-12 w-full max-w-5xl justify-between px-3" onClick={() => setSheet(true)}>
           <span className="font-display text-base font-semibold uppercase tracking-[0.1em]">
             Claims
             <span className="text-muted-foreground"> · <Swap>{groups.length ? `${groups.length} group${groups.length > 1 ? "s" : ""} · ${n} move${n === 1 ? "" : "s"}` : "none yet"}</Swap></span>
