@@ -99,8 +99,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   any failed week drops Sleeper's ROS for that build rather than undercount), CBS's public rest-of-season pages (`ffl/sources/cbs.py`,
   QB/RB/WR/TE only, rescored) and FantasySharks' weekly projections summed over w..18 like Sleeper's (`ffl/sources/sharks.py`; its Rest of Year page covers only ~10 games), each value in `ros_src`. Every
   player dict carries `ros_proj`/`ros_spread`/`ros_n`; `season.ros_proj(p, week)` falls back to
-  season total × weeks left when no source has him, and only then does `add_score` haircut an OUT/IR
-  player for games missed (all sources already leave those games out). `free_agent_pool` reports
+  season total × weeks left when no source has him, and only then counts an OUT/IR player's games from his
+  return week (all sources already leave those games out); the haircut is on ROS, never on a delta, so
+  `add_score` only applies the week factor. `free_agent_pool` reports
   `ros_source` so the page can say when the whole pool fell back. Sleeper is Rotowire's single model.
   `w` is the **ROS week** (`espn_season.ros_week_for` → `season.ros_week`): ESPN's scoring period, or the
   next one once every kickoff in it is four hours old (off the pro-schedule document) — ESPN rolls its week

@@ -334,11 +334,14 @@ def ros_from_sources(p: dict) -> bool:
 
 
 def ros_proj(p: dict, week: int) -> float:
-    """His rest-of-season points by the models (STRATEGY.md, "Waivers"): the sources' number when
-    either has him, else the season projection scaled by the weeks left."""
+    """His rest-of-season points by the models (STRATEGY.md, "Waivers"): the sources' number when any
+    has him (already net of the games he misses), else the season projection scaled by the weeks left
+    and, OUT/IR, counting only the games from his return week. The haircut lives here, on ROS, so
+    every delta runs on it: scaling a delta instead pulled a negative one toward zero (ffl-piy)."""
     if ros_from_sources(p):
         return float(p["ros_proj"])
-    return round(float(p.get("season_proj") or 0.0) * ros_fraction(week), 1)
+    _, avail = injury_terms(p.get("injury") or "", week, games_out(p.get("return_week"), week))
+    return round(float(p.get("season_proj") or 0.0) * ros_fraction(week) * avail, 1) + 0.0
 
 
 # STRATEGY.md, "Usage-adjusted ROS": the prior is worth K starter-share games. A guess about noise,
@@ -412,15 +415,13 @@ def injury_terms(injury: str, week: int, games_out: int | None = None) -> tuple[
     return INJURY_FACTOR.get(injury or "", 1.0), 1.0
 
 
-def add_score(ros_delta: float, week_delta: float, injury: str, week: int,
-              games_out: int | None = None, injury_priced: bool = False) -> float:
+def add_score(ros_delta: float, week_delta: float, injury: str) -> float:
     """STRATEGY.md, "Waivers": add = (ros_delta + week_delta if he would start) × injury factor;
-    OUT/IR get no week term and, unless the ROS sources already left out the games he misses
-    (`injury_priced`), count only the games after return."""
-    factor, avail = injury_terms(injury, week, games_out)
+    OUT/IR get no week term and no factor (his ROS already counts only the games after return,
+    see `ros_proj`). Never scale a delta: it cannot tell a worthless player from a neutral one."""
     if injury in GAMES_OUT:
-        return round(ros_delta * (1.0 if injury_priced else avail), 1)
-    return round((ros_delta + week_delta) * factor, 1)
+        return round(ros_delta, 1) + 0.0
+    return round((ros_delta + week_delta) * INJURY_FACTOR.get(injury or "", 1.0), 1) + 0.0
 
 
 def weakest_rostered(my_roster: list[dict], pos: str, week: int) -> float:
@@ -462,8 +463,7 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
                      "ros_proj": ros_proj(fa, week), "ros_adj": ros, "week_proj": playable_proj(fa),
                      "delta_roster": d_roster, "delta_pool": d_pool, "would_start": would_start,
                      "week_delta": week_delta if would_start else 0.0,
-                     "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"), week,
-                                      games_out(fa.get("return_week"), week), ros_from_sources(fa))})
+                     "add": add_score(ros_delta, week_delta if would_start else 0.0, fa.get("injury"))})
     return sorted(rows, key=lambda r: -r["add"])
 
 
