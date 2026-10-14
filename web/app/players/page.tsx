@@ -93,12 +93,16 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
           The claims plan didn&apos;t load ({claimsFault.source} · {claimsFault.message}), so the claim tools are off. The pool below is current.
         </p>
       )}
-      {/* the table, with the week's claim groups docked to its right from `lg` (a bottom sheet below) */}
+      {/* the table, with the week's claim groups docked to its right from `lg` (a bottom sheet below). The page
+          keeps every other page's 64rem column, so the table lines up with the nav: once the margin can hold the
+          22rem dock (112rem viewport) it stands outside the column and the table takes the column's full width */}
       {claims ? (
         <ClaimsProvider initial={claims} players={tab}>
-          <div data-claims-dock className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
+          <div data-claims-dock className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6 min-[112rem]:relative min-[112rem]:block">
             {table}
-            <ClaimsPanel />
+            <div className="lg:self-stretch min-[112rem]:absolute min-[112rem]:inset-y-0 min-[112rem]:left-[calc(100%+1.5rem)] min-[112rem]:w-[22rem]">
+              <ClaimsPanel />
+            </div>
           </div>
         </ClaimsProvider>
       ) : table}

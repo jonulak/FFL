@@ -32,8 +32,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <DecisionPrefsProvider prefs={prefs}>
           <PlayerDialogProvider>
             <Nav />
-            {/* the Players page with its claims dock gets 86rem from `xl`, so the table still fits beside it */}
-            <main className="mx-auto max-w-5xl px-3 py-4 xl:has-[[data-claims-dock]]:max-w-[86rem]"><PageTransition>{children}</PageTransition></main>
+            {/* one 64rem column on every page, the nav's width; the Players page's claims dock stands outside it */}
+            <main className="mx-auto max-w-5xl px-3 py-4"><PageTransition>{children}</PageTransition></main>
           </PlayerDialogProvider>
         </DecisionPrefsProvider>
         <Toaster position="bottom-center" />
