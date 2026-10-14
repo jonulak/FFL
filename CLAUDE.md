@@ -113,7 +113,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   the `calibration_snapshots`/`calibration_rows` tables, once per ROS week: the first build stands) and `ffl.calibrate` scores the Ks against what happened.
 - Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
   (`espn_season.game_from_stats` off espn-api's per-week `stats`; every rostered player's earlier weeks come from
-  each earlier form week's box scores (`_roster_games`, so the replacement line runs on adjusted ROS too), free agents' from
+  each earlier form week's box scores (`_roster_games`, so the replacement line runs on adjusted ROS too; a week he was on no
+  fantasy roster, a pickup's free-agent weeks, from one `kona_player_info` call per such week by ids, `_gap_games`, kept for the
+  process, cleared by `/refresh`: `free_agents` filters by today's status, so it never has him), free agents' from
   one `free_agents(week=w)` call per position and form week) with Sleeper's snaps (`SLEEPER_STATS`,
   `off_snp`/`tm_off_snp`, a day behind the games) joined per week. Every Roster card and Waiver row carries
   `form` (None before his first game); the columns are shown raw, and only the snap-weighted `l3` reaches `add`,

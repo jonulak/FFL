@@ -202,7 +202,8 @@ def test_apply_exp_sets_years_where_sleeper_has_him_and_leaves_none_otherwise():
 
 def test_roster_games_read_earlier_weeks_off_those_weeks_box_scores(monkeypatch):
     """lg.teams rosters carry only the current period (ffl-rns, ffl-sba), so earlier weeks come from
-    each week's box scores, for every club's players. A player on no roster that week has no row for it."""
+    each week's box scores, for every club's players. A week he was on no roster comes off that week's
+    player info (ffl-iig), which the conftest stub answers with nothing here."""
     def box(pid, w, pts):
         return SimpleNamespace(playerId=pid, position="RB", game_played=100,
                                stats={w: week_stats(pts, 14.0, rushingAttempts=12)})
@@ -301,6 +302,16 @@ def test_roster_games_ask_no_player_info_for_a_week_whose_box_scores_failed(monk
     monkeypatch.setattr(espn_season, "raw_league_get", _info_by_week({(5, 2): _info_doc(5, 2, 18.0, 5.0, 16)}, asked))
     games = espn_season._roster_games(SimpleNamespace(teams=[]), {7: [_rb_box(4, 3, 9.0), _rb_box(5, 3, 21.0)]}, week=3)
     assert asked == [(2, [5])] and [g["week"] for g in games[5]] == [2, 3]
+
+
+def test_gap_games_split_a_weeks_ask_by_batch_and_skip_an_unreadable_player(monkeypatch):
+    asked = []
+    docs = {(pid, 2): _info_doc(pid, 2, 5.0, 4.0, 3) for pid in range(100, 100 + espn_season.GAP_BATCH + 1)}
+    docs[(100, 2)] = {"id": 100, "player": {"id": 100}}  # no proTeamId: espn-api's Player raises on it
+    monkeypatch.setattr(espn_season, "raw_league_get", _info_by_week(docs, asked))
+    out = espn_season._gap_games({pid: [2] for pid, _ in docs}, week=3)
+    assert sorted(len(ids) for _, ids in asked) == [1, espn_season.GAP_BATCH]
+    assert 100 not in out and len(out) == espn_season.GAP_BATCH, "only the unreadable player loses his row"
 
 
 def test_roster_games_ask_nothing_in_week_one(monkeypatch):

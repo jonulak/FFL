@@ -1327,11 +1327,15 @@ def _gap_games(gaps: dict[int, list[int]], week: int) -> dict[int, list[dict]]:
         filt = {"players": {"filterIds": {"value": ids}}}
         try:
             doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=w)
-            players = [Player(p, SEASON) for p in doc.get("players") or []]
         except Exception as e:  # noqa: BLE001 — a pickup's free-agent weeks are not worth the page
             logging.getLogger(__name__).warning("week %s player info not read; no free-agent rows for %s: %s", w, ids, e)
             return
-        for pl in players:
+        for p in doc.get("players") or []:
+            try:  # one player ESPN answers oddly costs his own rows, not the batch's
+                pl = Player(p, SEASON)
+            except Exception as e:  # noqa: BLE001
+                logging.getLogger(__name__).warning("week %s player info unreadable for %s: %s", w, p.get("id"), e)
+                continue
             if pl.playerId in ids:  # ESPN answering without one leaves him to be asked again next build
                 _GAP_GAMES[(pl.playerId, w)] = player_games(pl, [w], week)
     if asks:
