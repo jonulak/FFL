@@ -215,7 +215,9 @@ def test_start_runs_in_the_background_under_the_lock_and_records_last(outlook_di
     gate.set()
     t.join(5)
     assert outlook.running() is False
-    assert outlook.LAST["generated"] == 1 and outlook.LAST["at"] is not None
+    assert outlook.LAST["generated"] == 1
+    # aware, like generated_at: a naive stamp would read in the phone's zone, not the Mac's
+    assert datetime.fromisoformat(outlook.LAST["at"]).tzinfo is not None
     assert outlook.LAST["error"] is None
     assert outlook.load(2)[1]["bullets"] == [TAKE]
 
@@ -228,7 +230,7 @@ def test_start_releases_the_lock_when_the_run_raises(outlook_dir, monkeypatch):
     t.join(5)
     assert outlook.running() is False
     assert outlook.LAST["error"].startswith("RuntimeError")
-    assert outlook.LAST["at"] is not None
+    assert datetime.fromisoformat(outlook.LAST["at"]).tzinfo is not None
 
 
 def test_start_releases_the_lock_when_the_thread_will_not_start(outlook_dir, monkeypatch):

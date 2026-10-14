@@ -340,9 +340,9 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
         # its own record: the counts stay at the last finished run's and `error` says this one failed.
         try:
             counts = generate(cards, week, run=run)
-            LAST.update(counts, at=datetime.now().isoformat(timespec="minutes"), error=None)
+            LAST.update(counts, at=datetime.now().astimezone().isoformat(timespec="minutes"), error=None)
         except Exception as e:  # noqa: BLE001 — the page needs the reason, not a lost traceback
-            LAST.update(at=datetime.now().isoformat(timespec="minutes"), error=f"{type(e).__name__}: {e}")
+            LAST.update(at=datetime.now().astimezone().isoformat(timespec="minutes"), error=f"{type(e).__name__}: {e}")
         finally:
             LOCK.release()
 
