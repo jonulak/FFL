@@ -348,8 +348,15 @@ def _players(groups, data):
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
 
 
+def _claims_roster(data):
+    """My roster as the claims read it: the cached pool's rows with the slots a fake lineup move (FFL_WRITES=0) put
+    players in laid over, as the Roster page does, so a fake move off IR clears the IR block here too."""
+    fake = espn_write.fake_slots()
+    return [{**p, "slot": fake.get(p["player_id"], p.get("slot"))} for p in data.get("roster", [])]
+
+
 def _claims_payload(plan, data, status=None):
-    roster, status = data.get("roster", []), _status(data) if status is None else status
+    roster, status = _claims_roster(data), _status(data) if status is None else status
     last = plan["submits"][-1] if plan["submits"] else None
     ids = set(last["ids"]) if last else set()
     now, expansion = claims_mod.plan_now(plan["groups"], status), claims_mod.expand(plan["groups"], status)
@@ -404,7 +411,7 @@ def claims_submit(body: SubmitIn):
         raise HTTPException(409, "a submit is already running")
     try:
         data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-        plan, roster = _load_plan(data["week"]), data.get("roster", [])
+        plan, roster = _load_plan(data["week"]), _claims_roster(data)
         status = _fresh_status(data)
         # the dialog showed an "Add now" list from its own read: instant adds can't be undone, so any other is a 409
         now = claims_mod.plan_now(plan["groups"], status)
@@ -567,6 +574,9 @@ def lineup(body: LineupIn):
                 log.warning("lineup moved but its rows not kept: %s", e)
             espn_season._BOXES.pop(data["week"], None)  # the box scores carry the slots; read them again
             cache.expire("week")  # the Matchup board shows this lineup too
+            # the claims validate against the pool's roster slots (an IR player with no designation blocks every
+            # claim): the next /claims or /players builds it from the moved roster, never from the pre-move one
+            cache.drop("waivers")
             if uncertain:
                 cache.drop("roster")
                 raise HTTPException(502, {"source": "espn", "error": "ESPN did not answer — it may have moved; reload", "moved": True})

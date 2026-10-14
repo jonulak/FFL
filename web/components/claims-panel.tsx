@@ -360,7 +360,8 @@ function SubmitState() {
   if (!data.last_submit) return fade("unsent", <Badge variant="muted">not sent</Badge>);
   if (data.edited_since_submit) return fade("edited", <Badge variant="warn">edited since submit</Badge>);
   if (!data.on_espn) return fade("differs", <Badge variant="warn">differs from {who}</Badge>);
-  if (data.last_submit.claims.length === 0 && data.last_submit.now.length === 0)
+  // an empty plan was sent (a refused instant add also records nothing sent, but its group stays in the plan)
+  if (data.groups.length === 0 && data.last_submit.claims.length === 0 && data.last_submit.now.length === 0)
     return fade("withdrawn", <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />withdrawn <Clock iso={data.last_submit.at} /></Badge>);
   return fade("sent", <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />{data.writes ? "on ESPN" : "sent to the fake"} · <Clock iso={data.last_submit.at} /></Badge>);
 }
@@ -473,9 +474,10 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   const day = processDay(groups.flatMap((g) => g.targets).filter((t) => status[String(t)] !== "FREEAGENT").map((t) => player(t)?.waiver_date ?? null));
   const moves = data.now.length + data.claims.length;
   // An empty plan withdraws: a Send that cancels the claims sent from here (and, in the review, the
-  // outside ones with the box ticked), so a pending claim can be taken back without ESPN's site.
+  // outside ones with the box ticked), so a pending claim can be taken back without ESPN's site. With only
+  // outside claims pending the review opens for its box, and its Send stays off until the box is ticked.
   const fromApp = data.pending.filter((c) => c.from_app).length;
-  const withdraw = moves === 0 && (fromApp > 0 || data.pending.length > 0);
+  const withdraw = moves === 0 && data.pending.length > 0;
   const blocked = dirty || saving || submitting || data.errors.length > 0 || (moves === 0 && !withdraw);
 
   const rowKind = drag && kindOf(drag.id) !== "g" ? (kindOf(drag.id) as Kind) : null;

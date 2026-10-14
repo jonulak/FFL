@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import type { Claim, Presets, SubmitResult } from "@/lib/api";
 import { deferred, savedNote, whyRows } from "@/lib/decisions";
-import { atMost, errorWhere, processDay, submitSummary, submitTimeoutMs, type SubmitFailure } from "@/lib/claims";
+import { atMost, errorWhere, outsideWhere, processDay, submitSummary, submitTimeoutMs, type SubmitFailure } from "@/lib/claims";
 import { ClaimName } from "./claim-name";
 import { SubmitError, useClaims } from "./claims-context";
 import { useDecisionPrefs } from "./decision-prefs";
@@ -61,12 +61,13 @@ function Verdict({ ok, children }: { ok: boolean; children: ReactNode }) {
   );
 }
 
-function Failure({ f, name }: { f: SubmitFailure; name: (id: number) => string }) {
+function Failure({ f, name, writes }: { f: SubmitFailure; name: (id: number) => string; writes: boolean }) {
+  const who = writes ? "ESPN" : "the fake";
   return (
     <div role="alert" className="space-y-1 rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-      {f.kind === "running" && <p>A submit is already running. Wait for it, then look at what ESPN holds before sending again.</p>}
+      {f.kind === "running" && <p>A submit is already running. Wait for it, then look at what {who} holds before sending again.</p>}
       {f.kind === "espn" && <p>ESPN refused: {f.error}. Nothing was sent.</p>}
-      {f.kind === "changed" && <p>Nothing was sent: {f.error}. The list below is what ESPN says now.</p>}
+      {f.kind === "changed" && <p>Nothing was sent: {f.error}. The list below is what {who} says now.</p>}
       {f.kind === "other" && <p>{f.error}</p>}
       {f.kind === "invalid" && (
         <>
@@ -150,6 +151,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [fault, setFault] = useState<SubmitFailure | null>(null);
   const name = (id: number) => player(id)?.name ?? `player ${id}`;
+  const line = (c: Pick<Claim, "add" | "drop">) => `+${name(c.add)}${c.drop != null ? ` −${name(c.drop)}` : ""}`;
   const fromApp = data.pending.filter((c) => c.from_app);
   const outside = data.pending.filter((c) => !c.from_app);
   const pos = new Map(Object.entries(data.players).map(([k, p]) => [Number(k), p.pos]));
@@ -257,11 +259,13 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
         {!result && (
           <section className="space-y-1.5">
             <h3 className={SUB}>{withdrawal ? "Withdraw" : `Claims · process ${day}`}</h3>
-            {withdrawal && (
+            {withdrawal && withdrawn > 0 && (
               <p className="text-sm leading-relaxed">
-                This withdraws the {plural(fromApp.length, "claim")} sent from here
-                {fromApp.length > 0 && <>: {fromApp.map((c) => `+${name(c.add)}${c.drop != null ? ` −${name(c.drop)}` : ""}`).join(", ")}</>}.
-                {" "}{writes ? "ESPN" : "The fake"} will hold none of yours{outside.length > 0 && !replaceOutside ? "; the ones filed on ESPN directly stay" : ""}.
+                This withdraws
+                {fromApp.length > 0 && <> the {plural(fromApp.length, "claim")} sent from here ({fromApp.map(line).join(", ")})</>}
+                {fromApp.length > 0 && replaceOutside && " and"}
+                {replaceOutside && <> the {plural(outside.length, "claim")} {outsideWhere(writes)} ({outside.map(line).join(", ")})</>}.
+                {" "}{writes ? "ESPN" : "The fake"} will hold none of yours{outside.length > 0 && !replaceOutside ? `; the ${plural(outside.length, "claim")} ${outsideWhere(writes)} stay${outside.length === 1 ? "s" : ""}` : ""}.
               </p>
             )}
             {!withdrawal && fromApp.length > 0 && (
@@ -272,8 +276,8 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
             {outside.length > 0 && (
               <div className="space-y-1.5 rounded-md bg-foreground/[0.04] px-3 py-2">
                 <p className="text-xs leading-relaxed">
-                  <span className="font-medium">{outside.length} pending claim{outside.length === 1 ? " was" : "s were"} filed on ESPN, not here:</span>{" "}
-                  {outside.map((c) => `+${name(c.add)}${c.drop != null ? ` −${name(c.drop)}` : ""}`).join(", ")}.
+                  <span className="font-medium">{outside.length} pending claim{outside.length === 1 ? " was" : "s were"} {outsideWhere(writes)}, not here:</span>{" "}
+                  {outside.map(line).join(", ")}.
                 </p>
                 <Label className="text-xs font-normal">
                   <Checkbox checked={replaceOutside} onCheckedChange={setReplaceOutside} disabled={submitting} />
@@ -304,7 +308,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
           <p className="text-muted-foreground">Nothing to withdraw: no claim sent from here is pending.</p>
         )}
         {why && <div className="log-in" style={{ "--i": 1 } as CSSProperties}><ClaimsWhy targets={why.rows.promise} presets={presets} /></div>}
-        {fault && <div className="log-in"><Failure f={fault} name={name} /></div>}
+        {fault && <div className="log-in"><Failure f={fault} name={name} writes={writes} /></div>}
       </div>
       {/* PHONE_INSET, written out: Tailwind only generates a variant it can read in the source */}
       <DialogFooter className={phone ? `mb-0 gap-3 rounded-none px-5 pt-3 ${PHONE_INSET}` : "gap-2 max-sm:rounded-none max-sm:gap-3 max-sm:px-5 max-sm:pt-3 max-sm:pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))]"}>

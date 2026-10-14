@@ -570,6 +570,27 @@ def test_an_undesignated_ir_player_blocks_the_submit(claims_env, monkeypatch):
     r = claims_env.post("/claims/submit", json={"replace_outside": False})
     assert r.status_code == 422 and r.json()["detail"]["errors"][0]["player_id"] == 99
     assert api.espn_write._FAKE == [], "nothing reached the writer"
+    # a fake lineup move (FFL_WRITES=0) took him off IR: the claims read the fake's slots, as the Roster page does
+    monkeypatch.setattr(api.espn_write, "_FAKE_SLOTS", {99: "BE"})
+    assert claims_env.get("/claims").json()["errors"] == []
+    assert claims_env.post("/claims/submit", json={"replace_outside": False}).status_code == 200
+
+
+def test_a_lineup_move_rebuilds_the_claims_roster(lineup_env, monkeypatch):
+    builds = {"n": 0}
+
+    def pool(week=None):
+        builds["n"] += 1
+        return {"week": 3, "roster": [], "positions": {"WR": []}}
+
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", pool)
+    monkeypatch.setattr(api, "_roster_size", lambda: 17)
+    lineup_env.get("/claims")
+    lineup_env.get("/claims")
+    assert builds["n"] == 1
+    assert lineup_env.post("/lineup", json=SWAP).status_code == 200
+    lineup_env.get("/claims")
+    assert builds["n"] == 2, "the move off IR the panel asked for must clear the block on the next read"
 
 
 def test_waiver_run_retires_the_submitted_plan(claims_env, monkeypatch):
