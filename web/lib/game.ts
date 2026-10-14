@@ -34,7 +34,7 @@ export function sideTotals(lineup: Player[], idle: (p: Player) => boolean, now: 
     else if (phase === "live") { scored += p.actual; toCome += Math.max(0, p.proj - p.actual); }
     else if (!idle(p)) toCome += p.proj;
   }
-  const r = (n: number) => Math.round(n * 10) / 10;
+  const r = (n: number) => Math.round(n * 100) / 100;
   return { scored: r(scored), toCome: r(toCome), estimate: r(scored + toCome) };
 }
 

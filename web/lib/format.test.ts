@@ -13,8 +13,8 @@ describe("standings", () => {
 });
 
 describe("format", () => {
-  it("pts", () => { expect(pts(12.34)).toBe("12.3"); expect(pts(null)).toBe("—"); });
-  it("signed", () => { expect(signed(3.2)).toBe("+3.2"); expect(signed(-1)).toBe("−1.0"); expect(signed(0)).toBe("+0.0"); });
+  it("pts", () => { expect(pts(12.346)).toBe("12.35"); expect(pts(null)).toBe("—"); });
+  it("signed", () => { expect(signed(3.2)).toBe("+3.20"); expect(signed(-1)).toBe("−1.00"); expect(signed(0)).toBe("+0.00"); expect(signed(2, 1)).toBe("+2.0"); });
   it("injuryTone", () => {
     expect(injuryTone("ACTIVE")).toBe("ok"); expect(injuryTone("QUESTIONABLE")).toBe("warn"); expect(injuryTone("OUT")).toBe("bad");
   });
@@ -31,7 +31,7 @@ describe("formItems", () => {
   it("lists every column a running back has, in reading order, with the game count on L", () => {
     const items = formItems(base);
     expect(items.map((i) => `${i.label} ${i.value}`)).toEqual([
-      "L2 3.7", "beat −7.2", "opp 6.0", "snap 25%", "tgt/snap 0.07", "ypt 1.6", "pace −74.0", "wt 1.4",
+      "L2 3.70", "beat −7.20", "opp 6.0", "snap 25%", "tgt/snap 0.07", "ypt 1.6", "pace −74.00", "wt 1.4",
     ]);
     expect(items[2].trend).toBe("up");
     expect(items[3].title).toContain("1 of the 2 games");
@@ -52,7 +52,7 @@ describe("formItems", () => {
 describe("formCell", () => {
   const base = { games: 2, weeks: [1, 2], l3: 3.7, beat: -7.2, opp: 6, opp_trend: 2, snap_pct: 25, snap_games: 1, tgt_snap: 0.07, ypt: 1.6, pace_gap: -74.0, weight: 1.4, games_left: 15 };
   it("notes a short window and partial snaps under the number, and keeps the column label", () => {
-    expect(formCell(base, "l3")).toMatchObject({ label: "L3", value: "3.7", note: "2 games" });
+    expect(formCell(base, "l3")).toMatchObject({ label: "L3", value: "3.70", note: "2 games" });
     expect(formCell({ ...base, games: 3, weeks: [1, 2, 3] }, "l3")?.note).toBeUndefined();
     expect(formCell(base, "snap_pct")).toMatchObject({ value: "25%", note: "1 of 2" });
     expect(formCell({ ...base, snap_games: 2 }, "snap_pct")?.note).toBeUndefined();

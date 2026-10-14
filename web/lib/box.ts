@@ -2,10 +2,10 @@ import type { BoxItem, Volume } from "./api";
 
 // A count as the box score prints it: 250, 1.5 sacks.
 export const count = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
-// Points to the hundredth when a yardage rate leaves one (5.52), else to the tenth (8.0), so
-// the line items add up on the page to the total beneath them.
+// Points to the hundredth, as ESPN scores them (5.52, 8.00), so the line items add up on the
+// page to the total beneath them.
 export const points = (n: number) => {
-  const s = Math.abs(n).toFixed(2).replace(/0$/, "");
+  const s = Math.abs(n).toFixed(2);
   return n < 0 ? `−${s}` : s;
 };
 // The league's rate: "+0.04 each", "−2 each"; a band row is a flat award, "+1 flat".

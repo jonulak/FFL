@@ -1,7 +1,7 @@
 import type { Ahead, Club, Form } from "./api";
 
 export function pts(n: number | null | undefined): string {
-  return n == null ? "—" : n.toFixed(1);
+  return n == null ? "—" : n.toFixed(2);
 }
 
 // A club's record as the standings set it: W-L, with ties only when there are any.
@@ -16,8 +16,9 @@ export function ordinal(n: number): string {
   return `${n}${suffix}`;
 }
 
-export function signed(n: number): string {
-  return n >= 0 ? `+${n.toFixed(1)}` : `−${Math.abs(n).toFixed(1)}`;
+// A signed number, to the hundredth for points as ESPN scores them; `digits` for a count.
+export function signed(n: number, digits = 2): string {
+  return n >= 0 ? `+${n.toFixed(digits)}` : `−${Math.abs(n).toFixed(digits)}`;
 }
 
 export function injuryTone(status: string): "ok" | "warn" | "bad" {
@@ -70,7 +71,7 @@ export function formCell(f: Form, key: keyof Form): FormItem | null {
       note: f.games < 3 ? `${f.games} game${f.games === 1 ? "" : "s"}` : undefined });
     case "beat": return item(signed(f.beat));
     case "opp": return f.opp == null ? null : item(f.opp.toFixed(1), { trend: oppTrend(f),
-      title: col.title + (f.opp_trend == null ? "" : `; latest game ${signed(f.opp_trend)} on the earlier ones`) });
+      title: col.title + (f.opp_trend == null ? "" : `; latest game ${signed(f.opp_trend, 1)} on the earlier ones`) });
     case "snap_pct": return f.snap_pct == null ? null : item(`${f.snap_pct}%`, {
       title: `${col.title}, over ${f.snap_games} of the ${f.games} games`,
       note: f.snap_games < f.games ? `${f.snap_games} of ${f.games}` : undefined });

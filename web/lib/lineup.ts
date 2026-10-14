@@ -39,7 +39,7 @@ const fits = (p: Card, slot: string) =>
 const starts = (slot: string) => slot !== "BE" && slot !== "IR";
 // what a player is worth to the starting lineup in a slot
 const worth = (c: Card, slot: string) => (starts(slot) ? c.play_proj : 0);
-const round = (n: number) => Math.round(n * 10) / 10 || 0;  // never −0
+const round = (n: number) => Math.round(n * 100) / 100 || 0;  // never −0
 
 // Where the picked player can go in one tap, with the change to the starting lineup's projection. A swap needs
 // each player to fit the other's slot (IR takes only a player listed IR or Out); locked players are never
@@ -205,11 +205,11 @@ export function afterFailure<T>(f: Pick<LineupFailure, "moved">, before: T, opti
   return f.moved ? optimistic : before;
 }
 
-// A target's change to the starting lineup's projection: "+2.0", "−1.0" (a true minus), "±0" for no change.
+// A target's change to the starting lineup's projection: "+2.00", "−1.00" (a true minus), "±0" for no change.
 export function gainText(n: number): string {
-  const r = Math.round(n * 10) / 10;
+  const r = Math.round(n * 100) / 100;
   if (r === 0) return "±0";
-  return r > 0 ? `+${r.toFixed(1)}` : `−${Math.abs(r).toFixed(1)}`;
+  return r > 0 ? `+${r.toFixed(2)}` : `−${Math.abs(r).toFixed(2)}`;
 }
 
 // A refused POST /lineup, as the row says it. `moved`: ESPN took the move but the read-back failed, so the

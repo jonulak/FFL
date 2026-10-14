@@ -19,13 +19,13 @@ def test_window_is_the_last_three_games_played():
     games = [G(1, 10, 8), G(2, 12, 9), G(3, 0, 9, opp=0), G(4, 20, 10), G(5, 14, 11)]
     f = season.recent_form(games, "RB", ros=100.0, games_left=13)
     assert f["games"] == 3 and f["weeks"] == [2, 4, 5], "week 3 (no opportunity: bye or out) is not a game"
-    assert f["l3"] == round((12 + 20 + 14) / 3, 1)
-    assert f["beat"] == round(((12 - 9) + (20 - 10) + (14 - 11)) / 3, 1)
+    assert f["l3"] == round((12 + 20 + 14) / 3, 2)
+    assert f["beat"] == round(((12 - 9) + (20 - 10) + (14 - 11)) / 3, 2)
 
 
 def test_short_window_carries_its_count_and_none_is_none():
     f = season.recent_form([G(1, 2.8, 12.0), G(2, 4.5, 9.6)], "RB", ros=132.4, games_left=16)
-    assert f["games"] == 2 and f["l3"] == round((2.8 + 4.5) / 2, 1) and f["beat"] == round(((2.8 - 12) + (4.5 - 9.6)) / 2, 1)
+    assert f["games"] == 2 and f["l3"] == round((2.8 + 4.5) / 2, 2) and f["beat"] == round(((2.8 - 12) + (4.5 - 9.6)) / 2, 2)
     assert season.recent_form([], "RB", ros=50.0, games_left=16) is None
     assert season.recent_form([G(1, 0, 8, opp=0)], "WR", ros=50.0, games_left=16) is None, "never played: nothing"
 

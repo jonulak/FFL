@@ -303,7 +303,7 @@ def overlay_side(side: dict, points: dict[int, float], games: dict[str, dict] | 
                  stats: dict[int, dict] | None = None, scoring: list[dict] | None = None) -> dict:
     """One build_side side with live points on every group, its total re-summed over the starters."""
     side = {**side, **{g: overlay_players(side.get(g, []), points, games, stats, scoring) for g in ("lineup", "bench", "ir")}}
-    side["actual_total"] = round(sum(p["actual"] for p in side["lineup"]), 1)
+    side["actual_total"] = round(sum(p["actual"] for p in side["lineup"]), 2)
     return side
 
 
@@ -337,7 +337,7 @@ def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dic
             side = m[key]
             ids = side.get("starter_ids") or []
             if any(i in points for i in ids):
-                row[key] = {**side, "score": round(sum(points.get(i, 0.0) for i in ids), 1)}
+                row[key] = {**side, "score": round(sum(points.get(i, 0.0) for i in ids), 2)}
         row["live"] = any((games or {}).get(t, {}).get("status") == "in"
                           for key in ("home", "away") for t in m[key].get("starter_teams") or [])
         row["final"] = S.matchup_final(m, games)

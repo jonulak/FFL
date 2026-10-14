@@ -546,7 +546,7 @@ def build_side(team, players: list[dict], settings: dict) -> dict:
             "logo": getattr(team, "logo_url", "") or "", "lineup": lineup, "bench": bench, "ir": ir,
             "optimal": opt, "optimal_swaps": S.lineup_diff(cur, opt),
             "proj_total": S.lineup_total(cur), "optimal_total": S.lineup_total(opt),
-            "actual_total": round(sum(p["actual"] for p in lineup), 1)}
+            "actual_total": round(sum(p["actual"] for p in lineup), 2)}
 
 
 def sleeper_ros(weeks: list[dict[tuple[str, str], float]]) -> dict[tuple[str, str], float]:
@@ -1385,8 +1385,8 @@ def league_state(week: int | None = None) -> dict:
     me = my_team_id(lg)
     current = lg.current_week
     week = week or current
-    standings = [{"rank": i, **_club(t), "points_for": round(t.points_for, 1),
-                  "points_against": round(t.points_against, 1), "streak": _streak(t), "me": t.team_id == me}
+    standings = [{"rank": i, **_club(t), "points_for": round(t.points_for, 2),
+                  "points_against": round(t.points_against, 2), "streak": _streak(t), "me": t.team_id == me}
                  for i, t in enumerate(lg.standings(), 1)]
     # Box scores rather than the lighter mMatchupScore view: they carry each side's lineup, whose
     # starters the tile's projection and odds are built from. espn_api clamps box_scores to the
@@ -1416,9 +1416,9 @@ def league_state(week: int | None = None) -> dict:
                 except Exception:  # noqa: BLE001
                     src = {}
             players = merge_weekly([flatten_box_player(bp) for bp in starters], src) if starters else []
-            row[side] = {**_club(t), "score": round(score, 1),
-                         "proj": (round(sum(S.playable_proj(p) for p in players), 1) if players
-                                  else round(float(getattr(m, f"{side}_projected", 0) or 0), 1)),
+            row[side] = {**_club(t), "score": round(score, 2),
+                         "proj": (round(sum(S.playable_proj(p) for p in players), 2) if players
+                                  else round(float(getattr(m, f"{side}_projected", 0) or 0), 2)),
                          "me": t.team_id == me,
                          "starter_ids": [bp.playerId for bp in starters],
                          "starter_teams": sorted({bp.proTeam for bp in starters if getattr(bp, "proTeam", None)}),

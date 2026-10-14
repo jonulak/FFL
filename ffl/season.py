@@ -189,7 +189,7 @@ def current_lineup(roster: list[dict]) -> list[dict]:
 
 
 def lineup_total(lineup: list[dict]) -> float:
-    return round(sum(e["proj"] for e in lineup), 1)
+    return round(sum(e["proj"] for e in lineup), 2)
 
 
 def lineup_diff(current: list[dict], optimal: list[dict]) -> list[dict]:
@@ -541,14 +541,14 @@ def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dic
     yds = sum(float(g.get("rec_yd") or 0) for g in window)
     targets = pos in TARGET_POSITIONS
     # the window game by game, so the outlook can read the trend's shape and not just its mean
-    rows = [{"week": g["week"], "pts": round(float(g["pts"]), 1),
+    rows = [{"week": g["week"], "pts": round(float(g["pts"]), 2),
              "snap_pct": round(100 * float(g["snaps"]) / float(g["team_snaps"]))
              if g.get("snaps") is not None and g.get("team_snaps") else None,
              "tgt": g.get("tgt"), "car": g.get("car"), "rec": g.get("rec"), "pass_att": g.get("pass_att")}
             for g in window]
     return {"games": len(window), "weeks": [g["week"] for g in window],
-            "l3": round(l3, 1),
-            "beat": round(_mean([float(g["pts"]) - float(g["proj"]) for g in window]), 1),
+            "l3": round(l3, 2),
+            "beat": round(_mean([float(g["pts"]) - float(g["proj"]) for g in window]), 2),
             "opp": round(opp, 1) if opp is not None else None, "opp_trend": trend,
             "snap_pct": round(100 * snaps / team_snaps) if snapped and team_snaps > 0 else None,
             "snap_games": len(snapped),

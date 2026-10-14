@@ -15,7 +15,7 @@ describe("player-log", () => {
   it("labels weeks and points", () => {
     expect(weekLabel(wk(7))).toBe("W7");
     expect(ptsText(null)).toBe("—");
-    expect(ptsText(12.25)).toBe("12.3");
+    expect(ptsText(12.254)).toBe("12.25");
   });
   it("adds the return week to the header chip only when the week is known and it is still ahead", () => {
     expect(headerInjury("OUT", 4)).toBe("OUT");

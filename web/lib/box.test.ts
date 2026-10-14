@@ -8,8 +8,8 @@ describe("box", () => {
     expect(count(250)).toBe("250");
     expect(count(1.5)).toBe("1.5");
     expect(points(5.52)).toBe("5.52");
-    expect(points(8)).toBe("8.0");
-    expect(points(-2)).toBe("−2.0");
+    expect(points(8)).toBe("8.00");
+    expect(points(-2)).toBe("−2.00");
   });
   it("states the league's rate", () => {
     expect(rule(item(-2, false, -2))).toBe("−2 each");

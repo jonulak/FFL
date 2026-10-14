@@ -46,11 +46,11 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
                 className={`hover:bg-transparent ${t.me ? "bg-foreground/[0.05]" : ""} ${t.rank === playoffTeams && t.rank < rows.length ? "border-b-2 border-foreground/35" : "border-foreground/10"}`}
               >
                 <TableCell className="pl-3 text-right font-display text-lg font-semibold tabular-nums text-muted-foreground sm:pl-4">{t.rank}</TableCell>
-                <TableCell className="py-2 whitespace-normal">
+                <TableCell className="w-full max-w-0 py-2 whitespace-normal">
                   <div className="flex items-center gap-2.5 sm:gap-3">
                     <ClubLogo src={clubLogoSrc(t)} abbrev={t.abbrev} size={32} />
                     <div className="min-w-0">
-                      <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
+                      <p className="flex min-w-0 items-center gap-x-2 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
                         <TeamLink id={t.team_id} className="truncate">{t.team}</TeamLink>
                         {t.me && <Badge variant="muted" shape="chip">me</Badge>}
                       </p>
@@ -85,7 +85,7 @@ function ScoreRow({ side, on, trailing, won, odds, half }: { side: ScoreSide; on
       {odds != null && <OddsHalf p={odds} half={half} />}
       <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={36} className={`transition-opacity duration-500 ${trailing ? "opacity-70" : ""}`} />
       <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
+        <p className="flex min-w-0 items-center gap-x-2 font-display text-[1.25rem] font-semibold leading-none tracking-tight">
           <span className="truncate">{side.team}</span>
           {side.me && <Badge variant="muted" shape="chip">me</Badge>}
         </p>

@@ -36,7 +36,7 @@ type Move = { player_id: number; name: string; pos?: string; from?: string; to?:
 
 // "Name: call START, gap +2.5 · BE → FLEX", the lineup move as it was recorded.
 function MoveLine({ m }: { m: Move }) {
-  const gap = m.gap == null ? null : `${m.gap >= 0 ? "+" : "−"}${Math.abs(m.gap).toFixed(1)}`;
+  const gap = m.gap == null ? null : `${m.gap >= 0 ? "+" : "−"}${Math.abs(m.gap).toFixed(2)}`;
   const seed = { player_id: m.player_id, name: m.name, pos: m.pos ?? "", team: "" };
   return (
     <li>

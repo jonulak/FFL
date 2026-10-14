@@ -71,8 +71,8 @@ describe("movesFor", () => {
 });
 
 describe("gainText", () => {
-  it("signs a gain, a true minus for a loss", () => { expect(gainText(2)).toBe("+2.0"); expect(gainText(-1)).toBe("−1.0"); });
-  it("zero and minus zero are ±0", () => { expect(gainText(0)).toBe("±0"); expect(gainText(-0)).toBe("±0"); expect(gainText(-0.04)).toBe("±0"); });
+  it("signs a gain, a true minus for a loss", () => { expect(gainText(2)).toBe("+2.00"); expect(gainText(-1)).toBe("−1.00"); });
+  it("zero and minus zero are ±0", () => { expect(gainText(0)).toBe("±0"); expect(gainText(-0)).toBe("±0"); expect(gainText(-0.004)).toBe("±0"); });
 });
 
 describe("lineupFailure", () => {

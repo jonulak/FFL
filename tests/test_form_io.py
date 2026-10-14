@@ -157,7 +157,7 @@ def test_roster_state_reads_earlier_weeks_off_those_weeks_box_scores(monkeypatch
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     st = espn_season.roster_state(week=3, sources={}, season={}, injuries={}, snaps={})
     card = next(c for c in st["cards"] if c["player_id"] == 4)
-    assert card["form"]["weeks"] == [1, 2] and card["form"]["beat"] == round(((15 - 14) + (22 - 14.5)) / 2, 1)
+    assert card["form"]["weeks"] == [1, 2] and card["form"]["beat"] == round(((15 - 14) + (22 - 14.5)) / 2, 2)
     assert card["form"]["opp_trend"] == 25.0 - 21.0
 
 
