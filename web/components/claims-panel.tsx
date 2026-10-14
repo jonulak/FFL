@@ -1,5 +1,6 @@
 "use client";
 
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   DndContext, DragOverlay, KeyboardSensor, MeasuringStrategy, MouseSensor, TouchSensor, closestCenter, pointerWithin, useDroppable, useSensor,
   useSensors, type CollisionDetection, type DragCancelEvent, type DragEndEvent, type DragOverEvent, type DragStartEvent, type UniqueIdentifier,
@@ -640,10 +641,15 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
         <p className={`text-xs ${(error ?? lastError ?? "").startsWith("saving") ? "text-muted-foreground" : "text-destructive"}`} aria-live="polite">{error ?? lastError}</p>
       </Presence>
       <Presence show={groups.length === 0} fold>
-        <p className="max-w-[40ch] text-sm leading-relaxed text-muted-foreground">
-          No claims this week. Press <span className="font-medium text-foreground">claim</span> on a player&apos;s row to start a group:
-          list the players you&apos;d take, best first, then the roster spots they can fill.
-        </p>
+        <Empty className="gap-1 px-2 py-4">
+          <EmptyHeader className="max-w-[40ch]">
+            <EmptyTitle>No claims this week.</EmptyTitle>
+            <EmptyDescription>
+              Press <span className="font-medium text-foreground">claim</span> on a player&apos;s row to start a group:
+              list the players you&apos;d take, best first, then the roster spots they can fill.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       </Presence>
       <DndContext id={dndId} sensors={sensors} collisionDetection={collide} measuring={MEASURE}
         onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={onDragCancel}>

@@ -1,5 +1,6 @@
 "use client";
 
+import { Empty as EmptyState, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ArrowLeftRight, Minus, Plus, UserRound } from "lucide-react";
 import { startTransition, useState, ViewTransition } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -209,9 +210,9 @@ export function TransactionsView({ data }: { data: Transactions }) {
       <ViewTransition update="swap" default="none">
       <div className="space-y-5">
       {shown.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          {mineOnly ? "No moves of yours here yet." : "No moves of this kind yet."}
-        </p>
+        <EmptyState className="py-6">
+          <EmptyHeader><EmptyTitle>{mineOnly ? "No moves of yours here yet." : "No moves of this kind yet."}</EmptyTitle></EmptyHeader>
+        </EmptyState>
       ) : (
         byWeek(shown).map(({ week, moves }) => (
           <section key={week} className="space-y-3" aria-label={weekLabel(week, data.current_week)}>

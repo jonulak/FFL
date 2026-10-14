@@ -1,5 +1,6 @@
 "use client";
 
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -160,10 +161,12 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
       <ViewTransition update="swap" default="none">
       <div data-pending={pending || undefined} className="pending-dim space-y-4">
       {groups.length === 0 && (
-        <p className="py-6 text-center text-muted-foreground">
-          {filters.open ? "Nothing open" : "No decisions yet"}
-          {(filters.open || filters.week != null || filters.kind) && <> · <Link href="/decisions" className="underline">clear filters</Link></>}
-        </p>
+        <Empty className="py-6">
+          <EmptyHeader>
+            <EmptyTitle className="text-base">{filters.open ? "Nothing open" : "No decisions yet"}</EmptyTitle>
+            {(filters.open || filters.week != null || filters.kind) && <EmptyDescription><Link href="/decisions">clear filters</Link></EmptyDescription>}
+          </EmptyHeader>
+        </Empty>
       )}
       {groups.map((g) => (
         <section key={g.week ?? "season"} className="space-y-1">

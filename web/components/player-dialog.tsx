@@ -1,5 +1,6 @@
 "use client";
 
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -339,13 +340,13 @@ function Seasons({ log }: { log: PlayerLog }) {
           note={played.games > 0 ? `${played.games} ${played.games === 1 ? "game" : "games"} · ${pts(played.pts)} pts${snap != null ? ` · ${snap}% snaps` : ""}` : undefined} />
         {now && now.weeks.length > 0
           ? <Weeks s={now} pos={log.pos} week={log.current_week} />
-          : <p className="py-1 text-sm text-muted-foreground">No games yet.</p>}
+          : <Empty className="gap-0 px-0 py-2"><EmptyHeader><EmptyDescription>No games yet.</EmptyDescription></EmptyHeader></Empty>}
       </section>
       <section aria-labelledby="season-past" className="log-in space-y-1.5" style={{ "--i": Math.min(now?.weeks.length ?? 0, 10) + 1 } as React.CSSProperties}>
         <Heading id="season-past" title="Past seasons" />
         {past.length > 0
           ? <PastSeasons seasons={past} />
-          : <p className="py-1 text-sm text-muted-foreground">No games before {log.season}.</p>}
+          : <Empty className="gap-0 px-0 py-2"><EmptyHeader><EmptyDescription>No games before {log.season}.</EmptyDescription></EmptyHeader></Empty>}
       </section>
     </div>
   );

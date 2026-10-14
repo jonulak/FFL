@@ -1,5 +1,6 @@
 "use client";
 
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -23,7 +24,11 @@ import { Ticker, whole } from "./motion";
 export function PlayFeed({ plays, empty = "No plays yet.", compact = false, pick }: { plays: Play[]; empty?: string; compact?: boolean; pick?: Pick }) {
   const rows = useLedger(plays, key);
   if (rows.length === 0) {
-    return <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>;
+    return (
+      <Empty className="gap-0 px-0 py-4">
+        <EmptyHeader><EmptyDescription className="text-xs">{empty}</EmptyDescription></EmptyHeader>
+      </Empty>
+    );
   }
   const Row = compact ? CompactRow : PlayRow;
   // The hairline and the gap between rows live inside each slot's clip, so they open and fold

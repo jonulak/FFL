@@ -1,5 +1,6 @@
 "use client";
 
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
   type Column, type ColumnDef, type Row as TRow, type SortingState,
@@ -373,11 +374,15 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
   if (rows.length === 0) {
     // every rostered player is in the pool, the free agents only to ESPN's top 150 at each position (espn_season.POOL_SIZE)
     return (
-      <p className="max-w-[60ch] py-6 text-sm text-muted-foreground">
-        {q
-          ? <>No player matching <span className="font-medium text-foreground">&ldquo;{q}&rdquo;</span>, rostered or among ESPN&apos;s top 150 free agents at each position.</>
-          : fa ? <>ESPN lists no free agents at {pos} right now.</> : <>Nobody at {pos} right now.</>}
-      </p>
+      <Empty className="py-6">
+        <EmptyHeader className="max-w-[60ch]">
+          <EmptyDescription>
+            {q
+              ? <>No player matching <span className="font-medium text-foreground">&ldquo;{q}&rdquo;</span>, rostered or among ESPN&apos;s top 150 free agents at each position.</>
+              : fa ? <>ESPN lists no free agents at {pos} right now.</> : <>Nobody at {pos} right now.</>}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
   // the card lets the header out to pin to the page (no overflow clip); the header's end cells
