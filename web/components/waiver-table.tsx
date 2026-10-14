@@ -5,7 +5,7 @@ import {
   type Column, type ColumnDef, type Row as TRow, type SortingState,
 } from "@tanstack/react-table";
 import { ArrowDown, ChevronDown } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, memo, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -315,6 +315,36 @@ function CompareRow({ fa, mine, week, showPos, cols, k }: { fa: PlayerRow; mine:
   );
 }
 
+// One player's row and, while it is open, my players under him. Memoized on his data, not on
+// TanStack's row: a sort hands back fresh row objects for the same players, and re-rendering all
+// 150 rows (each with its menus, dialog and chips) was the whole cost of a tap on a heading. A
+// skipped row keeps its old `row`, whose handlers still reach the table by id.
+type PoolRowProps = { row: TRow<PlayerRow>; open: boolean; cols: Col[]; roster: RosterRow[]; week: number; showPos: boolean };
+const PoolRow = memo(function PoolRow({ row, open, roster, week, showPos }: PoolRowProps) {
+  const mine = open ? roster.filter((m) => comparePositions(row.original.pos).has(m.pos)) : [];
+  const cells = row.getVisibleCells();
+  const leaf = cells.map((c) => c.column);
+  return (
+    <>
+      <TableRow data-key={row.id} className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
+        {cells.map((cell) => {
+          const meta = cell.column.columnDef.meta as Meta;
+          if (cell.column.id === "expand") return <TableCell key={cell.id} className="w-0 py-2 pr-0 pl-0.5 sm:pl-1.5"><Chevron row={row} /></TableCell>;
+          // the name column's cell is a whole <td> (NameCell), shared with the compare rows
+          if (cell.column.id === "name") return <Fragment key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</Fragment>;
+          return <TableCell key={cell.id} className={cellClass(cell.column.id, meta)}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>;
+        })}
+      </TableRow>
+      {mine.map((m) => <CompareRow key={`${row.id}-${m.player_id}`} k={`${row.id}-${m.player_id}`} fa={row.original} mine={m} week={week} showPos={showPos} cols={leaf} />)}
+      {open && mine.length === 0 && (
+        <TableRow data-key={`${row.id}-none`} className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
+          <TableCell colSpan={leaf.length} className="py-2 pl-4 text-xs text-muted-foreground sm:pl-5">nobody at {row.original.pos} on my roster</TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+}, (a, b) => a.row.original === b.row.original && a.open === b.open && a.cols === b.cols && a.roster === b.roster && a.week === b.week && a.showPos === b.showPos);
+
 // The player pool at one position: shadcn's Table driven by TanStack (sorting, the compare
 // rows). Rows arrive in the API's `add` order and open that way; a heading re-sorts them (numbers
 // high first, the name A to Z; a second tap flips it). The column set is the quick read: add and
@@ -350,7 +380,6 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
       </p>
     );
   }
-  const leaf = table.getVisibleLeafColumns();
   // the card lets the header out to pin to the page (no overflow clip); the header's end cells
   // round their own top corners to the card's
   return (
@@ -376,27 +405,9 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
             ))}
           </TableHeader>
           <TableBody ref={body}>
-            {table.getRowModel().rows.map((row) => {
-              const open = row.getIsExpanded();
-              const mine = open ? roster.filter((m) => comparePositions(row.original.pos).has(m.pos)) : [];
-              return [
-                <TableRow key={row.id} data-key={row.id} className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
-                  {row.getVisibleCells().map((cell) => {
-                    const meta = cell.column.columnDef.meta as Meta;
-                    if (cell.column.id === "expand") return <TableCell key={cell.id} className="w-0 py-2 pr-0 pl-0.5 sm:pl-1.5"><Chevron row={row} /></TableCell>;
-                    // the name column's cell is a whole <td> (NameCell), shared with the compare rows
-                    if (cell.column.id === "name") return <Fragment key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</Fragment>;
-                    return <TableCell key={cell.id} className={cellClass(cell.column.id, meta)}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>;
-                  })}
-                </TableRow>,
-                ...mine.map((m) => <CompareRow key={`${row.id}-${m.player_id}`} k={`${row.id}-${m.player_id}`} fa={row.original} mine={m} week={week} showPos={showPos} cols={leaf} />),
-                open && mine.length === 0 && (
-                  <TableRow key={`${row.id}-none`} data-key={`${row.id}-none`} className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
-                    <TableCell colSpan={leaf.length} className="py-2 pl-4 text-xs text-muted-foreground sm:pl-5">nobody at {row.original.pos} on my roster</TableCell>
-                  </TableRow>
-                ),
-              ];
-            })}
+            {table.getRowModel().rows.map((row) => (
+              <PoolRow key={row.id} row={row} open={row.getIsExpanded()} cols={cols} roster={roster} week={week} showPos={showPos} />
+            ))}
           </TableBody>
         </Table>
       </Card>

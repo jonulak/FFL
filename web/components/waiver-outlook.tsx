@@ -54,11 +54,15 @@ export function WaiverOutlookButton({ r }: { r: FreeAgentRow }) {
         outlook
         <Presence show={written}><span aria-hidden className="size-1.5 rounded-full bg-foreground/70" /></Presence>
       </button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className={`gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-xl ${BAND_CLOSE}`}>
-          {open && first && <Body r={r} first={first} setWritten={setWritten} />}
-        </DialogContent>
-      </Dialog>
+      {/* the dialog mounts with the first tap's read, not with the row: the Players table holds two
+          of these buttons per free agent on 150 rows */}
+      {first && (
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className={`gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-xl ${BAND_CLOSE}`}>
+            {open && <Body r={r} first={first} setWritten={setWritten} />}
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }
