@@ -227,7 +227,7 @@ describe("fillOptions", () => {
 describe("kickoff locks (live overlay's game, before the roster build's `locked`)", () => {
   const game = (status: "in" | "post") => ({ status, quarter: 1, clock: "15:00", score: {} });
   const key = (o: { kind: string; with?: Card; who?: Card; slot?: string }) =>
-    `${o.kind}:${o.with?.player_id ?? o.who?.player_id ?? o.slot ?? ""}`;
+    o.kind === "bench" ? "bench" : `${o.kind}:${o.with?.player_id ?? o.who?.player_id ?? o.slot}`;
   const liveWr = c(30, "WR", "WR", 14, { game: game("in") }), finalRb = c(31, "RB", "BE", 11, { game: game("post") });
   const benchWr = c(32, "WR", "BE", 10);
   const roster = [qb, flex, rb, liveWr, finalRb, benchWr];
@@ -245,7 +245,7 @@ describe("kickoff locks (live overlay's game, before the roster build's `locked`
   it("a partner whose game is on is never a target, but is listed shut", () => {
     expect(targets(roster, benchWr, []).map(key)).toEqual(["swap:2"]);
     expect(swapOptions(roster, benchWr, []).map(key)).toEqual(["swap:2", "locked:30"]);
-    expect(swapOptions(roster, flex, []).map(key)).toEqual(["swap:32", "bench:", "locked:30", "locked:31"]);
+    expect(swapOptions(roster, flex, []).map(key)).toEqual(["swap:32", "bench", "locked:30", "locked:31"]);
   });
   it("a shut row keeps his live game", () => {
     const shut = swapOptions(roster, benchWr, []).find((o) => o.kind === "locked");
