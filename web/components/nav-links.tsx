@@ -8,7 +8,11 @@ import { useDecisionPrefs } from "./decision-prefs";
 
 const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], ["/nfl", "NFL"], ["/transactions", "Transactions"], ["/players", "Players"], ["/decisions", "Decisions"]] as const;
 
-const activeOf = (path: string) => LINKS.find(([href]) => (href === "/" ? path === "/" : path.startsWith(href)))?.[0] ?? null;
+// A modified or middle click opens the page in a new tab and leaves this one where it is, so it lights nothing.
+// Keyboard activation arrives as a plain click (button 0) and still lights the tab at once.
+const newTab = (e: Event) => e instanceof MouseEvent && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0);
+
+const activeOf =(path: string) => LINKS.find(([href]) => (href === "/" ? path === "/" : path.startsWith(href)))?.[0] ?? null;
 
 // The page tabs, set like the chyron of a broadcast board: shadcn Tabs in the line variant, each tab a Link
 // (pos-tabs' pattern). The strip lives in the layout, so a page change keeps it mounted and Base UI's
@@ -32,7 +36,7 @@ export function NavLinks() {
   return (
     <nav aria-label="Pages" className="flex min-w-0 items-stretch">
       {/* the list is the scroller, so the 4px it reaches past the nav on each side is its own padding */}
-      <Tabs value={tapped ?? active} onValueChange={(v) => setTapped(v as string)} className="-mx-1 min-w-0 flex-1">
+      <Tabs value={tapped ?? active} onValueChange={(v, { event }) => { if (!newTab(event)) setTapped(v as string); }} className="-mx-1 min-w-0 flex-1">
         <TabsList variant="line" indicatorInset="0.625rem"
           className="h-full w-full group-data-horizontal/tabs:h-full justify-start gap-0 overflow-x-auto overflow-y-hidden px-1 py-0 [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)] sm:[mask-image:none]">
           {LINKS.filter(([href]) => page || href !== "/decisions").map(([href, label]) => (

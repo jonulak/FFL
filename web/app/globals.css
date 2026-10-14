@@ -415,14 +415,13 @@ tr[data-fold="shut"] > td > .fold {
 @keyframes stage-fade-out { to { opacity: 0; } }
 
 /* Page change (page-transition.tsx, React's <ViewTransition>): the page left behind goes quickly,
-   the one arriving rises 6px into place on the arrival curve, and the bar under the nav's current
-   tab slides to the new tab on the same clock. A query change on the same page (a week, a
-   position, a filter) crossfades only the part it changes (`.swap`), in place. The live page
-   under the overlay keeps taking taps. Reduced motion keeps the crossfades and drops the travel. */
+   the one arriving rises 6px into place on the arrival curve. A query change on the same page (a
+   week, a position, a filter) crossfades only the part it changes (`.swap`), in place. The live
+   page under the overlay keeps taking taps. Reduced motion keeps the crossfades and drops the
+   travel. (The nav's tab bar is not part of this: it slides on its own, Base UI's Tabs indicator.) */
 ::view-transition { pointer-events: none; }
 ::view-transition-old(.page-out) { animation: vt-out 120ms var(--ease-leave) both; }
 ::view-transition-new(.page-in) { animation: vt-in 300ms var(--ease-arrive) 40ms both; }
-::view-transition-group(.nav-tab) { animation-duration: 340ms; animation-timing-function: var(--ease-arrive); }
 ::view-transition-group(.swap) { animation-duration: 300ms; animation-timing-function: var(--ease-arrive); }
 ::view-transition-old(.swap) { animation: vt-out 120ms var(--ease-leave) both; }
 ::view-transition-new(.swap) { animation: log-fade 240ms var(--ease-arrive) 60ms both; }
@@ -430,7 +429,7 @@ tr[data-fold="shut"] > td > .fold {
 @keyframes vt-in { from { opacity: 0; translate: 0 0.375rem; } }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-new(.page-in) { animation-name: log-fade; }
-  ::view-transition-group(.nav-tab), ::view-transition-group(.swap) { animation-duration: 0s; }
+  ::view-transition-group(.swap) { animation-duration: 0s; }
 }
 
 /* State changes (motion.tsx). Anything that appears with the data fades in where it lands, and
