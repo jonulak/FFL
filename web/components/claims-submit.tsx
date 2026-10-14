@@ -64,20 +64,23 @@ function Verdict({ ok, children }: { ok: boolean; children: ReactNode }) {
 function Failure({ f, name, writes }: { f: SubmitFailure; name: (id: number) => string; writes: boolean }) {
   const who = writes ? "ESPN" : "the fake";
   return (
-    <div role="alert" className="space-y-1 rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-      {f.kind === "running" && <p>A submit is already running. Wait for it, then look at what {who} holds before sending again.</p>}
-      {f.kind === "espn" && <p>{/^ESPN/.test(f.error) ? f.error : `ESPN: ${f.error}`}. Nothing was sent.</p>}
-      {f.kind === "changed" && <p>Nothing was sent: {f.error}. The list below is what {who} says now.</p>}
-      {f.kind === "other" && <p>{f.error}</p>}
+    <Alert variant="destructive" className="border-destructive/40 bg-destructive/10">
+      <TriangleAlert aria-hidden />
+      {f.kind === "running" && <AlertDescription>A submit is already running. Wait for it, then look at what {who} holds before sending again.</AlertDescription>}
+      {f.kind === "espn" && <AlertDescription>{/^ESPN/.test(f.error) ? f.error : `ESPN: ${f.error}`}. Nothing was sent.</AlertDescription>}
+      {f.kind === "changed" && <AlertDescription>Nothing was sent: {f.error}. The list below is what {who} says now.</AlertDescription>}
+      {f.kind === "other" && <AlertDescription>{f.error}</AlertDescription>}
       {f.kind === "invalid" && (
         <>
-          <p className="font-medium">Nothing was sent: the plan has problems.</p>
-          <ul className="list-disc pl-5">
-            {f.errors.map((e, i) => <li key={i}>{errorWhere(e)}{e.player_id != null && `, ${name(e.player_id)}`}: {e.reason}</li>)}
-          </ul>
+          <AlertTitle>Nothing was sent: the plan has problems.</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc pl-5">
+              {f.errors.map((e, i) => <li key={i}>{errorWhere(e)}{e.player_id != null && `, ${name(e.player_id)}`}: {e.reason}</li>)}
+            </ul>
+          </AlertDescription>
         </>
       )}
-    </div>
+    </Alert>
   );
 }
 
@@ -297,12 +300,15 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
         {result && verdict && <div className="log-in"><Outcome r={result} verdict={verdict} name={name} writes={writes} /></div>}
         {/* the read on open can turn up problems the panel didn't have (a status moved): Send waits for a fix */}
         {!result && !loading && data.errors.length > 0 && (
-          <div role="alert" className="log-in space-y-1 rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-            <p className="font-medium">Can&apos;t send: the plan has problems. Fix them in the claims.</p>
-            <ul className="list-disc pl-5">
-              {data.errors.map((e, i) => <li key={i}>{errorWhere(e)}{e.player_id != null && `, ${name(e.player_id)}`}: {e.reason}</li>)}
-            </ul>
-          </div>
+          <Alert variant="destructive" className="log-in border-destructive/40 bg-destructive/10">
+            <TriangleAlert aria-hidden />
+            <AlertTitle>Can&apos;t send: the plan has problems. Fix them in the claims.</AlertTitle>
+            <AlertDescription>
+              <ul className="list-disc pl-5">
+                {data.errors.map((e, i) => <li key={i}>{errorWhere(e)}{e.player_id != null && `, ${name(e.player_id)}`}: {e.reason}</li>)}
+              </ul>
+            </AlertDescription>
+          </Alert>
         )}
         {!result && !loading && withdrawal && withdrawn === 0 && (
           <p className="text-muted-foreground">Nothing to withdraw: no claim sent from here is pending.</p>

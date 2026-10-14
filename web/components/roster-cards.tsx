@@ -2,6 +2,7 @@
 
 import { ChevronDown, LoaderCircle, Lock, Plus } from "lucide-react";
 import { useState, type Ref } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -258,23 +259,24 @@ export function CallChip({ c, week, split = false }: { c: Card; week?: number; s
 // above the lineup and in every other player's sheet, with the one button that opens his.
 export function IrBlocked({ c, onFix, disabled }: { c: Card; onFix: () => void; disabled: boolean }) {
   return (
-    <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-lg border border-out/45 bg-out/[0.08] px-3.5 py-3">
-      <p className="min-w-0 flex-1 basis-56 text-[0.9375rem] leading-snug text-pretty">
+    <Alert className="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-out/45 bg-out/[0.08] px-3.5 py-3 text-foreground">
+      <AlertDescription className="min-w-0 flex-1 basis-56 text-[0.9375rem] leading-snug text-pretty text-foreground">
         <span className="font-semibold">{c.name}</span> is on IR with no injury designation — ESPN blocks every move until he comes off IR.
-      </p>
+      </AlertDescription>
       <Button variant="outline" className="h-11 shrink-0 px-4 md:h-9" disabled={disabled || isLocked(c)} onClick={onFix}>
         Move {shortName(c.name)}
       </Button>
-    </div>
+    </Alert>
   );
 }
 
 export function Failure({ f, reload }: { f: LineupFailure; reload: () => void }) {
   return (
-    <div role={f.moved ? "status" : "alert"} className="log-in flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-1.5 text-sm [grid-area:msg]">
-      <p className={f.moved ? "text-foreground/85" : "text-out"}>{f.text}</p>
+    <Alert role={f.moved ? "status" : "alert"}
+      className="log-in flex flex-wrap items-center justify-end gap-x-3 gap-y-1 rounded-none border-0 bg-transparent p-0 pt-1.5 text-sm [grid-area:msg]">
+      <AlertDescription className={`text-sm ${f.moved ? "text-foreground/85" : "text-out"}`}>{f.text}</AlertDescription>
       {f.reload && <Button variant="outline" size="sm" className="h-11 px-3.5 md:h-7 md:px-2.5" onClick={reload}>Reload</Button>}
-    </div>
+    </Alert>
   );
 }
 
