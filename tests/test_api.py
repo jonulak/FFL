@@ -1635,3 +1635,12 @@ def test_a_rewarm_that_joins_a_build_from_before_the_move_builds_again():
     rewarm.join(5)
     assert calls == [1, 1]
     assert c._d["week:current"].payload == {"n": 2}
+
+
+def test_expire_everything_keeps_finished_weeks(monkeypatch):
+    import math
+    from ffl import espn_season
+    monkeypatch.setattr(espn_season, "_BOXES", {4: (math.inf, None, ["done"]), 5: (9e18, None, ["now"])})
+    monkeypatch.setattr(espn_season, "_GAP_GAMES", {(7, 3): [{"week": 3}]})
+    api.expire_everything()
+    assert list(espn_season._BOXES) == [4] and (7, 3) in espn_season._GAP_GAMES

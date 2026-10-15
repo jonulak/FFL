@@ -807,10 +807,15 @@ _BOXES_EPOCH = [0]  # bumped by forget_current_boxes: a fetch that began before 
 
 
 def forget_current_boxes() -> None:
-    """Drop the current week's box scores (a league move changed its rosters); finished weeks never change."""
+    """Drop the current week's box scores (a league move changed its rosters); finished weeks never change.
+    The stored row is expired too (fetched_at 0), so a pre-move read in the table never counts as a 60 s hit."""
     _BOXES_EPOCH[0] += 1
     for week in [w for w, hit in list(_BOXES.items()) if hit[0] != math.inf]:  # a builder thread may be adding
         _BOXES.pop(week, None)
+    try:
+        db.expire_unsettled_boxes()
+    except db.DBError as e:
+        logging.getLogger(__name__).warning("stored box scores not expired: %s", e)
 
 
 def _fetch_box_doc(lg, week: int) -> dict:
@@ -848,6 +853,44 @@ def box_hash(doc: dict) -> str:
     return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def _stored_boxes(lg, week: int) -> tuple[list | None, float]:
+    """The stored row parsed, and when it was read (0 when none). A DB error or a doc espn-api can no longer
+    parse counts as no row: logged, and the week is read from ESPN."""
+    try:
+        row = db.box_doc(week)
+    except db.DBError as e:
+        logging.getLogger(__name__).warning("stored box scores for week %s unreadable: %s", week, e)
+        return None, 0.0
+    if not row:
+        return None, 0.0
+    try:
+        return _parse_box_doc(lg, row["doc"]), row["fetched_at"]
+    except Exception as e:  # noqa: BLE001 — an espn-api upgrade changed BoxScore: read ESPN again
+        logging.getLogger(__name__).warning("stored box scores for week %s unparseable: %s", week, e)
+        return None, 0.0
+
+
+def _read_boxes(lg, week: int, finished: bool) -> tuple[list, bool]:
+    """(box scores, read from ESPN just now)."""
+    if not hasattr(lg, "espn_request"):  # tests stub League with box_scores alone: nothing to store or read back
+        return lg.box_scores(week), True
+    stored, at = _stored_boxes(lg, week)
+    if stored is not None and (finished or time.time() - at < BOXES_TTL_S):
+        return stored, False
+    try:
+        doc = _fetch_box_doc(lg, week)
+    except Exception as e:  # noqa: BLE001
+        if stored is None:
+            raise
+        logging.getLogger(__name__).warning("week %s box scores from the stored read (ESPN failed: %s)", week, e)
+        return stored, False
+    try:
+        db.put_box_doc(week, doc, box_hash(doc), time.time())
+    except db.DBError as e:
+        logging.getLogger(__name__).warning("week %s box scores not stored: %s", week, e)
+    return _parse_box_doc(lg, doc), True
+
+
 def box_scores(lg, week: int) -> list:
     """lg.box_scores(week), shared by every builder for BOXES_TTL_S.
 
@@ -856,8 +899,10 @@ def box_scores(lg, week: int) -> list:
     League object itself, not its build time: tests stub a fresh League per case, and a rebuilt
     League (fresh_league after an hour, or POST /refresh) is a new source, fetched again.
     A finished week (before the League's current one: the form window's earlier weeks) never
-    changes, so it is kept for the life of the process, whichever League asks (ffl-qf7); only
-    POST /refresh clears it.
+    changes, so it is kept for the life of the process, whichever League asks (ffl-qf7), and is
+    read from the box_scores table (ESPN only when it has no row); finished weeks change only through
+    the correction pass (ffl-7sq). The current week is a hit for BOXES_TTL_S off its row's fetched_at
+    (a cold process right after a deploy), and when ESPN fails the stored row is served whatever its age.
     """
     hit = _BOXES.get(week)
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):
@@ -872,11 +917,11 @@ def _fetch_boxes(lg, week: int) -> list:
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):  # the flight before this one
         return hit[2]
     epoch = _BOXES_EPOCH[0]
-    boxes = lg.box_scores(week)
     finished = week < getattr(lg, "current_week", week)
+    boxes, fresh = _read_boxes(lg, week, finished)
     if finished or _BOXES_EPOCH[0] == epoch:  # a move during the fetch: these may be from before it
         _BOXES[week] = (math.inf if finished else time.time() + BOXES_TTL_S, lg, boxes)
-    if week == getattr(lg, "current_week", None):
+    if fresh and week == getattr(lg, "current_week", None):
         # every page's rosters come through here: a rostered man the record never saw taken (or a
         # drop it missed), seen by any page, syncs the transaction log
         try:

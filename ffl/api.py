@@ -568,7 +568,7 @@ def claims_submit(body: SubmitIn):
         if res["now"]:
             # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
             # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
-            espn_season._BOXES.clear()
+            espn_season.forget_current_boxes()
             cache.expire_all()
             cache.rebuild("waivers", "roster", "week:current", "league:current")
         return {**res, "decisions": refs}
@@ -675,7 +675,7 @@ def lineup(body: LineupIn):
                 db.put_seats(season.reseat(items, data["cards"], db.seat_map()))
             except db.DBError as e:
                 log.warning("lineup moved but its rows not kept: %s", e)
-            espn_season._BOXES.pop(data["week"], None)  # the box scores carry the slots; read them again
+            espn_season.forget_current_boxes()  # the box scores carry the slots; read them again
             cache.expire("week")  # the Matchup board shows this lineup too
             # the claims validate against the pool's roster slots (an IR player with no designation blocks every
             # claim): the next /claims or /players builds it from the moved roster, never from the pre-move one
@@ -1330,8 +1330,7 @@ def expire_everything() -> None:
     cache.expire_all()
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
-    espn_season._BOXES.clear()
-    espn_season._GAP_GAMES.clear()
+    espn_season.forget_current_boxes()  # finished weeks stay: they change only through the correction pass
     if espn_season._INJ:  # expire, not clear: _INJ is the last-good store the outage fallback serves
         espn_season._INJ[0] = 0.0
     sources.expire_all()  # same reason: the last good scrape stays for an outage
