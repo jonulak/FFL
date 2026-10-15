@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import unicodedata
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import decisions
@@ -392,6 +392,16 @@ def pregame_due(kickoffs: list[datetime], now: datetime, pulled: set[str]) -> li
     (`pulled` holds isoformat kickoffs). Games sharing a kickoff are one pull."""
     lead = PREGAME_PULL_MIN * 60
     return sorted({k for k in kickoffs if 0 < (k - now).total_seconds() <= lead and k.isoformat() not in pulled})
+
+
+def settle_at(last_kickoff: datetime) -> datetime:
+    """When a finished week's points are final: the end of the first Thursday (ET) after its last kickoff, so a
+    Monday-night week settles Friday 00:00 ET and the correction pass's Tuesday-Thursday reads catch ESPN's stat
+    corrections (ffl-7sq). The day is the ET date: a Monday 8:15 pm kickoff is Tuesday in UTC."""
+    ny = ZoneInfo("America/New_York")
+    d = last_kickoff.astimezone(ny).date()
+    days = (3 - d.weekday()) % 7 or 7  # to the next Thursday; a Thursday's own week waits for the one after
+    return datetime.combine(d + timedelta(days=days + 1), dtime(0), tzinfo=ny)
 
 
 def week_of(d: date, week1_start: date) -> int:

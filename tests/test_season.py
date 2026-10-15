@@ -872,3 +872,32 @@ def test_pregame_due_once_per_kickoff_inside_the_lead():
     assert season.pregame_due(kicks, k1 - lead, set()) == [k1]
     assert season.pregame_due(kicks, k1 - timedelta(minutes=10), {k1.isoformat()}) == [], "already pulled"
     assert season.pregame_due(kicks, k1, set()) == [], "kicked off: too late to matter"
+
+
+def test_settle_at_monday_night_week_settles_friday_midnight_et():
+    from datetime import timezone
+    from zoneinfo import ZoneInfo as ZI
+    UTC, NY = timezone.utc, ZI("America/New_York")
+    # MNF 2026-10-12 20:15 EDT is 2026-10-13 00:15 UTC: the ET date (Monday) decides
+    assert season.settle_at(datetime(2026, 10, 13, 0, 15, tzinfo=UTC)) == datetime(2026, 10, 16, 0, 0, tzinfo=NY)
+
+
+def test_settle_at_after_dst_ends():
+    from datetime import timezone
+    from zoneinfo import ZoneInfo as ZI
+    UTC, NY = timezone.utc, ZI("America/New_York")
+    # MNF 2026-11-02 20:15 EST = 2026-11-03 01:15 UTC -> Fri 2026-11-06 00:00 EST (05:00 UTC)
+    got = season.settle_at(datetime(2026, 11, 3, 1, 15, tzinfo=UTC))
+    assert got == datetime(2026, 11, 6, 0, 0, tzinfo=NY) and got.astimezone(UTC).hour == 5
+
+
+def test_settle_at_thursday_last_kickoff_waits_a_week():
+    from zoneinfo import ZoneInfo as ZI
+    NY = ZI("America/New_York")
+    assert season.settle_at(datetime(2026, 11, 26, 21, 0, tzinfo=NY)) == datetime(2026, 12, 4, 0, 0, tzinfo=NY)
+
+
+def test_settle_at_sunday_last_kickoff():
+    from zoneinfo import ZoneInfo as ZI
+    NY = ZI("America/New_York")
+    assert season.settle_at(datetime(2027, 1, 3, 16, 25, tzinfo=NY)) == datetime(2027, 1, 8, 0, 0, tzinfo=NY)
