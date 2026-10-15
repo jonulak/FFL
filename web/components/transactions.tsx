@@ -2,7 +2,7 @@
 
 import { Empty as EmptyState, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ArrowLeftRight, Minus, Plus, UserRound } from "lucide-react";
-import { startTransition, useState, ViewTransition } from "react";
+import { startTransition, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,7 +18,7 @@ import { TeamLogo, TeamPanel } from "./player-media";
 import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
 import { TeamLink } from "./team-link";
-import { Ticker, whole } from "./motion";
+import { Refade, Ticker, whole } from "./motion";
 
 // The league's wire, on the board: every move a week's ledger, newest first. An add/drop move is
 // one line, the team at the left, then what came in beside what went out, so the pair reads
@@ -167,7 +167,7 @@ function TradeRow({ m, me }: { m: TxMove; me: number }) {
 export function TransactionsView({ data }: { data: Transactions }) {
   const [filter, setFilter] = useState<TxFilter>("all");
   const [mineOnly, setMineOnly] = useState(false);
-  // a filter change is a transition, so the list crossfades to the new one (globals.css `.swap`)
+  // a filter change fades the new list in (Refade)
   const pick = (f: TxFilter) => startTransition(() => setFilter(f));
   const mine = (on: boolean) => startTransition(() => setMineOnly(on));
   const shown = filterMoves(data.moves, filter, mineOnly ? data.me : null);
@@ -207,8 +207,7 @@ export function TransactionsView({ data }: { data: Transactions }) {
           </TabsList>
         </Tabs>
       </div>
-      <ViewTransition update="swap" default="none">
-      <div className="space-y-5">
+      <Refade k={`${filter}|${mineOnly}`} className="space-y-5">
       {shown.length === 0 ? (
         <EmptyState className="py-6">
           <EmptyHeader><EmptyDescription>{mineOnly ? "No moves of yours here yet." : "No moves of this kind yet."}</EmptyDescription></EmptyHeader>
@@ -233,8 +232,7 @@ export function TransactionsView({ data }: { data: Transactions }) {
           </section>
         ))
       )}
-      </div>
-      </ViewTransition>
+      </Refade>
     </div>
   );
 }

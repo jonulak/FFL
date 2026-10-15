@@ -4,7 +4,7 @@ import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useOptimistic, useState, useTransition, ViewTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -18,7 +18,7 @@ import { Markdown } from "./markdown";
 import { PlayerTrigger } from "./player-dialog";
 import { RationaleDialog } from "./rationale-dialog";
 import { SectionHeading } from "./section-heading";
-import { Swap } from "./motion";
+import { Refade, Swap } from "./motion";
 
 export type Filters = { week: number | null; kind: string | null; open: boolean };
 
@@ -127,7 +127,7 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
 
   const kinds = Object.keys(KIND_LABEL);
   // the controls take the new filter at once and the list steps back until the page lands, then
-  // crossfades to it (globals.css `.swap`)
+  // the new one fades in (Refade, keyed on the filters the page landed with)
   const [pending, start] = useTransition();
   const [shown, setShown] = useOptimistic(filters);
   const go = (next: Partial<Filters>) => start(() => {
@@ -158,8 +158,7 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
         </div>
       </div>
 
-      <ViewTransition update="swap" default="none">
-      <div data-pending={pending || undefined} className="pending-dim space-y-4">
+      <Refade k={`${filters.open}|${filters.week}|${filters.kind}`} data-pending={pending || undefined} className="pending-dim space-y-4">
       {groups.length === 0 && (
         <Empty className="py-6">
           <EmptyHeader>
@@ -178,8 +177,7 @@ export function DecisionsView({ data, presets, filters }: { data: Decisions; pre
           </ul>
         </section>
       ))}
-      </div>
-      </ViewTransition>
+      </Refade>
 
       <RationaleDialog decision={editing} presets={presets} withOutcome onClose={() => setEditing(null)}
         onSaved={(saved) => {

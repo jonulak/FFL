@@ -8,6 +8,7 @@ import { cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useSt
 //   Ticker   a number that runs from the old value to the new one; a points gain leaves a lime wash
 //   Presence a chip or line that fades in when it appears and out when it goes
 //   Swap     a word or label that crossfades when it changes
+//   Refade   a tall list that fades back in when its filter changes
 //   useReorder rows that slide to their new places when a list re-sorts or filters
 
 const still = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -90,6 +91,21 @@ export function Swap({ children, k, className = "", as: Tag = "span" }: { childr
   const id = k ?? String(children);
   const [first] = useState(id);
   return <Tag key={id} className={`${id === first ? "" : "fx-swap"} ${className}`}>{children}</Tag>;
+}
+
+// A tall list (Transactions, Players, Decisions) whose filter changed: the new rows fade in where
+// the old stood. Played on the element, not remounted, so the list keeps its state (a table's
+// sort); and not a <ViewTransition>, which snapshots the whole list, ~1.9GB for Transactions on a
+// phone (ffl-ix7). Only a change of `k` plays it, never the first paint. Reduced motion keeps the fade.
+export function Refade({ k, className = "", children, ...rest }: { k: string; className?: string; children: ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
+  const el = useRef<HTMLDivElement>(null);
+  const seen = useRef(k);
+  useLayoutEffect(() => {
+    if (seen.current === k) return;
+    seen.current = k;
+    el.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+  }, [k]);
+  return <div ref={el} className={className} {...rest}>{children}</div>;
 }
 
 // A spinner beside a label that opens its own room as it fades in and closes it after, so the

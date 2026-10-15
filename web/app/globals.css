@@ -423,6 +423,9 @@ tr[data-fold="shut"] > td > .fold {
    taking taps. Reduced motion keeps the crossfades and drops the travel. (The nav's tab bar is not
    part of this: it slides on its own, Base UI's Tabs indicator.) */
 .page-in { animation: log-fade 300ms var(--ease-arrive) both; }
+/* The tall lists (Transactions, Players, Decisions) fade back in on a filter change (motion.tsx,
+   Refade): the `.swap` view transition below snapshots the whole list, ~1.9GB on Transactions
+   (ffl-ix7). The short boards (League, an NFL game's feed) keep the crossfade. */
 ::view-transition { pointer-events: none; }
 ::view-transition-group(.swap) { animation-duration: 300ms; animation-timing-function: var(--ease-arrive); }
 ::view-transition-old(.swap) { animation: vt-out 120ms var(--ease-leave) both; }

@@ -10,8 +10,7 @@ import { ClaimsPanel } from "@/components/claims-panel";
 import { apiGet, type Claims, type Players } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 import { isFreeAgent } from "@/lib/players";
-import { Presence } from "@/components/motion";
-import { ViewTransition } from "react";
+import { Presence, Refade } from "@/components/motion";
 
 export const dynamic = "force-dynamic";
 
@@ -50,10 +49,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
           {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every player, by add
         </p>
       </Presence>
-      {/* another position, the Free agents toggle or a search: the new pool crossfades in over the old, in place */}
-      <ViewTransition update="swap" default="none">
-        <div><WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} fa={fa} /></div>
-      </ViewTransition>
+      {/* another position, the Free agents toggle or a search: the new pool fades in, in place */}
+      <Refade k={`${pos}|${fa}|${q}`}><WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} fa={fa} /></Refade>
     </div>
   );
   return (
