@@ -79,7 +79,9 @@ export function KickoffTime({ iso }: { iso: string }) {
 // once the game is on each club's score before its mark: `24 [PIT] @ 27 [CLE] Final`, the
 // leading score in full ink. His own club always comes first. The codes are read to a screen
 // reader, and stand in for a mark that fails to load.
-export function GameLine({ p, size = 14, className = "" }: { p: Pick<Player, "team" | "opponent" | "home" | "kickoff" | "bye" | "game">; size?: number; className?: string }) {
+// `compact` (the Matchup phone half, where the line shares its row with a status tag): his own club is left
+// out, the row already being his, and a game under way reads `24-27 @ [CLE]`, his score first.
+export function GameLine({ p, size = 14, className = "", compact = false }: { p: Pick<Player, "team" | "opponent" | "home" | "kickoff" | "bye" | "game">; size?: number; className?: string; compact?: boolean }) {
   if (p.bye) return <span className={className}>BYE</span>;
   if (!p.opponent) return <span className={className}>{p.kickoff ? <KickoffTime iso={p.kickoff} /> : "not scheduled"}</span>;
   const g = p.game;
@@ -95,10 +97,17 @@ export function GameLine({ p, size = 14, className = "" }: { p: Pick<Player, "te
     <span className={`inline-flex flex-wrap items-center gap-x-1 tabular-nums ${className}`}>
       <span className="sr-only">{p.team} {p.home === true ? "vs" : "at"} {p.opponent}</span>
       <span className="inline-flex items-center gap-x-1 whitespace-nowrap">
-        {scored && <span className={ink(own, other)}>{own}</span>}
-        {mark(p.team)}
-        <span aria-hidden>{sep}</span>
-        {scored && <span className={ink(other, own)}>{other}</span>}
+        {compact
+          ? <>
+              {scored && <span><span className={ink(own, other)}>{own}</span>-<span className={ink(other, own)}>{other}</span></span>}
+              <span aria-hidden>{sep}</span>
+            </>
+          : <>
+              {scored && <span className={ink(own, other)}>{own}</span>}
+              {mark(p.team)}
+              <span aria-hidden>{sep}</span>
+              {scored && <span className={ink(other, own)}>{other}</span>}
+            </>}
         {mark(p.opponent)}
       </span>
       <span className="ml-0.5 whitespace-nowrap">

@@ -11,7 +11,7 @@ export const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 // A player's injury status is ESPN's own one-letter mark beside the name, in the status colour
 // with no chip behind it: amber for a game-time call, red for out.
 export const TONE = { ok: "text-muted-foreground", warn: "text-close-foreground dark:text-close", bad: "text-out" } as const;
-export const STATUS_SHORT: Record<string, string> = { QUESTIONABLE: "Q", DOUBTFUL: "D", OUT: "O", "INJURY RESERVE": "IR", SUSPENSION: "SUSP", "DAY TO DAY": "DTD", DAY_TO_DAY: "DTD" };
+export const STATUS_SHORT: Record<string, string> = { QUESTIONABLE: "Q", DOUBTFUL: "D", OUT: "O", "INJURY RESERVE": "IR", SUSPENSION: "S", "DAY TO DAY": "DTD", DAY_TO_DAY: "DTD" };
 
 export const BOARD_CARD = "rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)] [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)]";
 export const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
