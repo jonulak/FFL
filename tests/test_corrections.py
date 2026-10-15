@@ -20,6 +20,8 @@ def parse(lg, doc):
     def bp(p):
         pid, _, pts, slot = p
         return SimpleNamespace(playerId=pid, points=pts, slot_position=slot, name=f"P{pid}", position="WR", proTeam="DAL")
+    if not doc["players"]:  # ESPN answered an empty schedule
+        return []
     by_team = {}
     for p in doc["players"]:
         by_team.setdefault(p[1], []).append(p)
@@ -54,8 +56,8 @@ def env(monkeypatch):
     return s
 
 
-def store(week, doc, age=7200, settled=False):
-    db.put_box_doc(week, doc, espn_season.box_hash(doc), NOW.timestamp() - age, settled=settled)
+def store(week, doc, age=7200, settled=False, final=True):
+    db.put_box_doc(week, doc, espn_season.box_hash(doc), NOW.timestamp() - age, settled=settled, final=final)
 
 
 def only(week):
@@ -105,11 +107,63 @@ def test_float_noise_is_no_change(env):
     assert db.box_corrections() == [] and out["changed"] == []
 
 
-def test_player_in_one_doc_only_is_ignored(env):
+def test_player_only_in_the_new_doc_is_ignored(env):
     only(6)
     store(6, doc_of((11, 1, 10.0, "WR")))
     env.docs[6] = doc_of((11, 1, 10.0, "WR"), (12, 1, 4.0, "WR"))
     assert espn_season.correct_boxes(env.lg, NOW)["changed"] == []
+    assert db.box_corrections() == [] and db.box_doc(6)["doc"] == env.docs[6]
+
+
+def test_player_missing_from_the_new_doc_keeps_the_stored_read(env):
+    only(6)
+    old = doc_of((11, 1, 10.0, "WR"), (12, 1, 4.0, "WR"))
+    store(6, old)
+    env.docs[6] = doc_of((11, 1, 13.0, "WR"))
+    now = S.settle_at(KICK) + timedelta(minutes=1)
+    out = espn_season.correct_boxes(env.lg, now)
+    assert out["weeks"][6] == {"changed": 0, "settled": False} and out["plays"] == [] and out["changed"] == []
+    row = db.box_doc(6)
+    assert row["doc"] == old and row["hash"] == espn_season.box_hash(old) and row["settled"] is False
+    assert row["final"] is True and row["fetched_at"] == now.timestamp() and db.box_corrections() == []
+
+
+def test_empty_schedule_after_settle_at_keeps_the_stored_read_unsettled(env):
+    only(6)
+    old = doc_of((11, 1, 10.0, "WR"), (12, 2, 3.0, "RB"))
+    store(6, old)
+    env.docs[6] = doc_of()
+    now = S.settle_at(KICK) + timedelta(minutes=1)
+    out = espn_season.correct_boxes(env.lg, now)
+    assert out["weeks"][6] == {"changed": 0, "settled": False} and out["plays"] == []
+    assert db.box_doc(6)["doc"] == old and db.box_doc(6)["settled"] is False and db.box_corrections() == []
+    espn_season.correct_boxes(env.lg, now + timedelta(hours=2))   # still due: retried next hour
+    assert env.fetches == [6, 6]
+
+
+def test_non_final_row_is_no_baseline(env, monkeypatch):
+    """Week 6's last read while it was current (mid-Monday-night) is backfilled over, never diffed."""
+    only(6)
+    monkeypatch.setattr(espn_season, "reconcile_log", lambda *a, **k: None)
+    monkeypatch.setattr(espn_season, "owners_in", lambda boxes: {})
+    env.docs[6] = doc_of((11, 1, 4.0, "WR"), (12, 2, 3.0, "RB"))   # mid-game
+    espn_season.box_scores(SimpleNamespace(current_week=6, espn_request=object(), teams=[]), 6)
+    assert db.box_doc(6)["final"] is False
+    env.docs[6] = doc_of((11, 1, 21.5, "WR"), (12, 2, 3.0, "RB"))  # the game over
+    out = espn_season.correct_boxes(env.lg, NOW)   # unthrottled although the row was read a moment ago
+    assert db.box_corrections() == [] and out["plays"] == [] and out["changed"] == []
+    row = db.box_doc(6)
+    assert row["doc"] == env.docs[6] and row["final"] is True
+
+
+def test_box_scores_rereads_a_non_final_finished_week(env, monkeypatch):
+    monkeypatch.setattr(espn_season, "reconcile_log", lambda *a, **k: None)
+    monkeypatch.setattr(espn_season, "owners_in", lambda boxes: {})
+    env.docs[6] = doc_of((11, 1, 4.0, "WR"))
+    espn_season.box_scores(SimpleNamespace(current_week=6, espn_request=object(), teams=[]), 6)
+    env.docs[6] = doc_of((11, 1, 21.5, "WR"))
+    [b] = espn_season.box_scores(env.lg, 6)
+    assert b.home_lineup[0].points == 21.5 and env.fetches == [6, 6]
 
 
 def test_settles_after_settle_at_then_never_fetched(env):
@@ -167,6 +221,17 @@ def test_gap_rows_reread_and_corrected(env):
     assert db.gap_rows(6, [21])[21] == env.gap[(6, 21)]
     assert espn_season._GAP_GAMES[(21, 6)] == env.gap[(6, 21)]
     assert out["plays"] == [] and out["changed"] == [6]
+
+
+def test_empty_gap_answer_for_a_stored_player_is_a_missing_answer(env):
+    only(6)
+    store(6, doc_of((11, 1, 10.0, "WR")))
+    env.docs[6] = doc_of((11, 1, 10.0, "WR"))
+    db.put_gap_rows(6, {21: [{"pts": 4.0}]}, NOW.timestamp() - 7200)
+    env.gap[(6, 21)] = []
+    out = espn_season.correct_boxes(env.lg, S.settle_at(KICK) + timedelta(minutes=1))
+    assert out["weeks"][6] == {"changed": 0, "settled": False} and db.box_doc(6)["settled"] is False
+    assert db.gap_rows(6, [21])[21] == [{"pts": 4.0}] and db.box_corrections() == []
 
 
 def test_failed_gap_read_keeps_the_week_unsettled(env, monkeypatch):

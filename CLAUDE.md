@@ -137,7 +137,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   for `ffl.replay`); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
   `week`/`waivers-week`) ← `data/outlook/*.json`; `calibration_snapshots` + `calibration_rows` ← `data/calibration/week-<w>.json`;
   `sigma_fits` ← `sigma.json` (latest wins, history kept; `calibrate.load_sigma` never fails); `claim_plans` ←
-  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `box_scores` (ESPN's raw matchup read per week; `fetched_at` moves on every read, `settled` after the Thursday following the week); `gap_games` ← `_GAP_GAMES`; `box_score_corrections` (old/new points per player); `source_cache` (`sources.Cached`'s scrapes); `page_cache` (`api.Cache(persist=True)`:
+  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `box_scores` (ESPN's raw matchup read per week; `fetched_at` moves on every read, `settled` after the Thursday following the week, `final` when read after the week finished); `gap_games` ← `_GAP_GAMES`; `box_score_corrections` (old/new points per player); `source_cache` (`sources.Cached`'s scrapes); `page_cache` (`api.Cache(persist=True)`:
 every installed page payload in `api.PERSIST` that survives a JSON round-trip, written through under `_db_lock`; `load()` at boot takes them
 back expired with no builder, so the first open after a restart is served at once and rebuilt behind; `drop`/`drop_prefixes`/`clear`
 delete the rows; player cards older than 7 days pruned at load; a key's inline first build is single-flight (`ffl/flight.py`): callers arriving
@@ -153,10 +153,10 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   (`FFL_BACKUP_DIR` overrides), keeping 14; `launchd/com.jonulak.ffl-backup` runs it nightly at 03:30. Tests run on a per-test
   copy of a session template DB built by `alembic upgrade head` (autouse fixture sets `FFL_DB_URL`), never `data/ffl.db`.
   A worktree gets its own `data/ffl.db`; a dev API there needs `uv run alembic upgrade head` once.
-- **Box scores** (`espn_season.box_scores`): a finished week is read from the `box_scores` table (ESPN only when it has no row); the current
+- **Box scores** (`espn_season.box_scores`): a finished week is read from the `box_scores` table (ESPN only when it has no `final` row: one read after the week finished; the current week's last, maybe mid-game, read is not); the current
   week ESPN-first, a row under 60 s old (off `fetched_at`) counting as the hit and the row serving when ESPN fails; a league move
-  (`forget_current_boxes`) expires it. The tick's `correct_boxes` (`api.correction_pass`) re-reads each unsettled finished week hourly,
-  logs changed points to `box_score_corrections`, plays a starter's correction into his week's feed (match `correction`; a finished
+  (`forget_current_boxes` → `db.expire_live_boxes`, non-final rows only) expires it. The tick's `correct_boxes` (`api.correction_pass`) re-reads each unsettled finished week hourly
+  (a short answer, fewer matchups or a stored player missing, keeps the stored doc unsettled), logs changed points to `box_score_corrections`, plays a starter's correction into his week's feed (match `correction`; a finished
   week's board reads its feed from the `plays` table) and expires the pages built on it. `expire_everything` and the pregame pull keep finished weeks.
 - **Season UI** (`web/`, Next 16 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
   components fetching the API through a `/api/*` rewrite; `ffl/season.py` is pure (lineup-optimal,

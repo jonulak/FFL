@@ -26,21 +26,48 @@ def env(monkeypatch):
     return SimpleNamespace(calls=calls, state=state, lg=lg)
 
 
-def store(week, tag, age=0.0):
+def store(week, tag, age=0.0, final=False):
     doc = {"tag": tag}
-    db.put_box_doc(week, doc, espn_season.box_hash(doc), time.time() - age)
+    db.put_box_doc(week, doc, espn_season.box_hash(doc), time.time() - age, final=final)
 
 
-def test_finished_week_reads_the_row(env):
-    store(4, "stored")
+def test_finished_week_reads_the_final_row(env):
+    store(4, "stored", final=True)
     assert espn_season.box_scores(env.lg, 4) == ["stored"]
     assert env.calls["fetch"] == 0
 
 
-def test_finished_week_without_row_fetches_and_stores(env):
+def test_finished_week_without_row_fetches_and_stores_final(env):
     assert espn_season.box_scores(env.lg, 4) == ["espn"]
     assert env.calls["fetch"] == 1
-    assert db.box_doc(4)["hash"] == espn_season.box_hash({"tag": "espn"})
+    row = db.box_doc(4)
+    assert row["hash"] == espn_season.box_hash({"tag": "espn"}) and row["final"] is True
+
+
+def test_current_week_read_is_stored_not_final(env):
+    espn_season.box_scores(env.lg, 6)
+    assert db.box_doc(6)["final"] is False
+
+
+def test_last_current_week_read_is_not_the_finished_week(env):
+    """The week-6 row read while 6 was current (maybe mid-Monday-night) is not week 6's result once ESPN rolls."""
+    env.state["doc"] = {"tag": "mid-game"}
+    lg6 = env.lg
+    assert espn_season.box_scores(lg6, 6) == ["mid-game"]
+    env.state["doc"] = {"tag": "final"}
+    lg7 = SimpleNamespace(current_week=7, espn_request=object(), teams=[])
+    assert espn_season.box_scores(lg7, 6) == ["final"]
+    assert env.calls["fetch"] == 2
+    row = db.box_doc(6)
+    assert row["doc"] == {"tag": "final"} and row["final"] is True
+
+
+def test_finished_week_non_final_row_serves_on_outage_but_is_not_kept(env):
+    store(4, "mid-game", age=10)
+    env.state["raise"] = RuntimeError("espn down")
+    assert espn_season.box_scores(env.lg, 4) == ["mid-game"]
+    assert espn_season._BOXES[4][0] != float("inf")   # served for BOXES_TTL_S, never for the process
+    assert db.box_doc(4)["final"] is False
 
 
 def test_current_week_fresh_row_is_a_hit(env):

@@ -271,10 +271,12 @@ def test_put_box_doc_writes_doc_once_and_moves_fetched_at_every_read():
     assert db.put_box_doc(5, {"a": 1}, "h1", 100.0) is True
     assert db.put_box_doc(5, {"a": 1}, "h1", 200.0) is False   # unchanged: doc untouched
     row = db.box_doc(5)
-    assert row == {"doc": {"a": 1}, "hash": "h1", "fetched_at": 200.0, "settled": False}
-    assert db.put_box_doc(5, {"a": 2}, "h2", 300.0, settled=True) is True
-    assert db.box_doc(5) == {"doc": {"a": 2}, "hash": "h2", "fetched_at": 300.0, "settled": True}
-    assert db.box_weeks() == {5: {"fetched_at": 300.0, "settled": True}}
+    assert row == {"doc": {"a": 1}, "hash": "h1", "fetched_at": 200.0, "settled": False, "final": False}
+    assert db.put_box_doc(5, {"a": 2}, "h2", 300.0, settled=True, final=True) is True
+    assert db.box_doc(5) == {"doc": {"a": 2}, "hash": "h2", "fetched_at": 300.0, "settled": True, "final": True}
+    assert db.box_weeks() == {5: {"fetched_at": 300.0, "settled": True, "final": True}}
+    db.put_box_doc(5, {"a": 2}, "h2", 400.0)   # the later read decides final, even with the doc unchanged
+    assert db.box_weeks() == {5: {"fetched_at": 400.0, "settled": True, "final": False}}
 
 
 def test_put_box_doc_writes_corrections_in_the_same_transaction():
@@ -284,11 +286,14 @@ def test_put_box_doc_writes_corrections_in_the_same_transaction():
     assert db.box_corrections(week=4) == []
 
 
-def test_expire_unsettled_boxes_zeroes_only_unsettled_rows():
-    db.put_box_doc(4, {}, "h", 50.0, settled=True)
+def test_expire_live_boxes_zeroes_only_non_final_rows():
+    db.put_box_doc(3, {}, "h", 40.0, settled=True, final=True)
+    db.put_box_doc(4, {}, "h", 50.0, final=True)   # finished, unsettled: its fetched_at is the hourly throttle
     db.put_box_doc(6, {}, "h", 60.0)
-    db.expire_unsettled_boxes()
-    assert db.box_weeks() == {4: {"fetched_at": 50.0, "settled": True}, 6: {"fetched_at": 0.0, "settled": False}}
+    db.expire_live_boxes()
+    assert db.box_weeks() == {3: {"fetched_at": 40.0, "settled": True, "final": True},
+                              4: {"fetched_at": 50.0, "settled": False, "final": True},
+                              6: {"fetched_at": 0.0, "settled": False, "final": False}}
 
 
 def test_gap_rows_round_trip():

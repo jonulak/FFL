@@ -808,12 +808,13 @@ _BOXES_EPOCH = [0]  # bumped by forget_current_boxes: a fetch that began before 
 
 def forget_current_boxes() -> None:
     """Drop the current week's box scores (a league move changed its rosters); finished weeks never change.
-    The stored row is expired too (fetched_at 0), so a pre-move read in the table never counts as a 60 s hit."""
+    The non-final stored rows are expired too (fetched_at 0), so a pre-move read in the table never counts as a
+    60 s hit; a final row's fetched_at is the correction pass's throttle and stays."""
     _BOXES_EPOCH[0] += 1
     for week in [w for w, hit in list(_BOXES.items()) if hit[0] != math.inf]:  # a builder thread may be adding
         _BOXES.pop(week, None)
     try:
-        db.expire_unsettled_boxes()
+        db.expire_live_boxes()
     except db.DBError as e:
         logging.getLogger(__name__).warning("stored box scores not expired: %s", e)
 
@@ -853,44 +854,47 @@ def box_hash(doc: dict) -> str:
     return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _stored_boxes(lg, week: int) -> tuple[list | None, float]:
-    """The stored row parsed, and when it was read (0 when none). A DB error or a doc espn-api can no longer
-    parse counts as no row: logged, and the week is read from ESPN."""
+def _stored_boxes(lg, week: int) -> tuple[list | None, float, bool]:
+    """The stored row parsed, when it was read (0 when none) and whether that read was final (made after the
+    week finished). A DB error or a doc espn-api can no longer parse counts as no row: logged, and the week is
+    read from ESPN."""
     try:
         row = db.box_doc(week)
     except db.DBError as e:
         logging.getLogger(__name__).warning("stored box scores for week %s unreadable: %s", week, e)
-        return None, 0.0
+        return None, 0.0, False
     if not row:
-        return None, 0.0
+        return None, 0.0, False
     try:
-        return _parse_box_doc(lg, row["doc"]), row["fetched_at"]
+        return _parse_box_doc(lg, row["doc"]), row["fetched_at"], bool(row["final"])
     except Exception as e:  # noqa: BLE001 — an espn-api upgrade changed BoxScore: read ESPN again
         logging.getLogger(__name__).warning("stored box scores for week %s unparseable: %s", week, e)
-        return None, 0.0
+        return None, 0.0, False
 
 
-def _read_boxes(lg, week: int, finished: bool, epoch: int) -> tuple[list, bool]:
-    """(box scores, read from ESPN just now)."""
+def _read_boxes(lg, week: int, finished: bool, epoch: int) -> tuple[list, bool, bool]:
+    """(box scores, read from ESPN just now, final: a finished week's read made after it finished).
+    A finished week is a hit only on a final row: the current week's last read (maybe mid-game) is not its
+    result, so the first ask after ESPN rolls the week reads it again and stores that read final."""
     if not hasattr(lg, "espn_request"):  # tests stub League with box_scores alone: nothing to store or read back
-        return lg.box_scores(week), True
-    stored, at = _stored_boxes(lg, week)
-    if stored is not None and (finished or time.time() - at < BOXES_TTL_S):
-        return stored, False
+        return lg.box_scores(week), True, finished
+    stored, at, final = _stored_boxes(lg, week)
+    if stored is not None and ((finished and final) or (not finished and time.time() - at < BOXES_TTL_S)):
+        return stored, False, finished and final
     try:
         doc = _fetch_box_doc(lg, week)
     except Exception as e:  # noqa: BLE001
         if stored is None:
             raise
         logging.getLogger(__name__).warning("week %s box scores from the stored read (ESPN failed: %s)", week, e)
-        return stored, False
+        return stored, False, finished and final
     if not finished and _BOXES_EPOCH[0] != epoch:  # a move landed during the fetch: a pre-move read must not be stored as fresh
-        return _parse_box_doc(lg, doc), False
+        return _parse_box_doc(lg, doc), False, False
     try:
-        db.put_box_doc(week, doc, box_hash(doc), time.time())
+        db.put_box_doc(week, doc, box_hash(doc), time.time(), final=finished)
     except db.DBError as e:
         logging.getLogger(__name__).warning("week %s box scores not stored: %s", week, e)
-    return _parse_box_doc(lg, doc), True
+    return _parse_box_doc(lg, doc), True, finished
 
 
 def box_scores(lg, week: int) -> list:
@@ -902,9 +906,10 @@ def box_scores(lg, week: int) -> list:
     League (fresh_league after an hour, or POST /refresh) is a new source, fetched again.
     A finished week (before the League's current one: the form window's earlier weeks) never
     changes, so it is kept for the life of the process, whichever League asks (ffl-qf7), and is
-    read from the box_scores table (ESPN only when it has no row); finished weeks change only through
+    read from the box_scores table (ESPN only when it has no final row); finished weeks change only through
     the correction pass (ffl-7sq). The current week is a hit for BOXES_TTL_S off its row's fetched_at
-    (a cold process right after a deploy), and when ESPN fails the stored row is served whatever its age.
+    (a cold process right after a deploy), and when ESPN fails the stored row is served whatever its age
+    (a finished week's non-final row so served is kept BOXES_TTL_S only, never for the process).
     """
     hit = _BOXES.get(week)
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):
@@ -920,9 +925,9 @@ def _fetch_boxes(lg, week: int) -> list:
         return hit[2]
     epoch = _BOXES_EPOCH[0]
     finished = week < getattr(lg, "current_week", week)
-    boxes, fresh = _read_boxes(lg, week, finished, epoch)
+    boxes, fresh, final = _read_boxes(lg, week, finished, epoch)
     if finished or _BOXES_EPOCH[0] == epoch:  # a move during the fetch: these may be from before it
-        _BOXES[week] = (math.inf if finished else time.time() + BOXES_TTL_S, lg, boxes)
+        _BOXES[week] = (math.inf if final else time.time() + BOXES_TTL_S, lg, boxes)
     if fresh and week == getattr(lg, "current_week", None):
         # every page's rosters come through here: a rostered man the record never saw taken (or a
         # drop it missed), seen by any page, syncs the transaction log
@@ -950,24 +955,35 @@ def _points_by_player(boxes) -> dict[int, dict]:
 
 
 def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, plays: list) -> dict:
-    """One finished week's pass: raises on any ESPN or DB failure, leaving the stored row as it was."""
+    """One finished week's pass: raises on any ESPN or DB failure, leaving the stored row as it was.
+    Only a final row (read after the week finished) is a baseline: a non-final one is the current week's last
+    read, maybe mid-game, so the week is backfilled from this read instead. A short answer against a final row
+    (fewer matchups, or a stored player missing) is no result: the stored doc stays, unsettled, nothing logged."""
     log = logging.getLogger(__name__)
     at = now.isoformat(timespec="seconds")
     doc = _fetch_box_doc(lg, w)
     corrections, week_plays = [], []
-    baseline = None
-    if row:
+    baseline, old_boxes = None, []
+    if row and row.get("final"):
         try:
-            baseline = _points_by_player(_parse_box_doc(lg, row["doc"]))
+            old_boxes = _parse_box_doc(lg, row["doc"])
+            baseline = _points_by_player(old_boxes)
         except Exception as e:  # noqa: BLE001 — an unparseable stored doc is no baseline
             log.warning("week %s stored box scores unparseable, no corrections compared: %s", w, e)
     if baseline is not None:
-        for pid, new in _points_by_player(_parse_box_doc(lg, doc)).items():
+        new_boxes = _parse_box_doc(lg, doc)
+        points = _points_by_player(new_boxes)
+        missing = set(baseline) - set(points)
+        if len(new_boxes) < len(old_boxes) or missing:
+            log.warning("week %s: ESPN answered short (%s of %s matchups, %s stored players missing); "
+                        "stored read kept, left unsettled", w, len(new_boxes), len(old_boxes), len(missing))
+            db.put_box_doc(w, row["doc"], row["hash"], now.timestamp(), settled=False, final=True)
+            return {"changed": 0, "settled": False}
+        for pid, new in points.items():
             old = baseline.get(pid)
             if old is None or old["points"] == new["points"]:
                 continue
             log.warning("stat correction week %s: %s %s -> %s", w, new["name"], old["points"], new["points"])
-            print(f"stat correction week {w}: {new['name']} {old['points']} -> {new['points']}")
             corrections.append({"week": w, "player_id": pid, "team_id": new["team_id"], "old": old["points"],
                                 "new": new["points"], "at": at})
             if new["starter"]:
@@ -981,12 +997,13 @@ def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, play
     ids = db.gap_ids(w)
     if ids:
         gap_new = _fetch_gap_rows(w, ids, lg.current_week)
-        old_rows = db.gap_rows(w, list(gap_new))
+        old_rows = db.gap_rows(w, ids)
+        # a stored player answered with no rows is a short answer, not a correction: kept out (week unsettled)
+        gap_new = {pid: rows for pid, rows in gap_new.items() if rows or not old_rows.get(pid)}
         for pid, rows in gap_new.items():
             old, new = round(sum(r["pts"] for r in old_rows.get(pid, [])), 2), round(sum(r["pts"] for r in rows), 2)
             if pid in old_rows and old != new:
                 log.warning("stat correction week %s: gap player %s %s -> %s", w, pid, old, new)
-                print(f"stat correction week {w}: gap player {pid} {old} -> {new}")
                 gap_corr.append({"week": w, "player_id": pid, "team_id": None, "old": old, "new": new, "at": at})
     settled = False
     if kicks:
@@ -1001,7 +1018,7 @@ def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, play
         db.put_gap_rows(w, gap_new, now.timestamp())
         for pid, rows in gap_new.items():
             _GAP_GAMES[(pid, w)] = rows
-    db.put_box_doc(w, doc, box_hash(doc), now.timestamp(), settled=settled, corrections=corrections)
+    db.put_box_doc(w, doc, box_hash(doc), now.timestamp(), settled=settled, corrections=corrections, final=True)
     plays.extend(week_plays)
     return {"changed": len(corrections) + len(gap_corr), "settled": settled}
 
@@ -1012,8 +1029,8 @@ def correct_boxes(lg, now: datetime | None = None) -> dict:
     hourly, and each starter or bench total that moved is logged to box_score_corrections; a starter's also
     becomes a play row (match "correction") in the result for the caller to write, since the live runner owns the
     plays store. The week settles when this read is past season.settle_at of its last kickoff, and a week with no
-    kickoffs (the schedule read failed) never settles. A week with no row yet is backfilled with no baseline, so
-    nothing is logged. A week that fails is {"error"} and its row is untouched (retried next tick).
+    kickoffs (the schedule read failed) never settles. A week with no row yet, or only a non-final one (read
+    while it was the current week), is backfilled with no baseline, so nothing is logged. A week that fails is {"error"} and its row is untouched (retried next tick).
     Returns {"weeks": {w: {changed, settled} | {error}}, "changed": [weeks with a change], "plays": [rows]}."""
     now = now or datetime.now(timezone.utc)
     log = logging.getLogger(__name__)
@@ -1027,7 +1044,8 @@ def correct_boxes(lg, now: datetime | None = None) -> dict:
         return out
     for w in range(1, lg.current_week):
         have = stored.get(w)
-        if have and (have["settled"] or now.timestamp() - have["fetched_at"] < CORRECTION_EVERY_S):
+        # a non-final row (the current week's last read, maybe mid-game) is due now, unthrottled
+        if have and have["final"] and (have["settled"] or now.timestamp() - have["fetched_at"] < CORRECTION_EVERY_S):
             continue
         try:
             row = db.box_doc(w) if have else None
@@ -1037,8 +1055,9 @@ def correct_boxes(lg, now: datetime | None = None) -> dict:
             out["weeks"][w] = {"error": str(e)}
             continue
         out["weeks"][w] = res
-        if res["changed"]:
+        if res["changed"] or not (have and have["final"]):  # a backfill replaced a non-final read too
             _BOXES.pop(w, None)
+        if res["changed"]:
             out["changed"].append(w)
     return out
 

@@ -39,6 +39,7 @@ def upgrade() -> None:
     sa.Column('hash', sa.String(), nullable=False),
     sa.Column('fetched_at', sa.Float(), nullable=False),
     sa.Column('settled', sa.Boolean(), server_default=sa.text('0'), nullable=False),
+    sa.Column('final', sa.Boolean(), server_default=sa.text('0'), nullable=False),
     sa.PrimaryKeyConstraint('season', 'week')
     )
     op.create_table('gap_games',

@@ -94,6 +94,7 @@ sa.Index("ix_plays_week_team", plays.c.season, plays.c.week, plays.c.team_id)
 # Every week's box scores as ESPN answered them (espn_season.box_scores): the matchup schedule and the two maps
 # BoxScore takes, so a cold process parses them back without ESPN. fetched_at (epoch s) moves on every read; doc and
 # hash only when ESPN's answer changed. settled: the correction pass's last read (ffl-7sq); never fetched after it.
+# final: read after the week finished (week < ESPN's), so a baseline; a current-week (maybe mid-game) read is not.
 box_scores_table = sa.Table(
     "box_scores", metadata, _season(),
     sa.Column("week", sa.Integer, nullable=False),
@@ -101,6 +102,7 @@ box_scores_table = sa.Table(
     sa.Column("hash", sa.String, nullable=False),
     sa.Column("fetched_at", sa.Float, nullable=False),
     sa.Column("settled", sa.Boolean, nullable=False, default=False, server_default=sa.text("0")),
+    sa.Column("final", sa.Boolean, nullable=False, default=False, server_default=sa.text("0")),
     sa.PrimaryKeyConstraint("season", "week"),
 )
 
@@ -430,37 +432,39 @@ def _corr_vals(rows, season: int) -> list[dict]:
 
 
 def box_doc(week: int, season: int = SEASON) -> dict | None:
-    """One week's stored box-score document: {doc, hash, fetched_at, settled}, or None."""
+    """One week's stored box-score document: {doc, hash, fetched_at, settled, final}, or None."""
     t = box_scores_table
-    q = sa.select(t.c.doc, t.c.hash, t.c.fetched_at, t.c.settled).where(t.c.season == season, t.c.week == week)
+    q = sa.select(t.c.doc, t.c.hash, t.c.fetched_at, t.c.settled, t.c.final).where(
+        t.c.season == season, t.c.week == week)
     with _read() as c:
         r = c.execute(q).first()
     return dict(r._mapping) if r else None
 
 
 def box_weeks(season: int = SEASON) -> dict[int, dict]:
-    """Every stored week -> {fetched_at, settled}, without the documents."""
+    """Every stored week -> {fetched_at, settled, final}, without the documents."""
     t = box_scores_table
-    q = sa.select(t.c.week, t.c.fetched_at, t.c.settled).where(t.c.season == season)
+    q = sa.select(t.c.week, t.c.fetched_at, t.c.settled, t.c.final).where(t.c.season == season)
     with _read() as c:
-        return {r.week: {"fetched_at": r.fetched_at, "settled": r.settled} for r in c.execute(q)}
+        return {r.week: {"fetched_at": r.fetched_at, "settled": r.settled, "final": r.final} for r in c.execute(q)}
 
 
 def put_box_doc(week: int, doc: dict, hash: str, fetched_at: float, settled: bool | None = None,
-                corrections=(), season: int = SEASON) -> bool:
+                corrections=(), season: int = SEASON, final: bool = False) -> bool:
     """Store a read of one week's box scores in one transaction: insert the row if absent; else always set
-    fetched_at (the correction pass's throttle and the current week's 60 s hit read it), doc and hash only
-    when the hash differs, settled when not None. `corrections` go into box_score_corrections in the same
-    transaction. Returns True when doc/hash were (re)written."""
+    fetched_at (the correction pass's throttle and the current week's 60 s hit read it) and final (the read
+    decides: made after the week finished or not), doc and hash only when the hash differs, settled when not
+    None. `corrections` go into box_score_corrections in the same transaction. Returns True when doc/hash
+    were (re)written."""
     t = box_scores_table
     with _write() as c:
         old = c.execute(sa.select(t.c.hash).where(t.c.season == season, t.c.week == week)).first()
         if old is None:
             c.execute(t.insert().values(season=season, week=week, doc=doc, hash=hash, fetched_at=fetched_at,
-                                        settled=bool(settled)))
+                                        settled=bool(settled), final=final))
             wrote = True
         else:
-            vals: dict = {"fetched_at": fetched_at}
+            vals: dict = {"fetched_at": fetched_at, "final": final}
             wrote = old.hash != hash
             if wrote:
                 vals.update(doc=doc, hash=hash)
@@ -472,11 +476,12 @@ def put_box_doc(week: int, doc: dict, hash: str, fetched_at: float, settled: boo
     return wrote
 
 
-def expire_unsettled_boxes(season: int = SEASON) -> None:
-    """fetched_at = 0 on every unsettled row: after a league move no stored current week counts as a 60 s hit."""
+def expire_live_boxes(season: int = SEASON) -> None:
+    """fetched_at = 0 on every non-final row: after a league move no stored current week counts as a 60 s hit.
+    A final row keeps its fetched_at, the correction pass's hourly throttle."""
     t = box_scores_table
     with _write() as c:
-        c.execute(t.update().where(t.c.season == season, t.c.settled.is_(False)).values(fetched_at=0.0))
+        c.execute(t.update().where(t.c.season == season, t.c.final.is_(False)).values(fetched_at=0.0))
 
 
 def gap_rows(week: int, ids, season: int = SEASON) -> dict[int, list[dict]]:

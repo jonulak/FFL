@@ -1699,7 +1699,7 @@ def test_a_past_board_shows_its_stored_feed_for_its_two_teams_newest_first(clien
 def test_a_settled_week_is_not_read_again_after_expire_everything(client, monkeypatch):
     from ffl import espn_season
     doc = {"matchups": [], "pro_schedule": {}, "ratings": {}}
-    db.put_box_doc(4, doc, espn_season.box_hash(doc), 1.0, settled=True)
+    db.put_box_doc(4, doc, espn_season.box_hash(doc), 1.0, settled=True, final=True)
     monkeypatch.setattr(espn_season, "_fetch_box_doc", lambda lg, w: (_ for _ in ()).throw(AssertionError("fetched")))
     monkeypatch.setattr(espn_season, "_parse_box_doc", lambda lg, d: ["BOX"])
     api.expire_everything()
