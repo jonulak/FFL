@@ -62,21 +62,25 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
   const gain = side.optimal_total - side.proj_total;
   const opp = end === "opp";
   // Three subgrid rows (name / number / note) so the two sides line up row for row even when
-  // one team name wraps and the other does not.
+  // one team name wraps and the other does not. One shrinkable column: an auto one grows to the
+  // widest unbreakable line and pushes the opponent's mark past the card's edge.
   return (
-    <div className={`row-span-3 grid min-w-0 grid-rows-subgrid gap-y-0 ${opp ? "text-right" : ""}`}>
-      <div className={`flex items-center gap-2.5 self-end sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
+    <div className={`row-span-3 grid min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-subgrid gap-y-0 ${opp ? "text-right" : ""}`}>
+      {/* Both marks hang from the top of the row with each name's cap line level with them, so the
+          two sides start at one height whichever name wraps; the caption sits at the row's foot, so
+          the records still read across the bug at one height. */}
+      <div className={`flex items-start gap-2.5 sm:gap-3 ${opp ? "flex-row-reverse" : ""}`}>
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={40} className="sm:hidden" />
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={48} className="hidden sm:flex" />
         {/* the whole name, however many lines it takes: a long team name ("Anthony's Astounding Team")
             wraps to three at the phone's size rather than clip, and a word wider than the column hyphenates;
             the record and the manager's name sit under it as a caption, the record first in ink as on
-            the League's tiles, so the two sides' records read across the bug at one height */}
-        <div className="min-w-0">
-          <p className="hyphens-auto text-balance font-display text-[1.125rem] font-semibold leading-[1.05] tracking-tight [overflow-wrap:anywhere] sm:text-[1.65rem] sm:leading-none">
+            the League's tiles. `text-box` trims the name to cap height so its top edge is the ink's. */}
+        <div className="flex min-w-0 flex-1 flex-col justify-between self-stretch">
+          <p className="hyphens-auto text-balance font-display text-[1.125rem] font-semibold leading-[1.05] tracking-tight [overflow-wrap:anywhere] [text-box:trim-both_cap_alphabetic] sm:text-[1.65rem] sm:leading-none">
             <TeamLink id={side.team_id}>{side.team}</TeamLink>
           </p>
-          <p className="mt-1 text-xs leading-tight text-muted-foreground [overflow-wrap:anywhere] sm:mt-1.5 sm:text-sm">
+          <p className="mt-2 text-xs leading-tight text-muted-foreground [overflow-wrap:anywhere] sm:mt-2.5 sm:text-sm">
             <span className="font-medium tabular-nums text-foreground/80"><Swap>{record(side)}</Swap></span>
             {/* on the phone the name takes its own line rather than break between first and last */}
             {side.owner && <><span aria-hidden className="hidden sm:inline"> · </span><span className="mt-0.5 block sm:mt-0 sm:inline">{side.owner}</span></>}
@@ -93,7 +97,7 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
       {/* Two facts, each on its own line, so they never read as one sentence. */}
       <p className={`mt-2 min-h-4 text-xs tabular-nums text-muted-foreground ${opp ? "sm:text-left" : "sm:text-right"}`}>
         <Presence show={on}><span className="block whitespace-nowrap">proj {pts(side.proj_total)} <span aria-hidden>·</span> <Swap>{left > 0 ? `${left} to play` : "final"}</Swap></span></Presence>
-        <Presence show={gain > 0.05}><span className="block whitespace-nowrap">by projection <Ticker value={side.optimal_total} format={pts} /> <span className="text-foreground/80">(<Ticker value={gain} format={signed} />)</span></span></Presence>
+        <Presence show={gain > 0.05}><span className="block"><span className="whitespace-nowrap">by projection <Ticker value={side.optimal_total} format={pts} /></span> <span className="whitespace-nowrap text-foreground/80">(<Ticker value={gain} format={signed} />)</span></span></Presence>
       </p>
     </div>
   );
