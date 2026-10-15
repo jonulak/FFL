@@ -1564,3 +1564,74 @@ def test_startup_serves_the_stored_page_on_the_first_hit(client):
         assert c.get("/week/3").json()["me"]["team"] == "stored"
         api.cache.join()
         assert c.get("/week/3").json()["me"]["team"] == "me"
+
+
+def test_a_cold_key_is_built_once_for_concurrent_callers():
+    from tests.test_flight import park, race
+    c, calls = api.Cache(60.0), []
+
+    def build():
+        park(c._flight, "k", 1)
+        calls.append(1)
+        return {"n": 1}
+
+    assert race(2, lambda: c.get_or_build("k", build)) == [({"n": 1}, None)] * 2
+    assert calls == [1] and c._d["k"].payload == {"n": 1}
+
+
+def test_a_failed_shared_first_build_is_a_502_for_every_caller():
+    from tests.test_flight import park, race
+    c, calls = api.Cache(60.0), []
+
+    def build():
+        park(c._flight, "k", 1)
+        calls.append(1)
+        raise requests.ConnectionError("espn down")
+
+    out = race(2, lambda: c.get_or_build("k", build))
+    assert calls == [1]
+    assert all(isinstance(e, api.HTTPException) and e.status_code == 502 for e in out)
+    assert not c.has("k")
+
+
+def test_a_move_during_a_shared_first_build_hands_it_out_but_never_installs_it():
+    from tests.test_flight import park, race
+    c = api.Cache(60.0)
+
+    def build():
+        park(c._flight, "week:current", 1)
+        c.drop_prefixes(("week",))
+        return {"n": 1}
+
+    assert race(2, lambda: c.get_or_build("week:current", build)) == [({"n": 1}, None)] * 2
+    assert not c.has("week:current")
+
+
+def test_a_rewarm_that_joins_a_build_from_before_the_move_builds_again():
+    # the drop lands between a first build's install and its flight closing: the rewarm joins that flight, which
+    # hands out its payload but never installs, so the rewarm builds once more and the page is there when it ticks
+    from tests.test_flight import park
+    c, calls, release = api.Cache(60.0), [], threading.Event()
+
+    def build():
+        calls.append(1)
+        if len(calls) == 1:
+            release.wait(5)
+        return {"n": len(calls)}
+
+    leader = threading.Thread(target=lambda: c.get_or_build("week:current", build))
+    leader.start()
+    for _ in range(500):
+        if calls:
+            break
+        time.sleep(0.01)
+    c._d["week:current"] = api.Entry(time.time() + 60, time.time(), {"n": 0}, build, 60.0)  # the install, landed
+    dropped = c.drop_prefixes(("week",))
+    rewarm = threading.Thread(target=api._rewarm, args=(c, dropped))
+    rewarm.start()
+    park(c._flight, "week:current", 1)
+    release.set()
+    leader.join(5)
+    rewarm.join(5)
+    assert calls == [1, 1]
+    assert c._d["week:current"].payload == {"n": 2}

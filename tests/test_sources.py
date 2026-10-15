@@ -199,3 +199,30 @@ def test_a_db_failure_does_not_fail_the_fetch(monkeypatch):
     monkeypatch.setattr(db, "source_rows", boom)
     good = {("a", "RB"): 1.0}
     assert sources.Cached("nodb").get(1, lambda: good) == good
+
+
+def test_concurrent_cold_gets_share_one_fetch(monkeypatch):
+    from tests.test_flight import park, race
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+    c, calls, good = sources.Cached("test"), [], {("a", "RB"): 5.0}
+
+    def fetch():
+        park(c._flight, 5, 1)
+        calls.append(1)
+        return good
+
+    assert race(2, lambda: c.get(5, fetch)) == [good, good]
+    assert calls == [1]
+
+
+def test_concurrent_cold_gets_share_one_failure(monkeypatch):
+    from tests.test_flight import park, race
+    c, calls = sources.Cached("test"), []
+
+    def down():
+        park(c._flight, 5, 1)
+        calls.append(1)
+        raise requests.ConnectionError("down")
+
+    assert race(2, lambda: c.get(5, down)) == [{}, {}]
+    assert calls == [1]

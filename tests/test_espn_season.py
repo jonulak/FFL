@@ -1118,3 +1118,35 @@ def test_a_finished_week_fetches_when_the_db_cannot_answer(monkeypatch):
     monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: fetched.append(week) or {})
     espn_season.week_state(week=1, injuries={})
     assert fetched == [1]
+
+
+def test_concurrent_cold_sleeper_weeks_share_one_fetch(monkeypatch):
+    from tests.test_flight import park, race
+    monkeypatch.setattr(espn_season, "_SL", {})
+    calls = []
+
+    def fake_week(week, ks):
+        park(espn_season._SL_FLIGHT, 4, 1)
+        calls.append(week)
+        return {("jalen hurts", "QB"): 10.0}
+
+    monkeypatch.setattr(espn_season, "fetch_sleeper_week", fake_week)
+    settings = {**TWO_QB, "scoring": []}
+    assert race(2, lambda: espn_season._sleeper_for(4, settings)) == [{("jalen hurts", "QB"): 10.0}] * 2
+    assert calls == [4]
+
+
+def test_concurrent_cold_box_scores_share_one_fetch(monkeypatch):
+    from tests.test_flight import park, race
+    monkeypatch.setattr(espn_season, "_BOXES", {})
+    calls = []
+    lg = SimpleNamespace(current_week=5)
+
+    def fetch(week):
+        park(espn_season._BOXES_FLIGHT, (week, id(lg)), 1)
+        calls.append(week)
+        return ["box"]
+
+    lg.box_scores = fetch
+    assert race(2, lambda: espn_season.box_scores(lg, 2)) == [["box"], ["box"]]
+    assert calls == [2]

@@ -19,6 +19,7 @@ from . import calibrate, consensus, db, espn_write
 from .sources import cbs, fleaflicker, sharks
 from . import season as S
 from .adp import norm_name
+from .flight import Flight
 from .config import MY_TEAM_ID, SEASON, SWID, cookies, league, raw_league_get
 from .players import fetch_pool
 from .settings import key_scoring, load
@@ -43,6 +44,7 @@ _LEAGUE_BUILT_AT = 0.0
 # one slot each build evicted the other's 5-25 s lookup. An entry refetches only once it is CACHE_S old.
 _SEASON_CACHE: dict[int, tuple[float, dict]] = {}
 _SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
+_SL_FLIGHT = Flight()  # week -> its Sleeper fetch in flight, shared by the builds asking at once
 _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
 _INJ: list = []  # [expires_at, data]
 
@@ -763,9 +765,16 @@ def _sleeper_for(week: int, settings: dict) -> dict:
     hit = _SL.get(week)
     if hit and hit[0] > time.time():
         return hit[1]
-    data = fetch_sleeper_week(week, key_scoring(settings["scoring"]))
-    _SL[week] = (time.time() + CACHE_S, data)
-    return data
+
+    def fetch():
+        hit = _SL.get(week)
+        if hit and hit[0] > time.time():  # the flight before this one landed it
+            return hit[1]
+        data = fetch_sleeper_week(week, key_scoring(settings["scoring"]))
+        _SL[week] = (time.time() + CACHE_S, data)
+        return data
+
+    return _SL_FLIGHT.do(week, fetch)
 
 
 def _season_for(settings: dict, season: dict | None, week: int) -> dict:
@@ -792,6 +801,7 @@ BOXES_TTL_S = 60
 _BOXES: dict[int, tuple[float, object, list]] = {}  # week -> (expires_at, the League fetched from, box scores)
 
 
+_BOXES_FLIGHT = Flight()  # (week, League) -> its box-score fetch in flight, shared by the builders asking at once
 _BOXES_EPOCH = [0]  # bumped by forget_current_boxes: a fetch that began before the bump does not keep its boxes
 
 
@@ -815,6 +825,15 @@ def box_scores(lg, week: int) -> list:
     """
     hit = _BOXES.get(week)
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):
+        return hit[2]
+    # keyed on the League too: a caller holding another League fetches from its own, never waits for this one's
+    return _BOXES_FLIGHT.do((week, id(lg)), lambda: _fetch_boxes(lg, week))
+
+
+def _fetch_boxes(lg, week: int) -> list:
+    """box_scores' fetch, once for every caller waiting on it: the read, the install and the log's reconcile."""
+    hit = _BOXES.get(week)
+    if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):  # the flight before this one
         return hit[2]
     epoch = _BOXES_EPOCH[0]
     boxes = lg.box_scores(week)

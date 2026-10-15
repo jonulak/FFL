@@ -140,7 +140,8 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `source_cache` (`sources.Cached`'s scrapes); `page_cache` (`api.Cache(persist=True)`:
 every installed page payload in `api.PERSIST` that survives a JSON round-trip, written through under `_db_lock`; `load()` at boot takes them
 back expired with no builder, so the first open after a restart is served at once and rebuilt behind; `drop`/`drop_prefixes`/`clear`
-delete the rows; player cards older than 7 days pruned at load); `decisions` ← `journal/DECISIONS.md` (frozen; `ffl.decisions` parses it on import; app rows carry `facts` and a rationale of preset keys, NULL = open). `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held
+delete the rows; player cards older than 7 days pruned at load; a key's inline first build is single-flight (`ffl/flight.py`): callers arriving
+while it runs share its payload or its 502, as do concurrent cold reads of `sources.Cached`, `_sleeper_for` and `box_scores`); `decisions` ← `journal/DECISIONS.md` (frozen; `ffl.decisions` parses it on import; app rows carry `facts` and a rationale of preset keys, NULL = open). `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held
   across an ESPN call; the connect hook sets `busy_timeout` before `journal_mode=WAL`. `db.engine()` never creates tables: a
   missing or stale schema raises `SchemaError` (run `uv run alembic upgrade head`); a DB error on a page read 500s the page, only a missing
   row degrades to empty. Callers outside `db.py` catch `db.DBError`. Schema changes are new Alembic revisions

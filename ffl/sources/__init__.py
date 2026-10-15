@@ -16,6 +16,7 @@ from typing import Callable
 import requests
 
 from .. import db
+from ..flight import Flight
 
 log = logging.getLogger(__name__)
 TTL_S = 1800
@@ -109,6 +110,7 @@ class Cached:
         self._d: dict = {}
         self._restored = False
         self._restore_lock = threading.Lock()
+        self._flight = Flight()  # a key's fetch in flight: page builds running at once scrape the site once
         _ALL.append(self)
 
     def _restore(self) -> None:
@@ -141,6 +143,13 @@ class Cached:
             self._restore()
         hit = self._d.get(key)
         if hit and hit[0] > time.time():
+            return hit[1]
+        return self._flight.do(key, lambda: self._fetch(key, fetch, min_rows, ttl))
+
+    def _fetch(self, key, fetch: Callable[[], dict], min_rows: dict[str, int] | None, ttl: float | None) -> dict:
+        """Fetch `key` and install it, or fall back to its last good; every caller waiting on it gets the same."""
+        hit = self._d.get(key)
+        if hit and hit[0] > time.time():  # the flight before this one landed it
             return hit[1]
         ttl = TTL_S if ttl is None else ttl
         try:

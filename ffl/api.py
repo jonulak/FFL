@@ -40,6 +40,7 @@ from . import db
 from . import decisions as decisions_mod
 from . import plays as plays_mod
 from . import journal
+from .flight import Flight
 from .journal import sync_results, sync_transactions
 from .settings import load
 
@@ -67,7 +68,8 @@ class Cache:
     A cold ESPN build is one to four seconds, so a request never waits on one when there is any
     payload to hand back: an expired entry is served at once and rebuilt on a thread behind it,
     one thread per key however many requests arrive. Only the very first build of a key (and the
-    Refresh button, which is the user asking to wait) is inline. `stale_since` is set only when
+    Refresh button, which is the user asking to wait) is inline, and that one is shared: a caller
+    arriving while it runs waits for it rather than building again (ffl.flight). `stale_since` is set only when
     the latest attempt failed — an entry that is merely past its TTL is not "source down".
 
     With `persist`, every installed page (PERSIST) is written through to the DB's page_cache, and `load()` at boot
@@ -80,6 +82,7 @@ class Cache:
         self._d: dict[str, Entry] = {}
         self._lock = threading.Lock()
         self._threads: dict[str, threading.Thread] = {}
+        self._flight = Flight()  # a key's first build in flight, shared by its concurrent callers
         # bumped by drop_prefixes (a league move): a build that began before it read the rosters from before it,
         # so it hands its payload to its caller but never installs it
         self._gen = 0
@@ -98,6 +101,16 @@ class Cache:
             return hit.payload, self._stale(hit)
         if hit:
             self._revalidate(key)
+            return hit.payload, self._stale(hit)
+        return self._flight.do(key, lambda: self._first_build(key, fn, ttl))
+
+    def _first_build(self, key: str, fn: Callable[[], object], ttl: float | None):
+        """The inline build of a key with nothing cached, shared by every caller that arrives while it runs (warm()
+        and the first open, a move's rewarm and the notice's link): one build, its payload or its 502 to each."""
+        now = time.time()
+        with self._lock:
+            hit = self._d.get(key)
+        if hit and hit.fn is not None and hit.expires > now:  # the flight before this one installed it
             return hit.payload, self._stale(hit)
         gen = self._gen
         try:
@@ -307,6 +320,8 @@ def _rewarm(c: Cache, dropped: list[tuple[str, Callable[[], object], float]]) ->
             continue
         try:
             c.get_or_build(key, fn, ttl)
+            if not c.has(key):  # it joined a build from before the drop, which hands out but never installs
+                c.get_or_build(key, fn, ttl)
         except HTTPException as e:  # a source down: the page builds inline on its next open instead
             print(f"rebuild of {key} after a move failed: {e.detail}")
     live.STATE.moved()
