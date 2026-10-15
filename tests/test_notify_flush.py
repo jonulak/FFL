@@ -171,6 +171,17 @@ def test_two_moves_by_one_team_collapse_into_one_fragment():
     assert push["keys"] == ["move:1", "move:2", "move:3"]
 
 
+def test_a_claim_and_its_drop_count_as_one_move():
+    unsent = [_n("move:1760000000000-3-WAIVER ADDED-101", body="Bears +Isiah Pacheco"),
+              _n("move:1760000000000-3-DROPPED-102", body="Bears −Jaylen Wright"),
+              _n("move:1760000000000-5-FA ADDED-103", body="Lions +Z"),
+              _n("move:1760000999000-3-DROPPED--16020", body="Bears −Eagles D/ST")]
+    (push,), _ = notify.plan(unsent, notify.DEFAULT_PREFS, T)
+    assert push["title"] == "3 league moves" and len(push["keys"]) == 4
+    (push,), _ = notify.plan(unsent[:2], notify.DEFAULT_PREFS, T)
+    assert push["title"] == "1 league move" and push["body"] == "Bears +Isiah Pacheco −Jaylen Wright"
+
+
 def test_more_count_is_rows_left_out_not_teams():
     unsent = [_n(f"move:{i}", body=f"Team{i // 2} {'+' if i % 2 == 0 else '−'}Somebody Longname{i}") for i in range(40)]
     (push,), _ = notify.plan(unsent, notify.DEFAULT_PREFS, T)

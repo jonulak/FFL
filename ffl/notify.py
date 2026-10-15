@@ -14,7 +14,7 @@ import re
 from datetime import datetime, timedelta
 
 from . import db
-from .season import slot_label
+from .season import parse_tx_id, slot_label
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +167,13 @@ def _by_team(bodies: list[str]) -> tuple[list[str], list[int]]:
             [len(v) for v in frags.values()])
 
 
+def _move_of(key: str) -> tuple | str:
+    """The move a notice's row belongs to: (timestamp, team), as season.group_transactions groups them, so a claim
+    and its drop count once. A key that is not `move:<transaction id>` is a move of its own."""
+    p = parse_tx_id(key.removeprefix("move:"))
+    return (p[0], p[1]) if p else key
+
+
 def _cap(s: str) -> str:
     return s if len(s) <= BODY_MAX else s[:BODY_MAX - 1] + "…"
 
@@ -193,7 +200,8 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
     pushes = []
     moves = [n for n in live if n["kind"] == "move"]
     if moves:
-        pushes.append({"keys": [n["key"] for n in moves], "title": f"{len(moves)} league move{'s' if len(moves) > 1 else ''}",
+        count = len({_move_of(n["key"]) for n in moves})
+        pushes.append({"keys": [n["key"] for n in moves], "title": f"{count} league move{'s' if count > 1 else ''}",
                        "body": _join(*_by_team([n["body"] for n in moves])), "url": "/transactions", "tag": "moves"})
     trades = [n for n in live if n["kind"] == "trade"]
     if trades:
