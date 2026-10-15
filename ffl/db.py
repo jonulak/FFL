@@ -244,6 +244,16 @@ decisions_table = sa.Table(
 )
 sa.Index("ix_decisions_week_kind", decisions_table.c.season, decisions_table.c.week, decisions_table.c.kind)
 
+# The API's page payloads (api.Cache), written through on every install and loaded expired at boot, so the first open
+# of a page after a restart is served at once while it rebuilds behind. A dropped page's row is deleted with it.
+page_cache = sa.Table(
+    "page_cache", metadata, _season(),
+    sa.Column("key", sa.String, nullable=False),
+    sa.Column("payload", sa.JSON, nullable=False),
+    sa.Column("built_at", sa.Float, nullable=False),     # epoch seconds
+    sa.PrimaryKeyConstraint("season", "key"),
+)
+
 
 def url() -> str:
     return os.environ.get("FFL_DB_URL") or f"sqlite:///{DATA / 'ffl.db'}"
@@ -669,6 +679,39 @@ def get_state(key: str, default=None, season: int = SEASON):
 def put_state(key: str, value, season: int = SEASON) -> None:
     with _write() as c:
         c.execute(_upsert(notify_state, [{"season": season, "key": key, "value": value}], ["season", "key"], ["value"]))
+
+
+def put_page(key: str, payload, built_at: float, season: int = SEASON) -> None:
+    with _write() as c:
+        c.execute(_upsert(page_cache, [{"season": season, "key": key, "payload": payload, "built_at": built_at}],
+                          ["season", "key"], ["payload", "built_at"]))
+
+
+def drop_pages(keys: list[str], season: int = SEASON) -> None:
+    if not keys:
+        return
+    with _write() as c:
+        c.execute(page_cache.delete().where(page_cache.c.season == season, page_cache.c.key.in_(keys)))
+
+
+def drop_page_prefixes(prefixes: tuple[str, ...], season: int = SEASON) -> None:
+    """Delete every row keyed `prefix` or `prefix:...`."""
+    k = page_cache.c.key
+    match = sa.or_(*[sa.or_(k == p, k.startswith(p + ":", autoescape=True)) for p in prefixes])
+    with _write() as c:
+        c.execute(page_cache.delete().where(page_cache.c.season == season, match))
+
+
+def clear_pages(season: int = SEASON) -> None:
+    with _write() as c:
+        c.execute(page_cache.delete().where(page_cache.c.season == season))
+
+
+def pages(season: int = SEASON) -> list[dict]:
+    """Every stored page: {key, payload, built_at}."""
+    t = page_cache
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(sa.select(t.c.key, t.c.payload, t.c.built_at).where(t.c.season == season))]
 
 
 def _decision_out(r) -> dict:

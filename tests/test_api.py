@@ -1457,3 +1457,110 @@ def test_trace_appends_a_stamped_row(client, monkeypatch, tmp_path):
     rows = [json.loads(line) for line in (tmp_path / "trace.jsonl").read_text().splitlines()]
     assert [r["event"] for r in rows] == ["click", "hello"]
     assert rows[0]["url"] == "/transactions" and rows[0]["at"][:4].isdigit()
+
+
+# --- page payloads in SQL (ffl-iq3): no cold load after a restart ---
+
+def test_a_page_built_before_a_restart_is_served_at_once_then_rebuilt():
+    api.Cache(120, persist=True).get_or_build("roster", lambda: {"n": 1})
+    after = api.Cache(120, persist=True)
+    after.load()
+    calls = []
+
+    def build():
+        calls.append(1)
+        return {"n": 2}
+    payload, stale = after.get_or_build("roster", build)
+    assert payload == {"n": 1} and stale is None, "the stored page, at once, not flagged as a source failure"
+    after.join()
+    assert calls == [1] and after._d["roster"].payload == {"n": 2}
+    assert [p["payload"] for p in db.pages()] == [{"n": 2}], "the rebuild is written through"
+
+
+def test_a_loaded_page_is_never_fresh():
+    api.Cache(120, persist=True).get_or_build("league:current", lambda: {"n": 1})
+    after = api.Cache(120, persist=True)
+    after.load()
+    assert after._d["league:current"].expires == 0.0
+    after.rebuild_expired()  # /refresh: a loaded page with no builder yet is left for its first request
+    assert after._d["league:current"].payload == {"n": 1}
+
+
+def test_only_pages_that_survive_json_are_stored():
+    c = api.Cache(120, persist=True)
+    c.get_or_build("roster", lambda: {1: "int keys come back as strings"})
+    c.get_or_build("waivers", lambda: {"pair": (1, 2)})
+    c.get_or_build("starters:current", lambda: {"ids": [1]})
+    c.get_or_build("logo:3", lambda: (b"png", "image/png"))
+    c.get_or_build("draft_picks", lambda: {"picks": []})
+    c.get_or_build("team:3", lambda: {"ok": True})
+    assert [p["key"] for p in db.pages()] == ["team:3"]
+
+
+def test_a_dropped_page_never_comes_back_from_the_db():
+    c = api.Cache(120, persist=True)
+    for k in ("roster", "team:3", "week:current", "league:current"):
+        c.get_or_build(k, lambda: {"k": 1})
+    c.drop_prefixes(("roster", "team"))
+    c.drop("week:current")
+    assert [p["key"] for p in db.pages()] == ["league:current"]
+    c.clear()
+    assert db.pages() == []
+
+
+def test_a_move_deletes_stored_pages_never_loaded():
+    db.put_page("team:3", {"k": 1}, time.time())
+    db.put_page("teams", {"k": 1}, time.time())  # another prefix that merely starts the same
+    c = api.Cache(120, persist=True)  # boot's load failed, say: nothing in memory
+    assert c.drop_prefixes(("team",)) == []
+    assert [p["key"] for p in db.pages()] == ["teams"]
+
+
+def test_a_build_a_move_overtakes_writes_no_row():
+    c = api.Cache(120, persist=True)
+
+    def before_the_move():
+        c.drop_prefixes(("roster",))
+        return {"old": True}
+    c.get_or_build("roster", before_the_move)
+    assert db.pages() == []
+    c.get_or_build("roster", lambda: {"n": 1})
+    c._d["roster"].expires = 0.0
+    c._d["roster"].fn = before_the_move
+    c.get_or_build("roster", before_the_move)
+    c.join()
+    assert db.pages() == [], "the revalidate the move overtook leaves no row behind"
+
+
+def test_put_writes_through():
+    c = api.Cache(120, persist=True)
+    c.get_or_build("roster", lambda: {"n": 1})
+    c.put("roster", {"n": 5})
+    assert [p["payload"] for p in db.pages()] == [{"n": 5}]
+
+
+def test_old_player_cards_are_pruned_at_load():
+    db.put_page("player:9", {"old": True}, time.time() - 8 * 86400)
+    db.put_page("player:8", {"new": True}, time.time())
+    db.put_page("week:2", {"old": True}, time.time() - 8 * 86400)
+    c = api.Cache(120, persist=True)
+    c.load()
+    assert sorted(c._d) == ["player:8", "week:2"]
+    assert sorted(p["key"] for p in db.pages()) == ["player:8", "week:2"]
+
+
+def test_a_failed_write_keeps_the_page(monkeypatch):
+    def broken(*a, **k):
+        raise db.DBError("disk full")
+    monkeypatch.setattr(api.db, "put_page", broken)
+    c = api.Cache(120, persist=True)
+    assert c.get_or_build("roster", lambda: {"n": 1})[0] == {"n": 1}
+    assert c.has("roster")
+
+
+def test_startup_serves_the_stored_page_on_the_first_hit(client):
+    db.put_page("week:3", {"week": 3, "live": False, "me": {"team": "stored"}, "opp": {"team": "opp"}}, time.time() - 3600)
+    with TestClient(api.app) as c:
+        assert c.get("/week/3").json()["me"]["team"] == "stored"
+        api.cache.join()
+        assert c.get("/week/3").json()["me"]["team"] == "me"

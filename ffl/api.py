@@ -47,8 +47,15 @@ log = logging.getLogger(__name__)
 TTL = 120.0
 
 
+# The page keys a persisted Cache writes through to the DB's page_cache (by the part before the first ":"). Not the
+# live runner's starters (a stale copy would side plays to the wrong team), logos (bytes) or the draft (not a page).
+PERSIST = ("week", "roster", "league", "waivers", "team", "transactions", "player")
+PLAYER_KEEP = 7 * 86400.0  # a stored player card older than this is pruned at load: one per player ever opened
+
+
 class Entry:
-    def __init__(self, expires: float, built_at: float, payload: object, fn: Callable[[], object], ttl: float):
+    def __init__(self, expires: float, built_at: float, payload: object, fn: Callable[[], object] | None, ttl: float):
+        # fn is None only on a page loaded from the DB at boot, until its first request hands it a builder
         self.expires, self.built_at, self.payload, self.fn, self.ttl = expires, built_at, payload, fn, ttl
         self.failed = False  # the latest build attempt raised: the payload is older than it should be
 
@@ -62,9 +69,13 @@ class Cache:
     one thread per key however many requests arrive. Only the very first build of a key (and the
     Refresh button, which is the user asking to wait) is inline. `stale_since` is set only when
     the latest attempt failed — an entry that is merely past its TTL is not "source down".
+
+    With `persist`, every installed page (PERSIST) is written through to the DB's page_cache, and `load()` at boot
+    takes the rows back as expired entries: the first open after a restart is served at once and rebuilt behind,
+    never cold. A drop deletes the rows too, so a page a league move dropped never comes back from the DB.
     """
 
-    def __init__(self, ttl: float):
+    def __init__(self, ttl: float, persist: bool = False):
         self.ttl = ttl
         self._d: dict[str, Entry] = {}
         self._lock = threading.Lock()
@@ -72,11 +83,17 @@ class Cache:
         # bumped by drop_prefixes (a league move): a build that began before it read the rosters from before it,
         # so it hands its payload to its caller but never installs it
         self._gen = 0
+        self._persist = persist
+        # held (before _lock, never inside it) across each DB write and each drop's pop + delete, so a write for an
+        # entry a drop has popped can never land after the drop's delete
+        self._db_lock = threading.Lock()
 
     def get_or_build(self, key: str, fn: Callable[[], object], ttl: float | None = None):
         now = time.time()
         with self._lock:
             hit = self._d.get(key)
+            if hit and hit.fn is None:  # loaded from the DB: this request brings the builder
+                hit.fn, hit.ttl = fn, ttl or self.ttl
         if hit and hit.expires > now:
             return hit.payload, self._stale(hit)
         if hit:
@@ -88,10 +105,65 @@ class Cache:
         except Exception as e:  # noqa: BLE001 — a first build with nothing to fall back on
             src = "sleeper" if "sleeper" in repr(e).lower() else "espn"
             raise HTTPException(status_code=502, detail={"source": src, "error": str(e)})
+        entry = Entry(now + (ttl or self.ttl), now, payload, fn, ttl or self.ttl)
         with self._lock:
             if self._gen == gen:
-                self._d[key] = Entry(now + (ttl or self.ttl), now, payload, fn, ttl or self.ttl)
+                self._d[key] = entry
+        self._store(key, entry)
         return payload, None
+
+    def load(self) -> None:
+        """Take every stored page back as an expired entry (boot). Old player cards are pruned instead."""
+        if not self._persist:
+            return
+        try:
+            rows = db.pages()
+            old = [r["key"] for r in rows
+                   if r["key"].split(":", 1)[0] == "player" and r["built_at"] < time.time() - PLAYER_KEEP]
+            db.drop_pages(old)
+        except (db.DBError, db.SchemaError) as e:
+            print(f"page cache load failed: {e}")
+            return
+        with self._lock:
+            for r in rows:
+                if r["key"] not in old and r["key"] not in self._d:
+                    self._d[r["key"]] = Entry(0.0, r["built_at"], r["payload"], None, self.ttl)
+
+    def _store(self, key: str, entry: Entry) -> None:
+        """Write `entry` through to the DB if it is still the installed one. Only payloads that come back from JSON
+        as they went in are stored: int keys or tuples would be served after a restart in another shape."""
+        if not self._persist or key.split(":", 1)[0] not in PERSIST:
+            return
+        try:
+            if json.loads(json.dumps(entry.payload)) != entry.payload:
+                print(f"page cache: {key} does not survive JSON; not stored")
+                return
+        except (TypeError, ValueError) as e:
+            print(f"page cache: {key} is not JSON ({e}); not stored")
+            return
+        with self._db_lock:
+            with self._lock:
+                if self._d.get(key) is not entry:
+                    return  # dropped, or replaced by a newer install that writes its own row
+            try:
+                db.put_page(key, entry.payload, entry.built_at)
+            except (db.DBError, db.SchemaError) as e:
+                print(f"page cache write of {key} failed: {e}")
+
+    def _unstore(self, keys: list[str] | None = None, prefixes: tuple[str, ...] = ()) -> None:
+        """Delete these keys' rows, or every `prefix`/`prefix:...` row, or (neither) every row. Called holding
+        _db_lock."""
+        if not self._persist:
+            return
+        try:
+            if keys is not None:
+                db.drop_pages(keys)
+            elif prefixes:
+                db.drop_page_prefixes(prefixes)
+            else:
+                db.clear_pages()
+        except (db.DBError, db.SchemaError) as e:
+            print(f"page cache delete failed: {e}")
 
     @staticmethod
     def _stale(hit: Entry) -> str | None:
@@ -110,8 +182,8 @@ class Cache:
         """Build `key` again in place. A failure keeps the old payload and flags it."""
         with self._lock:
             hit = self._d.get(key)
-        if hit is None:
-            return
+        if hit is None or hit.fn is None:
+            return  # never built, or loaded from the DB and not yet asked for: its first request rebuilds it
         started, gen = time.time(), self._gen
         try:
             payload = hit.fn()
@@ -126,7 +198,8 @@ class Cache:
             cur = self._d.get(key)
             if cur is not None and cur.built_at > started:
                 return  # something was installed (put) while this build ran; its read is older
-            self._d[key] = Entry(now + hit.ttl, now, payload, hit.fn, hit.ttl)
+            entry = self._d[key] = Entry(now + hit.ttl, now, payload, hit.fn, hit.ttl)
+        self._store(key, entry)
 
     def put(self, key: str, payload: object) -> None:
         """Install a payload built by the caller, fresh. A revalidate that began before this lands cannot replace it."""
@@ -135,7 +208,8 @@ class Cache:
             hit = self._d.get(key)
             if hit is None:
                 return
-            self._d[key] = Entry(now + hit.ttl, now, payload, hit.fn, hit.ttl)
+            entry = self._d[key] = Entry(now + hit.ttl, now, payload, hit.fn, hit.ttl)
+        self._store(key, entry)
 
     def rebuild(self, *keys: str) -> None:
         """These keys rebuilt inline, in this thread (the ones never built are skipped). Failures are flagged, not raised."""
@@ -168,15 +242,21 @@ class Cache:
 
     def drop(self, key: str):
         """Forget `key`: the next request builds it inline, never served from the old payload."""
-        with self._lock:
-            self._d.pop(key, None)
+        with self._db_lock:
+            with self._lock:
+                self._d.pop(key, None)
+            self._unstore([key])
 
     def drop_prefixes(self, prefixes: tuple[str, ...]) -> list[tuple[str, Callable[[], object], float]]:
-        """Forget every key that is a prefix or `prefix:...`; returns (key, builder, ttl) of each, to rebuild."""
-        with self._lock:
-            self._gen += 1
-            keys = [k for k in self._d if any(k == p or k.startswith(p + ":") for p in prefixes)]
-            return [(k, e.fn, e.ttl) for k in keys for e in [self._d.pop(k)]]
+        """Forget every key that is a prefix or `prefix:...`, and every such stored row (loaded or not); returns
+        (key, builder, ttl) of each that has a builder, to rebuild."""
+        with self._db_lock:
+            with self._lock:
+                self._gen += 1
+                keys = [k for k in self._d if any(k == p or k.startswith(p + ":") for p in prefixes)]
+                popped = [(k, self._d.pop(k)) for k in keys]
+            self._unstore(prefixes=prefixes)
+        return [(k, e.fn, e.ttl) for k, e in popped if e.fn is not None]
 
     def expire_all(self):
         with self._lock:
@@ -184,11 +264,13 @@ class Cache:
                 e.expires = 0.0
 
     def clear(self):
-        with self._lock:
-            self._d.clear()
+        with self._db_lock:
+            with self._lock:
+                self._d.clear()
+            self._unstore(None)
 
 
-cache = Cache(TTL)
+cache = Cache(TTL, persist=True)
 # The pages a league move makes stale: the log, every roster (mine, a team's, the boards'), the pool, the live
 # starters, a player's card (owner, record). Logos, the draft and finished weeks' box scores never change.
 MOVE_KEYS = ("transactions", "roster", "waivers", "week", "league", "team", "starters", "player")
@@ -236,7 +318,9 @@ journal.ON_NEW_ROWS.append(on_new_rows)
 async def lifespan(app: FastAPI):
     # Warm the page caches so the first browser hit after a (re)start is not the cold build.
     # Registered with the cache's thread table so join() covers it; a failure is logged and the
-    # request path builds inline as it always did.
+    # request path builds inline as it always did. The pages stored before the restart load first (expired), so
+    # the warm-up and every first open serve them at once and rebuild behind.
+    cache.load()
     t = threading.Thread(target=warm, daemon=True, name="cache-warm")
     cache._threads["warm"] = t
     t.start()
