@@ -993,6 +993,9 @@ def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, play
         settled = now >= S.settle_at(max(kicks))
     else:
         log.warning("week %s: no kickoffs (schedule read failed), left unsettled", w)
+    if ids and set(gap_new) != set(ids):  # _fetch_gap_rows swallows its errors: a missing id is a failed read
+        log.warning("week %s: gap rows missing for %s, left unsettled", w, sorted(set(ids) - set(gap_new)))
+        settled = False
     if gap_new:  # before the box row: a failure here leaves the week unsettled and retried
         db.add_box_corrections(gap_corr)
         db.put_gap_rows(w, gap_new, now.timestamp())
@@ -1040,7 +1043,7 @@ def correct_boxes(lg, now: datetime | None = None) -> dict:
     return out
 
 
-PRO_SCHEDULE ="https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}"
+PRO_SCHEDULE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}"
 _PAST_SCHED: dict[int, dict] = {}  # season -> its proTeamSchedules_wl document; a past season never changes
 
 

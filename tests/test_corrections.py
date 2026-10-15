@@ -167,3 +167,14 @@ def test_gap_rows_reread_and_corrected(env):
     assert db.gap_rows(6, [21])[21] == env.gap[(6, 21)]
     assert espn_season._GAP_GAMES[(21, 6)] == env.gap[(6, 21)]
     assert out["plays"] == [] and out["changed"] == [6]
+
+
+def test_failed_gap_read_keeps_the_week_unsettled(env, monkeypatch):
+    only(6)
+    store(6, doc_of((11, 1, 10.0, "WR")))
+    env.docs[6] = doc_of((11, 1, 10.0, "WR"))
+    db.put_gap_rows(6, {21: [{"pts": 4.0}]}, NOW.timestamp() - 7200)
+    # _fetch_gap_rows logs and answers {} when ESPN fails
+    monkeypatch.setattr(espn_season, "_fetch_gap_rows", lambda w, ids, week: {})
+    out = espn_season.correct_boxes(env.lg, S.settle_at(KICK) + timedelta(minutes=1))
+    assert out["weeks"][6]["settled"] is False and db.box_doc(6)["settled"] is False
