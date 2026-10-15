@@ -137,12 +137,10 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
   );
 }
 
-// The number with its own unit, because on a Sunday afternoon the rows are a mix: PROJ is the
-// forecast for a game still to come, PTS the posted score with the projection it replaced
-// beneath it and a live mark while the game is on. The numeral is 1.125rem on the phone,
-// 1.375rem from `sm` with the unit beside it and the note beneath; on the phone the unit stands
-// beneath the number and the status chip under it closes the game line (Half), so a long name
-// never wraps for the chip and neither adds a line to the half.
+// The number, with no unit: on a Sunday afternoon the rows are a mix, and the sources' ± beside a
+// forecast tells it from a posted score, which carries the projection it replaced beneath it and a
+// live mark while the game is on. The numeral is 1.125rem on the phone, 1.375rem from `sm` with
+// the note beneath.
 function Num({ p, now, end }: { p: Player; now: number; end: End }) {
   const on = gamePhase(p, now) !== "pending";
   const opp = end === "opp";
@@ -154,9 +152,7 @@ function Num({ p, now, end }: { p: Player; now: number; end: End }) {
         </Swap>
         {/* the phone's game line has no room for it: the ± stands beside the number there */}
         {!on && <Spread p={p} className="text-[0.6875rem] sm:hidden" />}
-        <Unit fact={on} className="hidden text-[0.6875rem] sm:inline" />
       </div>
-      {!on && <div className={`mt-1 flex leading-4 sm:hidden ${opp ? "justify-start" : "justify-end"}`}><Unit fact={false} className="text-[0.6875rem]" /></div>}
       <div className={`mt-0.5 flex max-sm:hidden ${opp ? "justify-start" : "justify-end"}`}><NumNote p={p} now={now} /></div>
     </div>
   );
@@ -183,6 +179,9 @@ function NumNote({ p, now }: { p: Player; now: number }) {
   );
 }
 
+// The phone's status tag, spelled out, in the Players page's colours.
+const INJURY_TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
+
 // His injury status as a one- or two-letter chip in its tone, the full word for a screen reader.
 function StatusTag({ p, className = "" }: { p: Player; className?: string }) {
   const status = p.injury.replaceAll("_", " ");
@@ -207,7 +206,6 @@ type Pick = (p: Player) => void;
 function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: number; end: End; onPick: Pick }) {
   const opp = end === "opp";
   const hurt = !HEALTHY.has(p.injury);
-  const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
   const phase = gamePhase(p, now);
   const on = phase !== "pending";
@@ -216,11 +214,12 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
   const done = idle || phase === "final" || p.game?.status === "post";
   // the wash: ink while his game is on, orange with his unit on the field, red in the red zone
   const field = inGameOf(p);
-  // The phone half: the short name (`B. Purdy`), PROJ and the status chip under the number, then the game on
-  // one line, `[SF] vs [DEN] Sun 4:25 PM` or `24 [PIT] @ 27 [CLE] Final`, and once he has played
-  // the lead stat group (passing for a QB, rushing for a RB, receiving for a WR) as the footer,
-  // with the whole half to itself. From `sm` the full name, the position before the game line,
-  // the whole stat line.
+  // The phone half: the short name (`B. Purdy`) beside the number, then the game on one line,
+  // `[SF] vs [DEN] Sun 4:25 PM` or `24 [PIT] @ 27 [CLE] Final`, his
+  // injury status spelled out on a line of its own, and once he has played the lead stat group
+  // (passing for a QB, rushing for a RB, receiving for a WR) as the footer, with the whole half
+  // to itself. From `sm` the full name with its one-letter status, the position before the game
+  // line, the whole stat line. No return week: the board is this week's.
   // The half is a card with two taps: the projected number opens its sources (ProjectionTrigger,
   // stacked above), anywhere else the scoring breakdown, through a button laid over the whole half
   // (a button cannot hold the number's own button).
@@ -237,7 +236,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
         <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 gap-y-0.5 flex-wrap font-display text-[1rem] font-semibold leading-none tracking-tight transition-colors duration-700 sm:gap-x-2 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/40" : ""}`}>
           {/* a name and its chip wrap rather than cut the name: `A. St. Brown BYE` is wider than a phone half */}
           <span className="min-w-0 break-words"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
-          {/* the phone's chip closes the game line, under the number */}
+          {/* the phone spells the status out beneath the game line */}
           <StatusTag p={p} className="max-sm:hidden" />
           <Presence show={p.bye}><Badge variant="muted" shape="chip">bye</Badge></Presence>
         </ItemTitle>
@@ -246,7 +245,6 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
           <span className="font-semibold text-foreground/80">{p.pos}</span>
           {/* the bye says itself in the chip; the line keeps only a real game */}
           {!p.bye && <GameLink href={gameLinkFor(p, week)} className="-my-1 py-1"><GameLine p={p} size={14} /></GameLink>}
-          {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </ItemDescription>
         {/* The row's one fact once he has played: the box-score line, in the play feed's register,
             wrapping at its groups. The phone has the lead group only, as the footer below. */}
@@ -262,16 +260,21 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
           )}
       </ItemActions>
       {/* The phone's game line spans the half; the opponent's is mirrored, his game at the outer
-          edge, and the status chip at its inner end, under the number. Once his game is on the score line
+          edge. Once his game is on the score line
           needs the width, so the note (`proj 17.8`) closes the stat line beneath instead. The game
           chip overhangs its line by 4px (GameLink's -mx-1), so the gap is 10px to leave 6 showing. */}
       <ItemFooter className={`mt-1 gap-x-2.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
         <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 ${opp ? "justify-end" : ""}`}>
           {!p.bye && <GameLink href={gameLinkFor(p, week)} className="-my-1 py-1"><GameLine p={p} size={13} className={opp ? "justify-end" : ""} /></GameLink>}
-          {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </span>
-        <StatusTag p={p} className="font-display text-[0.8125rem]" />
       </ItemFooter>
+      <Presence show={hurt}>
+        <ItemFooter className={`mt-0.5 sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
+          <Badge variant={INJURY_TAG[injuryTone(p.injury)]} shape="chip" title={p.injury_note ?? undefined}>
+            {p.injury.replaceAll("_", " ").toLowerCase()}
+          </Badge>
+        </ItemFooter>
+      </Presence>
       {on && (
         <ItemFooter className={`items-start gap-x-2 sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
           {p.stat_line
