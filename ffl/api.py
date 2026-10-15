@@ -118,16 +118,17 @@ class Cache:
             return
         try:
             rows = db.pages()
-            old = [r["key"] for r in rows
-                   if r["key"].split(":", 1)[0] == "player" and r["built_at"] < time.time() - PLAYER_KEEP]
-            db.drop_pages(old)
         except (db.DBError, db.SchemaError) as e:
             print(f"page cache load failed: {e}")
             return
+        old = [r["key"] for r in rows
+               if r["key"].split(":", 1)[0] == "player" and r["built_at"] < time.time() - PLAYER_KEEP]
         with self._lock:
             for r in rows:
                 if r["key"] not in old and r["key"] not in self._d:
                     self._d[r["key"]] = Entry(0.0, r["built_at"], r["payload"], None, self.ttl)
+        with self._db_lock:
+            self._unstore(old)  # housekeeping: a failure is logged and the load stands
 
     def _store(self, key: str, entry: Entry) -> None:
         """Write `entry` through to the DB if it is still the installed one. Only payloads that come back from JSON
