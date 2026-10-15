@@ -179,12 +179,6 @@ function NumNote({ p, now }: { p: Player; now: number }) {
   );
 }
 
-// The phone's status tag at the end of the game line: shaped as the game chip beside it (GameLink:
-// rounded-sm, no border, the line's type), solid in the status colour with white bold ink. The fills are
-// their own tokens (globals.css --tag-*), darker than the board's amber and the dark theme's red, so white
-// reads on them in both themes.
-const INJURY_TAG = { ok: "bg-tag-idle", warn: "bg-tag-warn", bad: "bg-tag-out" } as const;
-
 // His injury status as a one- or two-letter chip in its tone, the full word for a screen reader.
 function StatusTag({ p, className = "" }: { p: Player; className?: string }) {
   const status = p.injury.replaceAll("_", " ");
@@ -273,7 +267,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
         </span>
         <Presence show={hurt}>
           <span data-status-tag title={p.injury_note ?? status}
-            className={`-mx-1 -my-1 shrink-0 rounded-sm px-1 py-1 font-bold text-white ${INJURY_TAG[injuryTone(p.injury)]}`}>
+            className={`shrink-0 font-bold ${TONE[injuryTone(p.injury)]}`}>
             <span aria-hidden>{STATUS_SHORT[status] ?? status}</span>
             <span className="sr-only">{status.toLowerCase()}</span>
           </span>
