@@ -933,7 +933,114 @@ def _fetch_boxes(lg, week: int) -> list:
     return boxes
 
 
-PRO_SCHEDULE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}"
+CORRECTION_EVERY_S = 3600  # a finished, unsettled week is re-read at most this often
+
+
+def _points_by_player(boxes) -> dict[int, dict]:
+    """player id -> {team_id, points (2 dp), starter, name, pos, team} over every lineup of the boxes."""
+    out = {}
+    for b in boxes:
+        for side, lineup in ((b.home_team, b.home_lineup), (b.away_team, b.away_lineup)):
+            tid = getattr(side, "team_id", side)
+            for p in lineup:
+                out[p.playerId] = {"team_id": tid if isinstance(tid, int) else None, "points": round(p.points, 2),
+                                   "starter": p.slot_position not in S.BENCH_SLOTS, "name": p.name,
+                                   "pos": p.position, "team": p.proTeam}
+    return out
+
+
+def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, plays: list) -> dict:
+    """One finished week's pass: raises on any ESPN or DB failure, leaving the stored row as it was."""
+    log = logging.getLogger(__name__)
+    at = now.isoformat(timespec="seconds")
+    doc = _fetch_box_doc(lg, w)
+    corrections, week_plays = [], []
+    baseline = None
+    if row:
+        try:
+            baseline = _points_by_player(_parse_box_doc(lg, row["doc"]))
+        except Exception as e:  # noqa: BLE001 — an unparseable stored doc is no baseline
+            log.warning("week %s stored box scores unparseable, no corrections compared: %s", w, e)
+    if baseline is not None:
+        for pid, new in _points_by_player(_parse_box_doc(lg, doc)).items():
+            old = baseline.get(pid)
+            if old is None or old["points"] == new["points"]:
+                continue
+            log.warning("stat correction week %s: %s %s -> %s", w, new["name"], old["points"], new["points"])
+            print(f"stat correction week {w}: {new['name']} {old['points']} -> {new['points']}")
+            corrections.append({"week": w, "player_id": pid, "team_id": new["team_id"], "old": old["points"],
+                                "new": new["points"], "at": at})
+            if new["starter"]:
+                week_plays.append({"at": at, "week": w, "player_id": pid, "team_id": new["team_id"],
+                                   "name": new["name"], "pos": new["pos"], "team": new["team"],
+                                   "delta": round(new["points"] - old["points"], 2), "total": new["points"],
+                                   "text": f"Stat correction: {old['points']:g} → {new['points']:g}",
+                                   "play_id": None, "quarter": None, "clock": None, "game_id": None,
+                                   "match": "correction"})
+    gap_new, gap_corr = {}, []
+    ids = db.gap_ids(w)
+    if ids:
+        gap_new = _fetch_gap_rows(w, ids, lg.current_week)
+        old_rows = db.gap_rows(w, list(gap_new))
+        for pid, rows in gap_new.items():
+            old, new = round(sum(r["pts"] for r in old_rows.get(pid, [])), 2), round(sum(r["pts"] for r in rows), 2)
+            if pid in old_rows and old != new:
+                log.warning("stat correction week %s: gap player %s %s -> %s", w, pid, old, new)
+                print(f"stat correction week {w}: gap player {pid} {old} -> {new}")
+                gap_corr.append({"week": w, "player_id": pid, "team_id": None, "old": old, "new": new, "at": at})
+    settled = False
+    if kicks:
+        settled = now >= S.settle_at(max(kicks))
+    else:
+        log.warning("week %s: no kickoffs (schedule read failed), left unsettled", w)
+    if gap_new:  # before the box row: a failure here leaves the week unsettled and retried
+        db.add_box_corrections(gap_corr)
+        db.put_gap_rows(w, gap_new, now.timestamp())
+        for pid, rows in gap_new.items():
+            _GAP_GAMES[(pid, w)] = rows
+    db.put_box_doc(w, doc, box_hash(doc), now.timestamp(), settled=settled, corrections=corrections)
+    plays.extend(week_plays)
+    return {"changed": len(corrections) + len(gap_corr), "settled": settled}
+
+
+def correct_boxes(lg, now: datetime | None = None) -> dict:
+    """The stat-correction pass (ffl-7sq): every finished week (1..current-1) without a settled row is read from
+    ESPN again (never through box_scores(), which answers a finished week from memory or the table), at most
+    hourly, and each starter or bench total that moved is logged to box_score_corrections; a starter's also
+    becomes a play row (match "correction") in the result for the caller to write, since the live runner owns the
+    plays store. The week settles when this read is past season.settle_at of its last kickoff, and a week with no
+    kickoffs (the schedule read failed) never settles. A week with no row yet is backfilled with no baseline, so
+    nothing is logged. A week that fails is {"error"} and its row is untouched (retried next tick).
+    Returns {"weeks": {w: {changed, settled} | {error}}, "changed": [weeks with a change], "plays": [rows]}."""
+    now = now or datetime.now(timezone.utc)
+    log = logging.getLogger(__name__)
+    out = {"weeks": {}, "changed": [], "plays": []}
+    try:
+        stored = db.box_weeks()
+        kicks = kickoffs_by_week(lg)
+    except Exception as e:  # noqa: BLE001
+        log.warning("correction pass not run: %s", e)
+        out["error"] = str(e)
+        return out
+    for w in range(1, lg.current_week):
+        have = stored.get(w)
+        if have and (have["settled"] or now.timestamp() - have["fetched_at"] < CORRECTION_EVERY_S):
+            continue
+        try:
+            row = db.box_doc(w) if have else None
+            res = _correct_week(lg, w, now, row, kicks.get(w) or [], out["plays"])
+        except Exception as e:  # noqa: BLE001 — one week's ESPN or DB failure must not stop the others
+            log.warning("correction pass: week %s failed: %s", w, e)
+            out["weeks"][w] = {"error": str(e)}
+            continue
+        out["weeks"][w] = res
+        if res["changed"]:
+            _BOXES.pop(w, None)
+            out["changed"].append(w)
+    return out
+
+
+PRO_SCHEDULE ="https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}"
 _PAST_SCHED: dict[int, dict] = {}  # season -> its proTeamSchedules_wl document; a past season never changes
 
 
