@@ -1044,6 +1044,16 @@ def _fetch_and_keep(week: int, settings: dict, boxes: list) -> dict[str, dict[tu
     return src
 
 
+def week_sources(lg, week: int, settings: dict, boxes: list) -> dict[str, dict[tuple[str, str], float]]:
+    """The week's source projections as the Matchup board and the League scoreboard both price it. A finished
+    week is priced as it stood at kickoff where the notify tick recorded it (else the late fetch, made once):
+    refetching every source made a past board 9-15 s cold and a past scoreboard 7-9 s, and a source may
+    rewrite a week once it is played."""
+    if week < lg.current_week:
+        return recorded_sources(week, boxes) or _fetch_and_keep(week, settings, boxes)
+    return weekly_sources(week, settings)
+
+
 def week_state(week: int | None = None, sources: dict | None = None, season: dict | None = None,
                injuries: dict | None = None, team: int | None = None) -> dict:
     """The matchup board for `team`'s game (mine by default). `me` is the left side and `opp`
@@ -1055,16 +1065,10 @@ def week_state(week: int | None = None, sources: dict | None = None, season: dic
     me = my_team_id(lg)
     team = team or me
     boxes = box_scores(lg, week)
-    # A finished week is priced as it stood at kickoff where the notify tick recorded it, and its ROS is
-    # today's (the lookup the current board already holds): refetching every source and building that week's
-    # ROS made a past board 9-15 s cold, and a source may rewrite a week once it is played.
+    # A finished week's ROS is today's (the lookup the current board already holds): building that week's ROS
+    # was most of a cold past board
     finished = week < lg.current_week
-    if sources is not None:
-        src = sources
-    elif finished:
-        src = recorded_sources(week, boxes) or _fetch_and_keep(week, settings, boxes)
-    else:
-        src = weekly_sources(week, settings)
+    src = sources if sources is not None else week_sources(lg, week, settings, boxes)
     seas = _season_for(settings, season, lg.current_week if finished else week)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     home = home_by_team(lg, week)
@@ -1465,7 +1469,8 @@ def league_state(week: int | None = None) -> dict:
     board = []
     src: dict | None = None  # the week's source projections, read once the first lineup needs them
     sigma, _ = calibrate.load_sigma()
-    for m in (box_scores(lg, week) if week <= current else lg.scoreboard(week)):
+    boxes = box_scores(lg, week) if week <= current else []
+    for m in (boxes if week <= current else lg.scoreboard(week)):
         if not (hasattr(m.home_team, "team_id") and hasattr(m.away_team, "team_id")):
             continue  # a bye slot in a playoff round
         # starter_ids lets the live overlay re-sum a side from the feed's per-player points,
@@ -1483,7 +1488,7 @@ def league_state(week: int | None = None) -> dict:
             if starters and src is None:
                 # the scoreboard stood without the sources before the odds: an outage leaves ESPN's numbers
                 try:
-                    src = weekly_sources(week, settings)
+                    src = week_sources(lg, week, settings, boxes)
                 except Exception:  # noqa: BLE001
                     src = {}
             players = merge_weekly([flatten_box_player(bp) for bp in starters], src) if starters else []

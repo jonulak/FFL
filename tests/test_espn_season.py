@@ -923,6 +923,27 @@ def test_league_state_carries_starters_merged_proj_and_odds(monkeypatch):
     assert row["win_prob"]["home"] > 0.9 and abs(row["win_prob"]["home"] + row["win_prob"]["away"] - 1) < 0.002
 
 
+def test_a_finished_weeks_scoreboard_reads_the_recorded_projections(monkeypatch):
+    """Like the Matchup board: a past week on the League page asked every source live, 7-9 s cold (ffl-bdh)."""
+    club = dict(team_abbrev="X", logo_url="", wins=1, losses=0, ties=0, points_for=1.0, points_against=1.0)
+    mine = SimpleNamespace(team_id=7, team_name="Mine", **club)
+    them = SimpleNamespace(team_id=2, team_name="Them", **club)
+    boxes = [as_box(p) for p in season_roster()]
+    match = SimpleNamespace(home_team=mine, home_lineup=boxes, away_team=them, away_lineup=boxes[:3],
+                            home_score=0.0, away_score=0.0, home_projected=0.0, away_projected=0.0)
+    lg = SimpleNamespace(current_week=3, standings=lambda: [mine, them], box_scores=lambda wk: [match],
+                         scoreboard=lambda wk: [])
+    monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "load", lambda: {**TWO_QB, "reg_season_weeks": 14, "playoff_teams": 6})
+    monkeypatch.setattr(espn_season.db, "projection_rows", lambda kind, week=None: [
+        {"week": 1, "player_id": 1, "source": "sleeper", "points": 30.0}] if (kind, week) == ("week", 1) else [])
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: pytest.fail("the week is recorded"))
+    _fallback_sigma(monkeypatch)
+    row = espn_season.league_state(1)["scoreboard"][0]
+    assert next(s for s in row["home"]["starters"] if s["player_id"] == 1)["proj"] == 25.0, "ESPN 20 and Sleeper 30"
+
+
 FX = Path(__file__).parent / "fixtures" / "espn_claim_facts"
 
 
