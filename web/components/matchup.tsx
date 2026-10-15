@@ -179,8 +179,13 @@ function NumNote({ p, now }: { p: Player; now: number }) {
   );
 }
 
-// The phone's status tag, spelled out, in the Players page's colours.
-const INJURY_TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
+// The phone's status tag, spelled out: drawn as the game chip above it is (GameLink: the faint fill,
+// rounded-sm, no border, the line's type), the fill and ink in the status colour.
+const INJURY_TAG = {
+  ok: "bg-foreground/[0.05] text-muted-foreground",
+  warn: "bg-close/20 text-close-foreground dark:text-close",
+  bad: "bg-out/10 text-out",
+} as const;
 
 // His injury status as a one- or two-letter chip in its tone, the full word for a screen reader.
 function StatusTag({ p, className = "" }: { p: Player; className?: string }) {
@@ -269,10 +274,11 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
         </span>
       </ItemFooter>
       <Presence show={hurt}>
-        <ItemFooter className={`mt-0.5 sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
-          <Badge variant={INJURY_TAG[injuryTone(p.injury)]} shape="chip" title={p.injury_note ?? undefined}>
+        <ItemFooter className={`mt-1 text-[0.6875rem] leading-4 sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
+          <span title={p.injury_note ?? undefined}
+            className={`-mx-1 rounded-sm px-1 py-1 font-medium first-letter:uppercase ${INJURY_TAG[injuryTone(p.injury)]}`}>
             {p.injury.replaceAll("_", " ").toLowerCase()}
-          </Badge>
+          </span>
         </ItemFooter>
       </Presence>
       {on && (
