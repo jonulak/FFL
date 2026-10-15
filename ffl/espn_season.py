@@ -5,6 +5,7 @@ pure seams the tests cover.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -810,6 +811,41 @@ def forget_current_boxes() -> None:
     _BOXES_EPOCH[0] += 1
     for week in [w for w, hit in list(_BOXES.items()) if hit[0] != math.inf]:  # a builder thread may be adding
         _BOXES.pop(week, None)
+
+
+def _fetch_box_doc(lg, week: int) -> dict:
+    """One week's box scores as ESPN answers them, in JSON that stores: what espn-api's League.box_scores reads
+    (mMatchupScore + mScoreboard for the week's matchup period, that week's pro games, the positional ratings),
+    asked the same way. _parse_box_doc turns it back into the same BoxScores (tests/test_box_doc.py pins it)."""
+    period, scoring = lg.currentMatchupPeriod, lg.current_week
+    if week and week <= lg.current_week:
+        scoring = week
+        period = next((mp for mp, weeks in lg.settings.matchup_periods.items() if week in weeks), period)
+    filters = {"schedule": {"filterMatchupPeriodIds": {"value": [period]}}}
+    data = lg.espn_request.league_get(params={"view": ["mMatchupScore", "mScoreboard"], "scoringPeriodId": scoring},
+                                      headers={"x-fantasy-filter": json.dumps(filters)})
+    return {"scoring_period": scoring, "matchups": data["schedule"],
+            "pro_schedule": {str(t): list(g) for t, g in lg._get_pro_schedule(scoring).items()},
+            "ratings": lg._get_positional_ratings(scoring)}
+
+
+def _parse_box_doc(lg, doc: dict) -> list:
+    """_fetch_box_doc's answer as espn-api's BoxScores, each side's team id swapped for lg's Team as it does."""
+    from espn_api.football.box_score import BoxScore
+    # JSON made the pro team ids strings; BoxPlayer looks its club up by int, and a miss reads as a bye
+    sched = {int(t): tuple(g) for t, g in doc["pro_schedule"].items()}
+    sp = doc["scoring_period"]
+    boxes = [BoxScore(m, sched, doc["ratings"], sp, lg.year) for m in doc["matchups"]]
+    teams = {t.team_id: t for t in lg.teams}
+    for b in boxes:
+        b.home_team = teams.get(b.home_team, b.home_team)
+        b.away_team = teams.get(b.away_team, b.away_team)
+    return boxes
+
+
+def box_hash(doc: dict) -> str:
+    """sha256 of a box doc in canonical JSON, so equal documents hash equal whatever their key order."""
+    return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def box_scores(lg, week: int) -> list:
