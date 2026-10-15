@@ -135,7 +135,7 @@ export type Play = {
   at: string; week: number; player_id: number; name: string; pos: string; team: string;
   side: "me" | "opp"; team_id: number; delta: number; total: number; text: string | null;
   play_id: string | null; quarter: number | null; clock: string | null; game_id: string | null;
-  match?: "player" | "defence" | "last"; // "player": a play naming him; "defence": a D/ST's play, read off its moved stats; "last": the game's last play, possibly the next one
+  match?: "player" | "defence" | "last" | "correction"; // "correction": a stat correction after the week, text says old → new, no quarter/clock; "player": a play naming him; "defence": a D/ST's play, read off its moved stats; "last": the game's last play, possibly the next one
 };
 // One game's whole week (GET /plays, `?team=` for any game but mine); `me`/`opp` as on its board.
 // `live` keeps the page on the feed all game window; `game_on` is the badge: a starter in this game is playing.

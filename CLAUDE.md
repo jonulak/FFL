@@ -117,8 +117,8 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 - Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
   (`espn_season.game_from_stats` off espn-api's per-week `stats`; every rostered player's earlier weeks come from
   each earlier form week's box scores (`_roster_games`, so the replacement line runs on adjusted ROS too; a week he was on no
-  fantasy roster, a pickup's free-agent weeks, from one `kona_player_info` call per such week by ids, `_gap_games`, kept for the
-  process, cleared by `/refresh`: `free_agents` filters by today's status, so it never has him), free agents' from
+  fantasy roster, a pickup's free-agent weeks, from one `kona_player_info` call per such week by ids, `_gap_games`, kept in memory and the `gap_games` table, re-read by the
+  correction pass while their week is unsettled: `free_agents` filters by today's status, so it never has him), free agents' from
   one `free_agents(week=w)` call per position and form week) with Sleeper's snaps (`SLEEPER_STATS`,
   `off_snp`/`tm_off_snp`, a day behind the games) joined per week. Every Roster card and Waiver row carries
   `form` (None before his first game); the columns are shown raw, and only the snap-weighted `l3` reaches `add`,
@@ -137,7 +137,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   for `ffl.replay`); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
   `week`/`waivers-week`) ← `data/outlook/*.json`; `calibration_snapshots` + `calibration_rows` ← `data/calibration/week-<w>.json`;
   `sigma_fits` ← `sigma.json` (latest wins, history kept; `calibrate.load_sigma` never fails); `claim_plans` ←
-  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `source_cache` (`sources.Cached`'s scrapes); `page_cache` (`api.Cache(persist=True)`:
+  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `box_scores` (ESPN's raw matchup read per week; `fetched_at` moves on every read, `settled` after the Thursday following the week); `gap_games` ← `_GAP_GAMES`; `box_score_corrections` (old/new points per player); `source_cache` (`sources.Cached`'s scrapes); `page_cache` (`api.Cache(persist=True)`:
 every installed page payload in `api.PERSIST` that survives a JSON round-trip, written through under `_db_lock`; `load()` at boot takes them
 back expired with no builder, so the first open after a restart is served at once and rebuilt behind; `drop`/`drop_prefixes`/`clear`
 delete the rows; player cards older than 7 days pruned at load; a key's inline first build is single-flight (`ffl/flight.py`): callers arriving
@@ -153,6 +153,11 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   (`FFL_BACKUP_DIR` overrides), keeping 14; `launchd/com.jonulak.ffl-backup` runs it nightly at 03:30. Tests run on a per-test
   copy of a session template DB built by `alembic upgrade head` (autouse fixture sets `FFL_DB_URL`), never `data/ffl.db`.
   A worktree gets its own `data/ffl.db`; a dev API there needs `uv run alembic upgrade head` once.
+- **Box scores** (`espn_season.box_scores`): a finished week is read from the `box_scores` table (ESPN only when it has no row); the current
+  week ESPN-first, a row under 60 s old (off `fetched_at`) counting as the hit and the row serving when ESPN fails; a league move
+  (`forget_current_boxes`) expires it. The tick's `correct_boxes` (`api.correction_pass`) re-reads each unsettled finished week hourly,
+  logs changed points to `box_score_corrections`, plays a starter's correction into his week's feed (match `correction`; a finished
+  week's board reads its feed from the `plays` table) and expires the pages built on it. `expire_everything` and the pregame pull keep finished weeks.
 - **Season UI** (`web/`, Next 16 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
   components fetching the API through a `/api/*` rewrite; `ffl/season.py` is pure (lineup-optimal,
   waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production

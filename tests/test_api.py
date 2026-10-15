@@ -1360,6 +1360,7 @@ def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypat
 def test_notify_tick_409s_while_another_runs(client, monkeypatch):
     monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
     monkeypatch.setattr(api, "pregame_pull", lambda: [])
+    monkeypatch.setattr(api, "correction_pass", lambda: {})
     assert api._NOTIFY.acquire(blocking=False)
     try:
         assert client.post("/notify/tick").status_code == 409
@@ -1644,3 +1645,63 @@ def test_expire_everything_keeps_finished_weeks(monkeypatch):
     monkeypatch.setattr(espn_season, "_GAP_GAMES", {(7, 3): [{"week": 3}]})
     api.expire_everything()
     assert list(espn_season._BOXES) == [4] and (7, 3) in espn_season._GAP_GAMES
+
+
+# ffl-7sq: the stat-correction pass on the notify tick, and past boards' stored feeds
+def _corr(week, pid=1, team=7):
+    return {"at": "2026-10-14T12:00:00-04:00", "week": week, "player_id": pid, "team_id": team, "delta": 1.5,
+            "total": 21.5, "text": "Stat correction: 20.0 → 21.5", "match": "correction", "quarter": None, "clock": None}
+
+
+def _stub_correct(monkeypatch, out):
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
+    monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None: {**out, "plays": list(out.get("plays", []))})
+
+
+def test_notify_tick_answers_with_the_corrections(client, monkeypatch):
+    monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
+    monkeypatch.setattr(api, "pregame_pull", lambda: [])
+    _stub_correct(monkeypatch, {"weeks": {}, "changed": []})
+    assert client.post("/notify/tick").json()["corrections"] == {"weeks": {}, "changed": []}
+    monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+    r = client.post("/notify/tick")
+    assert r.status_code == 200 and r.json()["corrections"] == {"error": "espn down"}
+
+
+def test_correction_plays_go_to_the_runner_store_for_its_week_else_the_table(client, monkeypatch):
+    added = []
+    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=SimpleNamespace(add=added.extend)), raising=False)
+    _stub_correct(monkeypatch, {"weeks": {}, "changed": [6, 4], "plays": [_corr(6), _corr(4, pid=2)]})
+    out = api.correction_pass()
+    assert [p["week"] for p in added] == [6] and "plays" not in out
+    assert [r["player_id"] for r in db.plays_rows(4)] == [2] and db.plays_rows(6) == []
+
+
+def test_a_changed_week_expires_its_pages_and_the_roster_only(client, monkeypatch):
+    for k in ("league:5", "league:4", "roster"):
+        api.cache.get_or_build(k, lambda: {"k": 1})
+    _stub_correct(monkeypatch, {"weeks": {}, "changed": [5]})
+    api.correction_pass()
+    exp = {k: api.cache._d[k].expires for k in ("league:5", "league:4", "roster")}
+    assert exp["league:5"] == 0.0 and exp["roster"] == 0.0 and exp["league:4"] > 0.0
+
+
+def test_a_past_board_shows_its_stored_feed_for_its_two_teams_newest_first(client, monkeypatch):
+    monkeypatch.setattr(api.espn_season, "week_state",
+                        lambda week=None: {"week": week or 3, "live": False, "me": {"team_id": 7}, "opp": {"team_id": 3}})
+    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=_store([])), raising=False)
+    db.add_plays([_corr(4, pid=1, team=7), {**_corr(4, pid=2, team=3), "at": "2026-10-14T13:00:00-04:00"},
+                  _corr(4, pid=3, team=9)])
+    r = client.get("/week/4").json()["plays"]
+    assert [(p["player_id"], p["side"]) for p in r] == [(2, "opp"), (1, "me")]
+
+
+def test_a_settled_week_is_not_read_again_after_expire_everything(client, monkeypatch):
+    from ffl import espn_season
+    doc = {"matchups": [], "pro_schedule": {}, "ratings": {}}
+    db.put_box_doc(4, doc, espn_season.box_hash(doc), 1.0, settled=True)
+    monkeypatch.setattr(espn_season, "_fetch_box_doc", lambda lg, w: (_ for _ in ()).throw(AssertionError("fetched")))
+    monkeypatch.setattr(espn_season, "_parse_box_doc", lambda lg, d: ["BOX"])
+    api.expire_everything()
+    lg = SimpleNamespace(espn_request=None, current_week=6)
+    assert espn_season.box_scores(lg, 4) == ["BOX"]

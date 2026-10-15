@@ -783,16 +783,26 @@ FEED_ROWS = 5
 
 
 def _plays(data: dict, limit: int | None = None) -> list[dict]:
-    """The feed rows of one board's two teams, newest first, sided for that board. The runner's
-    store is the week it last scored, which after Tuesday's rollover is still last week's, so a
-    board of any other week has none."""
+    """The feed rows of one board's two teams, newest first, sided for that board. The runner's store is the
+    week it last scored (after Tuesday's rollover still last week's); any other week reads its stored rows,
+    the in-game plays it recorded and any stat correction after it."""
+    sides = [s for s in (data.get("me"), data.get("opp")) if s]
+    if not sides:
+        return []
+    teams = {s.get("team_id") for s in sides}
     runner = getattr(app.state, "runner", None)
     store = runner.store if runner else None
-    if store is None or runner.week != data.get("week"):
-        return []
-    sides = [s for s in (data.get("me"), data.get("opp")) if s]
-    rows = store.latest(limit, teams={s.get("team_id") for s in sides})
-    return plays_mod.for_board(rows, sides[0].get("team_id")) if sides else []
+    if store is not None and runner.week == data.get("week"):
+        rows = store.latest(limit, teams=teams)
+    else:
+        try:
+            stored = db.plays_rows(data.get("week"))
+        except db.DBError as e:
+            log.warning("plays for week %s not read: %s", data.get("week"), e)
+            return []
+        rows = [r for r in reversed(stored) if r.get("team_id") in teams]
+        rows = rows[:limit] if limit else rows
+    return plays_mod.for_board(rows, sides[0].get("team_id"))
 
 
 def _week_payload(data: dict) -> dict:
@@ -1316,11 +1326,41 @@ def notify_tick():
     try:
         out = notify.tick()
         try:
+            out["corrections"] = correction_pass()
+        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
+            out["corrections"] = {"error": str(e)}
+        try:
             out["pregame"] = pregame_pull()
         except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
             out["pregame"] = {"error": str(e)}
     finally:
         _NOTIFY.release()
+    return out
+
+
+def correction_pass() -> dict:
+    """The tick's stat-correction step (espn_season.correct_boxes): a starter's corrected points go to his week's
+    play feed (the runner's store when that is the week it holds, so the board sees it without a restart), and
+    every page built on a changed week rebuilds behind its next request."""
+    out = espn_season.correct_boxes(espn_season.fresh_league())
+    plays = out.pop("plays")
+    runner = getattr(app.state, "runner", None)
+    for w in sorted({p["week"] for p in plays}):
+        rows = [p for p in plays if p["week"] == w]
+        try:
+            if runner and runner.store is not None and runner.week == w:
+                runner.store.add(rows)
+            else:
+                db.add_plays(rows)
+        except db.DBError as e:
+            log.warning("stat correction plays for week %s not saved: %s", w, e)
+            out.setdefault("errors", []).append(f"plays week {w}: {e}")
+    for w in out["changed"]:
+        for key in (f"week:{w}", f"league:{w}"):
+            cache.expire(key)
+    if out["changed"]:
+        for key in ("roster", "waivers", "player", "team"):  # form rows and add read earlier weeks' points
+            cache.expire(key)
     return out
 
 
