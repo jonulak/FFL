@@ -140,3 +140,62 @@ def test_status_snapshot_is_a_copy():
     snap["snap"]["rows"] = None
     snap["other"] = {}
     assert sources.STATUS["snap"]["rows"] == {"RB": 1} and "other" not in sources.STATUS
+
+
+def test_a_good_fetch_survives_a_restart_inside_its_ttl(monkeypatch):
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+    clock = [1000.0]
+    monkeypatch.setattr(sources.time, "time", lambda: clock[0])
+    c = sources.Cached("boot")
+    good = {("a", "RB"): 5.0, ("b", "RB"): 2.5}
+    c.get(5, lambda: good)
+    c.get("ros", lambda: good, ttl=6 * 3600)
+    sources.reset()  # a restart: memory empty, the DB keeps the scrapes
+    clock[0] += 60
+    assert c.get(5, lambda: pytest.fail("restored")) == good
+    assert c.get("ros", lambda: pytest.fail("restored")) == good
+    clock[0] += sources.TTL_S
+    assert c.get(5, lambda: {("c", "RB"): 1.0}) == {("c", "RB"): 1.0}, "past its TTL: refetched"
+    sources.reset()
+    assert c.get(5, lambda: pytest.fail("restored")) == {("c", "RB"): 1.0}, "the refetch was written through"
+    sources.expire_all()
+    assert c.get(5, lambda: good) == good, "Refresh expires a restored entry"
+    assert c.get("ros", lambda: pytest.fail("a long TTL survives Refresh after a restart too")) == good
+
+
+def test_an_expired_row_is_the_last_good_when_the_cold_fetch_fails(monkeypatch):
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+    clock = [1000.0]
+    monkeypatch.setattr(sources.time, "time", lambda: clock[0])
+    c = sources.Cached("cold")
+    good = {("a", "RB"): 5.0}
+    c.get(5, lambda: good)
+    sources.reset()
+    clock[0] += 10 * sources.TTL_S
+
+    def down():
+        raise requests.ConnectionError("down")
+    assert c.get(5, down) == good
+    sources.reset()
+    assert c.get(5, down) == good, "a failure overwrote nothing"
+
+
+def test_idle_persists_as_nothing():
+    c = sources.Cached("idle-boot")
+
+    def idle():
+        raise sources.Idle("week 4 shown")
+    c.get(1, idle)
+    sources.reset()
+    assert c.get(1, lambda: pytest.fail("restored")) == {}
+
+
+def test_a_db_failure_does_not_fail_the_fetch(monkeypatch):
+    monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
+
+    def boom(*a, **k):
+        raise db.DBError("locked")
+    monkeypatch.setattr(db, "put_source", boom)
+    monkeypatch.setattr(db, "source_rows", boom)
+    good = {("a", "RB"): 1.0}
+    assert sources.Cached("nodb").get(1, lambda: good) == good

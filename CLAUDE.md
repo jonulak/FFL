@@ -87,7 +87,9 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   Judge it with `ffl.replay` on real logs, not by tuning it until a simulation looks right.
 - Projections: `proj` is the weekly **consensus** (`ffl/consensus.py`, Hodges-Lehmann; `spread` = trimmed range) of ESPN
   (`proj_espn`, league-scored by ESPN; an input only, 0 is a placeholder), Sleeper (raw stats rescored in `ffl/sleeper.py::score`),
-  CBS, FantasySharks and FleaFlicker. `ffl/sources/` holds cbs, sharks, fleaflicker (`Cached`: TTL + last good + thin guard); health is
+  CBS, FantasySharks and FleaFlicker. `ffl/sources/` holds cbs, sharks, fleaflicker (`Cached`: TTL + last good + thin guard; every good fetch written
+  through to the `source_cache` table and restored on a source's first read after a restart, inside its TTL as fresh, past it as last good;
+  without it a restart's cold Matchup build took ~27 s, ~3 s with it); health is
   `STATUS` / the `source_status` state, `GET /sources/status`, `ffl.sources status`, and a notice after 24 h failing. K and D/ST use
   Sleeper's standard points. Merge is on normalized name + position (D/ST on team): `espn_season.weekly_sources(week, settings)` →
   `merge_weekly(players, sources)`. A finished week's board (`week_state`, week < ESPN's) prices from `projection_rows` (kind `week`, the kickoff record; else kind `week_late`, what Sleeper and FantasySharks answered the first time the week was opened, saved so it is fetched once; CBS's week page serves the current week whatever week is asked, FleaFlicker has no past weeks) and takes today's ROS lookup. The payload carries only `proj`/`spread`/`n_src` and `ros_proj`/`ros_spread`/`ros_n`. Each source's
@@ -135,7 +137,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   for `ffl.replay`); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
   `week`/`waivers-week`) ← `data/outlook/*.json`; `calibration_snapshots` + `calibration_rows` ← `data/calibration/week-<w>.json`;
   `sigma_fits` ← `sigma.json` (latest wins, history kept; `calibrate.load_sigma` never fails); `claim_plans` ←
-  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `page_cache` (`api.Cache(persist=True)`:
+  `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `source_cache` (`sources.Cached`'s scrapes); `page_cache` (`api.Cache(persist=True)`:
 every installed page payload in `api.PERSIST` that survives a JSON round-trip, written through under `_db_lock`; `load()` at boot takes them
 back expired with no builder, so the first open after a restart is served at once and rebuilt behind; `drop`/`drop_prefixes`/`clear`
 delete the rows; player cards older than 7 days pruned at load); `decisions` ← `journal/DECISIONS.md` (frozen; `ffl.decisions` parses it on import; app rows carry `facts` and a rationale of preset keys, NULL = open). `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held

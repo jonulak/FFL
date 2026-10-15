@@ -254,6 +254,19 @@ page_cache = sa.Table(
     sa.PrimaryKeyConstraint("season", "key"),
 )
 
+# ffl/sources' scrapes (sources.Cached), written through on every good fetch and loaded on a source's first read,
+# so a restart serves what is still inside its TTL and keeps the rest as last good. `key` is the cache key as
+# JSON (a week, "ros"); `data` is [[name, pos, points], ...].
+source_cache = sa.Table(
+    "source_cache", metadata, _season(),
+    sa.Column("name", sa.String, nullable=False),
+    sa.Column("key", sa.String, nullable=False),
+    sa.Column("data", sa.JSON, nullable=False),
+    sa.Column("fetched_at", sa.Float, nullable=False),   # epoch seconds
+    sa.Column("ttl", sa.Float, nullable=False),
+    sa.PrimaryKeyConstraint("season", "name", "key"),
+)
+
 
 def url() -> str:
     return os.environ.get("FFL_DB_URL") or f"sqlite:///{DATA / 'ffl.db'}"
@@ -712,6 +725,21 @@ def pages(season: int = SEASON) -> list[dict]:
     t = page_cache
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(sa.select(t.c.key, t.c.payload, t.c.built_at).where(t.c.season == season))]
+
+
+def put_source(name: str, key: str, data: list, fetched_at: float, ttl: float, season: int = SEASON) -> None:
+    with _write() as c:
+        c.execute(_upsert(source_cache, [{"season": season, "name": name, "key": key, "data": data,
+                                          "fetched_at": fetched_at, "ttl": ttl}],
+                          ["season", "name", "key"], ["data", "fetched_at", "ttl"]))
+
+
+def source_rows(name: str, season: int = SEASON) -> list[dict]:
+    """One source's stored scrapes: {key, data, fetched_at, ttl}."""
+    t = source_cache
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(
+            sa.select(t.c.key, t.c.data, t.c.fetched_at, t.c.ttl).where(t.c.season == season, t.c.name == name))]
 
 
 def _decision_out(r) -> dict:

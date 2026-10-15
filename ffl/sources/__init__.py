@@ -6,6 +6,7 @@ the 24-hour notify detector. QB/RB/WR/TE only.
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -99,15 +100,45 @@ def _failed(name: str, e: Exception) -> None:
 
 
 class Cached:
-    """Per-key TTL cache keeping the last good value through an outage. Each entry is (expires, data, ttl)."""
+    """Per-key TTL cache keeping the last good value through an outage. Each entry is (expires, data, ttl).
+    Every good fetch is written through to the DB (`source_cache`) and the rows come back on the first read
+    after a restart: inside their TTL as fresh, past it as the last good a failed refetch falls back to."""
 
     def __init__(self, name: str):
         self.name = name
         self._d: dict = {}
+        self._restored = False
+        self._restore_lock = threading.Lock()
         _ALL.append(self)
+
+    def _restore(self) -> None:
+        with self._restore_lock:
+            if self._restored:
+                return
+            self._restored = True
+            try:
+                rows = db.source_rows(self.name)
+            except Exception as e:  # a stale schema or locked DB: run cold, as before persistence
+                log.warning("source %s cache not loaded: %s", self.name, e)
+                return
+            now = time.time()
+            for r in rows:
+                exp = r["fetched_at"] + r["ttl"]
+                data = {(n, pos): v for n, pos, v in r["data"]}
+                self._d.setdefault(json.loads(r["key"]), (exp if exp > now else 0.0, data, r["ttl"]))
+
+    def _store(self, key, data: dict, ttl: float) -> None:
+        now = time.time()
+        self._d[key] = (now + ttl, data, ttl)
+        try:
+            db.put_source(self.name, json.dumps(key), [[n, pos, v] for (n, pos), v in data.items()], now, ttl)
+        except Exception as e:
+            log.warning("source %s cache not saved: %s", self.name, e)
 
     def get(self, key, fetch: Callable[[], dict], min_rows: dict[str, int] | None = None,
             ttl: float | None = None) -> dict:
+        if not self._restored:
+            self._restore()
         hit = self._d.get(key)
         if hit and hit[0] > time.time():
             return hit[1]
@@ -117,7 +148,7 @@ class Cached:
             counts = check(data, min_rows)
         except Idle:
             _ok(self.name, {})
-            self._d[key] = (time.time() + ttl, {}, ttl)
+            self._store(key, {}, ttl)
             return {}
         except Exception as e:  # a parser surprise must fall back to last good too, not fail the page
             _failed(self.name, e)
@@ -125,7 +156,7 @@ class Cached:
             self._d[key] = (time.time() + RETRY_S, last, ttl)   # cooldown: a dead site is not asked on every build
             return last
         _ok(self.name, counts)
-        self._d[key] = (time.time() + ttl, data, ttl)
+        self._store(key, data, ttl)
         return data
 
     def expire(self) -> None:
@@ -141,9 +172,10 @@ def expire_all() -> None:
 
 
 def reset() -> None:
-    """Tests only: forget every cached value and the health record in memory."""
+    """Tests only: forget every cached value and the health record in memory (a restart: the DB keeps its rows)."""
     for c in _ALL:
         c._d = {}
+        c._restored = False
     global _LOADED
     with _LOCK:
         STATUS.clear()
