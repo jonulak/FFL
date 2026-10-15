@@ -137,14 +137,17 @@ export function TeamRosterView({ initial, path }: { initial: TeamRoster; path: s
   const { club, side, week } = data;
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-4 sm:gap-5">
+      {/* The mark hangs from the title's cap line rather than centring on the block: a two-line
+          name (or the owner line) otherwise leaves it floating between rows. `text-box` trims the
+          h1's line box to cap height and baseline so its top edge is the ink's. */}
+      <header className="flex items-start gap-4 sm:gap-5">
         <ClubLogo src={clubLogoSrc(club)} abbrev={club.abbrev} size={64} className="sm:hidden" />
         <ClubLogo src={clubLogoSrc(club)} abbrev={club.abbrev} size={80} className="hidden sm:flex" />
         <div className="min-w-0 flex-1">
-          <h1 className="text-balance font-display text-[2rem] font-bold leading-[0.95] tracking-tight sm:text-4xl">
+          <h1 className="text-balance font-display text-[2rem] font-bold leading-[0.95] tracking-tight [text-box:trim-both_cap_alphabetic] sm:text-4xl">
             {club.team}
           </h1>
-          {club.owner && <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">{club.owner}</p>}
+          {club.owner && <p className="mt-2.5 text-sm text-muted-foreground sm:text-base">{club.owner}</p>}
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-display text-base font-semibold tabular-nums text-muted-foreground sm:text-lg">
             <span className="text-foreground">{record(club)}</span>
             {club.rank != null && <><span aria-hidden>·</span><span>{ordinal(club.rank)}</span></>}
