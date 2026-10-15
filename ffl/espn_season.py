@@ -870,7 +870,7 @@ def _stored_boxes(lg, week: int) -> tuple[list | None, float]:
         return None, 0.0
 
 
-def _read_boxes(lg, week: int, finished: bool) -> tuple[list, bool]:
+def _read_boxes(lg, week: int, finished: bool, epoch: int) -> tuple[list, bool]:
     """(box scores, read from ESPN just now)."""
     if not hasattr(lg, "espn_request"):  # tests stub League with box_scores alone: nothing to store or read back
         return lg.box_scores(week), True
@@ -884,6 +884,8 @@ def _read_boxes(lg, week: int, finished: bool) -> tuple[list, bool]:
             raise
         logging.getLogger(__name__).warning("week %s box scores from the stored read (ESPN failed: %s)", week, e)
         return stored, False
+    if not finished and _BOXES_EPOCH[0] != epoch:  # a move landed during the fetch: a pre-move read must not be stored as fresh
+        return _parse_box_doc(lg, doc), False
     try:
         db.put_box_doc(week, doc, box_hash(doc), time.time())
     except db.DBError as e:
@@ -918,7 +920,7 @@ def _fetch_boxes(lg, week: int) -> list:
         return hit[2]
     epoch = _BOXES_EPOCH[0]
     finished = week < getattr(lg, "current_week", week)
-    boxes, fresh = _read_boxes(lg, week, finished)
+    boxes, fresh = _read_boxes(lg, week, finished, epoch)
     if finished or _BOXES_EPOCH[0] == epoch:  # a move during the fetch: these may be from before it
         _BOXES[week] = (math.inf if finished else time.time() + BOXES_TTL_S, lg, boxes)
     if fresh and week == getattr(lg, "current_week", None):

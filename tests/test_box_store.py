@@ -102,3 +102,16 @@ def test_store_failure_still_returns_boxes(env, monkeypatch):
 
     monkeypatch.setattr(db, "put_box_doc", boom)
     assert espn_season.box_scores(env.lg, 4) == ["espn"]
+
+
+def test_move_during_fetch_is_not_stored_or_fresh(env, monkeypatch):
+    def fetch(lg, week):
+        env.calls["fetch"] += 1
+        espn_season.forget_current_boxes()  # a lineup move lands while the read is in flight
+        return {"tag": "pre-move"}
+
+    monkeypatch.setattr(espn_season, "_fetch_box_doc", fetch)
+    assert espn_season.box_scores(env.lg, 6) == ["pre-move"]
+    assert db.box_doc(6) is None and env.calls["reconcile"] == 0
+    assert espn_season.box_scores(env.lg, 6) == ["pre-move"]
+    assert env.calls["fetch"] == 2
