@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import { Component, useLayoutEffect, useRef, type RefObject } from "react";
 
 // The claim groups' changes, played out. Whatever moved a card or a row (the cards folding for a
 // group's drag and opening after it, a row crossing into another group, a row removed, a card's
@@ -19,13 +19,17 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
 // Marked up by the caller: `data-group` on each card's item (its card element first inside it),
 // `data-row` on each row's item (`data-lifted` while it is the slot of the row being dragged) and
 // `data-fx` (unique) on anything else that comes and goes. `capture()` reads where everything is
-// seen; the hook also reads it after every layout, so a change made from anywhere starts from the
-// last layout, and the drag handlers capture just before they change the plan (dnd-kit moves rows
-// between renders).
+// seen; the caller renders `<BeforeCommit read={capture} />` beside the list, which reads it again
+// just before every commit, so a change made from anywhere (the save's answer, the row control on
+// the table) starts from what is on screen then. The reading after the last layout is not enough:
+// what moved since without one (a page scroll under the sticky column, a notice above folding shut
+// in CSS, a slide still running) would play back as a jump. The drag handlers capture too, just
+// before they change the plan (dnd-kit moves rows between renders).
 
 type Seen = { el: HTMLElement; rect: DOMRect; font?: [string, string, string, string] };
 type Snap = {
-  top: number; scroll: number;
+  // the scroller read, kept: a later reading takes its scroll off the same element
+  top: number; scroller: HTMLElement | null; scroll: number;
   cards: Map<string, number>; rows: Map<string, { card: string; rel: number }>;
   seen: Map<string, Seen>;
 };
@@ -68,7 +72,7 @@ function measure(list: HTMLElement, scroller: HTMLElement | null): Snap {
   for (const el of list.querySelectorAll<HTMLElement>("[data-fx]")) {
     if (el.offsetParent) seen.set(`f${el.dataset.fx}`, { el, rect: el.getBoundingClientRect(), font: fontOf(el) });
   }
-  return { top, scroll: scroller?.scrollTop ?? 0, cards, rows, seen };
+  return { top, scroller, scroll: scroller?.scrollTop ?? 0, cards, rows, seen };
 }
 
 function slide(els: HTMLElement[], dy: number) {
@@ -139,8 +143,11 @@ export function useClaimsFlip(list: RefObject<HTMLElement | null>, scroller: (el
       if (key[0] === "f" && !before.seen.has(key) && !opening) fadeIn([now.el]);
     }
 
-    // where the list itself was seen, less any scroll of his since
-    const lift = before.top - after.top - (after.scroll - before.scroll - ours);
+    // where the list itself was seen, less any scroll of his since, read off the scroller `before`
+    // read: which ancestor scrolls can change in between (the docked column overflows for a frame
+    // while a card rises in), and two scrollers' offsets differ by the page's scroll
+    const scrolled = before.scroller ? before.scroller.scrollTop - before.scroll : 0;
+    const lift = before.top - after.top - (scrolled - ours);
     for (const item of el.querySelectorAll<HTMLElement>("[data-group]")) {
       const key = item.dataset.group!;
       const was = before.cards.get(key);
@@ -168,4 +175,17 @@ export function useClaimsFlip(list: RefObject<HTMLElement | null>, scroller: (el
   });
 
   return capture;
+}
+
+// Calls `read` before React changes the DOM, on every update: getSnapshotBeforeUpdate runs for the
+// whole tree before any mutation, and no hook does. Draws nothing.
+export class BeforeCommit extends Component<{ read: () => void }> {
+  getSnapshotBeforeUpdate() {
+    this.props.read();
+    return null;
+  }
+  componentDidUpdate() {}
+  render() {
+    return null;
+  }
 }

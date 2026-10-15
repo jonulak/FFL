@@ -27,7 +27,7 @@ import {
 import { pts, signed } from "@/lib/format";
 import { useClaims } from "./claims-context";
 import { ClaimName } from "./claim-name";
-import { useClaimsFlip } from "./claims-flip";
+import { BeforeCommit, useClaimsFlip } from "./claims-flip";
 import { ClaimsSubmit, PHONE_ACTION, PHONE_INSET, ReviewBody, TestModeAlert } from "./claims-submit";
 import { Clock } from "./local-time";
 import { Presence, Swap } from "./motion";
@@ -626,6 +626,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   return (
     // no scroll anchoring (Chrome only): the fold and the drop place the cards themselves
     <div className="space-y-3 [overflow-anchor:none]">
+      <BeforeCommit read={capture} />
       <div className="flex flex-wrap items-center justify-between gap-2 max-[112rem]:pr-9">
         {heading(`Claims · process ${day}`)}
         {/* a save in flight turns beside the state, so no line opens over the groups and shuts again */}
