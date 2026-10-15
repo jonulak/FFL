@@ -144,6 +144,7 @@ export function TeamRosterView({ initial, path }: { initial: TeamRoster; path: s
           <h1 className="text-balance font-display text-[2rem] font-bold leading-[0.95] tracking-tight sm:text-4xl">
             {club.team}
           </h1>
+          {club.owner && <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">{club.owner}</p>}
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-display text-base font-semibold tabular-nums text-muted-foreground sm:text-lg">
             <span className="text-foreground">{record(club)}</span>
             {club.rank != null && <><span aria-hidden>·</span><span>{ordinal(club.rank)}</span></>}

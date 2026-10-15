@@ -23,15 +23,15 @@ LINEUP_ENTRY = {"slot", "player_id", "name", "proj"}
 # web/lib/api.ts: type Swap
 SWAP = {"slot", "out", "in", "gain"}
 # web/lib/api.ts: type Side
-SIDE = {"team_id", "team", "abbrev", "logo", "lineup", "bench", "ir", "optimal", "optimal_swaps", "proj_total",
+SIDE = {"team_id", "team", "owner", "wins", "losses", "ties", "abbrev", "logo", "lineup", "bench", "ir", "optimal", "optimal_swaps", "proj_total",
         "optimal_total", "actual_total"}
 # web/lib/api.ts: type WaiverRow = Player & {...}
 WAIVER_EXTRA = {"ros_proj", "ros_adj", "week_proj", "delta_roster", "delta_pool", "would_start", "week_delta", "add",
                "status", "waiver_date"}
 # web/lib/api.ts: type League["standings"][number]
-STANDINGS_ROW = {"rank", "team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "points_for", "points_against",
+STANDINGS_ROW = {"rank", "team_id", "team", "owner", "abbrev", "logo", "wins", "losses", "ties", "points_for", "points_against",
                  "streak", "me"}
-SCORE_SIDE = {"team_id", "team", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me", "starter_ids",
+SCORE_SIDE = {"team_id", "team", "owner", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me", "starter_ids",
               "starter_teams", "pending_teams", "starters"}
 # web/lib/api.ts: type ScoreStarter
 SCORE_STARTER = {"player_id", "pos", "team", "proj", "actual", "game_played", "bye", "injury"}

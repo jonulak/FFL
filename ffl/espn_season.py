@@ -538,6 +538,15 @@ def my_team_id(lg) -> int:
     return tid
 
 
+def owner_name(team) -> str:
+    """The manager's real name ("Henry Kubacki"); a co-managed team's owners joined with " & ".
+    First and last as ESPN holds them, trimmed and capitalised (one is stored lower case); the
+    display name is an ESPN handle ("ESPNFAN7221…") and never shown. "" when ESPN lists no owner."""
+    names = (" ".join(w[:1].upper() + w[1:] for w in f"{o.get('firstName') or ''} {o.get('lastName') or ''}".split())
+             for o in getattr(team, "owners", None) or [])
+    return " & ".join(n for n in names if n)
+
+
 def build_side(team, players: list[dict], settings: dict) -> dict:
     """One matchup side from already-merged player dicts."""
     order = {s: i for i, s in enumerate(S.SLOT_ORDER)}
@@ -546,7 +555,10 @@ def build_side(team, players: list[dict], settings: dict) -> dict:
     ir = [p for p in players if p["slot"] == "IR"]
     cur, opt = S.current_lineup(players), S.optimal_lineup(players, settings)
     # abbrev and logo as the League page carries them, so the scorebug can show the club's mark
-    return {"team_id": team.team_id, "team": team.team_name, "abbrev": getattr(team, "team_abbrev", "") or "",
+    # and the record (today's, whichever week the board shows), so the bug reads like the League's
+    return {"team_id": team.team_id, "team": team.team_name, "owner": owner_name(team),
+            "wins": getattr(team, "wins", 0), "losses": getattr(team, "losses", 0), "ties": getattr(team, "ties", 0),
+            "abbrev": getattr(team, "team_abbrev", "") or "",
             "logo": getattr(team, "logo_url", "") or "", "lineup": lineup, "bench": bench, "ir": ir,
             "optimal": opt, "optimal_swaps": S.lineup_diff(cur, opt),
             "proj_total": S.lineup_total(cur), "optimal_total": S.lineup_total(opt),
@@ -1408,9 +1420,9 @@ def roster_state(week: int | None = None, sources: dict | None = None, season: d
 
 
 def _club(t) -> dict:
-    """A fantasy team as the League page shows it: name, ESPN abbreviation, the owner's logo (empty
-    when ESPN has none; the UI falls back to the abbreviation) and the record."""
-    return {"team_id": t.team_id, "team": t.team_name, "abbrev": getattr(t, "team_abbrev", "") or "",
+    """A fantasy team as the League page shows it: name, its manager's name, ESPN abbreviation, the
+    owner's logo (empty when ESPN has none; the UI falls back to the abbreviation) and the record."""
+    return {"team_id": t.team_id, "team": t.team_name, "owner": owner_name(t), "abbrev": getattr(t, "team_abbrev", "") or "",
             "logo": getattr(t, "logo_url", "") or "", "wins": t.wins, "losses": t.losses,
             "ties": getattr(t, "ties", 0)}
 

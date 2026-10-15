@@ -55,9 +55,11 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
                         <TeamLink id={t.team_id} className="truncate">{t.team}</TeamLink>
                         {t.me && <Badge variant="muted" shape="chip">me</Badge>}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t.abbrev}
-                        {t.streak && <span className="sm:hidden"> · {t.streak}</span>}
+                      {/* the manager under the club; the abbreviation stands in only when ESPN names no one
+                          (the mark already carries it when there is no logo) */}
+                      <p className="mt-1 flex min-w-0 text-xs text-muted-foreground">
+                        <span className="truncate">{t.owner || t.abbrev}</span>
+                        {t.streak && <span className="shrink-0 whitespace-pre sm:hidden"> · {t.streak}</span>}
                       </p>
                     </div>
                   </div>
@@ -90,7 +92,11 @@ function ScoreRow({ side, on, trailing, won, odds, half }: { side: ScoreSide; on
           <span className="truncate">{side.team}</span>
           {side.me && <Badge variant="muted" shape="chip">me</Badge>}
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">{record(side)}</p>
+        {/* the manager, then the record; a long name gives way, the record never does */}
+        <p className="mt-1 flex min-w-0 text-xs text-muted-foreground">
+          {side.owner && <><span className="truncate">{side.owner}</span><span aria-hidden className="shrink-0 whitespace-pre"> · </span></>}
+          <span className="shrink-0 tabular-nums">{record(side)}</span>
+        </p>
       </div>
       <div className="text-right tabular-nums">
         {/* a week beyond the current one has pairings but no projection yet */}

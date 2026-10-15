@@ -127,6 +127,18 @@ def test_build_side_splits_lineup_bench_ir_and_diffs():
     assert side["optimal_total"] >= side["proj_total"]
     assert any(s["in"] == "QB C" for s in side["optimal_swaps"])
     assert side["actual_total"] == 0.0
+    assert side["owner"] == ""  # no owners on the team: no name, not a crash
+
+
+def test_owner_name_trims_capitalises_and_joins_co_owners():
+    # as ESPN stores them in this league: a trailing space, a lower-case name, a handle never shown
+    one = SimpleNamespace(owners=[{"firstName": "Henry", "lastName": "Chiem ", "displayName": "ESPNFAN2560229613"}])
+    low = SimpleNamespace(owners=[{"firstName": "henry", "lastName": "kubacki"}])
+    two = SimpleNamespace(owners=[{"firstName": "Anthony", "lastName": "Arena"}, {"firstName": "Dan", "lastName": None}])
+    assert espn_season.owner_name(one) == "Henry Chiem"
+    assert espn_season.owner_name(low) == "Henry Kubacki"
+    assert espn_season.owner_name(two) == "Anthony Arena & Dan"
+    assert espn_season.owner_name(SimpleNamespace(owners=[{}])) == ""
 
 
 SEASON_ESPN = [{"player_id": 1, "name": "Jalen Hurts", "pos": "QB", "team": "PHI", "proj": 380.0},
@@ -742,7 +754,7 @@ def test_team_state_lists_any_team_with_its_club_and_rank(monkeypatch):
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
     st = espn_season.team_state(8, week=1, sources={}, season={}, injuries={})
     assert st["week"] == 1 and st["mine"] is False
-    assert st["club"] == {"team_id": 8, "team": "Theirs", "abbrev": "THM", "logo": "", "wins": 2,
+    assert st["club"] == {"team_id": 8, "team": "Theirs", "owner": "", "abbrev": "THM", "logo": "", "wins": 2,
                           "losses": 1, "ties": 0, "rank": 1}
     side = st["side"]
     assert side["team_id"] == 8 and len(side["lineup"]) == 11

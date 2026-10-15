@@ -127,7 +127,7 @@ export type LineupEntry = { slot: string; player_id: number | null; name: string
 export type Swap = { slot: string; out: string; in: string; gain: number };
 // `abbrev` and `logo` as on a Club, so the scorebug can carry the mark (logo "" when ESPN has none).
 export type Side = {
-  team_id: number; team: string; abbrev: string; logo: string; lineup: Player[]; bench: Player[]; ir: Player[];
+  team_id: number; team: string; owner: string; wins: number; losses: number; ties: number; abbrev: string; logo: string; lineup: Player[]; bench: Player[]; ir: Player[];
   optimal: LineupEntry[]; optimal_swaps: Swap[]; proj_total: number; optimal_total: number; actual_total: number;
 };
 // One row of the play feed (ffl/plays.py): a starter's points moved by `delta` to `total`.
@@ -236,8 +236,9 @@ export type SubmitResult = {
   now: Claim[]; now_failed: (Claim & { error: string })[]; sent: (Claim & { id: string })[];
   pending: { id: string; add: number; drop: number | null; priority?: number | null }[]; match: boolean; error: string | null; readback_failed: boolean; decisions?: DecisionRef[];
 };
-// A fantasy team as the League page shows it; `logo` is the owner's ESPN upload ("" when none).
-export type Club = { team_id: number; team: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
+// A fantasy team as the League page shows it; `owner` is its manager's real name ("" when ESPN has
+// none; co-managers joined with " & "), `logo` the owner's ESPN upload ("" when none).
+export type Club = { team_id: number; team: string; owner: string; abbrev: string; logo: string; wins: number; losses: number; ties: number };
 export type Standing = Club & { rank: number; points_for: number; points_against: number; streak: string; me: boolean };
 // starter_ids is what the API re-sums a side from while the live feed runs, starter_teams what it marks
 // a matchup live from (one of them in a game in progress), pending_teams the games ESPN does not yet call

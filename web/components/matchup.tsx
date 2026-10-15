@@ -10,7 +10,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemGroup,
 import { Separator } from "@/components/ui/separator";
 import type { Player, Side, Week } from "@/lib/api";
 import { BOARD_CARD, HEALTHY, isIdle, LABEL, SLOT_LABEL, STATUS_SHORT, TONE } from "@/lib/board";
-import { injuryTone, pts, shortName, signed } from "@/lib/format";
+import { injuryTone, pts, record, shortName, signed } from "@/lib/format";
 import { FIELD, fieldOf, inGameOf } from "@/lib/field";
 import { gameOn, gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { finalP } from "@/lib/win-prob";
@@ -69,10 +69,19 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={40} className="sm:hidden" />
         <ClubLogo src={clubLogoSrc(side)} abbrev={side.abbrev} size={48} className="hidden sm:flex" />
         {/* the whole name, however many lines it takes: a long team name ("Anthony's Astounding Team")
-            wraps to three at the phone's size rather than clip, and a word wider than the column hyphenates */}
-        <p className="min-w-0 hyphens-auto text-balance font-display text-[1.125rem] font-semibold leading-[1.05] tracking-tight [overflow-wrap:anywhere] sm:text-[1.65rem] sm:leading-none">
-          <TeamLink id={side.team_id}>{side.team}</TeamLink>
-        </p>
+            wraps to three at the phone's size rather than clip, and a word wider than the column hyphenates;
+            the record and the manager's name sit under it as a caption, the record first in ink as on
+            the League's tiles, so the two sides' records read across the bug at one height */}
+        <div className="min-w-0">
+          <p className="hyphens-auto text-balance font-display text-[1.125rem] font-semibold leading-[1.05] tracking-tight [overflow-wrap:anywhere] sm:text-[1.65rem] sm:leading-none">
+            <TeamLink id={side.team_id}>{side.team}</TeamLink>
+          </p>
+          <p className="mt-1 text-xs leading-tight text-muted-foreground [overflow-wrap:anywhere] sm:mt-1.5 sm:text-sm">
+            <span className="font-medium tabular-nums text-foreground/80"><Swap>{record(side)}</Swap></span>
+            {/* on the phone the name takes its own line rather than break between first and last */}
+            {side.owner && <><span aria-hidden className="hidden sm:inline"> · </span><span className="mt-0.5 block sm:mt-0 sm:inline">{side.owner}</span></>}
+          </p>
+        </div>
       </div>
       {/* From `sm` the totals meet at VS, so the one comparison the bug exists for is one glance,
           not a jump across the card; the marks and names stay at the outer edges. */}
