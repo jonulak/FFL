@@ -1425,44 +1425,79 @@ def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]
 
 
 GAP_BATCH = 40  # ids per kona_player_info call, as tx_player_info asks (no `limit`: ESPN 400s on it)
-_GAP_GAMES: dict[tuple[int, int], list[dict]] = {}  # (player, finished week) -> his rows; a played week never changes
+# (player, finished week) -> his rows. Kept in memory and in the gap_games table; the correction pass
+# re-reads an unsettled week's rows (ffl-7sq).
+_GAP_GAMES: dict[tuple[int, int], list[dict]] = {}
+
+
+def _fetch_gap_rows(w: int, ids: list[int], week: int) -> dict[int, list[dict]]:
+    """One kona_player_info read of `ids` for week w, with that week's scoringPeriodId, the same call
+    free_agents(week=w) makes: player -> player_games(pl, [w], week). A failed call is logged and leaves
+    its players out of the answer, as does a player ESPN answers without or oddly. Pure ESPN: neither the
+    process memory nor the table is consulted."""
+    from espn_api.football.player import Player
+
+    log = logging.getLogger(__name__)
+    filt = {"players": {"filterIds": {"value": ids}}}
+    try:
+        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=w)
+    except Exception as e:  # noqa: BLE001 — a pickup's free-agent weeks are not worth the page
+        log.warning("week %s player info not read; no free-agent rows for %s: %s", w, ids, e)
+        return {}
+    out: dict[int, list[dict]] = {}
+    for p in doc.get("players") or []:
+        try:  # one player ESPN answers oddly costs his own rows, not the batch's
+            pl = Player(p, SEASON)
+        except Exception as e:  # noqa: BLE001
+            log.warning("week %s player info unreadable for %s: %s", w, p.get("id"), e)
+            continue
+        if pl.playerId in ids:  # ESPN answering without one leaves him to be asked again next build
+            out[pl.playerId] = player_games(pl, [w], week)
+    return out
 
 
 def _gap_games(gaps: dict[int, list[int]], week: int) -> dict[int, list[dict]]:
     """Game rows for the earlier weeks a rostered player sat on no fantasy roster (player -> weeks): one
-    kona_player_info call per such week (GAP_BATCH ids each) for the players missing from it, with that
-    week's scoringPeriodId, the same call free_agents(week=w) makes, so the row (points and that week's
-    projection) is the one a free agent's window reads. The free-agent lists themselves cannot supply him:
-    ESPN filters them by today's status, so a man rostered now is in none of them; and his player card
-    has no past week's projection. Each (player, week) is kept for the process once read (a finished
-    week; POST /refresh clears it), so a build after the first asks for nothing. A failed call leaves
-    that week without rows, as a failed week's box scores does."""
-    from espn_api.football.player import Player
-
+    kona_player_info call per such week (GAP_BATCH ids each) for the players missing from the process and
+    the gap_games table, so the row (points and that week's projection) is the one a free agent's window
+    reads. The free-agent lists themselves cannot supply him: ESPN filters them by today's status, so a man
+    rostered now is in none of them; and his player card has no past week's projection. Each (player, week)
+    is kept in memory and in the table once read (a finished week), so a build after the first asks for
+    nothing, even after a restart; the correction pass re-reads an unsettled week's rows (ffl-7sq). A failed
+    call leaves that week without rows, as a failed week's box scores does; a table error is logged and
+    ESPN is asked instead."""
+    log = logging.getLogger(__name__)
     asks: list[tuple[int, list[int]]] = []
     for w in sorted({w for ws in gaps.values() for w in ws}):
         ids = sorted(pid for pid, ws in gaps.items() if w in ws and (pid, w) not in _GAP_GAMES)
+        if not ids:
+            continue
+        try:
+            stored = db.gap_rows(w, ids)
+        except db.DBError as e:
+            log.warning("gap_games not read for week %s: %s", w, e)
+            stored = {}
+        for pid, rows in stored.items():
+            _GAP_GAMES[(pid, w)] = rows
+        ids = [pid for pid in ids if pid not in stored]
         asks += [(w, ids[i:i + GAP_BATCH]) for i in range(0, len(ids), GAP_BATCH)]
 
-    def read(ask: tuple[int, list[int]]) -> None:
-        w, ids = ask
-        filt = {"players": {"filterIds": {"value": ids}}}
-        try:
-            doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=w)
-        except Exception as e:  # noqa: BLE001 — a pickup's free-agent weeks are not worth the page
-            logging.getLogger(__name__).warning("week %s player info not read; no free-agent rows for %s: %s", w, ids, e)
-            return
-        for p in doc.get("players") or []:
-            try:  # one player ESPN answers oddly costs his own rows, not the batch's
-                pl = Player(p, SEASON)
-            except Exception as e:  # noqa: BLE001
-                logging.getLogger(__name__).warning("week %s player info unreadable for %s: %s", w, p.get("id"), e)
-                continue
-            if pl.playerId in ids:  # ESPN answering without one leaves him to be asked again next build
-                _GAP_GAMES[(pl.playerId, w)] = player_games(pl, [w], week)
+    def read(ask: tuple[int, list[int]]) -> tuple[int, dict[int, list[dict]]]:
+        return ask[0], _fetch_gap_rows(ask[0], ask[1], week)
     if asks:
         with ThreadPoolExecutor(len(asks)) as pool:  # all in flight together, like the free-agent asks
-            list(pool.map(read, asks))
+            answers = list(pool.map(read, asks))
+        by_week: dict[int, dict[int, list[dict]]] = {}
+        for w, got in answers:
+            by_week.setdefault(w, {}).update(got)
+        for w, got in by_week.items():
+            for pid, rows in got.items():
+                _GAP_GAMES[(pid, w)] = rows
+            if got:
+                try:
+                    db.put_gap_rows(w, got, time.time())
+                except db.DBError as e:
+                    log.warning("gap_games not saved for week %s: %s", w, e)
     out: dict[int, list[dict]] = {}
     for pid, ws in gaps.items():
         if rows := [g for w in ws for g in _GAP_GAMES.get((pid, w), [])]:

@@ -314,6 +314,34 @@ def test_gap_games_split_a_weeks_ask_by_batch_and_skip_an_unreadable_player(monk
     assert 100 not in out and len(out) == espn_season.GAP_BATCH, "only the unreadable player loses his row"
 
 
+def test_gap_games_come_from_the_table_without_asking_espn(monkeypatch):
+    rows = [{"week": 2, "pts": 7.0}]
+    db.put_gap_rows(2, {5: rows}, 1.0)
+    monkeypatch.setattr(espn_season, "raw_league_get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
+    assert espn_season._gap_games({5: [2]}, week=3) == {5: rows}
+
+
+def test_gap_games_read_from_espn_are_written_to_the_table(monkeypatch):
+    asked = []
+    monkeypatch.setattr(espn_season, "raw_league_get", _info_by_week({(5, 2): _info_doc(5, 2, 18.0, 5.0, 16)}, asked))
+    out = espn_season._gap_games({5: [2]}, week=3)
+    assert db.gap_rows(2, [5]) == {5: out[5]}
+    espn_season._GAP_GAMES.clear()
+    assert espn_season._gap_games({5: [2]}, week=3) == out
+    assert len(asked) == 1, "the second ask came off the table"
+
+
+def test_gap_games_fall_through_to_espn_when_the_table_errors(monkeypatch):
+    def boom(*a, **k):
+        raise db.DBError("down")
+    monkeypatch.setattr(db, "gap_rows", boom)
+    monkeypatch.setattr(db, "put_gap_rows", boom)
+    asked = []
+    monkeypatch.setattr(espn_season, "raw_league_get", _info_by_week({(5, 2): _info_doc(5, 2, 18.0, 5.0, 16)}, asked))
+    assert [g["week"] for g in espn_season._gap_games({5: [2]}, week=3)[5]] == [2]
+    assert len(asked) == 1
+
+
 def test_roster_games_ask_nothing_in_week_one(monkeypatch):
     monkeypatch.setattr(espn_season, "raw_league_get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
     games = espn_season._roster_games(SimpleNamespace(teams=[]), {7: [_rb_box(5, 1, 21.0)]}, week=1)
