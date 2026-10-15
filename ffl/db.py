@@ -91,6 +91,42 @@ plays = sa.Table(
 )
 sa.Index("ix_plays_week_team", plays.c.season, plays.c.week, plays.c.team_id)
 
+# Every week's box scores as ESPN answered them (espn_season.box_scores): the matchup schedule and the two maps
+# BoxScore takes, so a cold process parses them back without ESPN. fetched_at (epoch s) moves on every read; doc and
+# hash only when ESPN's answer changed. settled: the correction pass's last read (ffl-7sq); never fetched after it.
+box_scores_table = sa.Table(
+    "box_scores", metadata, _season(),
+    sa.Column("week", sa.Integer, nullable=False),
+    sa.Column("doc", sa.JSON, nullable=False),
+    sa.Column("hash", sa.String, nullable=False),
+    sa.Column("fetched_at", sa.Float, nullable=False),
+    sa.Column("settled", sa.Boolean, nullable=False, default=False, server_default=sa.text("0")),
+    sa.PrimaryKeyConstraint("season", "week"),
+)
+
+# A rostered player's game rows for an earlier week he sat on no fantasy roster (espn_season._gap_games).
+gap_games_table = sa.Table(
+    "gap_games", metadata, _season(),
+    sa.Column("week", sa.Integer, nullable=False),
+    sa.Column("player_id", sa.Integer, nullable=False),
+    sa.Column("rows", sa.JSON, nullable=False),
+    sa.Column("fetched_at", sa.Float, nullable=False),
+    sa.PrimaryKeyConstraint("season", "week", "player_id"),
+)
+
+# A finished week's points that changed between two reads (ESPN's stat corrections). team_id NULL: a gap-week row.
+box_score_corrections = sa.Table(
+    "box_score_corrections", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    _season(),
+    sa.Column("week", sa.Integer, nullable=False),
+    sa.Column("player_id", sa.Integer, nullable=False),
+    sa.Column("team_id", sa.Integer),
+    sa.Column("old", sa.Float, nullable=False),
+    sa.Column("new", sa.Float, nullable=False),
+    sa.Column("at", sa.String, nullable=False),
+)
+
 outlooks = sa.Table(
     "outlooks", metadata, _season(),
     sa.Column("week", sa.Integer, nullable=False),
@@ -384,6 +420,109 @@ def plays_rows(week: int, season: int = SEASON) -> list[dict]:
     q = sa.select(plays.c.body).where(plays.c.season == season, plays.c.week == week).order_by(plays.c.id)
     with _read() as c:
         return list(c.execute(q).scalars())
+
+
+_CORR_COLS = ("week", "player_id", "team_id", "old", "new", "at")
+
+
+def _corr_vals(rows, season: int) -> list[dict]:
+    return [{"season": season, **{k: r.get(k) for k in _CORR_COLS}} for r in rows]
+
+
+def box_doc(week: int, season: int = SEASON) -> dict | None:
+    """One week's stored box-score document: {doc, hash, fetched_at, settled}, or None."""
+    t = box_scores_table
+    q = sa.select(t.c.doc, t.c.hash, t.c.fetched_at, t.c.settled).where(t.c.season == season, t.c.week == week)
+    with _read() as c:
+        r = c.execute(q).first()
+    return dict(r._mapping) if r else None
+
+
+def box_weeks(season: int = SEASON) -> dict[int, dict]:
+    """Every stored week -> {fetched_at, settled}, without the documents."""
+    t = box_scores_table
+    q = sa.select(t.c.week, t.c.fetched_at, t.c.settled).where(t.c.season == season)
+    with _read() as c:
+        return {r.week: {"fetched_at": r.fetched_at, "settled": r.settled} for r in c.execute(q)}
+
+
+def put_box_doc(week: int, doc: dict, hash: str, fetched_at: float, settled: bool | None = None,
+                corrections=(), season: int = SEASON) -> bool:
+    """Store a read of one week's box scores in one transaction: insert the row if absent; else always set
+    fetched_at (the correction pass's throttle and the current week's 60 s hit read it), doc and hash only
+    when the hash differs, settled when not None. `corrections` go into box_score_corrections in the same
+    transaction. Returns True when doc/hash were (re)written."""
+    t = box_scores_table
+    with _write() as c:
+        old = c.execute(sa.select(t.c.hash).where(t.c.season == season, t.c.week == week)).first()
+        if old is None:
+            c.execute(t.insert().values(season=season, week=week, doc=doc, hash=hash, fetched_at=fetched_at,
+                                        settled=bool(settled)))
+            wrote = True
+        else:
+            vals: dict = {"fetched_at": fetched_at}
+            wrote = old.hash != hash
+            if wrote:
+                vals.update(doc=doc, hash=hash)
+            if settled is not None:
+                vals["settled"] = settled
+            c.execute(t.update().where(t.c.season == season, t.c.week == week).values(**vals))
+        if corrections:
+            c.execute(box_score_corrections.insert(), _corr_vals(corrections, season))
+    return wrote
+
+
+def expire_unsettled_boxes(season: int = SEASON) -> None:
+    """fetched_at = 0 on every unsettled row: after a league move no stored current week counts as a 60 s hit."""
+    t = box_scores_table
+    with _write() as c:
+        c.execute(t.update().where(t.c.season == season, t.c.settled.is_(False)).values(fetched_at=0.0))
+
+
+def gap_rows(week: int, ids, season: int = SEASON) -> dict[int, list[dict]]:
+    """The stored gap-week game rows of those players for a week (only the ones stored)."""
+    ids = list(ids)
+    if not ids:
+        return {}
+    t = gap_games_table
+    q = sa.select(t.c.player_id, t.c.rows).where(t.c.season == season, t.c.week == week, t.c.player_id.in_(ids))
+    with _read() as c:
+        return {r.player_id: r.rows for r in c.execute(q)}
+
+
+def gap_ids(week: int, season: int = SEASON) -> list[int]:
+    t = gap_games_table
+    q = sa.select(t.c.player_id).where(t.c.season == season, t.c.week == week).order_by(t.c.player_id)
+    with _read() as c:
+        return list(c.execute(q).scalars())
+
+
+def put_gap_rows(week: int, rows: dict[int, list[dict]], fetched_at: float, season: int = SEASON) -> None:
+    """Upsert (season, week, player_id) -> rows, fetched_at."""
+    if not rows:
+        return
+    vals = [{"season": season, "week": week, "player_id": pid, "rows": r, "fetched_at": fetched_at}
+            for pid, r in rows.items()]
+    with _write() as c:
+        c.execute(_upsert(gap_games_table, vals, ["season", "week", "player_id"], ["rows", "fetched_at"]))
+
+
+def add_box_corrections(rows: list[dict], season: int = SEASON) -> None:
+    """Log gap-week corrections (team_id None)."""
+    if not rows:
+        return
+    with _write() as c:
+        c.execute(box_score_corrections.insert(), _corr_vals(rows, season))
+
+
+def box_corrections(season: int = SEASON, week: int | None = None) -> list[dict]:
+    """Logged corrections, oldest first: week, player_id, team_id, old, new, at."""
+    t = box_score_corrections
+    q = sa.select(*[t.c[k] for k in _CORR_COLS]).where(t.c.season == season).order_by(t.c.id)
+    if week is not None:
+        q = q.where(t.c.week == week)
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
 
 
 def _tx_player_id(tx_id: str) -> int | None:

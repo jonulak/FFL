@@ -11,7 +11,8 @@ def test_fixture_db_is_migrated_and_temp(tmp_path):
     with db._read() as c:
         names = set(sa.inspect(c).get_table_names())
     assert {"transactions", "draft_picks", "results", "plays", "outlooks", "calibration_snapshots",
-            "calibration_rows", "sigma_fits", "claim_plans", "alembic_version"} <= names
+            "calibration_rows", "sigma_fits", "claim_plans", "alembic_version", "box_scores", "gap_games",
+            "box_score_corrections"} <= names
 
 
 def test_pragmas():
@@ -263,3 +264,38 @@ def test_source_weights_are_inactive_until_activated():
     assert db.activate_source_weights(b) is True
     assert db.active_source_weights()["week"]["QB"]["espn"] == 0.7, "one active row at a time"
     assert db.activate_source_weights("nope") is False
+
+
+def test_put_box_doc_writes_doc_once_and_moves_fetched_at_every_read():
+    assert db.box_doc(5) is None
+    assert db.put_box_doc(5, {"a": 1}, "h1", 100.0) is True
+    assert db.put_box_doc(5, {"a": 1}, "h1", 200.0) is False   # unchanged: doc untouched
+    row = db.box_doc(5)
+    assert row == {"doc": {"a": 1}, "hash": "h1", "fetched_at": 200.0, "settled": False}
+    assert db.put_box_doc(5, {"a": 2}, "h2", 300.0, settled=True) is True
+    assert db.box_doc(5) == {"doc": {"a": 2}, "hash": "h2", "fetched_at": 300.0, "settled": True}
+    assert db.box_weeks() == {5: {"fetched_at": 300.0, "settled": True}}
+
+
+def test_put_box_doc_writes_corrections_in_the_same_transaction():
+    c = {"week": 5, "player_id": 7, "team_id": 3, "old": 10.0, "new": 12.5, "at": "2026-10-15T10:00:00-04:00"}
+    db.put_box_doc(5, {"a": 1}, "h1", 1.0, corrections=[c])
+    assert db.box_corrections() == [c]
+    assert db.box_corrections(week=4) == []
+
+
+def test_expire_unsettled_boxes_zeroes_only_unsettled_rows():
+    db.put_box_doc(4, {}, "h", 50.0, settled=True)
+    db.put_box_doc(6, {}, "h", 60.0)
+    db.expire_unsettled_boxes()
+    assert db.box_weeks() == {4: {"fetched_at": 50.0, "settled": True}, 6: {"fetched_at": 0.0, "settled": False}}
+
+
+def test_gap_rows_round_trip():
+    db.put_gap_rows(3, {11: [{"week": 3, "pts": 4.0}], 12: []}, 10.0)
+    assert db.gap_rows(3, [11, 12, 13]) == {11: [{"week": 3, "pts": 4.0}], 12: []}
+    assert db.gap_ids(3) == [11, 12]
+    db.put_gap_rows(3, {11: [{"week": 3, "pts": 6.0}]}, 20.0)
+    assert db.gap_rows(3, [11]) == {11: [{"week": 3, "pts": 6.0}]}
+    db.add_box_corrections([{"week": 3, "player_id": 11, "team_id": None, "old": 4.0, "new": 6.0, "at": "x"}])
+    assert db.box_corrections(week=3)[0]["team_id"] is None
