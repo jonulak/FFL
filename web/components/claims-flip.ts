@@ -6,8 +6,10 @@ import { Component, useLayoutEffect, useRef, type RefObject } from "react";
 // group's drag and opening after it, a row crossing into another group, a row removed, a card's
 // errors arriving with a save) lays out at once, and each card and row is set back where it was
 // seen and runs to its new place (FLIP). A card slides as a whole (its card element, never the
-// sortable item dnd-kit measures), so the one that grew is uncovered by the next sliding down off
-// it; a row slides inside its card (its cells, so dnd-kit's row stays put).
+// sortable item dnd-kit measures) and an open one runs its height from the old to the new, so its
+// foot keeps pace with what moves inside it; a row slides inside its card (its cells, so dnd-kit's
+// row stays put), and so do the card's other pieces (`data-slide`, `data-fx`) and what follows the
+// list in its panel (`data-trail`).
 //
 // What arrives fades in where it lands: a card rising a little, a row, an empty list's box, a
 // card's errors or its "get K of N". What leaves fades out where it was: a copy of it is laid on
@@ -31,6 +33,11 @@ type Snap = {
   // the scroller read, kept: a later reading takes its scroll off the same element
   top: number; scroller: HTMLElement | null; scroll: number;
   cards: Map<string, number>; rows: Map<string, { card: string; rel: number }>;
+  // a card's other pieces (`data-slide`, `data-fx` by its base), each against the card's body like a row
+  blocks: Map<string, number>;
+  // an open card's height (a folded one's is the fold's, and dnd-kit is measuring it), and what
+  // follows the list in its panel (`data-trail`, the action bar) against the list's top
+  heights: Map<string, number>; trails: Map<string, number>;
   seen: Map<string, Seen>;
 };
 
@@ -40,6 +47,8 @@ const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 const cardEl = (item: HTMLElement) => item.firstElementChild as HTMLElement | null;
 const cells = (row: HTMLElement) => [...row.children] as HTMLElement[];
+const BLOCKS = "[data-slide], [data-fx]";
+const blockKey = (card: string, el: HTMLElement) => `${card}:${(el.dataset.slide ?? el.dataset.fx ?? "").split("|")[0]}`;
 // a row's text is set by its card, which its copy on the body would not have
 const fontOf = (el: HTMLElement): Seen["font"] => {
   const s = getComputedStyle(el);
@@ -50,6 +59,9 @@ function measure(list: HTMLElement, scroller: HTMLElement | null): Snap {
   const top = list.getBoundingClientRect().top;
   const cards = new Map<string, number>();
   const rows = new Map<string, { card: string; rel: number }>();
+  const blocks = new Map<string, number>();
+  const heights = new Map<string, number>();
+  const trails = new Map<string, number>();
   const seen = new Map<string, Seen>();
   for (const item of list.querySelectorAll<HTMLElement>("[data-group]")) {
     const card = cardEl(item);
@@ -61,6 +73,7 @@ function measure(list: HTMLElement, scroller: HTMLElement | null): Snap {
     // open (group-reveal) moves both, so it never reads as the row moving
     const body = card.querySelector<HTMLElement>(".group-body");
     const bTop = body ? body.getBoundingClientRect().top : rect.top;
+    if (body?.offsetParent) heights.set(item.dataset.group!, rect.height);
     for (const row of item.querySelectorAll<HTMLElement>("[data-row]")) {
       const cell = row.firstElementChild as HTMLElement | null;
       if (!cell || !row.offsetParent) continue;
@@ -68,11 +81,17 @@ function measure(list: HTMLElement, scroller: HTMLElement | null): Snap {
       // the lifted row's slot is drawn by the drag, not left behind as a copy
       if (!("lifted" in row.dataset)) seen.set(`r${row.dataset.row}`, { el: row, rect: row.getBoundingClientRect(), font: fontOf(row) });
     }
+    for (const b of item.querySelectorAll<HTMLElement>(BLOCKS)) {
+      if (b.offsetParent) blocks.set(blockKey(item.dataset.group!, b), b.getBoundingClientRect().top - bTop);
+    }
   }
   for (const el of list.querySelectorAll<HTMLElement>("[data-fx]")) {
     if (el.offsetParent) seen.set(`f${el.dataset.fx}`, { el, rect: el.getBoundingClientRect(), font: fontOf(el) });
   }
-  return { top, scroller, scroll: scroller?.scrollTop ?? 0, cards, rows, seen };
+  for (const t of list.closest("[data-flip-root]")?.querySelectorAll<HTMLElement>("[data-trail]") ?? []) {
+    if (t.offsetParent) trails.set(t.dataset.trail!, t.getBoundingClientRect().top - top);
+  }
+  return { top, scroller, scroll: scroller?.scrollTop ?? 0, cards, rows, blocks, heights, trails, seen };
 }
 
 function slide(els: HTMLElement[], dy: number) {
@@ -121,7 +140,8 @@ export function useClaimsFlip(list: RefObject<HTMLElement | null>, scroller: (el
     if (!el) return;
     const s = scroller(el);
     // an interrupted change: `before` read where everything was seen mid-flight, so start from there
-    for (const a of el.getAnimations({ subtree: true })) if (a.id === ID) a.cancel();
+    const root = el.closest<HTMLElement>("[data-flip-root]") ?? el;
+    for (const a of root.getAnimations({ subtree: true })) if (a.id === ID) a.cancel();
     const after = measure(el, s);
     snap.current = after;
     if (!before || still) return;
@@ -148,6 +168,10 @@ export function useClaimsFlip(list: RefObject<HTMLElement | null>, scroller: (el
     // while a card rises in), and two scrollers' offsets differ by the page's scroll
     const scrolled = before.scroller ? before.scroller.scrollTop - before.scroll : 0;
     const lift = before.top - after.top - (scrolled - ours);
+    // A card's height runs in layout, so what stands below it (the next cards, the action bar)
+    // already rides its foot frame by frame: `above` is how much taller the cards above are at the
+    // start than at the end, and each slide below leaves that part to the layout.
+    let above = 0;
     for (const item of el.querySelectorAll<HTMLElement>("[data-group]")) {
       const key = item.dataset.group!;
       const was = before.cards.get(key);
@@ -158,8 +182,17 @@ export function useClaimsFlip(list: RefObject<HTMLElement | null>, scroller: (el
         fadeIn([card], 8);
         continue;
       }
-      const dy = was - now + lift;
+      const dy = was - now + lift - above;
       if (Math.abs(dy) >= 0.5) slide([card], dy);
+      // the card grows or shrinks with what slides inside it, so its foot never jumps ahead of them
+      const wh = before.heights.get(key);
+      const nh = after.heights.get(key);
+      if (wh != null && nh != null && Math.abs(wh - nh) >= 0.5) {
+        card.style.overflow = "clip";
+        const a = card.animate([{ height: `${wh}px` }, { height: `${nh}px` }], { id: ID, duration: MS, easing: EASE });
+        a.onfinish = a.oncancel = () => { card.style.overflow = ""; };
+        above += wh - nh;
+      }
       for (const row of item.querySelectorAll<HTMLElement>("[data-row]")) {
         const r = after.rows.get(row.dataset.row!);
         const w = before.rows.get(row.dataset.row!);
@@ -171,6 +204,21 @@ export function useClaimsFlip(list: RefObject<HTMLElement | null>, scroller: (el
         const ry = w.rel - r.rel;
         if (Math.abs(ry) >= 0.5) slide(cells(row), ry);
       }
+      // what stands below a row that came or went (a list's heading, the cut picker, the errors)
+      // slides with the rows rather than jumping by a row's height
+      for (const b of item.querySelectorAll<HTMLElement>(BLOCKS)) {
+        const k = blockKey(key, b);
+        const w = before.blocks.get(k);
+        const r = after.blocks.get(k);
+        if (w == null || r == null) continue;
+        if (Math.abs(w - r) >= 0.5) slide([b], w - r);
+      }
+    }
+    // and what follows the list in the panel moves with its foot
+    for (const t of root.querySelectorAll<HTMLElement>("[data-trail]")) {
+      const w = before.trails.get(t.dataset.trail!);
+      const r = after.trails.get(t.dataset.trail!);
+      if (w != null && r != null && Math.abs(w - r - above) >= 0.5) slide([t], w - r - above);
     }
   });
 

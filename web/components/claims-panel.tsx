@@ -219,8 +219,9 @@ function GroupTitle({ g, gi, fx }: { g: ClaimGroup; gi: number; fx?: string }) {
         {gi + 1}{p && <span className="text-foreground/80"> · {p}</span>}
       </h3>
       {g.targets.length > 0 && (
-        <Badge variant="close" shape="chip" className="ml-auto" data-fx={fx && `${fx}|${capacity(g)}:${g.targets.length}`}>
-          get {Math.min(capacity(g), g.targets.length)} of {g.targets.length}
+        // the chip stays when the count changes (it fades in with the group's first target), and its words swap in it
+        <Badge variant="close" shape="chip" className="ml-auto" data-fx={fx}>
+          <Swap>{`get ${Math.min(capacity(g), g.targets.length)} of ${g.targets.length}`}</Swap>
         </Badge>
       )}
     </>
@@ -292,7 +293,7 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
 
         <div className={`group-body ${reveal ? "group-reveal" : ""}`}>
         <Zone id={`zt${gi}`}>
-          <p className={`${SUB} mt-3 mb-0.5`}>targets · best first</p>
+          <p data-slide="ht" className={`${SUB} mt-3 mb-0.5`}>targets · best first</p>
           {g.targets.length === 0 && (
             <EmptySlot fx={`t${gkey}`} open={dragging === "t"} rest="Pick targets with the claim button on any row" drop="Drop to move him into this group" />
           )}
@@ -305,7 +306,7 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
         </Zone>
 
         <Zone id={`zc${gi}`}>
-          <p className={`${SUB} mt-3 mb-0.5`}>make room · first to go first</p>
+          <p data-slide="hc" className={`${SUB} mt-3 mb-0.5`}>make room · first to go first</p>
           <ol>
             {g.open > 0 && (
               <li data-fx={`o${gkey}`} className={ROW}>
@@ -331,9 +332,9 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
             </ol>
           </SortableContext>
         </Zone>
-        <CutPicker gi={gi} roster={roster} used={new Set(g.cuts)} hasFA={hasFA} disabled={submitting} />
+        <div data-slide="pick"><CutPicker gi={gi} roster={roster} used={new Set(g.cuts)} hasFA={hasFA} disabled={submitting} /></div>
         {data.open_spots > 0 && (
-          <Label className="mt-2.5 text-xs font-normal text-foreground/80">
+          <Label data-slide="open" className="mt-2.5 text-xs font-normal text-foreground/80">
             <Checkbox checked={g.open > 0} disabled={submitting}
               onCheckedChange={(on) => setGroups(setOpen(groups, gi, on, data.open_spots))} />
             use the {data.open_spots} open roster spot{data.open_spots > 1 && "s"}
@@ -489,15 +490,20 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
   const cutId = (gi: number) => (c: number) => (rowKind === "c" && dragged === c && drag?.at === gi ? String(drag.id) : `c${keys[gi]}_${c}`);
 
   // The saved plan's errors for each card, found by its content (its own index first): a card an
-  // edit left alone keeps them while the edit saves, so no line drops out and back in; an edited
-  // one waits for the save.
+  // edit left alone keeps them while the edit saves, so no line drops out and back in. An edited
+  // one keeps what its place in the saved plan said until the save answers (when no group came or
+  // went, so its place is still its own): the errors change once, on the answer, rather than
+  // leaving on the edit and coming back with it.
   const used = new Set<number>();
-  const errorsOf = shown.map((g, i) => {
+  const matched = shown.map((g, i) => {
     const same = (j: number) => !used.has(j) && JSON.stringify(data.groups[j]) === JSON.stringify(g);
     const j = same(i) ? i : data.groups.findIndex((_, k) => same(k));
-    if (j < 0) return [];
-    used.add(j);
-    return data.errors.filter((e) => e.group === j);
+    if (j >= 0) used.add(j);
+    return j;
+  });
+  const errorsOf = matched.map((j, i) => {
+    if (j < 0 && dirty && shown.length === data.groups.length && !used.has(i)) j = i;
+    return j < 0 ? [] : data.errors.filter((e) => e.group === j);
   });
 
   const cardTop = (key: number) => listRef.current?.querySelector(`[data-group="${key}"]`)?.getBoundingClientRect().top ?? null;
@@ -625,7 +631,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
 
   return (
     // no scroll anchoring (Chrome only): the fold and the drop place the cards themselves
-    <div className="space-y-3 [overflow-anchor:none]">
+    <div data-flip-root className="space-y-3 [overflow-anchor:none]">
       <BeforeCommit read={capture} />
       <div className="flex flex-wrap items-center justify-between gap-2 max-[112rem]:pr-9">
         {heading(`Claims · process ${day}`)}
@@ -666,7 +672,8 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
       </DndContext>
       {/* In the sheet the actions stay pinned to its foot, thumb-height, above the home indicator;
           docked beside the table they follow the last group at desk size. */}
-      <div className={sheet
+      {/* docked, it slides with the list's foot (the hook's data-trail); pinned in the sheet, it stays */}
+      <div data-trail={sheet ? undefined : "actions"} className={sheet
         ? `sticky bottom-0 -mx-4 mt-4 flex items-center gap-3 border-t border-foreground/10 bg-popover px-4 pt-3 ${PHONE_INSET}`
         : "flex flex-wrap items-center gap-2 pt-1"}>
         <Button variant={sheet ? "outline" : "ghost"} size={sheet ? "default" : "sm"} disabled={submitting}
