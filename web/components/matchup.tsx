@@ -140,9 +140,9 @@ function Scorebug({ data, now }: { data: Week; now: number }) {
 // The number with its own unit, because on a Sunday afternoon the rows are a mix: PROJ is the
 // forecast for a game still to come, PTS the posted score with the projection it replaced
 // beneath it and a live mark while the game is on. The numeral is 1.125rem on the phone,
-// 1.375rem from `sm` with the unit beside it and the note beneath; on the phone the unit and the
-// status chip stand beneath the number at the top of the half, so a long name never wraps for
-// the chip and the game line has the half's whole width.
+// 1.375rem from `sm` with the unit beside it and the note beneath; on the phone the unit stands
+// beneath the number and the status chip under it closes the game line (Half), so a long name
+// never wraps for the chip and neither adds a line to the half.
 function Num({ p, now, end }: { p: Player; now: number; end: End }) {
   const on = gamePhase(p, now) !== "pending";
   const opp = end === "opp";
@@ -156,10 +156,7 @@ function Num({ p, now, end }: { p: Player; now: number; end: End }) {
         {!on && <Spread p={p} className="text-[0.6875rem] sm:hidden" />}
         <Unit fact={on} className="hidden text-[0.6875rem] sm:inline" />
       </div>
-      <div className={`mt-1 flex flex-col gap-0.5 leading-4 empty:hidden sm:hidden ${opp ? "items-start" : "items-end"}`}>
-        {!on && <Unit fact={false} className="text-[0.6875rem]" />}
-        <StatusTag p={p} className="font-display text-[0.8125rem]" />
-      </div>
+      {!on && <div className={`mt-1 flex leading-4 sm:hidden ${opp ? "justify-start" : "justify-end"}`}><Unit fact={false} className="text-[0.6875rem]" /></div>}
       <div className={`mt-0.5 flex max-sm:hidden ${opp ? "justify-start" : "justify-end"}`}><NumNote p={p} now={now} /></div>
     </div>
   );
@@ -240,7 +237,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
         <ItemTitle className={`line-clamp-none flex! max-w-full items-center gap-x-1.5 gap-y-0.5 flex-wrap font-display text-[1rem] font-semibold leading-none tracking-tight transition-colors duration-700 sm:gap-x-2 sm:text-[1.125rem] ${opp ? "flex-row-reverse" : ""} ${done ? "text-foreground/40" : ""}`}>
           {/* a name and its chip wrap rather than cut the name: `A. St. Brown BYE` is wider than a phone half */}
           <span className="min-w-0 break-words"><span className="sm:hidden">{shortName(p.name)}</span><span className="hidden sm:inline">{p.name}</span></span>
-          {/* the phone's chip stands under the number (Num) */}
+          {/* the phone's chip closes the game line, under the number */}
           <StatusTag p={p} className="max-sm:hidden" />
           <Presence show={p.bye}><Badge variant="muted" shape="chip">bye</Badge></Presence>
         </ItemTitle>
@@ -265,7 +262,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
           )}
       </ItemActions>
       {/* The phone's game line spans the half; the opponent's is mirrored, his game at the outer
-          edge. Before kickoff the PROJ unit stands under the number instead. Once his game is on the score line
+          edge, and the status chip at its inner end, under the number. Once his game is on the score line
           needs the width, so the note (`proj 17.8`) closes the stat line beneath instead. The game
           chip overhangs its line by 4px (GameLink's -mx-1), so the gap is 10px to leave 6 showing. */}
       <ItemFooter className={`mt-1 gap-x-2.5 text-[0.6875rem] leading-4 text-muted-foreground sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
@@ -273,6 +270,7 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
           {!p.bye && <GameLink href={gameLinkFor(p, week)} className="-my-1 py-1"><GameLine p={p} size={13} className={opp ? "justify-end" : ""} /></GameLink>}
           {hurt && back != null && <span className="whitespace-nowrap">back wk {back}</span>}
         </span>
+        <StatusTag p={p} className="font-display text-[0.8125rem]" />
       </ItemFooter>
       {on && (
         <ItemFooter className={`items-start gap-x-2 sm:hidden ${opp ? "flex-row-reverse" : ""}`}>
