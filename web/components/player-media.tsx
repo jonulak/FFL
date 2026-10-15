@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { headshotSrcSet, headshotUrl, logoSrcSet, logoUrl, team } from "@/lib/teams";
+import { headshotArt, logoArt, team } from "@/lib/teams";
 
 // Plain <img> on purpose: the files come straight from ESPN's CDN and the launchd box has no
 // business proxying them through the Next image optimizer. Every image degrades to the team
@@ -10,28 +10,31 @@ import { headshotSrcSet, headshotUrl, logoSrcSet, logoUrl, team } from "@/lib/te
 /* eslint-disable @next/next/no-img-element */
 
 // A club mark that picks ESPN's dark-ground cut under a dark system theme. The page follows
-// prefers-color-scheme (no toggle), so <picture> can choose without JS.
+// prefers-color-scheme (no toggle), so CSS shows one of the two cuts; the hidden one is lazy and
+// has no box, so it never loads. Not a <picture>: its <source media> leaks in Chromium (lib/teams.ts).
 // `fallback`: when the mark stands in for the club's name (the Matchup game line), a failed
 // load leaves the abbreviation rather than nothing.
 export function TeamLogo({ abbr, className, size = 20, fallback = false }: { abbr: string; className?: string; size?: number; fallback?: boolean }) {
   const [gone, setGone] = useState(false);
   if (gone) return fallback ? <span className={className}>{abbr}</span> : null;
+  const cut = (variant: "light" | "dark", show: string) => (
+    <img
+      src={logoArt(abbr, variant, size)}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      className={`${show} object-contain`}
+      style={{ width: size, height: size }}
+      onError={() => setGone(true)}
+    />
+  );
   return (
-    <picture className={className}>
-      <source srcSet={logoSrcSet(abbr, "dark", size)} media="(prefers-color-scheme: dark)" />
-      <img
-        src={logoUrl(abbr, "light", size)}
-        srcSet={logoSrcSet(abbr, "light", size)}
-        alt=""
-        width={size}
-        height={size}
-        loading="lazy"
-        decoding="async"
-        className="block object-contain"
-        style={{ width: size, height: size }}
-        onError={() => setGone(true)}
-      />
-    </picture>
+    <span className={`inline-block ${className ?? ""}`}>
+      {cut("light", "block dark:hidden")}
+      {cut("dark", "hidden dark:block")}
+    </span>
   );
 }
 
@@ -43,7 +46,7 @@ export function TeamPanel({ abbr, playerId, name, muted, tile = false }: { abbr:
   const t = team(abbr);
   // the CSS width the portrait and the watermark are drawn at: a tile is about 60 px, the art overhangs it
   const art = tile ? 80 : 200;
-  const src = headshotUrl(playerId, art);
+  const src = headshotArt(playerId, art);
   const [portrait, setPortrait] = useState(src !== null);
   return (
     <div
@@ -56,8 +59,7 @@ export function TeamPanel({ abbr, playerId, name, muted, tile = false }: { abbr:
     >
       {/* watermark: the mark oversized and trailing off the panel's left edge */}
       <img
-        src={logoUrl(abbr, "light", art)}
-        srcSet={logoSrcSet(abbr, "light", art)}
+        src={logoArt(abbr, "light", art)}
         alt=""
         loading="lazy"
         decoding="async"
@@ -68,7 +70,6 @@ export function TeamPanel({ abbr, playerId, name, muted, tile = false }: { abbr:
       {portrait && src && (
         <img
           src={src}
-          srcSet={headshotSrcSet(playerId, art)}
           alt={name}
           loading="lazy"
           decoding="async"

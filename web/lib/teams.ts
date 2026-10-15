@@ -59,10 +59,11 @@ function sized(path: string, w?: number): string {
   return b === undefined ? `${CDN}/${path}` : `${HOST}/combiner/i?img=/i/${path}&w=${b}`;
 }
 
-// One candidate per pixel density for an image drawn `css` px wide: a 3x phone gets three times the pixels.
-function densities(path: string, css: number): string {
-  return [1, 2, 3].map((x) => `${sized(path, css * x)} ${x}x`).join(", ");
-}
+// Art drawn `css` px wide comes as one URL at a 3x phone's pixels, never a srcset: Chromium never
+// frees an <img> given a srcset (or a <picture> <source media>) that is built and never inserted,
+// and React builds the next page's DOM before it commits, so every fast page change it dropped
+// leaked the whole page (ffl-fpj). The phone gets the file it chose before; a 2x laptop a larger one.
+const DENSITY = 3;
 
 const logoPath = (abbr: string, variant: "light" | "dark") =>
   `teamlogos/nfl/${variant === "dark" ? "500-dark" : "500"}/${abbr.toLowerCase()}.png`;
@@ -72,8 +73,8 @@ export function logoUrl(abbr: string, variant: "light" | "dark" = "light", w?: n
   return sized(logoPath(abbr, variant), w);
 }
 
-export function logoSrcSet(abbr: string, variant: "light" | "dark", css: number): string {
-  return densities(logoPath(abbr, variant), css);
+export function logoArt(abbr: string, variant: "light" | "dark", css: number): string {
+  return sized(logoPath(abbr, variant), css * DENSITY);
 }
 
 // Transparent-background portrait, 600x436, cut at the chest. D/ST entries have negative ids and
@@ -82,8 +83,8 @@ export function headshotUrl(playerId: number, w?: number): string | null {
   return playerId > 0 ? sized(headshotPath(playerId), w) : null;
 }
 
-export function headshotSrcSet(playerId: number, css: number): string | undefined {
-  return playerId > 0 ? densities(headshotPath(playerId), css) : undefined;
+export function headshotArt(playerId: number, css: number): string | null {
+  return headshotUrl(playerId, css * DENSITY);
 }
 
 // A fantasy club's mark. ESPN serves an owner's own upload only with the league cookies, so those

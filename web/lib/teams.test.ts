@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headshotSrcSet, headshotUrl, logoSrcSet, logoUrl } from "./teams";
+import { headshotArt, headshotUrl, logoArt, logoUrl } from "./teams";
 
 describe("ESPN image URLs", () => {
   it("serves the original file when no width is asked", () => {
@@ -19,16 +19,12 @@ describe("ESPN image URLs", () => {
 
   it("has no portrait for a defence", () => {
     expect(headshotUrl(-16001, 40)).toBeNull();
-    expect(headshotSrcSet(-16001, 40)).toBeUndefined();
+    expect(headshotArt(-16001, 40)).toBeNull();
   });
 
-  it("lists one candidate per pixel density", () => {
-    const set = logoSrcSet("KC", "dark", 36);
-    expect(set.split(", ")).toEqual([
-      "https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500-dark/kc.png&w=48 1x",
-      "https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500-dark/kc.png&w=96 2x",
-      "https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500-dark/kc.png&w=160 3x",
-    ]);
-    expect(headshotSrcSet(1, 200)?.split(", ").at(-1)).toBe("https://a.espncdn.com/i/headshots/nfl/players/full/1.png 3x");
+  it("draws art at a 3x phone's pixels, one URL and no srcset", () => {
+    expect(logoArt("KC", "dark", 36)).toBe("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500-dark/kc.png&w=160");
+    expect(headshotArt(1, 80)).toBe("https://a.espncdn.com/combiner/i?img=/i/headshots/nfl/players/full/1.png&w=240");
+    expect(headshotArt(1, 200)).toBe("https://a.espncdn.com/i/headshots/nfl/players/full/1.png");
   });
 });

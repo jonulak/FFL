@@ -15,7 +15,7 @@ import { injuryLabel, injuryTone, pts, shortName } from "@/lib/format";
 import { irIllegal, isLocked, isMismatch, SLOT_ORDER, slotLabel, type LineupFailure } from "@/lib/lineup";
 import { gameLinkFor } from "@/lib/nfl";
 import { NAME_LINK } from "@/lib/player-log";
-import { headshotSrcSet, headshotUrl, team } from "@/lib/teams";
+import { headshotArt, team } from "@/lib/teams";
 import { Kickoff, useNow } from "./local-time";
 import { Outlook, OutlookAge, outlookAgeLabel } from "./outlook";
 import { PlayerTrigger } from "./player-dialog";
@@ -190,13 +190,13 @@ function Sources({ c, live }: { c: Card; live: boolean }) {
 
 // His portrait on a quiet tile, the club's colour as its left edge; a defence or a missing portrait shows the mark.
 export function Headshot({ c, idle }: { c: Card; idle: boolean }) {
-  const src = headshotUrl(c.player_id, 40);
+  const src = headshotArt(c.player_id, 40);
   return (
     <Avatar
       className={`size-10 overflow-hidden rounded-md border-l-[3px] bg-foreground/[0.07] transition-[opacity,filter] duration-500 after:rounded-md ${idle ? "opacity-70 saturate-[.35]" : ""}`}
       style={{ borderLeftColor: team(c.team).primary }}
     >
-      {src && <AvatarImage src={src} srcSet={headshotSrcSet(c.player_id, 40)} alt="" className="rounded-none object-cover object-top" />}
+      {src && <AvatarImage src={src} alt="" className="rounded-none object-cover object-top" />}
       <AvatarFallback className="rounded-none bg-transparent"><TeamLogo abbr={c.team} size={26} /></AvatarFallback>
     </Avatar>
   );

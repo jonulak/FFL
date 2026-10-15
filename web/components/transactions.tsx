@@ -10,7 +10,7 @@ import { Toggle } from "@/components/ui/toggle";
 import type { Transactions, TxMove, TxPlayer, TxSide } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
 import { NAME_LINK } from "@/lib/player-log";
-import { clubLogoSrc, headshotSrcSet, headshotUrl } from "@/lib/teams";
+import { clubLogoSrc, headshotArt } from "@/lib/teams";
 import { byWeek, filterMoves, KIND_LABEL, pairs, stamp, TX_FILTERS, weekLabel, type TxFilter } from "@/lib/transactions";
 import { ClubLogo } from "./club-logo";
 import { PlayerTrigger } from "./player-dialog";
@@ -35,11 +35,11 @@ import { Refade, Ticker, whole } from "./motion";
 function Tile({ p, out }: { p: TxPlayer; out: boolean }) {
   const [gone, setGone] = useState(false);
   if (p.team) return <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={out} tile />;
-  const src = headshotUrl(p.player_id, 80);
+  const src = headshotArt(p.player_id, 80);
   return (
     <div aria-hidden className={`relative flex h-full items-end justify-center overflow-hidden bg-foreground/10 ${out ? "opacity-80" : ""}`}>
       {src && !gone ? (
-        <img src={src} srcSet={headshotSrcSet(p.player_id, 80)} alt="" loading="lazy" decoding="async" className="w-[128%] max-w-none grayscale-[.4]" onError={() => setGone(true)} />
+        <img src={src} alt="" loading="lazy" decoding="async" className="w-[128%] max-w-none grayscale-[.4]" onError={() => setGone(true)} />
       ) : (
         <UserRound className="mb-1.5 size-6 text-foreground/40" />
       )}
