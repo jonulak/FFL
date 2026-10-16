@@ -6,7 +6,7 @@ import { ChevronLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { NflGame, NflGamePage, NflPlay, NflStarter } from "@/lib/api";
+import type { NflGame, NflGamePage, NflPlay, NflStarter, NflTeam } from "@/lib/api";
 import { BOARD_CARD, LABEL, SLOT_LABEL } from "@/lib/board";
 import { pts, shortName } from "@/lib/format";
 import { NAME_LINK } from "@/lib/player-log";
@@ -20,6 +20,7 @@ import { TeamLogo } from "./player-media";
 import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
+import { TeamLink } from "./team-link";
 import { useLive } from "./use-live";
 import { Presence, Swap, Ticker, whole } from "./motion";
 
@@ -112,6 +113,17 @@ function StarterHalf({ s, end, onPick }: { s?: NflStarter; end: "me" | "opp"; on
   );
 }
 
+// A side's fantasy team over its column: the name opens its roster, the owner beneath it.
+function TeamHead({ t, end }: { t?: NflTeam | null; end: "me" | "opp" }) {
+  if (!t) return <span />;
+  return (
+    <div className={`min-w-0 py-2 ${end === "opp" ? "text-right" : ""}`}>
+      <p className="truncate font-display text-[0.9375rem] font-semibold leading-tight tracking-tight"><TeamLink id={t.team_id}>{t.team}</TeamLink></p>
+      {t.owner && <p className="mt-0.5 truncate text-xs text-muted-foreground">{t.owner}</p>}
+    </div>
+  );
+}
+
 export function NflGameLive({ initial, path, filter, club }: { initial: NflGamePage; path: string; filter: FeedFilter; club: string }) {
   const { data } = useLive(initial, path, { pollMs: GAME_POLL_MS });
   const { game: g, week } = data;
@@ -147,6 +159,7 @@ export function NflGameLive({ initial, path, filter, club }: { initial: NflGameP
           <SectionHeading title="In this game" />
           <Card className={BOARD_CARD}>
             <CardContent className="divide-y divide-foreground/10 py-1">
+              {data.teams && <div className="grid grid-cols-2 gap-4"><TeamHead t={data.teams.me} end="me" /><TeamHead t={data.teams.opp} end="opp" /></div>}
               {rows.map(([a, b], i) => (
                 <div key={a?.player_id ?? b?.player_id ?? i} className="grid grid-cols-2 gap-4"><StarterHalf s={a} end="me" onPick={onPick} /><StarterHalf s={b} end="opp" onPick={onPick} /></div>
               ))}

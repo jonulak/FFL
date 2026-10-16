@@ -857,10 +857,9 @@ def team(team_id: int):
     return {**data, "side": live.overlay_side(data["side"], _live_points(wk), _live_games(wk), _live_stats(wk), _scoring())}
 
 
-def _nfl_sides(week: int) -> tuple[list[dict], list[dict]] | None:
-    """My starters and my opponent's for `week`, live points laid on (the Matchup board's), for the NFL pages'
-    marks. The board failing (ESPN fantasy down) answers None: the pages go unmarked, never unserved, and the game
-    page says so rather than reading as "none of mine played"."""
+def _nfl_board(week: int) -> dict | None:
+    """My Matchup board for `week`, live points laid on, for the NFL pages. The board failing (ESPN fantasy down)
+    answers None: the pages go unmarked, never unserved."""
     try:
         data = _week_payload(_board(None, None))
         if data["week"] != week:
@@ -871,7 +870,26 @@ def _nfl_sides(week: int) -> tuple[list[dict], list[dict]] | None:
     except SystemExit as e:  # config.league() exits when .env is missing; the NFL pages need no ESPN login
         log.warning("nfl marks off, no league config for week %s: %s", week, e)
         return None
+    return data
+
+
+def _nfl_sides(week: int) -> tuple[list[dict], list[dict]] | None:
+    """My starters and my opponent's for `week` (the Matchup board's), for the NFL pages' marks. None when the
+    board failed, and the game page says so rather than reading as "none of mine played"."""
+    data = _nfl_board(week)
+    if data is None:
+        return None
     return (data.get("me") or {}).get("lineup", []), (data.get("opp") or {}).get("lineup", [])
+
+
+def _nfl_teams(week: int) -> dict | None:
+    """The two fantasy teams of my game in `week` (id, name, owner), heading the game page's In this game table;
+    `opp` None on a bye, the whole None when the board failed."""
+    data = _nfl_board(week)
+    if data is None:
+        return None
+    club = lambda s: {k: s.get(k) for k in ("team_id", "team", "owner")} if s else None  # noqa: E731
+    return {"me": club(data.get("me")), "opp": club(data.get("opp"))}
 
 
 def _nfl_starters(week: int) -> tuple[list[dict], list[dict]]:
@@ -962,6 +980,7 @@ def nfl_game(week: int, team: str):
             "game": {**game, "mine": len(mine), "opp": len(opp)},
             "marked": sides is not None,  # False: the Matchup board failed, so no play could be marked
             "starters": {"me": mine, "opp": opp},  # whole board players: a tap opens the Matchup breakdown
+            "teams": _nfl_teams(week),
             "scoring": nfl.scoring_plays(marked), "drives": marked, "stale_since": stale or stale2}
 
 

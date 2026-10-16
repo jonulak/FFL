@@ -29,6 +29,7 @@ def c(monkeypatch):
     monkeypatch.setattr(nfl, "_get", get)
     monkeypatch.setattr(api, "_nfl_sides", lambda week: (ME, OPP))
     monkeypatch.setattr(api, "_nfl_starters", lambda week: (ME, OPP))
+    monkeypatch.setattr(api, "_nfl_board", lambda week: None)  # the team names; a test sets a board to see them
     yield TestClient(api.app)
     nfl.reset()
 
@@ -109,6 +110,18 @@ def test_sides_degrade_to_empty_when_board_fails(monkeypatch):
         raise api.HTTPException(502, {"source": "espn", "error": "down"})
     monkeypatch.setattr(api, "_board", boom)
     assert api._nfl_sides(5) is None  # unknown, not "no starters": the game page says so
+
+
+def test_game_route_names_the_two_fantasy_teams(monkeypatch, c):
+    """The In this game table heads each side with its fantasy team and owner, off the same board as the starters."""
+    board = {"week": 5, "me": {"team_id": 7, "team": "Mine", "owner": "Jon", "abbrev": "M", "lineup": ME},
+             "opp": {"team_id": 3, "team": "Theirs", "owner": "Pat", "abbrev": "T", "lineup": OPP}}
+    monkeypatch.setattr(api, "_nfl_board", lambda week: board)
+    assert api._nfl_teams(5) == {"me": {"team_id": 7, "team": "Mine", "owner": "Jon"},
+                                 "opp": {"team_id": 3, "team": "Theirs", "owner": "Pat"}}
+    assert c.get("/nfl/5/gb").json()["teams"]["opp"]["owner"] == "Pat"
+    monkeypatch.setattr(api, "_nfl_board", lambda week: None)
+    assert api._nfl_teams(5) is None and c.get("/nfl/5/gb").json()["teams"] is None
 
 
 def test_game_route_says_when_marks_are_off(monkeypatch, c):
