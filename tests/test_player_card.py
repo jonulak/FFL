@@ -69,7 +69,7 @@ def test_dst_summary_and_totals_sum():
 
 def test_summary_shapes():
     assert pc.summary("QB", {"0": 31, "1": 22, "3": 268, "4": 2}) == [["C/A", "22/31"], ["YDS", "268"], ["TD", "2"], ["INT", "0"]]
-    assert pc.summary("RB", {"23": 18, "24": 97.0, "25": 1}) == [["CAR", "18"], ["YDS", "97"], ["TD", "1"]]
+    assert pc.summary("RB", {"23": 18, "24": 97.0, "25": 1, "53": 3, "58": 4}) == [["CAR", "18"], ["YDS", "97"], ["TD", "1"], ["REC/TGT", "3/4"]]
     assert pc.summary("WR", {"53": 6, "58": 9, "42": 72.0}) == [["REC/TGT", "6/9"], ["YDS", "72"], ["TD", "0"]]
     assert pc.summary("TE", {}) == [["REC/TGT", "0/0"], ["YDS", "0"], ["TD", "0"]]
     assert pc.summary("K", {"83": 2, "84": 3, "86": 4, "87": 4}) == [["FG", "2/3"], ["XP", "4/4"]]

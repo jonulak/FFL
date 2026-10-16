@@ -22,7 +22,7 @@ POS = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
 # (label, made id, attempts id) for a made/attempted pair, (label, id) for a count.
 SUMMARY = {
     "QB": [("C/A", "1", "0"), ("YDS", "3"), ("TD", "4"), ("INT", "20")],
-    "RB": [("CAR", "23"), ("YDS", "24"), ("TD", "25")],
+    "RB": [("CAR", "23"), ("YDS", "24"), ("TD", "25"), ("REC/TGT", "53", "58")],
     "WR": [("REC/TGT", "53", "58"), ("YDS", "42"), ("TD", "43")],
     "TE": [("REC/TGT", "53", "58"), ("YDS", "42"), ("TD", "43")],
     "K": [("FG", "83", "84"), ("XP", "86", "87")],
