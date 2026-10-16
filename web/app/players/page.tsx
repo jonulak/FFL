@@ -5,6 +5,7 @@ import { StaleBadge } from "@/components/stale-badge";
 import { WaiverSearch } from "@/components/waiver-search";
 import { WaiverTable } from "@/components/waiver-table";
 import { PlayerPosTabs, PlayerViewProvider } from "@/components/player-view-context";
+import { PlayerViewBar } from "@/components/player-view-bar";
 import { ClaimsProvider, type TabPlayer } from "@/components/claims-context";
 import { ClaimsPanel } from "@/components/claims-panel";
 import { apiGet, type Claims, type Players } from "@/lib/api";
@@ -55,6 +56,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
           <div className="min-w-0 flex-1 sm:order-first"><PlayerPosTabs active={q ? null : data.view.pos} /></div>
           <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} /></div>
         </div>
+        <PlayerViewBar />
         <Presence show={!!q && data.rows.length > 0} fold>
           <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" aria-live="polite">
             {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every player

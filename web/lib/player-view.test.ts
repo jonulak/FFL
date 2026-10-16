@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlayerView } from "./api";
-import { encodeFilter, isModified, playersHref } from "./player-view";
+import { encodeFilter, filterLabel, isModified, playersHref } from "./player-view";
 
 const P: PlayerView = { pos: "RB", fa: true, cols: ["add", "wk"], filters: [{ field: "snap_pct", op: "ge", value: 50 }], sort: { id: "add", desc: true } };
 
@@ -28,6 +28,17 @@ describe("isModified", () => {
     expect(isModified(structuredClone(P), P)).toBe(false);
     expect(isModified({ ...P, cols: ["wk", "add"] }, P)).toBe(true);
     expect(isModified({ ...P, sort: { id: "add", desc: false } }, P)).toBe(true);
+  });
+});
+
+describe("filterLabel", () => {
+  it("names a numeric filter by the column's heading, not its id", () => {
+    expect(filterLabel({ field: "snap_pct", op: "ge", value: 50 })).toBe("snap ≥ 50");
+    expect(filterLabel({ field: "rz_att", op: "le", value: 1.5 })).toBe("rz car ≤ 1.5");
+  });
+  it("set filters read their buckets", () => {
+    expect(filterLabel({ field: "injury", op: "in", value: ["healthy", "qd"] })).toBe("injury: healthy, Q / D");
+    expect(filterLabel({ field: "team", op: "in", value: ["DET", "GB"] })).toBe("team: DET, GB");
   });
 });
 

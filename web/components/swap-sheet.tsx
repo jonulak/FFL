@@ -16,7 +16,7 @@ import { Spinner, Swap } from "./motion";
 // md and up gets the centred dialog; the phone and tablet get the bottom sheet. Closed on the server, so the
 // first render never needs to know.
 const DESK = "(min-width: 48rem)";
-function useDesk() {
+export function useDesk() {
   return useSyncExternalStore(
     (on) => { const m = matchMedia(DESK); m.addEventListener("change", on); return () => m.removeEventListener("change", on); },
     () => matchMedia(DESK).matches,

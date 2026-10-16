@@ -1,4 +1,5 @@
 import type { PlayerView, ViewFilter, ViewSort } from "./api";
+import { columnSpec } from "./player-columns";
 
 // The Players view in the URL (ffl-8iz; ffl/player_views.py parses the same params): the preset always,
 // then only the fields the view has changed from it, so `?preset=x` alone is the saved view and anything
@@ -44,5 +45,5 @@ export function filterLabel(f: ViewFilter): string {
     const names = f.field === "team" ? null : new Map<string, string>(FILTER_SETS[f.field]);
     return `${f.field}: ${f.value.map((v) => names?.get(v) ?? v).join(", ")}`;
   }
-  return `${f.field} ${f.op === "ge" ? "≥" : "≤"} ${f.value}`;
+  return `${columnSpec(f.field)?.label ?? f.field} ${f.op === "ge" ? "≥" : "≤"} ${f.value}`;
 }
