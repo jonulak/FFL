@@ -106,6 +106,11 @@ function useDragSensors() {
   );
 }
 
+// A drag near the sheet's top or bottom scrolls it. dnd-kit's default starts a fifth of the box from
+// the edge at 10x speed, which on the phone's short sheet ran the list away under the finger: start
+// in the last tenth only, at a third of the speed.
+const AUTO_SCROLL = { threshold: { x: 0, y: 0.1 }, acceleration: 3 };
+
 function ColumnsSection({ list, setList }: { list: ColumnItem[]; setList: (l: ColumnItem[]) => void }) {
   const sensors = useDragSensors();
   const dndId = useId();
@@ -120,7 +125,7 @@ function ColumnsSection({ list, setList }: { list: ColumnItem[]; setList: (l: Co
         <h3 id="view-columns" className={LABEL}>Columns</h3>
         <span className="text-xs text-muted-foreground tabular-nums">{shown} shown</span>
       </div>
-      <DndContext id={dndId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <DndContext id={dndId} sensors={sensors} collisionDetection={closestCenter} autoScroll={AUTO_SCROLL} onDragEnd={onDragEnd}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ul className="border-b border-foreground/8">
             {list.map((c) => <ColumnRow key={c.id} id={c.id} on={c.on} onToggle={() => setList(toggleColumn(list, c.id))} />)}
