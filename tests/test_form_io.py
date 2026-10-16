@@ -64,6 +64,23 @@ def test_parse_sleeper_snaps_keys_like_the_projections_and_skips_rows_without_sn
     assert out == {("kenny gainwell", "RB"): (15.0, 60.0), ("bryce young", "QB"): (62.0, 62.0)}
 
 
+def test_parse_sleeper_usage_reads_air_yards_and_red_zone_against_the_clubs_passing():
+    rows = [{"team": "GB", "player": {"first_name": "Christian", "last_name": "Watson", "position": "WR"},
+             "stats": {"off_snp": 50.0, "tm_off_snp": 60.0, "rec_air_yd": 131.0, "rec": 6.0, "rec_tgt": 8.0}},
+            {"team": "GB", "player": {"first_name": "Jordan", "last_name": "Love", "position": "QB"},
+             "stats": {"off_snp": 60.0, "tm_off_snp": 60.0, "pass_air_yd": 252.0, "pass_cmp": 21.0, "pass_rz_att": 5.0}},
+            {"team": "GB", "player": {"first_name": "Josh", "last_name": "Jacobs", "position": "RB"},
+             "stats": {"off_snp": 40.0, "tm_off_snp": 60.0, "rush_rz_att": 3.0}},
+            {"team": "CAR", "player": {"first_name": "Tetairoa", "last_name": "McMillan", "position": "WR"},
+             "stats": {"rec_air_yd": 90.0}}]  # snaps not in yet: the game has not landed
+    out = espn_season.parse_sleeper_usage(rows)
+    assert out[("christian watson", "WR")] == {"air_yd": 131.0, "catches": 6.0, "team_air": 252.0, "rz_tgt": 0.0,
+                                               "rz_att": 0.0, "rz_pass": 0.0, "pass_air": 0.0, "cmp": 0.0}
+    assert out[("jordan love", "QB")]["pass_air"] == 252.0 and out[("jordan love", "QB")]["rz_pass"] == 5.0 and out[("jordan love", "QB")]["cmp"] == 21.0
+    assert out[("josh jacobs", "RB")]["rz_att"] == 3.0
+    assert ("tetairoa mcmillan", "WR") not in out
+
+
 def test_parse_bye_by_team():
     data = {"settings": {"proTeams": [{"id": 0, "abbrev": "FA", "byeWeek": 0},
                                       {"id": 11, "abbrev": "IND", "byeWeek": 13},
@@ -91,6 +108,15 @@ def test_apply_form_joins_games_and_snaps_and_prices_pace_against_ros():
     assert f["pace_gap"] == round(3.65 * season.games_left(3, 9) - 132.4, 1)
     assert out[1]["form"] is None, "no games: nothing, not zeros"
     assert "form" not in players[0], "pure: the input dicts are untouched"
+
+
+def test_apply_form_joins_air_yards_and_red_zone_by_name_and_position():
+    games = {1: [espn_season.game_from_stats(1, week_stats(9.0, 8.0, rushingAttempts=10, receivingTargets=4), "RB", True)]}
+    usage = {1: {("kenny gainwell", "RB"): {"air_yd": 12.0, "catches": 3.0, "team_air": 240.0, "rz_tgt": 1.0, "rz_att": 2.0,
+                                            "rz_pass": 0.0, "pass_air": 0.0}}}
+    f = espn_season.apply_form(_players(), games, {}, week=2, byes={}, usage_by_week=usage)[0]["form"]
+    assert f["air_games"] == 1 and f["air_share"] == 5 and f["air_catch"] == 4.0 and f["rz_att"] == 2.0
+    assert espn_season.apply_form(_players(), games, {}, week=2, byes={})[0]["form"]["air_games"] == 0
 
 
 def test_apply_form_uses_the_season_formula_ros_when_no_source_has_him():

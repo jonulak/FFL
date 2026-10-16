@@ -50,6 +50,11 @@ export type Form = {
   // what the window is worth to the usage-adjusted ROS (snap share against the position's lead
   // players, a game at most), and the games it is paced over
   weight: number; games_left: number;
+  // completed air yards (Sleeper has no intended ones) and red-zone looks over the `air_games` its
+  // rows have landed for: a receiver's share of his club's (%), air yards per catch (per completion
+  // for a QB), red-zone targets / rushes / pass attempts per game; null where the position has none
+  air_share: number | null; air_catch: number | null; rz_tgt: number | null; rz_att: number | null;
+  rz_pass: number | null; air_games: number;
 };
 // One scoring stat of his game: the count, the league's rate and the points it earned. A band
 // row (points or yards allowed) is a flat award; its count is the total it was read off.

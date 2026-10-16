@@ -17,6 +17,11 @@ export function ordinal(n: number): string {
 }
 
 // A signed number, to the hundredth for points as ESPN scores them; `digits` for a count.
+// A number that can go below zero but carries no sign when it is above: a true minus, as signed gives.
+export function minus(n: number, digits: number): string {
+  return n < 0 ? `−${Math.abs(n).toFixed(digits)}` : n.toFixed(digits);
+}
+
 export function signed(n: number, digits = 2): string {
   return n >= 0 ? `+${n.toFixed(digits)}` : `−${Math.abs(n).toFixed(digits)}`;
 }
@@ -55,6 +60,11 @@ export const FORM_COLUMNS: { key: keyof Form; label: string; title: string }[] =
   { key: "snap_pct", label: "snap", title: "share of the team's offensive snaps (Sleeper; snaps land a day after the game)" },
   { key: "tgt_snap", label: "tgt/snap", title: "targets per offensive snap over the games with snaps: the free stand-in for a route rate" },
   { key: "ypt", label: "ypt", title: "receiving yards per target over the window" },
+  { key: "air_share", label: "air%", title: "share of his club's completed air yards over the games Sleeper has them for (they land with the snaps): where he was caught, not where he was thrown to; a catch behind the line counts negative" },
+  { key: "air_catch", label: "air/c", title: "completed air yards per catch (per completion for a QB): how far past the line the ball was when caught" },
+  { key: "rz_tgt", label: "rz tgt", title: "red-zone targets per game" },
+  { key: "rz_pass", label: "rz att", title: "red-zone pass attempts per game" },
+  { key: "rz_att", label: "rz car", title: "red-zone rushes per game" },
   { key: "pace_gap", label: "pace", title: "L3 pace × games left (his bye out) minus the models' rest-of-season projection: if the last three held" },
   { key: "weight", label: "wt", title: "what the window is worth to the adjusted ROS: each game's snap share against the position's lead players, a game at most (the prior is worth 4)" },
 ];
@@ -62,6 +72,11 @@ export const FORM_COLUMNS: { key: keyof Form; label: string; title: string }[] =
 // One form column's cell for a player: the number as the column shows it, and a note beneath
 // when the number needs one (a short window's game count; how many games carry snaps). Null
 // when his position has no such number or no game in the window has it yet.
+function airNote(f: Form, title: string): Partial<FormItem> {
+  return { title: `${title}; over ${f.air_games} of the ${f.games} games`,
+    note: f.air_games < f.games ? `${f.air_games} of ${f.games}` : undefined };
+}
+
 export function formCell(f: Form, key: keyof Form): FormItem | null {
   const col = FORM_COLUMNS.find((c) => c.key === key)!;
   const item = (value: string, extra: Partial<FormItem> = {}): FormItem => ({ ...col, value, ...extra });
@@ -77,6 +92,13 @@ export function formCell(f: Form, key: keyof Form): FormItem | null {
       note: f.snap_games < f.games ? `${f.snap_games} of ${f.games}` : undefined });
     case "tgt_snap": return f.tgt_snap == null ? null : item(f.tgt_snap.toFixed(2));
     case "ypt": return f.ypt == null ? null : item(f.ypt.toFixed(1));
+    // the air row's short-window note rides its first figure: the share for a receiver, per catch for a QB
+    case "air_share": return f.air_share == null ? null : item(`${minus(f.air_share, 0)}%`, airNote(f, col.title));
+    case "air_catch": return f.air_catch == null ? null : item(minus(f.air_catch, 1), f.air_share == null ? airNote(f, col.title) : {});
+    case "rz_tgt": case "rz_att": case "rz_pass": {
+      const v = f[key];
+      return v == null ? null : item(v.toFixed(1), { title: `${col.title}, over ${f.air_games} of the ${f.games} games` });
+    }
     case "pace_gap": return item(signed(f.pace_gap));
     case "weight": return item(f.weight.toFixed(1), { note: f.weight < f.games ? `of ${f.games}` : undefined });
     default: return null;

@@ -27,7 +27,7 @@ describe("format", () => {
 });
 
 describe("formItems", () => {
-  const base = { games: 2, weeks: [1, 2], l3: 3.7, beat: -7.2, opp: 6, opp_trend: 2, snap_pct: 25, snap_games: 1, tgt_snap: 0.07, ypt: 1.6, pace_gap: -74.0, weight: 1.4, games_left: 15 };
+  const base = { games: 2, weeks: [1, 2], l3: 3.7, beat: -7.2, opp: 6, opp_trend: 2, snap_pct: 25, snap_games: 1, tgt_snap: 0.07, ypt: 1.6, pace_gap: -74.0, weight: 1.4, games_left: 15, air_share: null, air_catch: null, rz_tgt: null, rz_att: null, rz_pass: null, air_games: 0 };
   it("lists every column a running back has, in reading order, with the game count on L", () => {
     const items = formItems(base);
     expect(items.map((i) => `${i.label} ${i.value}`)).toEqual([
@@ -50,7 +50,7 @@ describe("formItems", () => {
 });
 
 describe("formCell", () => {
-  const base = { games: 2, weeks: [1, 2], l3: 3.7, beat: -7.2, opp: 6, opp_trend: 2, snap_pct: 25, snap_games: 1, tgt_snap: 0.07, ypt: 1.6, pace_gap: -74.0, weight: 1.4, games_left: 15 };
+  const base = { games: 2, weeks: [1, 2], l3: 3.7, beat: -7.2, opp: 6, opp_trend: 2, snap_pct: 25, snap_games: 1, tgt_snap: 0.07, ypt: 1.6, pace_gap: -74.0, weight: 1.4, games_left: 15, air_share: null, air_catch: null, rz_tgt: null, rz_att: null, rz_pass: null, air_games: 0 };
   it("notes a short window and partial snaps under the number, and keeps the column label", () => {
     expect(formCell(base, "l3")).toMatchObject({ label: "L3", value: "3.70", note: "2 games" });
     expect(formCell({ ...base, games: 3, weeks: [1, 2, 3] }, "l3")?.note).toBeUndefined();
@@ -63,6 +63,19 @@ describe("formCell", () => {
     expect(formCell({ ...base, weight: 1.4 }, "weight")).toMatchObject({ label: "wt", value: "1.4", note: "of 2" });
     expect(formCell({ ...base, weight: 2 }, "weight")).toMatchObject({ value: "2.0" });
     expect(formCell({ ...base, weight: 2 }, "weight")?.note).toBeUndefined();
+  });
+  it("reads air yards and the red zone, the short-window note on the row's first figure only", () => {
+    const rb = { ...base, air_share: -6, air_catch: -1.5, rz_tgt: 0.5, rz_att: 2, air_games: 1 };
+    expect(formCell(rb, "air_share")).toMatchObject({ label: "air%", value: "−6%", note: "1 of 2" });
+    expect(formCell(rb, "air_catch")).toMatchObject({ value: "−1.5" });
+    expect(formCell(rb, "air_catch")?.note).toBeUndefined();
+    expect(formCell(rb, "rz_att")).toMatchObject({ label: "rz car", value: "2.0" });
+    expect(formCell(rb, "rz_tgt")?.title).toContain("1 of the 2 games");
+    expect(formCell(rb, "rz_pass")).toBeNull();
+    const qb = { ...base, air_catch: 7.4, rz_pass: 5, rz_att: 1, air_games: 1 };
+    expect(formCell(qb, "air_share")).toBeNull();
+    expect(formCell(qb, "air_catch")).toMatchObject({ value: "7.4", note: "1 of 2" });
+    expect(formCell({ ...qb, air_games: 2 }, "air_catch")?.note).toBeUndefined();
   });
 });
 

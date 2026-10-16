@@ -120,7 +120,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   fantasy roster, a pickup's free-agent weeks, from one `kona_player_info` call per such week by ids, `_gap_games`, kept in memory and the `gap_games` table, re-read by the
   correction pass while their week is unsettled: `free_agents` filters by today's status, so it never has him), free agents' from
   one `free_agents(week=w)` call per position and form week) with Sleeper's snaps (`SLEEPER_STATS`,
-  `off_snp`/`tm_off_snp`, a day behind the games) joined per week. Every Roster card and Waiver row carries
+  `off_snp`/`tm_off_snp`, a day behind the games) joined per week, and off the same rows completed air yards and red-zone looks (`parse_sleeper_usage`: Sleeper has no intended air yards, so `air_share`/`air_catch` say where he was caught, not thrown to). Every Roster card and Waiver row carries
   `form` (None before his first game); the columns are shown raw, and only the snap-weighted `l3` reaches `add`,
   through `ros_adj`. The same Sleeper rows give `exp` (years in the league) and the injuries feed gives `ahead`
   (hurt teammates at his position, with return week): the rookie and the fill-in are told apart by hand.

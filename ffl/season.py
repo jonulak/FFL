@@ -535,7 +535,8 @@ def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dic
     A game is in the window when it is final and he was active in it (an opportunity, or any stat
     line for a D/ST); the last FORM_GAMES of those, in week order. Fewer than that carries its
     count; none at all is None, so the page shows nothing rather than a zero. Snap columns cover
-    only the games Sleeper has snaps for (they land a day after the games) and carry that count.
+    only the games Sleeper has snaps for (they land a day after the games) and carry that count;
+    air yards and red-zone looks come off the same rows and carry theirs (`air_games`).
     """
     window = sorted((g for g in games if g["final"] and g["active"]), key=lambda g: g["week"])[-FORM_GAMES:]
     if not window:
@@ -550,11 +551,20 @@ def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dic
     tgts = sum(float(g.get("tgt") or 0) for g in window)
     yds = sum(float(g.get("rec_yd") or 0) for g in window)
     targets = pos in TARGET_POSITIONS
+    # air yards and red-zone looks, over the games Sleeper's row has landed for (with the snaps)
+    aired = [g for g in window if g.get("air_yd") is not None] if pos in SNAP_POSITIONS else []
+    tot = lambda k: sum(float(g.get(k) or 0) for g in aired)  # noqa: E731
+    per_game = lambda k: round(tot(k) / len(aired), 1) if aired else None  # noqa: E731
+    team_air = sum(float(g["team_air"]) for g in aired if g.get("team_air"))
+    catches = tot("cmp") if pos == "QB" else tot("catches")  # Sleeper's own, like the air yards
+    air = tot("pass_air") if pos == "QB" else tot("air_yd")
     # the window game by game, so the outlook can read the trend's shape and not just its mean
     rows = [{"week": g["week"], "pts": round(float(g["pts"]), 2),
              "snap_pct": round(100 * float(g["snaps"]) / float(g["team_snaps"]))
              if g.get("snaps") is not None and g.get("team_snaps") else None,
-             "tgt": g.get("tgt"), "car": g.get("car"), "rec": g.get("rec"), "pass_att": g.get("pass_att")}
+             "tgt": g.get("tgt"), "car": g.get("car"), "rec": g.get("rec"), "pass_att": g.get("pass_att"),
+             "air_yd": g.get("pass_air") if pos == "QB" else g.get("air_yd"),
+             "rz_tgt": g.get("rz_tgt"), "rz_att": g.get("rz_att"), "rz_pass": g.get("rz_pass")}
             for g in window]
     return {"games": len(window), "weeks": [g["week"] for g in window],
             "l3": round(l3, 2),
@@ -564,6 +574,15 @@ def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dic
             "snap_games": len(snapped),
             "tgt_snap": round(sum(float(g.get("tgt") or 0) for g in snapped) / snaps, 2) if targets and snapped and snaps > 0 else None,
             "ypt": round(yds / tgts, 1) if targets and tgts > 0 else None,
+            # completed air yards (Sleeper has no intended ones): a receiver's share of his club's, air
+            # yards per catch (per completion for a QB), and red-zone targets / rushes / pass attempts
+            # per game, over `air_games`
+            "air_share": round(100 * air / team_air) if targets and aired and team_air > 0 else None,
+            "air_catch": round(air / catches, 1) if aired and catches > 0 else None,
+            "rz_tgt": per_game("rz_tgt") if targets else None,
+            "rz_att": per_game("rz_att") if pos in ("QB", "RB") else None,
+            "rz_pass": per_game("rz_pass") if pos == "QB" else None,
+            "air_games": len(aired),
             "pace_gap": round(l3 * games_left - float(ros), 1),
             # what the window is worth to the usage-adjusted ROS, and the span it is paced over
             "weight": round(sum(_game_weight(g) for g in window), 2), "games_left": games_left,

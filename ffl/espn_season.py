@@ -301,6 +301,31 @@ def parse_sleeper_snaps(rows: list[dict]) -> dict[tuple[str, str], tuple[float, 
     return out
 
 
+def parse_sleeper_usage(rows: list[dict]) -> dict[tuple[str, str], dict[str, float | None]]:
+    """Air yards and red-zone looks keyed like parse_sleeper_snaps, off the same rows. Sleeper's air
+    yards are *completed* air yards (the yards a caught ball travelled past the line; never more than
+    the receiving yards, a catch behind the line negative), not intended ones: his (`air_yd`, with
+    his catches), his club's that week (`team_air`, its passers' pass_air_yd summed, which is its
+    receivers' rec_air_yd summed; None when nobody completed one), red-zone targets, rushes and pass
+    attempts, and a passer's own air yards with his completions. A stat Sleeper leaves off a row is a
+    zero; a row without snaps is left out, as there (the game has not landed)."""
+    team_air: dict[str, float] = {}
+    for p in rows:
+        team_air[p.get("team")] = team_air.get(p.get("team"), 0.0) + float((p.get("stats") or {}).get("pass_air_yd") or 0)
+    out: dict[tuple[str, str], dict[str, float | None]] = {}
+    for p in rows:
+        pl, st = p.get("player", {}), p.get("stats", {})
+        pos = pl.get("position")
+        if pos not in S.SNAP_POSITIONS or not st.get("off_snp"):
+            continue
+        g = lambda k: float(st.get(k) or 0)  # noqa: E731
+        out[(norm_name(f"{pl.get('first_name','')} {pl.get('last_name','')}"), pos)] = {
+            "air_yd": g("rec_air_yd"), "catches": g("rec"), "team_air": team_air.get(p.get("team")) or None,
+            "rz_tgt": g("rec_rz_tgt"), "rz_att": g("rush_rz_att"), "rz_pass": g("pass_rz_att"),
+            "pass_air": g("pass_air_yd"), "cmp": g("pass_cmp")}
+    return out
+
+
 def parse_sleeper_exp(rows: list[dict]) -> dict[tuple[str, str], int]:
     """Years in the league (0 for a rookie) off the same rows, keyed like parse_sleeper_snaps;
     a row without the field is left out."""
@@ -361,6 +386,14 @@ def _exp_for(weeks: list[int], snaps: dict | None) -> dict[tuple[str, str], int]
     return out
 
 
+def _usage_for(weeks: list[int], snaps: dict | None) -> dict[int, dict]:
+    """parse_sleeper_usage for each week off the same cached rows; {} when the snaps were
+    injected, since then nothing was fetched."""
+    if snaps is not None:
+        return {}
+    return {w: parse_sleeper_usage(_stats_rows(w)) for w in weeks}
+
+
 def apply_exp(players: list[dict], exp: dict[tuple[str, str], int]) -> list[dict]:
     """`exp` on every player Sleeper has a record for; None otherwise."""
     return [{**p, "exp": exp.get(_form_key(p))} for p in players]
@@ -371,11 +404,13 @@ def _form_key(p: dict) -> tuple[str, str]:
 
 
 def apply_form(players: list[dict], games_by_id: dict[int, list[dict]], snaps_by_week: dict[int, dict],
-               week: int, byes: dict[str, int], refs: dict[int, dict[str, float]] | None = None) -> list[dict]:
-    """`form` on every player: season.recent_form over his game rows with Sleeper's snaps joined
-    on (name, position) per week and that week's position reference (`refs`, season.snap_reference;
-    without one every game weighs one), paced against his ROS (season.ros_proj) over the games he
-    has left from `week` (the ROS week). None when he has no game in the window."""
+               week: int, byes: dict[str, int], refs: dict[int, dict[str, float]] | None = None,
+               usage_by_week: dict[int, dict] | None = None) -> list[dict]:
+    """`form` on every player: season.recent_form over his game rows with Sleeper's snaps and air
+    yards / red-zone looks (`usage_by_week`, parse_sleeper_usage) joined on (name, position) per
+    week and that week's position reference (`refs`, season.snap_reference; without one every game
+    weighs one), paced against his ROS (season.ros_proj) over the games he has left from `week`
+    (the ROS week). None when he has no game in the window."""
     out = []
     for p in players:
         q = dict(p)
@@ -383,7 +418,8 @@ def apply_form(players: list[dict], games_by_id: dict[int, list[dict]], snaps_by
         for g in games_by_id.get(p["player_id"], []):
             snap = snaps_by_week.get(g["week"], {}).get(_form_key(p)) if p["pos"] in S.SNAP_POSITIONS else None
             ref = (refs or {}).get(g["week"], {}).get(p["pos"])
-            games.append({**g, "snaps": snap[0], "team_snaps": snap[1], "ref": ref} if snap else {**g, "ref": ref})
+            use = (usage_by_week or {}).get(g["week"], {}).get(_form_key(p)) if p["pos"] in S.SNAP_POSITIONS else None
+            games.append({**g, **(use or {}), "snaps": snap[0], "team_snaps": snap[1], "ref": ref} if snap else {**g, **(use or {}), "ref": ref})
         q["form"] = S.recent_form(games, p["pos"], S.ros_proj(p, week), S.games_left(week, byes.get(p["team"])))
         out.append(q)
     return out
@@ -1453,12 +1489,12 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
     home = home_by_team(lg, week)  # so the Waivers page can say "at" when a free agent travels
     byes, weeks = bye_by_team(lg), form_weeks(week)
     snap_weeks = _snaps_for(weeks, snaps)
-    refs, exp = snap_refs(snap_weeks), _exp_for(weeks, snaps)
+    refs, exp, usage = snap_refs(snap_weeks), _exp_for(weeks, snaps), _usage_for(weeks, snaps)
     roster_games = _roster_games(lg, boxes, week)
 
     def enrich(players: list[dict], games: dict[int, list[dict]]) -> list[dict]:
         return apply_form(apply_exp(apply_home(apply_injuries(apply_season(merge_weekly(players, src), seas), inj, w1), home), exp),
-                          games, snap_weeks, rw, byes, refs)
+                          games, snap_weeks, rw, byes, refs, usage)
     # my players carry the same enrichment as a free agent: the page compares him against them
     my_players = enrich([flatten_box_player(bp) for bp in boxes[me]], roster_games)
     # every rostered player carries his form too: the replacement line runs on the adjusted ROS
@@ -1676,7 +1712,8 @@ def roster_state(week: int | None = None, sources: dict | None = None, season: d
     players = apply_form(apply_exp(apply_home(apply_injuries(
         apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], src), seas), inj, w1),
         home_by_team(lg, week)), _exp_for(weeks, snaps)),
-        _roster_games(lg, {me: boxes[me]}, week), snap_weeks, rw, bye_by_team(lg), snap_refs(snap_weeks))
+        _roster_games(lg, {me: boxes[me]}, week), snap_weeks, rw, bye_by_team(lg), snap_refs(snap_weeks),
+        _usage_for(weeks, snaps))
     fake = espn_write.fake_slots()
     if flags is None:
         try:

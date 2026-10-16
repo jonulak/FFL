@@ -85,7 +85,7 @@ def build(top: int = 14, min_games: int = 2, min_adj: float = 60.0) -> dict:
     home = E.home_by_team(lg, week)
     byes, weeks = E.bye_by_team(lg), E.form_weeks(week)
     snap_weeks = E._snaps_for(weeks, None)
-    refs, exp = E.snap_refs(snap_weeks), E._exp_for(weeks, None)
+    refs, exp, usage = E.snap_refs(snap_weeks), E._exp_for(weeks, None), E._usage_for(weeks, None)
     names = {t.team_id: t.team_name for t in lg.teams}
 
     boxes = {w: E._boxes_by_team(lg, w) for w in weeks}
@@ -98,7 +98,7 @@ def build(top: int = 14, min_games: int = 2, min_adj: float = 60.0) -> dict:
 
     def enrich(players: list[dict], g: dict[int, list]) -> list[dict]:
         return E.apply_form(E.apply_exp(E.apply_home(E.apply_injuries(
-            E.apply_season(E.merge_weekly(players, src), seas), inj, w1), home), exp), g, snap_weeks, rw, byes, refs)
+            E.apply_season(E.merge_weekly(players, src), seas), inj, w1), home), exp), g, snap_weeks, rw, byes, refs, usage)
 
     rostered = enrich([E.flatten_box_player(bp) for lineup in boxes[week].values() for bp in lineup], games)
     asks = [(pos, w) for pos in POSITIONS for w in weeks]
@@ -128,20 +128,26 @@ def _f(x, n=1) -> str:
     return "-" if x is None else (f"{x:.{n}f}" if isinstance(x, (int, float)) else str(x))
 
 
+def _rz(fm: dict) -> float | None:
+    """Red-zone looks per game: targets, rushes and (a QB's) pass attempts together."""
+    looks = [fm.get(k) for k in ("rz_tgt", "rz_att", "rz_pass") if fm.get(k) is not None]
+    return round(sum(looks), 1) if looks else None
+
+
 def render(report: dict) -> str:
     lines = [f"ROS week {report['ros_week']} (scoring period {report['week']}); windows of {report['min_games']}+ games; "
-             "pace = l3 x games left - model ROS; opp = his team's opponents, defensive rank 1 = stingiest"]
+             "pace = l3 x games left - model ROS; air% / a/c = share of the club's completed air yards / per catch; rz = red-zone looks/g; opp = his team's opponents, defensive rank 1 = stingiest"]
     for pos, rows in report["positions"].items():
         lines += ["", f"== {pos} ==",
                   f"{'player':22}{'tm':4}{'where':38}{'inj':5}{'exp':>4}{'g':>2}{'ppg':>6}{'beat':>6}{'pace':>6}"
-                  f"{'ros':>6}{'adj':>6}{'snap':>5}{'opp':>5}{'tr':>5}{'tsn':>5}{'ypt':>5}  opponents"]
+                  f"{'ros':>6}{'adj':>6}{'snap':>5}{'opp':>5}{'tr':>5}{'tsn':>5}{'ypt':>5}{'air%':>5}{'a/c':>5}{'rz':>5}  opponents"]
         for r in rows:
             fm = r["form"]
             where = ("ME " if r["mine"] else "") + (f"{r['owner'][:26]} {S.slot_label(r['slot'])}" if r["owner"] != "FA" else "FA")
             lines.append(f"{r['name'][:21]:22}{r['team']:4}{where[:37]:38}{r['injury'][:4]:5}{_f(r['exp'], 0):>4}"
                          f"{fm['games']:>2}{_f(fm['l3']):>6}{_f(fm['beat']):>6}{_f(fm['pace_gap'], 0):>6}{_f(r['ros'], 0):>6}"
                          f"{_f(r['adj'], 0):>6}{_f(fm['snap_pct'], 0):>5}{_f(fm['opp']):>5}{_f(fm['opp_trend']):>5}"
-                         f"{_f(fm['tgt_snap'], 2):>5}{_f(fm['ypt']):>5}  " + " ".join(f"{o}#{k}" for _, o, k in r["opps"]))
+                         f"{_f(fm['tgt_snap'], 2):>5}{_f(fm['ypt']):>5}{_f(fm.get('air_share'), 0):>5}{_f(fm.get('air_catch')):>5}{_f(_rz(fm)):>5}  " + " ".join(f"{o}#{k}" for _, o, k in r["opps"]))
             if r["ahead"]:
                 lines.append(" " * 22 + "ahead: " + "; ".join(f"{a['name']} {a['status']} wk{a['return_week']}" for a in r["ahead"]))
             if r["note"]:

@@ -108,7 +108,9 @@ def _exp_text(card: dict) -> str:
 
 def _row_text(r: dict) -> str:
     parts = [f"{r['snap_pct']}% snaps" if r.get("snap_pct") is not None else "snaps not in yet"]
-    for key, label in (("tgt", "targets"), ("rec", "receptions"), ("car", "carries"), ("pass_att", "pass attempts")):
+    for key, label in (("tgt", "targets"), ("rec", "receptions"), ("car", "carries"), ("pass_att", "pass attempts"),
+                       ("air_yd", "completed air yards"), ("rz_tgt", "red-zone targets"), ("rz_att", "red-zone carries"),
+                       ("rz_pass", "red-zone pass attempts")):
         if r.get(key):
             parts.append(f"{r[key]:g} {label}")
     return f"  Week {r['week']}: " + ", ".join(parts + [f"{r['pts']:g} pts"])

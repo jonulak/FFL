@@ -42,9 +42,9 @@ function fromForm(f: Form, key: keyof Form, label: string): Stat | null {
 }
 
 // The figures the Players table leaves to the dialog (its Form section), when the row that
-// opened it carried them, in three rows: the rest of season (the adjusted ROS add runs on, with the window's weight in it;
+// opened it carried them, in four rows: the rest of season (the adjusted ROS add runs on, with the window's weight in it;
 // the models' own number with their spread; the two deltas on a free agent), his last three games
-// against the projection, and his usage over them.
+// against the projection, his usage over them, and where he is thrown to (air yards, red zone).
 export function SeasonFacts({ p }: { p: PlayerSeed & { ros_adj: number } }) {
   const f = p.form;
   const ros: Stat[] = [{
@@ -64,11 +64,15 @@ export function SeasonFacts({ p }: { p: PlayerSeed & { ros_adj: number } }) {
   const pick = (pairs: [keyof Form, string][]) => f ? pairs.flatMap(([k, l]) => fromForm(f, k, l) ?? []) : [];
   const last = pick([["l3", "pts/g"], ["beat", "beat"], ["pace_gap", "pace"]]);
   const usage = pick([["opp", "opp"], ["snap_pct", "snap"], ["tgt_snap", "tgt/snap"], ["ypt", "ypt"]]);
+  // completed air yards: his share of the club's, and per catch (per completion for a QB)
+  const air = pick([["air_share", "share"], ["air_catch", p.pos === "QB" ? "per cmp" : "per catch"],
+    ["rz_tgt", "rz tgt"], ["rz_pass", "rz att"], ["rz_att", "rz car"]]);
   return (
     <div className="divide-y divide-foreground/10">
       <Row name="ROS" stats={ros} />
       <Row name="Last 3" stats={last} />
       <Row name="Usage" stats={usage} />
+      <Row name="Air · RZ" stats={air} />
     </div>
   );
 }

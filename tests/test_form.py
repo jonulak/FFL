@@ -129,3 +129,29 @@ def test_rows_carry_each_game_in_week_order_for_the_trend():
     assert [r["snap_pct"] for r in f["rows"]] == [50, 75, None]
     assert f["rows"][1]["car"] == 3 and f["rows"][1]["rec"] == 5 and f["rows"][2]["tgt"] == 9
     assert f["rows"][0]["car"] is None, "an old row without the key reads as unknown, not zero"
+
+
+def test_air_yards_and_red_zone_over_the_games_sleeper_has_landed():
+    a = {**G(1, 9, 8, opp=7, tgt=6), "air_yd": 80.0, "catches": 4.0, "team_air": 200.0, "rz_tgt": 2.0, "rz_att": 0.0, "rz_pass": 0.0}
+    b = {**G(2, 12, 8, opp=9, tgt=10), "air_yd": 40.0, "catches": 6.0, "team_air": 200.0, "rz_tgt": 1.0, "rz_att": 0.0, "rz_pass": 0.0}
+    late = G(3, 4, 8, opp=5, tgt=5)  # Sleeper's row not in yet
+    f = season.recent_form([a, b, late], "WR", ros=100.0, games_left=12)
+    assert f["air_games"] == 2
+    assert f["air_share"] == 30, "120 of the club's 400 air yards"
+    assert f["air_catch"] == 12.0, "completed air yards over Sleeper's catches in the same games, not the window's"
+    assert f["rz_tgt"] == 1.5 and f["rz_att"] is None and f["rz_pass"] is None
+    assert [r["air_yd"] for r in f["rows"]] == [80.0, 40.0, None] and f["rows"][0]["rz_tgt"] == 2.0
+    bare = season.recent_form([late], "WR", ros=100.0, games_left=12)
+    assert bare["air_games"] == 0 and bare["air_share"] is None and bare["air_catch"] is None and bare["rz_tgt"] is None
+
+
+def test_qb_air_is_his_passing_and_his_red_zone_is_throws_and_rushes():
+    g = {**G(1, 20, 18, opp=35, pass_att=34), "air_yd": 0.0, "team_air": 252.0, "pass_air": 252.0, "cmp": 21.0,
+         "rz_tgt": 0.0, "rz_att": 1.0, "rz_pass": 5.0}
+    f = season.recent_form([g], "QB", ros=300.0, games_left=12)
+    assert f["air_catch"] == 12.0 and f["air_share"] is None and f["rz_tgt"] is None
+    assert f["rz_pass"] == 5.0 and f["rz_att"] == 1.0
+    assert f["rows"][0]["air_yd"] == 252.0
+    rb = season.recent_form([{**G(1, 9, 8, opp=12, tgt=2), "air_yd": -6.0, "catches": 2.0, "team_air": 180.0, "rz_tgt": 0.0, "rz_att": 3.0, "rz_pass": 0.0}],
+                            "RB", ros=100.0, games_left=12)
+    assert rb["air_share"] == -3 and rb["air_catch"] == -3.0 and rb["rz_att"] == 3.0, "a catch behind the line is negative air"
