@@ -23,6 +23,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -34,7 +35,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from . import calibrate, config, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, season, sources
+from . import calibrate, config, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, player_views, season, sources
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -1030,30 +1031,88 @@ def sources_status():
     return {**(db.get_state("source_status", {}) or {}), **sources.status_snapshot()}
 
 
+_PRESETS = threading.Lock()  # one preset write at a time: each reads the store, changes it, writes it back
+
+
+def _player_presets() -> dict:
+    return player_views.load(db.get_state("player_presets"))
+
+
 @app.get("/players")
-def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K"] | None = None, q: str | None = None, fa: bool = True):
-    # free agents at a position by default; fa=0 adds every rostered player there. A search spans
-    # every position and both halves whatever `fa` says: a lookup must not miss a rostered man.
+def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "ALL"] | None = None, q: str | None = None,
+            fa: bool | None = None, preset: str | None = None, cols: str | None = None, sort: str | None = None,
+            f: list[str] | None = Query(None)):
+    # The view (ffl-8iz): a saved preset (the default when none is named, or one since deleted) with
+    # the URL's overrides laid over. Free agents by default; fa=0 adds every rostered player. A search
+    # spans every position and both halves and ignores the filters: a lookup must not miss a man.
     q = (q or "").strip() or None
-    if q is None and pos is None:
-        raise HTTPException(422, "pos or q is required")
+    store = _player_presets()
+    try:
+        view = player_views.resolve(store, preset, player_views.parse_params(pos=pos, fa=fa, cols=cols, f=f, sort=sort))
+    except ValueError as e:
+        raise HTTPException(422, {"error": str(e)}) from e
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
     rostered = data.get("rostered", {})  # absent from a pool cached before it existed
     # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
     written = outlook.written(data["week"])
+    capped = False
     if q:
-        pos = None
         found = [r for half in (data["positions"], rostered) for rows in half.values() for r in rows
                  if season.name_matches(r, q)]
     else:
-        found = data["positions"].get(pos, []) + ([] if fa else rostered.get(pos, []))
+        halves = (data["positions"],) if view["fa"] else (data["positions"], rostered)
+        found = [r for half in halves for p, rows in half.items() if view["pos"] in (player_views.ALL, p) for r in rows]
     rows = [{"owner": None, "mine": False, **r, "has_outlook": not r.get("owner") and r["player_id"] in written}
             for r in season.rank_players(found)]
-    return {"week": data["week"], "pos": pos, "q": q, "fa": fa, "rows": rows,
+    if not q:
+        rows = player_views.filter_players(rows, view["filters"])
+        if view["pos"] == player_views.ALL and not view["filters"]:
+            rows, capped = player_views.cap(rows, view["sort"])
+    return {"week": data["week"], "pos": None if q else view["pos"], "q": q, "fa": view["fa"], "rows": rows,
+            "view": view, "capped": capped, "presets": store["presets"], "default": store["default"],
             "roster": data.get("roster", []),  # my players, for the row's comparison dropdown
             # the week ROS starts from, and whether this week's games are all played (no week term)
             "ros_week": data.get("ros_week", data["week"]), "week_over": data.get("week_over", False),
             "ros_source": data.get("ros_source", "season"), "stale_since": data["stale_since"]}
+
+
+def _preset_write(change: Callable[[dict], dict]) -> dict:
+    """Read the presets, change them, write them back, under the lock. ValueError → 422, KeyError → 404."""
+    with _PRESETS:
+        try:
+            store = change(_player_presets())
+        except ValueError as e:
+            raise HTTPException(422, {"error": str(e)}) from e
+        except KeyError as e:
+            raise HTTPException(404, {"error": f"no preset {e.args[0]!r}"}) from e
+        db.put_state("player_presets", store)
+        return store
+
+
+@app.get("/players/presets")
+def player_presets():
+    return _player_presets()
+
+
+@app.post("/players/presets")
+def player_preset_create(body: dict):
+    pid = uuid.uuid4().hex[:8]
+    return {**_preset_write(lambda s: player_views.create(s, body, pid)), "id": pid}
+
+
+@app.post("/players/presets/default")
+def player_preset_default(body: dict):
+    return _preset_write(lambda s: player_views.set_default(s, body.get("id")))
+
+
+@app.post("/players/presets/{pid}")
+def player_preset_update(pid: str, body: dict):
+    return _preset_write(lambda s: player_views.update(s, pid, body))
+
+
+@app.post("/players/presets/{pid}/delete")
+def player_preset_delete(pid: str):
+    return _preset_write(lambda s: player_views.delete(s, pid))
 
 
 @app.get("/league")

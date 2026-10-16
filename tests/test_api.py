@@ -477,7 +477,7 @@ def test_players_search_spans_every_position(client, monkeypatch):
     assert [r["player_id"] for r in body["rows"]] == [8, 7], "every pool, by add, best first"
     assert body["pos"] is None and body["q"] == "b" and all("has_outlook" in r for r in body["rows"])
     assert [r["player_id"] for r in client.get("/players?q=ten&pos=RB").json()["rows"]] == [9], "q ignores pos"
-    assert client.get("/players").status_code == 422, "no pos and no query is still an error"
+    assert client.get("/players").json()["view"]["preset"] == "waivers", "no pos and no query: the default preset"
     assert client.get("/players?q=%20&pos=RB").json()["pos"] == "RB", "a blank query is no query"
 
 
@@ -1723,3 +1723,78 @@ def test_a_settled_week_is_not_read_again_after_expire_everything(client, monkey
     api.expire_everything()
     lg = SimpleNamespace(espn_request=None, current_week=6)
     assert espn_season.box_scores(lg, 4) == ["BOX"]
+
+
+def _views_pool(monkeypatch):
+    base = {"bye": False, "injury": "ACTIVE", "opponent": "BUF", "kickoff": None, "return_week": None,
+            "injury_note": None, "team": "MIA", "status": "FREEAGENT"}
+    rb = [{**base, "player_id": 100 + i, "name": f"R{i}", "pos": "RB", "add": float(i),
+           "form": {"snap_pct": 30 + i}} for i in range(100)]
+    wr = [{**base, "player_id": 300 + i, "name": f"W{i}", "pos": "WR", "add": float(i) + 0.5, "form": None} for i in range(100)]
+    mine = {**base, "player_id": 9, "name": "Mine", "pos": "RB", "add": None, "owner": {"team_id": 7}, "mine": True}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool",
+                        lambda week=None: {"week": 3, "positions": {"RB": rb, "WR": wr}, "rostered": {"RB": [mine]}})
+    api.cache.clear()
+
+
+def test_players_applies_the_default_preset_and_url_overrides(client, monkeypatch):
+    _views_pool(monkeypatch)
+    body = client.get("/players").json()
+    assert body["view"] == {"preset": "waivers", "name": "Waivers", "pos": "RB", "fa": True,
+                            "cols": ["add", "wk", "ros", "beat", "pace_gap", "opp", "snap_pct"], "filters": [],
+                            "sort": {"id": "add", "desc": True}}
+    assert body["pos"] == "RB" and len(body["rows"]) == 100 and body["capped"] is False
+    assert body["default"] == "waivers" and [p["id"] for p in body["presets"]] == ["waivers"]
+    body = client.get("/players?pos=RB&f=snap_pct:ge:120").json()
+    assert [r["player_id"] for r in body["rows"]] == [199, 198, 197, 196, 195, 194, 193, 192, 191, 190]
+    assert body["view"]["filters"] == [{"field": "snap_pct", "op": "ge", "value": 120.0}]
+    assert client.get("/players?pos=RB&fa=0").json()["rows"][-1]["player_id"] == 9, "fa=0 adds the rostered half"
+
+
+def test_players_all_is_capped_unfiltered_and_whole_when_filtered(client, monkeypatch):
+    _views_pool(monkeypatch)
+    body = client.get("/players?pos=ALL").json()
+    assert body["capped"] is True and len(body["rows"]) == 150 and body["pos"] == "ALL"
+    body = client.get("/players?pos=ALL&f=snap_pct:le:30").json()
+    assert body["capped"] is False and [r["player_id"] for r in body["rows"]] == [100], "a filter reaches the deepest man"
+    body = client.get("/players?pos=ALL&q=R1&f=snap_pct:ge:1000").json()
+    assert body["rows"], "a search ignores the filters"
+
+
+@pytest.mark.parametrize("qs", ["f=snap_pct:gt:5", "f=snap_pct:ge:x", "cols=add,nope", "sort=foo:desc", "pos=XX", "f=bogus"])
+def test_players_refuses_a_malformed_view(client, monkeypatch, qs):
+    _views_pool(monkeypatch)
+    assert client.get(f"/players?{qs}").status_code == 422
+
+
+def test_player_presets_round_trip(client, monkeypatch):
+    _views_pool(monkeypatch)
+    new = {"name": "Breakouts", "pos": "ALL", "fa": True, "cols": ["snap_pct", "pace_gap"],
+           "filters": [{"field": "snap_pct", "op": "ge", "value": 50}], "sort": {"id": "pace_gap", "desc": True}}
+    r = client.post("/players/presets", json=new)
+    assert r.status_code == 200
+    pid = r.json()["id"]
+    assert client.get("/players/presets").json()["presets"][-1]["name"] == "Breakouts"
+    body = client.get(f"/players?preset={pid}").json()
+    assert body["view"]["preset"] == pid and body["view"]["pos"] == "ALL" and body["capped"] is False
+    assert all((row.get("form") or {}).get("snap_pct", 0) >= 50 for row in body["rows"])
+    assert client.post(f"/players/presets/{pid}", json={"name": "Usage"}).json()["presets"][-1]["name"] == "Usage"
+    assert client.post("/players/presets/default", json={"id": pid}).json()["default"] == pid
+    assert client.get("/players").json()["view"]["preset"] == pid, "the default applies on a bare load"
+    assert client.post(f"/players/presets/{pid}/delete").json()["default"] == "waivers"
+    assert client.get(f"/players?preset={pid}").json()["view"]["preset"] == "waivers", "a deleted preset's link opens the default"
+
+
+@pytest.mark.parametrize("body", [{"name": ""}, {"name": "x", "pos": "RB", "fa": True, "cols": ["add", "add"], "filters": [], "sort": {"id": "add", "desc": True}},
+                                  {"name": "x", "pos": "RB", "fa": True, "cols": [], "filters": [{"field": "nope", "op": "ge", "value": 1}], "sort": {"id": "add", "desc": True}}])
+def test_player_presets_refuse_a_bad_preset_and_keep_the_store(client, body):
+    before = client.get("/players/presets").json()
+    r = client.post("/players/presets", json=body)
+    assert r.status_code == 422 and "error" in r.json()["detail"]
+    assert client.get("/players/presets").json() == before
+
+
+def test_player_presets_unknown_id_is_404(client):
+    assert client.post("/players/presets/nope", json={"name": "x"}).status_code == 404
+    assert client.post("/players/presets/nope/delete").status_code == 404
+    assert client.post("/players/presets/default", json={"id": "nope"}).status_code == 404

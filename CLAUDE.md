@@ -163,13 +163,13 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production
   runs from the main checkout under launchd (`launchd/`), on :3300, exposed tailnet-only via
   `tailscale serve` at https://macbook-pro.tailnet.ts.net:3300. Ports 3000/8000 are other projects'.
-- **Players page** (`/players`, was Waivers; `/waivers` redirects with its query): `GET /players?pos=&q=&fa=`.
+- **Players page** (`/players`, was Waivers; `/waivers` redirects with its query): `GET /players?preset=&pos=&fa=&cols=&f=&sort=&q=`.
   `espn_season.free_agent_pool` returns `positions` (free agents only, `POOL_SIZE` deep per position: claims,
   the waiver outlook and the calibration snapshot read it, so it must never carry a rostered player) and
   `rostered` (every rostered player through the same `waiver_deltas`, "worth to me", tagged `owner`/`mine`;
   my own rows carry no add or deltas). `fa=1` (default) serves `positions[pos]`, `fa=0` adds `rostered[pos]`,
   and `q` searches both halves at every position whatever `fa` says; `season.rank_players` keeps one row per
-  player (the rostered one wins) by add, None last. The Free agents toggle is URL state (`fa=0` only).
+  player (the rostered one wins) by add, None last. The Free agents toggle is URL state (`fa=0` only). A view (ffl-8iz, `ffl/player_views.py`, pure) is a preset (`player_presets` state key: `{presets, default}`, seeded "Waivers"; `GET/POST /players/presets`, `POST /players/presets/{id}`, `/{id}/delete`, `/default`) with the URL's overrides laid over; no params opens the default, an unknown preset id opens the default. Filters run server-side over the whole pool (a missing figure fails a numeric filter; a search ignores them); `pos=ALL` spans every position, capped to 150 by the view's sort when unfiltered (`capped`). The payload carries `view`, `presets`, `default`; COLUMNS mirrors `web/lib/player-columns.ts`.
 - A League scoreboard tile opens that game on the Matchup board at `/league/<week>/<away team id>`
   (`GET /week/{n}?team=`, `week_state(team=)`). The payload's `me`/`opp` are the board's left/right sides:
   I stand left of my own game (`mine: true`), any other game reads away then home. No play feed off my game;
