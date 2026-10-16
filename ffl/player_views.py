@@ -80,9 +80,13 @@ def _filter(f) -> dict:
     if field in COLUMNS:
         if op not in ("ge", "le") or isinstance(v, bool) or not isinstance(v, (int, float)):
             raise ValueError(f"{field} takes ge or le and a number")
-        if not math.isfinite(v):
+        try:
+            n = float(v)
+        except OverflowError:
+            raise ValueError(f"{field} takes a finite number, not {v!r}") from None
+        if not math.isfinite(n):
             raise ValueError(f"{field} takes a finite number, not {v!r}")
-        return {"field": field, "op": op, "value": float(v)}
+        return {"field": field, "op": op, "value": n}
     if field not in SETS and field != "team":
         raise ValueError(f"no filter on {field}")
     if op != "in" or not isinstance(v, list) or not v or not all(isinstance(x, str) for x in v):
