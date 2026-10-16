@@ -44,7 +44,7 @@ def test_parse_params():
 
 @pytest.mark.parametrize("kw", [dict(cols="add,nope"), dict(cols="add,add"), dict(f=["snap_pct:gt:5"]), dict(f=["snap_pct:ge:x"]),
                                 dict(f=["injury:in:hurt"]), dict(f=["team:in:detroit"]), dict(f=["bogus"]),
-                                dict(sort="foo:desc"), dict(sort="add:up")])
+                                dict(sort="foo:desc"), dict(sort="add:up"), dict(f=["add:ge:nan"]), dict(f=["add:le:inf"])])
 def test_parse_params_refuses_junk(kw):
     with pytest.raises(ValueError):
         pv.parse_params(**{"pos": None, "fa": None, "cols": None, "f": None, "sort": None, **kw})
@@ -92,7 +92,8 @@ def test_store_ops():
 
 
 @pytest.mark.parametrize("body", [{"name": ""}, {"name": "x" * 41}, {"cols": ["add", "add"]}, {"pos": "FB"}, {"fa": "yes"},
-                                  {"filters": [{"field": "nope", "op": "ge", "value": 1}]}, {"sort": {"id": "nope", "desc": True}}])
+                                  {"filters": [{"field": "nope", "op": "ge", "value": 1}]}, {"sort": {"id": "nope", "desc": True}},
+                                  {"filters": [{"field": "add", "op": "ge", "value": float("nan")}]}])
 def test_clean_refuses_a_bad_preset(body):
     with pytest.raises(ValueError):
         pv.clean(body, partial=True)

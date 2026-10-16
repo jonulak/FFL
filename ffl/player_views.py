@@ -1,6 +1,7 @@
 """The Players table's views (ffl-8iz): the columns and filters a view may name, the filters
 themselves, the ALL cap, and the presets kept under one state key (`player_presets`). Pure:
 api.py reads and writes the store. COLUMNS mirrors web/lib/player-columns.ts, id for id."""
+import math
 import re
 
 POSITIONS = ("QB", "RB", "WR", "TE", "D/ST", "K")
@@ -79,6 +80,8 @@ def _filter(f) -> dict:
     if field in COLUMNS:
         if op not in ("ge", "le") or isinstance(v, bool) or not isinstance(v, (int, float)):
             raise ValueError(f"{field} takes ge or le and a number")
+        if not math.isfinite(v):
+            raise ValueError(f"{field} takes a finite number, not {v!r}")
         return {"field": field, "op": op, "value": float(v)}
     if field not in SETS and field != "team":
         raise ValueError(f"no filter on {field}")
