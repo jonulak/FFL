@@ -1039,7 +1039,7 @@ def _player_presets() -> dict:
 
 
 @app.get("/players")
-def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "ALL"] | None = None, q: str | None = None,
+def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | None = None, q: str | None = None,
             fa: bool | None = None, preset: str | None = None, cols: str | None = None, sort: str | None = None,
             f: list[str] | None = Query(None)):
     # The view (ffl-8iz): a saved preset (the default when none is named, or one since deleted) with
@@ -1063,12 +1063,13 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "ALL"] | None = No
         # an Availability filter naming theirs or mine can only match the rostered half
         wants_rostered = any(f["field"] == "avail" and {"theirs", "mine"} & set(f["value"]) for f in view["filters"])
         halves = (data["positions"],) if view["fa"] and not wants_rostered else (data["positions"], rostered)
-        found = [r for half in halves for p, rows in half.items() if view["pos"] in (player_views.ALL, p) for r in rows]
+        spans = player_views.covers(view["pos"])
+        found = [r for half in halves for p, rows in half.items() if p in spans for r in rows]
     rows = [{"owner": None, "mine": False, **r, "has_outlook": not r.get("owner") and r["player_id"] in written}
             for r in season.rank_players(found)]
     if not q:
         rows = player_views.filter_players(rows, view["filters"])
-        if view["pos"] == player_views.ALL and not view["filters"]:
+        if view["pos"] in player_views.GROUPS and not view["filters"]:
             rows, capped = player_views.cap(rows, view["sort"])
     return {"week": data["week"], "pos": None if q else view["pos"], "q": q, "fa": view["fa"], "rows": rows,
             "view": view, "capped": capped, "presets": store["presets"], "default": store["default"],

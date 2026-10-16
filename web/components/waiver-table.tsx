@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { Form, Owner, PlayerRow, RosterRow } from "@/lib/api";
 import { aheadLabel, expLabel, formCell, injuryLabel, injuryTone, pts, signed } from "@/lib/format";
 import { SORT_COLUMNS, columnSpec, sortFor, type ColumnId } from "@/lib/player-columns";
-import { ALL } from "@/lib/player-view";
+import { ALL, FLEX as FLEX_TAB, isGroup } from "@/lib/player-view";
 import { TrendArrow } from "./form-strip";
 import { Kickoff } from "./local-time";
 import { NAME_LINK } from "@/lib/player-log";
@@ -389,8 +389,8 @@ function Sizer({ cols }: { cols: Column<PlayerRow>[] }) {
 // pinned under the nav and kept to the body's sideways scroll.
 export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: PlayerRow[]; roster: RosterRow[]; week: number; pos: string; q?: string | null; fa?: boolean }) {
   const { view, setSortLocal } = usePlayerView();
-  // a search spans every position, as does ALL, so the caption names his; a position tab already does
-  const showPos = !!q || pos === ALL;
+  // a search spans every position, and ALL and FLEX several, so the caption names his; a position tab already does
+  const showPos = !!q || isGroup(pos);
   const colKey = view.cols.join();
   // keyed on the column ids, not the array, so PoolRow's memo holds across a heading tap
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -417,7 +417,7 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
   const bodyReorder = useReorder<HTMLTableSectionElement>(order);
   const { head, body } = useSyncedHeader<HTMLDivElement, HTMLDivElement>(`${colKey}|${rows.length}|${rows[0]?.player_id}`);
   if (rows.length === 0) {
-    const where = pos === ALL ? "every position" : pos;
+    const where = pos === ALL ? "every position" : pos === FLEX_TAB ? "RB, WR or TE" : pos;
     // every rostered player is in the pool, the free agents only to ESPN's top 150 at each position (espn_season.POOL_SIZE)
     return (
       <Empty className="py-6">

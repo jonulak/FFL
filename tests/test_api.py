@@ -1768,6 +1768,21 @@ def test_players_all_is_capped_unfiltered_and_whole_when_filtered(client, monkey
     assert body["rows"], "a search ignores the filters"
 
 
+def test_players_flex_spans_rb_wr_te_and_is_capped_like_all(client, monkeypatch):
+    _views_pool(monkeypatch)
+    pool = api.espn_season.free_agent_pool()
+    qb = {**pool["positions"]["RB"][0], "player_id": 500, "name": "Q", "pos": "QB", "add": 999.0}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool",
+                        lambda week=None: {**pool, "positions": {**pool["positions"], "QB": [qb]}})
+    api.cache.clear()
+    body = client.get("/players?pos=FLEX").json()
+    assert body["pos"] == "FLEX" and body["capped"] is True and len(body["rows"]) == 150
+    assert {r["pos"] for r in body["rows"]} == {"RB", "WR"}, "no QB in FLEX"
+    body = client.get("/players?pos=FLEX&f=snap_pct:le:30").json()
+    assert body["capped"] is False and [r["player_id"] for r in body["rows"]] == [100]
+    assert 500 in {r["player_id"] for r in client.get("/players?pos=ALL").json()["rows"]}
+
+
 @pytest.mark.parametrize("qs", ["f=snap_pct:gt:5", "f=snap_pct:ge:x", "cols=add,nope", "sort=foo:desc", "pos=XX", "f=bogus"])
 def test_players_refuses_a_malformed_view(client, monkeypatch, qs):
     _views_pool(monkeypatch)

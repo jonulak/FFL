@@ -206,7 +206,7 @@ export type RosterRow = Player & { ros_proj: number; ros_adj: number; week_proj:
 // ros_source "season": no source had anyone, every ROS is a scaled draft-day season total.
 // ros_week: the week ROS starts from; week_over: this week's games are all played (no week term).
 // fa: the Free agents toggle as the API applied it (a search ignores it and spans everyone).
-// capped: ALL with no filter, cut to the first 150 by the view's sort.
+// capped: ALL or FLEX with no filter, cut to the first 150 by the view's sort.
 export type Players = {
   week: number; ros_week: number; week_over: boolean; pos: string | null; q: string | null; fa: boolean;
   rows: PlayerRow[]; roster: RosterRow[];

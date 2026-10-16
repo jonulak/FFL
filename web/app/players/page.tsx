@@ -12,6 +12,7 @@ import { apiGet, type Claims, type Players } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 import { isFreeAgent } from "@/lib/players";
 import { columnSpec, sortFor } from "@/lib/player-columns";
+import { FLEX } from "@/lib/player-view";
 import { Presence, Refade } from "@/components/motion";
 
 export const dynamic = "force-dynamic";
@@ -62,10 +63,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
             {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every player
           </p>
         </Presence>
-        {/* every position with no filter: the API cuts the pool to its first 150 by the view's sort */}
+        {/* ALL or FLEX with no filter: the API cuts the pool to its first 150 by the view's sort */}
         <Presence show={data.capped && !q} fold>
           <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Every position · the first 150 by <span className="text-foreground">{sortLabel}</span> · add a filter to reach the rest
+            {data.view.pos === FLEX ? "RB, WR and TE" : "Every position"} · the first 150 by <span className="text-foreground">{sortLabel}</span> · add a filter to reach the rest
           </p>
         </Presence>
         {/* another position, preset, filter or column set, the Free agents toggle or a search: the new pool fades in, in place */}

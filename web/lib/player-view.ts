@@ -6,7 +6,10 @@ import { columnSpec } from "./player-columns";
 // more is "modified". fa rides as 1/0; filters repeat as f=field:op:value, a bare f= clears a preset's
 // filters; cols= empty is a table with no picked columns.
 export const ALL = "ALL";
-export const POSITIONS = ["QB", "RB", "WR", "TE", "D/ST", "K", ALL];
+export const FLEX = "FLEX";
+export const POSITIONS = ["QB", "RB", "WR", "TE", FLEX, "D/ST", "K", ALL];
+// the tabs that span several positions (ffl/player_views.py GROUPS): their rows name the position
+export const isGroup = (pos: string | null) => pos === ALL || pos === FLEX;
 export const VIEW_FIELDS = ["pos", "fa", "cols", "filters", "sort"] as const;
 
 // The set filters' buckets, as the View sheet names them.

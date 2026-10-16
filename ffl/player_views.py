@@ -6,7 +6,10 @@ import re
 
 POSITIONS = ("QB", "RB", "WR", "TE", "D/ST", "K")
 ALL = "ALL"
-CAP = 150  # ALL with no filter: the first CAP by the view's sort (espn_season.POOL_SIZE's depth)
+FLEX = "FLEX"
+# the tabs that span several positions; unfiltered, each is capped like ALL
+GROUPS = {ALL: POSITIONS, FLEX: ("RB", "WR", "TE")}
+CAP = 150  # a group with no filter: the first CAP by the view's sort (espn_season.POOL_SIZE's depth)
 
 _TOP = {"add": "add", "wk": "week_proj", "ros": "ros_adj", "ros_model": "ros_proj", "ros_spread": "ros_spread",
         "d_roster": "delta_roster", "d_pool": "delta_pool"}
@@ -23,6 +26,11 @@ SEED = {"id": "waivers", "name": "Waivers", "pos": "RB", "fa": True,
         "cols": ["add", "wk", "ros", "beat", "pace_gap", "opp", "snap_pct"], "filters": [],
         "sort": {"id": "add", "desc": True}}
 _FIELDS = ("name", "pos", "fa", "cols", "filters", "sort")
+
+
+def covers(pos: str) -> tuple[str, ...]:
+    """The positions a view's tab spans: a group's, else just its own."""
+    return GROUPS.get(pos, (pos,))
 
 
 def value(row: dict, col: str):
@@ -61,7 +69,7 @@ def filter_players(rows: list[dict], filters: list[dict]) -> list[dict]:
 
 
 def cap(rows: list[dict], sort: dict) -> tuple[list[dict], bool]:
-    """ALL with no filter: the first CAP rows by the view's sort, a missing figure last either way."""
+    """A group (ALL, FLEX) with no filter: the first CAP rows by the view's sort, a missing figure last either way."""
     if len(rows) <= CAP:
         return rows, False
     if sort["id"] == "name":
@@ -126,8 +134,8 @@ def clean(body: dict, partial: bool = False) -> dict:
             raise ValueError("a name is 1 to 40 characters")
         out["name"] = name
     if "pos" in body:
-        if body["pos"] not in (*POSITIONS, ALL):
-            raise ValueError(f"pos is one of {', '.join((*POSITIONS, ALL))}")
+        if body["pos"] not in (*POSITIONS, *GROUPS):
+            raise ValueError(f"pos is one of {', '.join((*POSITIONS, *GROUPS))}")
         out["pos"] = body["pos"]
     if "fa" in body:
         if not isinstance(body["fa"], bool):

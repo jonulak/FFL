@@ -41,7 +41,7 @@ export function PlayerViewProvider({ applied, presets, defaultId, q, capped = fa
   };
   const setSortLocal = (sort: ViewSort) => {
     const next = { ...view, sort };
-    // the exception: a capped view (ALL, no filter) is the server's first 150 by its sort, so the set
+    // the exception: a capped view (ALL or FLEX, no filter) is the server's first 150 by its sort, so the set
     // shown must match the sort. A new sort there is a fetch that re-cuts the 150, not a local re-sort.
     if (capped) return go(next);
     setView(next);

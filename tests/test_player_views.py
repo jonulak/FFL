@@ -105,3 +105,10 @@ def test_clean_refuses_a_bad_preset(body):
 def test_clean_requires_every_field_on_create():
     with pytest.raises(ValueError):
         pv.clean({"name": "x"})
+
+
+def test_flex_is_a_group_of_rb_wr_te_a_preset_may_name():
+    assert pv.covers("FLEX") == ("RB", "WR", "TE") and pv.covers("QB") == ("QB",) and pv.covers("ALL") == pv.POSITIONS
+    store = pv.create(pv.load(None), {"name": "Flex", "pos": "FLEX", "fa": True, "cols": ["add"], "filters": [],
+                                      "sort": {"id": "add", "desc": True}}, "flex")
+    assert [p["pos"] for p in store["presets"]][-1] == "FLEX"
