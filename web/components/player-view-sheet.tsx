@@ -20,7 +20,7 @@ import { LABEL } from "@/lib/board";
 import { columnSpec, PLAYER_COLUMNS, sortFor } from "@/lib/player-columns";
 import { FILTER_SETS } from "@/lib/player-view";
 import { TEAMS } from "@/lib/teams";
-import { columnOrder, finishedFilters, needsRostered, moveColumn, presetView, removeFilter, setFilter, toggleColumn } from "@/lib/view-draft";
+import { columnOrder, finishedFilters, needsRostered, moveColumn, pickedColumns, presetView, removeFilter, setFilter, toggleColumn, type ColumnItem } from "@/lib/view-draft";
 import { PHONE_INSET } from "./claims-submit";
 import { usePlayerView } from "./player-view-context";
 import { useDesk } from "./swap-sheet";
@@ -59,7 +59,8 @@ function ViewEditor({ focus, bodyRef, phone, onDone }: {
   focus: SheetFocus; bodyRef: React.RefObject<HTMLDivElement | null>; phone: boolean; onDone: () => void;
 }) {
   const { view, go, pending } = usePlayerView();
-  const [cols, setCols] = useState(view.cols);
+  const [list, setList] = useState(() => columnOrder(view.cols));
+  const cols = pickedColumns(list);
   const [filters, setFilters] = useState<ViewFilter[]>(view.filters);
   const presets = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -79,7 +80,7 @@ function ViewEditor({ focus, bodyRef, phone, onDone }: {
       </div>
       <div ref={bodyRef} tabIndex={-1} className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain px-4 pt-4 pb-6 outline-none">
         <FiltersSection filters={filters} setFilters={setFilters} />
-        <ColumnsSection cols={cols} setCols={setCols} />
+        <ColumnsSection list={list} setList={setList} />
         <section ref={presets} className="scroll-mt-4">
           <PresetsSection onDone={onDone} />
         </section>
@@ -105,24 +106,24 @@ function useDragSensors() {
   );
 }
 
-function ColumnsSection({ cols, setCols }: { cols: string[]; setCols: (c: string[]) => void }) {
+function ColumnsSection({ list, setList }: { list: ColumnItem[]; setList: (l: ColumnItem[]) => void }) {
   const sensors = useDragSensors();
   const dndId = useId();
-  const list = columnOrder(cols);
   const ids = list.map((c) => c.id);
+  const shown = list.filter((c) => c.on).length;
   const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (over && active.id !== over.id) setCols(moveColumn(cols, ids, String(active.id), String(over.id)));
+    if (over && active.id !== over.id) setList(moveColumn(list, String(active.id), String(over.id)));
   };
   return (
     <section aria-labelledby="view-columns">
       <div className="mb-1.5 flex items-baseline justify-between gap-3">
         <h3 id="view-columns" className={LABEL}>Columns</h3>
-        <span className="text-xs text-muted-foreground tabular-nums">{cols.length} shown</span>
+        <span className="text-xs text-muted-foreground tabular-nums">{shown} shown</span>
       </div>
       <DndContext id={dndId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ul className="border-b border-foreground/8">
-            {list.map((c) => <ColumnRow key={c.id} id={c.id} on={c.on} onToggle={() => setCols(toggleColumn(cols, c.id))} />)}
+            {list.map((c) => <ColumnRow key={c.id} id={c.id} on={c.on} onToggle={() => setList(toggleColumn(list, c.id))} />)}
           </ul>
         </SortableContext>
       </DndContext>
