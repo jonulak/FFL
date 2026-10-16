@@ -483,7 +483,8 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
             </TableHeader>
           </Table>
         </div>
-        <div ref={body} className="overflow-x-auto overscroll-x-contain rounded-b-lg [scrollbar-width:thin]">
+        {/* no rubber-band at either end: the heading follows scrollLeft, which never goes past the edges, so a bounce slid the numbers out from under it */}
+        <div ref={body} className="overflow-x-auto overscroll-x-none rounded-b-lg [scrollbar-width:thin]">
           <Table containerClassName="overflow-visible" className="w-max min-w-full">
             <TableBody ref={bodyReorder}>
               <Sizer cols={leaf} />
