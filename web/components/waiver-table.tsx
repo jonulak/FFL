@@ -6,7 +6,7 @@ import {
   type Column, type ColumnDef, type Row as TRow, type SortingState, type Updater,
 } from "@tanstack/react-table";
 import { ArrowDown, ChevronDown } from "lucide-react";
-import { Fragment, memo, useMemo } from "react";
+import { Fragment, memo, startTransition, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -362,6 +362,12 @@ const PoolRow = memo(function PoolRow({ row, open, roster, week, showPos }: Pool
   );
 }, (a, b) => a.row.original === b.row.original && a.open === b.open && a.cols === b.cols && a.roster === b.roster && a.week === b.week && a.showPos === b.showPos);
 
+// The first rows, drawn by the server and hydrated with the page; the rest land after the first paint.
+// A filtered FLEX or ALL view can run to 400 rows (26,000 nodes), and drawing them all at once held the
+// phone for most of a second on load and on every tab tap.
+const FIRST = 40;
+const STEP = 60;
+
 // A zero-height, invisible first row carrying each heading's label (and room for the sort arrow), so
 // the body's columns are never narrower than their headings: the heading is another table, sized to
 // the body (use-synced-header), and a label wider than its numbers would otherwise be clipped.
@@ -416,6 +422,21 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
   const order = table.getRowModel().rows.map((r) => `${r.id}${r.getIsExpanded() ? "+" : ""}`).join();
   const bodyReorder = useReorder<HTMLTableSectionElement>(order);
   const { head, body } = useSyncedHeader<HTMLDivElement, HTMLDivElement>(`${colKey}|${rows.length}|${rows[0]?.player_id}`);
+  // the same FIRST on the server and in the browser, so hydration walks only those; the slice is taken
+  // at render, over the whole sorted model, so a heading tap before the rest land still shows the top
+  // ones, and `order` (every row) does not change when they land, so nothing slides in. A new set of
+  // rows (a tab, a filter) starts again from FIRST; the rest land a STEP at a time, one task each.
+  const [shown, setShown] = useState(FIRST);
+  const [seenRows, setSeenRows] = useState(rows);
+  if (seenRows !== rows) {
+    setSeenRows(rows);
+    setShown(FIRST);
+  }
+  useEffect(() => {
+    if (shown >= rows.length) return;
+    const id = setTimeout(() => startTransition(() => setShown((n) => n + STEP)), 0);
+    return () => clearTimeout(id);
+  }, [shown, rows.length]);
   if (rows.length === 0) {
     const where = pos === ALL ? "every position" : pos === FLEX_TAB ? "RB, WR or TE" : pos;
     // every rostered player is in the pool, the free agents only to ESPN's top 150 at each position (espn_season.POOL_SIZE)
@@ -466,7 +487,7 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
           <Table containerClassName="overflow-visible" className="w-max min-w-full">
             <TableBody ref={bodyReorder}>
               <Sizer cols={leaf} />
-              {table.getRowModel().rows.map((row) => (
+              {table.getRowModel().rows.slice(0, shown).map((row) => (
                 <PoolRow key={row.id} row={row} open={row.getIsExpanded()} cols={cols} roster={roster} week={week} showPos={showPos} />
               ))}
             </TableBody>
