@@ -5,7 +5,7 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { clientPost, ClientError } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,7 +20,7 @@ import { LABEL } from "@/lib/board";
 import { columnSpec, PLAYER_COLUMNS, sortFor } from "@/lib/player-columns";
 import { FILTER_SETS } from "@/lib/player-view";
 import { TEAMS } from "@/lib/teams";
-import { columnOrder, finishedFilters, needsRostered, moveColumn, pickedColumns, presetView, removeFilter, setFilter, toggleColumn, type ColumnItem } from "@/lib/view-draft";
+import { columnOrder, finishedFilters, needsRostered, moveColumn, presetView, removeFilter, setFilter, toggleColumn } from "@/lib/view-draft";
 import { PHONE_INSET } from "./claims-submit";
 import { usePlayerView } from "./player-view-context";
 import { useDesk } from "./swap-sheet";
@@ -59,8 +59,7 @@ function ViewEditor({ focus, bodyRef, phone, onDone }: {
   focus: SheetFocus; bodyRef: React.RefObject<HTMLDivElement | null>; phone: boolean; onDone: () => void;
 }) {
   const { view, go, pending } = usePlayerView();
-  const [list, setList] = useState(() => columnOrder(view.cols));
-  const cols = pickedColumns(list);
+  const [cols, setCols] = useState(view.cols);
   const [filters, setFilters] = useState<ViewFilter[]>(view.filters);
   const presets = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -78,9 +77,9 @@ function ViewEditor({ focus, bodyRef, phone, onDone }: {
         <SheetTitle className="font-display text-2xl leading-none font-bold tracking-tight">View</SheetTitle>
         <SheetDescription className="text-xs text-muted-foreground">Columns and filters apply together; presets save at once.</SheetDescription>
       </div>
-      <div ref={bodyRef} tabIndex={-1} className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain px-4 pt-4 pb-6 outline-none">
+      <div ref={bodyRef} tabIndex={-1} className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain [overflow-anchor:none] px-4 pt-4 pb-6 outline-none">
         <FiltersSection filters={filters} setFilters={setFilters} />
-        <ColumnsSection list={list} setList={setList} />
+        <ColumnsSection cols={cols} setCols={setCols} scrollRef={bodyRef} />
         <section ref={presets} className="scroll-mt-4">
           <PresetsSection onDone={onDone} />
         </section>
@@ -111,24 +110,39 @@ function useDragSensors() {
 // in the last tenth only, at a third of the speed.
 const AUTO_SCROLL = { threshold: { x: 0, y: 0.1 }, acceleration: 3 };
 
-function ColumnsSection({ list, setList }: { list: ColumnItem[]; setList: (l: ColumnItem[]) => void }) {
+function ColumnsSection({ cols, setCols, scrollRef }: {
+  cols: string[]; setCols: (c: string[]) => void; scrollRef: React.RefObject<HTMLDivElement | null>;
+}) {
   const sensors = useDragSensors();
   const dndId = useId();
+  // A tick moves the row (to the end of the shown ones, or back to its catalogue place), and the
+  // browser scrolled the sheet after the focused box. The sheet holds still: its scroll is put back
+  // as soon as the list has moved, and the sheet anchors nothing ([overflow-anchor:none]).
+  const hold = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && hold.current !== null) el.scrollTop = hold.current;
+    hold.current = null;
+  }, [cols, scrollRef]);
+  const toggle = (id: string) => {
+    hold.current = scrollRef.current?.scrollTop ?? null;
+    setCols(toggleColumn(cols, id));
+  };
+  const list = columnOrder(cols);
   const ids = list.map((c) => c.id);
-  const shown = list.filter((c) => c.on).length;
   const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (over && active.id !== over.id) setList(moveColumn(list, String(active.id), String(over.id)));
+    if (over && active.id !== over.id) setCols(moveColumn(cols, ids, String(active.id), String(over.id)));
   };
   return (
     <section aria-labelledby="view-columns">
       <div className="mb-1.5 flex items-baseline justify-between gap-3">
         <h3 id="view-columns" className={LABEL}>Columns</h3>
-        <span className="text-xs text-muted-foreground tabular-nums">{shown} shown</span>
+        <span className="text-xs text-muted-foreground tabular-nums">{cols.length} shown</span>
       </div>
       <DndContext id={dndId} sensors={sensors} collisionDetection={closestCenter} autoScroll={AUTO_SCROLL} onDragEnd={onDragEnd}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ul className="border-b border-foreground/8">
-            {list.map((c) => <ColumnRow key={c.id} id={c.id} on={c.on} onToggle={() => setList(toggleColumn(list, c.id))} />)}
+            {list.map((c) => <ColumnRow key={c.id} id={c.id} on={c.on} onToggle={() => toggle(c.id)} />)}
           </ul>
         </SortableContext>
       </DndContext>

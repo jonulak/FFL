@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { columnOrder, toggleColumn, moveColumn, pickedColumns, setFilter, removeFilter, finishedFilters, presetView, needsRostered } from "./view-draft";
+import { columnOrder, toggleColumn, moveColumn, setFilter, removeFilter, finishedFilters, presetView, needsRostered } from "./view-draft";
 
 describe("the Columns list", () => {
   it("lists the picked columns in order, then the rest in catalogue order", () => {
@@ -7,21 +7,14 @@ describe("the Columns list", () => {
     expect(order.slice(0, 3)).toEqual([{ id: "snap_pct", on: true }, { id: "add", on: true }, { id: "wk", on: false }]);
     expect(order.length).toBe(21);
   });
-  it("a tick flips the row in place; the columns are the ticked rows top to bottom", () => {
-    const list = columnOrder(["add", "wk"]);
-    const ids = list.map((c) => c.id);
-    const snap = toggleColumn(list, "snap_pct");
-    expect(snap.map((c) => c.id)).toEqual(ids);
-    expect(pickedColumns(snap)).toEqual(["add", "wk", "snap_pct"]);
-    const off = toggleColumn(snap, "add");
-    expect(off.map((c) => c.id)).toEqual(ids);
-    expect(pickedColumns(off)).toEqual(["wk", "snap_pct"]);
-    expect(pickedColumns(toggleColumn(off, "add"))).toEqual(["add", "wk", "snap_pct"]);
+  it("checking a column appends it to the picked ones; unchecking drops it", () => {
+    expect(toggleColumn(["add"], "wk")).toEqual(["add", "wk"]);
+    expect(toggleColumn(["add", "wk"], "add")).toEqual(["wk"]);
   });
-  it("a drag moves a ticked row; an unticked row stays put", () => {
-    const list = columnOrder(["add", "wk", "ros"]);
-    expect(pickedColumns(moveColumn(list, "ros", "add"))).toEqual(["ros", "add", "wk"]);
-    expect(moveColumn(list, "exp", "add")).toBe(list);
+  it("a drag reorders the picked columns by the list's ids; an unchecked row dragged among them is ignored", () => {
+    const list = columnOrder(["add", "wk", "ros"]).map((c) => c.id);
+    expect(moveColumn(["add", "wk", "ros"], list, "ros", "add")).toEqual(["ros", "add", "wk"]);
+    expect(moveColumn(["add", "wk"], columnOrder(["add", "wk"]).map((c) => c.id), "exp", "add")).toEqual(["add", "wk"]);
   });
 });
 
