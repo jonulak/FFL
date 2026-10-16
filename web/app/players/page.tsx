@@ -1,34 +1,44 @@
 import { ErrorCard } from "@/components/error-card";
 import { FaToggle } from "@/components/fa-toggle";
-import { PosTabs } from "@/components/pos-tabs";
 import { RefreshOnMoves } from "@/components/refresh-on-moves";
 import { StaleBadge } from "@/components/stale-badge";
 import { WaiverSearch } from "@/components/waiver-search";
 import { WaiverTable } from "@/components/waiver-table";
+import { PlayerPosTabs, PlayerViewProvider } from "@/components/player-view-context";
 import { ClaimsProvider, type TabPlayer } from "@/components/claims-context";
 import { ClaimsPanel } from "@/components/claims-panel";
 import { apiGet, type Claims, type Players } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 import { isFreeAgent } from "@/lib/players";
+import { columnSpec, sortFor } from "@/lib/player-columns";
 import { Presence, Refade } from "@/components/motion";
 
 export const dynamic = "force-dynamic";
 
-// Every player in the league at a position, or only the free agents (`?fa=0` turns the Free agents
-// toggle off; absent, it is on). `?q=` searches every player at every position by name or team,
-// whatever the toggle says, and outranks `?pos=`, which stays in the URL only so clearing the
-// search returns to that tab.
-export default async function Page({ searchParams }: { searchParams: Promise<{ pos?: string; q?: string; fa?: string }> }) {
-  const { pos = "RB", q: raw = "", fa: faParam } = await searchParams;
-  const q = raw.trim();
-  const fa = faParam !== "0";
+type Search = { pos?: string; q?: string; fa?: string; preset?: string; cols?: string; sort?: string; f?: string | string[] };
+const KEYS = ["q", "pos", "fa", "preset", "cols", "sort"] as const;
+
+// A saved view of every player in the league (ffl-8iz): `?preset=` names it and the rest of the URL
+// is what has changed from it (lib/player-view.ts): the position (ALL for every one), the Free agents
+// toggle (fa=0 off), the columns, the filters (f, repeated) and the sort. The API resolves them, so
+// they pass through verbatim, and a malformed one is its 422. `?q=` searches every player at every
+// position by name or team, whatever the view says, and outranks the position, which stays in the
+// URL only so clearing the search returns to that tab.
+export default async function Page({ searchParams }: { searchParams: Promise<Search> }) {
+  const sp = await searchParams;
+  const q = (sp.q ?? "").trim();
+  const qs = new URLSearchParams();
+  for (const k of KEYS) if (sp[k] !== undefined) qs.set(k, sp[k]);
+  for (const f of [sp.f ?? []].flat()) qs.append("f", f);
   // the claim plan loads beside the pool; its failure leaves the table without the panel, never the page
   const [pool, plan] = await Promise.allSettled([
-    apiGet<Players>(`/players?pos=${encodeURIComponent(pos)}&fa=${fa ? 1 : 0}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
+    apiGet<Players>(`/players?${qs}`),
     apiGet<Claims>("/claims"),
   ]);
   if (pool.status === "rejected") return <ErrorCard {...errorFields(pool.reason)} />;
   const data = pool.value;
+  const pos = data.pos ?? data.view.pos;
+  const sortLabel = columnSpec(sortFor(data.view.cols, data.view.sort).id)?.label ?? "name";
   const claims = plan.status === "fulfilled" ? plan.value : null;
   const claimsFault = plan.status === "rejected" ? errorFields(plan.reason) : null;
   // the claims panel names free agents only: a rostered player is never a claim target
@@ -36,22 +46,32 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
     player_id: r.player_id, name: r.name, pos: r.pos, team: r.team, add: r.add, ros_adj: r.ros_adj, status: r.status, waiver_date: r.waiver_date,
   }));
   const table = (
-    <div className="min-w-0 space-y-3">
-      {/* phone: the field, then the Free agents toggle, over the tabs; from `sm` the toggle and the
-          field close the tab strip's line, one hairline under all three */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 sm:border-b sm:border-foreground/12">
-        <div className="sm:py-1"><FaToggle fa={fa} pos={pos} q={q} /></div>
-        <div className="min-w-0 flex-1 sm:order-first"><PosTabs active={q ? null : pos} base="/players" extra={fa ? "" : "&fa=0"} /></div>
-        <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} pos={pos} fa={fa} /></div>
+    <PlayerViewProvider applied={data.view} presets={data.presets} defaultId={data.default} q={q}>
+      <div className="min-w-0 space-y-3">
+        {/* phone: the field, then the Free agents toggle, over the tabs; from `sm` the toggle and the
+            field close the tab strip's line, one hairline under all three */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 sm:border-b sm:border-foreground/12">
+          <div className="sm:py-1"><FaToggle /></div>
+          <div className="min-w-0 flex-1 sm:order-first"><PlayerPosTabs active={q ? null : data.view.pos} /></div>
+          <div className="order-first sm:order-none sm:py-1"><WaiverSearch q={q} /></div>
+        </div>
+        <Presence show={!!q && data.rows.length > 0} fold>
+          <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" aria-live="polite">
+            {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every player
+          </p>
+        </Presence>
+        {/* every position with no filter: the API cuts the pool to its first 150 by the view's sort */}
+        <Presence show={data.capped && !q} fold>
+          <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Every position · the first 150 by <span className="text-foreground">{sortLabel}</span> · add a filter to reach the rest
+          </p>
+        </Presence>
+        {/* another position, preset, filter or column set, the Free agents toggle or a search: the new pool fades in, in place */}
+        <Refade k={`${data.view.pos}|${data.fa}|${q}|${data.view.cols.join()}|${JSON.stringify(data.view.filters)}`}>
+          <WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} fa={data.fa} />
+        </Refade>
       </div>
-      <Presence show={!!q && data.rows.length > 0} fold>
-        <p className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground" aria-live="polite">
-          {data.rows.length} matching <span className="normal-case tracking-normal text-foreground">&ldquo;{q}&rdquo;</span> · every player, by add
-        </p>
-      </Presence>
-      {/* another position, the Free agents toggle or a search: the new pool fades in, in place */}
-      <Refade k={`${pos}|${fa}|${q}`}><WaiverTable rows={data.rows} roster={data.roster ?? []} week={data.week} pos={pos} q={q || null} fa={fa} /></Refade>
-    </div>
+    </PlayerViewProvider>
   );
   return (
     <div className={`space-y-5 ${claims ? "max-[112rem]:pb-28" : ""}`}>
@@ -71,13 +91,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
       </div>
       {/* The definition is a laptop read; on the phone the first screen belongs to the table. */}
       <p className="hidden max-w-[72ch] text-xs leading-relaxed text-muted-foreground md:block">
-        add = projected points gained this season by adding him (STRATEGY.md, Waivers; on a rostered player, what he&apos;d be worth to me, blank on my own), ranked
-        top down. ROS = the models&apos; per-game rate shrunk toward his last three games by their snap
+        add = projected points gained this season by adding him (STRATEGY.md, Waivers; on a rostered player, what he&apos;d be worth to me, blank on my own).
+        ROS = the models&apos; per-game rate shrunk toward his last three games by their snap
         share. beat and pace = his last three games against the projection, per game and over the
         rest of the season; opp and snap = his usage. START marks a player who would go straight into
         this week&apos;s lineup, with the gain; AHEAD lists the hurt teammates at his position. Tap a
-        name for the rest: the models&apos; ROS and spread, Δ roster and Δ pool, the full form line
-        and the game log.
+        name for the full form line and the game log. View picks the columns and filters; a preset saves them.
       </p>
       <Presence show={data.ros_source === "season"} fold>
         <p className="max-w-[72ch] text-xs leading-relaxed text-close-foreground dark:text-close">

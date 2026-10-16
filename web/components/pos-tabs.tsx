@@ -13,8 +13,11 @@ const POS = ["QB", "RB", "WR", "TE", "D/ST", "K"];
 // `active` is null while a search spans every position: no tab is lit. `extra` rides on every
 // tab's link (the Free agents toggle's "&fa=0"), so a tab tap keeps the view it was in.
 // The tab tapped lights at once and the bar slides to it while the page is fetched; the server's
-// answer takes over when it lands (state off a prop, set in render).
-export function PosTabs({ active, base, extra = "" }: { active: string | null; base: string; extra?: string }) {
+// answer takes over when it lands (state off a prop, set in render). `positions` and `hrefFor` let a
+// page with more to carry than `extra` (the Players view: ALL, its columns, filters and sort) build its own.
+export function PosTabs({ active, base, extra = "", positions = POS, hrefFor }: {
+  active: string | null; base: string; extra?: string; positions?: string[]; hrefFor?: (pos: string) => string;
+}) {
   const [tapped, setTapped] = useState<string | null>(null);
   const [seen, setSeen] = useState(active);
   if (seen !== active) {
@@ -24,12 +27,12 @@ export function PosTabs({ active, base, extra = "" }: { active: string | null; b
   return (
     <Tabs value={tapped ?? active} onValueChange={(v) => setTapped(v as string)} aria-label="Position">
       <TabsList variant="line" indicatorInset="0.625rem" className="h-10 w-full justify-start gap-0 overflow-x-auto overflow-y-hidden border-foreground/12 p-0 [scrollbar-width:none] max-sm:border-b">
-        {POS.map((p) => (
+        {positions.map((p) => (
           <TabsTrigger
             key={p}
             value={p}
             nativeButton={false}
-            render={<Link href={`${base}?pos=${encodeURIComponent(p)}${extra}`} />}
+            render={<Link href={hrefFor ? hrefFor(p) : `${base}?pos=${encodeURIComponent(p)}${extra}`} />}
             className="h-full flex-none rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
           >
             {p}

@@ -3,17 +3,18 @@
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
-  type Column, type ColumnDef, type Row as TRow, type SortingState,
+  type Column, type ColumnDef, type Row as TRow, type SortingState, type Updater,
 } from "@tanstack/react-table";
 import { ArrowDown, ChevronDown } from "lucide-react";
-import { Fragment, memo, useMemo, useState } from "react";
+import { Fragment, memo, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Form, Owner, PlayerRow, RosterRow } from "@/lib/api";
 import { aheadLabel, expLabel, formCell, injuryLabel, injuryTone, pts, signed } from "@/lib/format";
-import { SORT_COLUMNS } from "@/lib/waiver-sort";
+import { SORT_COLUMNS, columnSpec, sortFor, type ColumnId } from "@/lib/player-columns";
+import { ALL } from "@/lib/player-view";
 import { TrendArrow } from "./form-strip";
 import { Kickoff } from "./local-time";
 import { NAME_LINK } from "@/lib/player-log";
@@ -27,6 +28,8 @@ import { isFreeAgent, ownerLabel, rowKind } from "@/lib/players";
 import { TeamLink } from "./team-link";
 import { useReorder } from "./motion";
 import { Hint } from "./hint";
+import { usePlayerView } from "./player-view-context";
+import { useSyncedHeader } from "./use-synced-header";
 
 // A worth-to-me number, or a dash where there is none (my own player).
 const dash = (v: number | null) => (v == null ? "—" : signed(v));
@@ -40,19 +43,28 @@ const LABEL = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0
 const SIDE = "text-right font-display text-[0.9375rem] font-medium tabular-nums tracking-tight text-foreground/70 sm:text-lg";
 // Cell padding: 6px gutters on a phone, 8px from `sm`.
 const PAD = "px-1.5 sm:px-2";
-// The table never scrolls inside itself: it lays out to its column (the page scrolls it), so its
-// one header row pins to the page under the 48px nav. A narrow column drops the three columns the
-// quick read can spare (wk, ROS, beat: all in his dialog) rather than scroll sideways; the claim
-// control moves onto the caption line where the claim column would not fit.
-const NARROW = "@max-[32rem]/table:hidden";
+// The view picks the columns, so the numbers scroll sideways under a pinned name column when they
+// outgrow the card; the claim control moves onto the caption line where the claim column would not fit.
 const CLAIM_COL = "@max-[40rem]/table:hidden";
 const CLAIM_INLINE = "@min-[40rem]/table:hidden";
 // The name line's chips (would start, injury, bye) may break inside themselves in the phone's narrow
 // name column: a chip is one 20px line by default, so it would otherwise run over the numbers beside it.
 const WRAP_CHIPS = "[&_[data-slot=badge]]:h-auto [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:max-w-full [&_[data-slot=badge]]:whitespace-normal [&_[data-slot=badge]]:text-left [&_[data-slot=badge]]:leading-4";
-// The header's hairline is a shadow, not a border: a sticky cell in a collapsed table leaves its
-// border behind, and the rows would show through the gap as they scroll under it.
+// The heading box pins under the 48px nav. Its hairline is an inset shadow, not a border, so it pins
+// with the box; the pinned chevron and name headings lay their own ground over it and redraw it.
 const PIN = "sticky top-12 z-[2] bg-card shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--foreground)_10%,transparent)]";
+// The chevron and the name stay put while the numbers scroll: each pinned to the left on an opaque
+// ground, the name offset by the chevron's exact width. Once the body has scrolled (use-synced-header
+// marks both boxes), the name's edge casts a thin shadow over the numbers passing under it.
+const EXPAND_PIN = "sticky left-0 z-[1] w-7 min-w-7 max-w-7 p-0 sm:w-8 sm:min-w-8 sm:max-w-8";
+const NAME_PIN = "sticky left-7 z-[1] w-[10.5rem] min-w-[10.5rem] max-w-[10.5rem] sm:left-8 sm:w-[14rem] sm:min-w-[14rem] sm:max-w-[14rem]";
+const EDGE = "[[data-scrolled]_&]:shadow-[6px_0_6px_-6px_rgb(0_0_0_/_0.35)]";
+const HEAD_EXPAND = "shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--foreground)_10%,transparent)]";
+const HEAD_EDGE = `${HEAD_EXPAND} [[data-scrolled]_&]:shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--foreground)_10%,transparent),6px_0_6px_-6px_rgb(0_0_0_/_0.35)]`;
+// The pinned cells' ground: the card (or, on a row whose comparison is open, the row's muted wash laid
+// over it, as TableRow draws it), or the comparison rows' 3% tint laid over it.
+const GROUND = "bg-card in-[tr:has([aria-expanded=true])]:bg-[color-mix(in_oklab,var(--muted)_50%,var(--card))]";
+const TINT = "bg-[color-mix(in_oklab,var(--foreground)_3%,var(--card))]";
 
 // "at LAR" when he travels, "vs SF" at home; a free agent ESPN has no venue for shows the
 // opponent bare. `contents` lets the pieces wrap as items of the caption's own flex line.
@@ -131,18 +143,19 @@ export function comparePositions(pos: string): Set<string> {
 }
 
 // The name cell every row shares: name and chips, then the caption (POS when the rows mix
-// positions · TEAM · years · matchup), then the hurt teammates ahead of him. It takes the
-// width the numbers leave, which on the phone is about 105px: the name, the chips and the caption all wrap,
-// and a chip too wide for the column breaks inside itself (`would start` / `+14.0`). `tail` closes the
-// caption line (the outlook button, on a wide table); `actions` is a line of its own under it all
-// (the outlook and the claim, on a narrow one, where the caption has no room for them).
+// positions · TEAM · years · matchup), then the hurt teammates ahead of him. It is pinned at a
+// fixed width (168px on the phone, room for the outlook and the claim side by side; 224px from `sm`):
+// the name, the chips and the caption all wrap, and a chip too wide for the column breaks inside
+// itself (`would start` / `+14.0`). `tail` closes the caption line (the outlook button, on a wide
+// table); `actions` is a line of its own under it all (the outlook and the claim, on a narrow one,
+// where the caption has no room for them).
 function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
   r: PlayerRow | RosterRow; week: number; showPos: boolean; mine?: boolean; chip?: React.ReactNode; tail?: React.ReactNode; actions?: React.ReactNode;
 }) {
   const hurt = !HEALTHY.has(r.injury);
   const idle = r.bye || injuryTone(r.injury) === "bad";
   return (
-    <TableCell className={`w-full max-w-0 py-2 whitespace-normal ${PAD} ${mine ? "pl-4 sm:pl-5" : ""}`}>
+    <TableCell className={`${NAME_PIN} ${EDGE} ${mine ? TINT : GROUND} py-2 whitespace-normal ${PAD} ${mine ? "pl-4 sm:pl-5" : ""}`}>
       <p className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-display text-base font-semibold leading-tight tracking-tight transition-colors duration-500 sm:text-[1.1875rem] ${idle ? "text-foreground/70" : ""} ${WRAP_CHIPS}`}>
         <PlayerTrigger p={r} className={`max-w-full break-words rounded-sm ${NAME_LINK}`}>{r.name}</PlayerTrigger>
         {chip}
@@ -174,7 +187,7 @@ function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
           {aheadLabel(r.ahead, week)}
         </p>
       )}
-      {actions && <div className={`mt-1 flex items-center gap-3 ${CLAIM_INLINE}`}>{actions}</div>}
+      {actions && <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 ${CLAIM_INLINE}`}>{actions}</div>}
     </TableCell>
   );
 }
@@ -214,81 +227,80 @@ type Meta = {
   compare?: (fa: PlayerRow, mine: RosterRow) => React.ReactNode;
 };
 type Col = ColumnDef<PlayerRow> & { meta: Meta };
+type Cells = { cell: (r: PlayerRow) => React.ReactNode; compare?: (fa: PlayerRow, mine: RosterRow) => React.ReactNode };
 
-const FORM_COLS: { key: keyof Form & keyof typeof SORT_COLUMNS; label: string; title: string; phone: boolean }[] = [
-  { key: "beat", label: "beat", phone: false, title: "points per game over his last three games minus ESPN's projection for them" },
-  { key: "pace_gap", label: "pace", phone: true, title: "his last three games' pace × games left (his bye out) minus the models' rest-of-season projection: if the last three held" },
-  { key: "opp", label: "opp", phone: true, title: "touches + targets per game over his last three (pass attempts for a QB; kicks for a K); the arrow is the latest game against the earlier ones" },
-  { key: "snap_pct", label: "snap", phone: true, title: "share of the team's offensive snaps over his last three games (Sleeper; snaps land a day after the game)" },
-];
+const form = (k: keyof Form): Cells => ({ cell: (r) => <FormNumeral r={r} k={k} />, compare: (_, m) => <FormNumeral r={m} k={k} /> });
+const spread = (r: PlayerRow | RosterRow) => (r.ros_spread == null ? "" : `±${pts(r.ros_spread)}`);
 
-function columns(week: number, showPos: boolean): Col[] {
-  return [
-    { id: "expand", enableSorting: false, meta: { label: "" } },
-    {
-      ...SORT_COLUMNS.name, meta: { label: "Player" },
-      cell: ({ row: { original: r } }) => {
-        const kind = rowKind(r);
-        const free = isFreeAgent(r);
-        return (
-          <NameCell r={r} week={week} showPos={showPos} chip={<>
-            {kind === "mine" && <Badge variant="muted" shape="chip">mine</Badge>}
-            {r.would_start && <Badge variant="start" shape="chip">{free ? "start" : "would start"} {signed(r.week_delta ?? 0)}</Badge>}
-            {free && <PoolTag r={r} />}
-          </>} tail={free && <span className={`contents ${CLAIM_COL}`}><span aria-hidden>·</span><WaiverOutlookButton r={r} /></span>}
-          actions={free
-            ? <><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} /></>
-            : kind === "theirs" && r.owner && <OwnerChip owner={r.owner} />} />
-        );
-      },
+// How each column a view can pick draws its cells (its heading and its sort are lib/player-columns').
+const CELLS: Record<ColumnId, Cells> = {
+  // `add` is the decision column and the only bold numeral; a non-positive add, or a rostered
+  // player's (what he'd be worth to me, never a claim), steps back to 70% ink
+  add: {
+    cell: (r) => <span className={`font-display text-lg font-bold tabular-nums tracking-tight sm:text-[1.5rem] ${isFreeAgent(r) && (r.add ?? 0) > 0 ? "" : "text-foreground/70"}`}>{dash(r.add)}</span>,
+    compare: (fa, mine) => {
+      const gap = fa.ros_adj - mine.ros_adj;
+      return <span title={`${fa.name}'s adjusted rest-of-season projection minus ${mine.name}'s`} className={`font-display text-base font-semibold tabular-nums tracking-tight sm:text-lg ${gap > 0 ? "" : "text-foreground/70"}`}>{signed(gap)}</span>;
     },
-    {
-      ...SORT_COLUMNS.add,
-      meta: {
-        label: "add", title: "projected points gained this season by adding him",
-        compare: (fa, mine) => {
-          const gap = fa.ros_adj - mine.ros_adj;
-          return <span title={`${fa.name}'s adjusted rest-of-season projection minus ${mine.name}'s`} className={`font-display text-base font-semibold tabular-nums tracking-tight sm:text-lg ${gap > 0 ? "" : "text-foreground/70"}`}>{signed(gap)}</span>;
-        },
-      },
-      // `add` is the decision column and the only bold numeral; a non-positive add, or a rostered
-      // player's (what he'd be worth to me, never a claim), steps back to 70% ink
-      cell: ({ row: { original: r } }) => (
-        <span className={`font-display text-lg font-bold tabular-nums tracking-tight sm:text-[1.5rem] ${isFreeAgent(r) && (r.add ?? 0) > 0 ? "" : "text-foreground/70"}`}>{dash(r.add)}</span>
-      ),
+  },
+  wk: { cell: (r) => <Week r={r} />, compare: (_, m) => <Week r={m} /> },
+  ros: { cell: (r) => pts(r.ros_adj), compare: (_, m) => pts(m.ros_adj) },
+  ros_model: { cell: (r) => pts(r.ros_proj), compare: (_, m) => pts(m.ros_proj) },
+  ros_spread: { cell: spread, compare: (_, m) => spread(m) },
+  // against my roster and the league's replacement: one of my own players has neither
+  d_roster: { cell: (r) => dash(r.delta_roster) },
+  d_pool: { cell: (r) => dash(r.delta_pool) },
+  exp: { cell: (r) => expLabel(r.exp), compare: (_, m) => expLabel(m.exp) },
+  l3: form("l3"), beat: form("beat"), pace_gap: form("pace_gap"), opp: form("opp"), snap_pct: form("snap_pct"),
+  tgt_snap: form("tgt_snap"), ypt: form("ypt"), weight: form("weight"), air_share: form("air_share"), air_catch: form("air_catch"),
+  rz_tgt: form("rz_tgt"), rz_att: form("rz_att"), rz_pass: form("rz_pass"),
+};
+
+// The chevron, the name, then the view's columns in its order; the claim stands beside add when the
+// view shows add, else straight after the name.
+function columns(week: number, showPos: boolean, cols: string[]): Col[] {
+  const name: Col = {
+    ...SORT_COLUMNS.name, meta: { label: "Player" },
+    cell: ({ row: { original: r } }) => {
+      const kind = rowKind(r);
+      const free = isFreeAgent(r);
+      return (
+        <NameCell r={r} week={week} showPos={showPos} chip={<>
+          {kind === "mine" && <Badge variant="muted" shape="chip">mine</Badge>}
+          {r.would_start && <Badge variant="start" shape="chip">{free ? "start" : "would start"} {signed(r.week_delta ?? 0)}</Badge>}
+          {free && <PoolTag r={r} />}
+        </>} tail={free && <span className={`contents ${CLAIM_COL}`}><span aria-hidden>·</span><WaiverOutlookButton r={r} /></span>}
+        actions={free
+          ? <><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} /></>
+          : kind === "theirs" && r.owner && <OwnerChip owner={r.owner} />} />
+      );
     },
-    {
-      id: "claim", enableSorting: false, meta: { label: "claim", className: CLAIM_COL },
-      cell: ({ row: { original: r } }) => isFreeAgent(r)
-        ? <ClaimControl id={r.player_id} name={r.name} />
-        : rowKind(r) === "theirs" && r.owner ? <OwnerChip owner={r.owner} /> : null,
-    },
-    {
-      ...SORT_COLUMNS.wk, meta: { label: "wk", title: "this week's projection", className: NARROW, compare: (_, m) => <Week r={m} /> },
-      cell: ({ row: { original: r } }) => <Week r={r} />,
-    },
-    {
-      ...SORT_COLUMNS.ros,
-      meta: {
-        label: "ROS", className: NARROW, compare: (_, m) => pts(m.ros_adj),
-        title: "usage-adjusted rest of season: the models' rate shrunk toward his last games by their snap-weighted count; what add runs on (the models' own number, their spread and the deltas are in his dialog)",
-      },
-      cell: ({ row: { original: r } }) => pts(r.ros_adj),
-    },
-    ...FORM_COLS.map((c): Col => ({
-      ...SORT_COLUMNS[c.key],
-      meta: { label: c.label, title: c.title, className: c.phone ? "" : NARROW, compare: (_, m) => <FormNumeral r={m} k={c.key} /> },
-      cell: ({ row: { original: r } }) => <FormNumeral r={r} k={c.key} />,
-    })),
-  ];
+  };
+  const claim: Col = {
+    id: "claim", enableSorting: false, meta: { label: "claim", className: CLAIM_COL },
+    cell: ({ row: { original: r } }) => isFreeAgent(r)
+      ? <ClaimControl id={r.player_id} name={r.name} />
+      : rowKind(r) === "theirs" && r.owner ? <OwnerChip owner={r.owner} /> : null,
+  };
+  const picked = cols.flatMap((id): Col[] => {
+    const spec = columnSpec(id);
+    if (!spec) return [];
+    const c = CELLS[spec.id];
+    return [{
+      ...SORT_COLUMNS[spec.id], meta: { label: spec.label, title: spec.title, compare: c.compare },
+      cell: ({ row: { original: r } }) => c.cell(r),
+    }];
+  });
+  const at = picked.findIndex((c) => c.id === "add") + 1;
+  return [{ id: "expand", enableSorting: false, meta: { label: "" } }, name, ...picked.slice(0, at), claim, ...picked.slice(at)];
 }
 
 // The cell classes of a column: the add and wk numerals are their own register, the rest stepped
-// back; every number right-aligned.
+// back; every number right-aligned, on one line.
 function cellClass(id: string, meta: Meta): string {
   if (id === "expand" || id === "name") return "";
   const base = id === "claim" ? `${PAD}` : id === "add" || id === "wk" ? `text-right ${PAD}` : `${SIDE} ${PAD}`;
-  return `${base} ${meta.className ?? ""}`;
+  return `${base} whitespace-nowrap ${meta.className ?? ""}`;
 }
 
 // The compare chevron at the row's start: my players at his position (every flex position for a
@@ -299,7 +311,7 @@ function Chevron({ row }: { row: TRow<PlayerRow> }) {
   const what = [...comparePositions(row.original.pos)].join("/");
   return (
     <Button type="button" variant="ghost" size="icon-sm" onClick={row.getToggleExpandedHandler()} aria-expanded={open} aria-label={open ? `hide my ${what}s` : `compare with my ${what}s`}
-      className="h-9 w-7 rounded-md text-foreground/55 hover:bg-transparent dark:hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent aria-expanded:text-foreground/55 sm:w-8">
+      className="h-9 w-full rounded-md text-foreground/55 hover:bg-transparent dark:hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent aria-expanded:text-foreground/55 sm:w-8">
       <ChevronDown aria-hidden className={`size-4 stroke-[2.5] transition-transform duration-300 ease-(--ease-arrive) motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
     </Button>
   );
@@ -312,7 +324,7 @@ function CompareRow({ fa, mine, week, showPos, cols, k }: { fa: PlayerRow; mine:
     <TableRow data-key={k} className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
       {cols.map((c) => {
         const meta = c.columnDef.meta as Meta;
-        if (c.id === "expand") return <TableCell key={c.id} className="w-0 p-0" />;
+        if (c.id === "expand") return <TableCell key={c.id} className={`${EXPAND_PIN} ${TINT}`} />;
         if (c.id === "name") return <NameCell key={c.id} r={mine} week={week} showPos={showPos} mine chip={<Badge variant="muted" shape="chip">{slotName(mine.slot)}</Badge>} />;
         return <TableCell key={c.id} className={cellClass(c.id, meta)}>{meta.compare?.(fa, mine)}</TableCell>;
       })}
@@ -334,7 +346,7 @@ const PoolRow = memo(function PoolRow({ row, open, roster, week, showPos }: Pool
       <TableRow data-key={row.id} className={`border-foreground/10 hover:bg-transparent ${open ? "border-b-0" : ""}`}>
         {cells.map((cell) => {
           const meta = cell.column.columnDef.meta as Meta;
-          if (cell.column.id === "expand") return <TableCell key={cell.id} className="w-0 py-2 pr-0 pl-0.5 sm:pl-1.5"><Chevron row={row} /></TableCell>;
+          if (cell.column.id === "expand") return <TableCell key={cell.id} className={`${EXPAND_PIN} ${GROUND} py-2`}><Chevron row={row} /></TableCell>;
           // the name column's cell is a whole <td> (NameCell), shared with the compare rows
           if (cell.column.id === "name") return <Fragment key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</Fragment>;
           return <TableCell key={cell.id} className={cellClass(cell.column.id, meta)}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>;
@@ -343,30 +355,58 @@ const PoolRow = memo(function PoolRow({ row, open, roster, week, showPos }: Pool
       {mine.map((m) => <CompareRow key={`${row.id}-${m.player_id}`} k={`${row.id}-${m.player_id}`} fa={row.original} mine={m} week={week} showPos={showPos} cols={leaf} />)}
       {open && mine.length === 0 && (
         <TableRow data-key={`${row.id}-none`} className="border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.03]">
-          <TableCell colSpan={leaf.length} className="py-2 pl-4 text-xs text-muted-foreground sm:pl-5">nobody at {row.original.pos} on my roster</TableCell>
+          <TableCell colSpan={leaf.length} className="py-2 pl-4 text-xs text-muted-foreground sm:pl-5"><span className="sticky left-4 sm:left-5">nobody at {row.original.pos} on my roster</span></TableCell>
         </TableRow>
       )}
     </>
   );
 }, (a, b) => a.row.original === b.row.original && a.open === b.open && a.cols === b.cols && a.roster === b.roster && a.week === b.week && a.showPos === b.showPos);
 
-// The player pool at one position: shadcn's Table driven by TanStack (sorting, the compare
-// rows). Rows arrive in the API's `add` order and open that way; a heading re-sorts them (numbers
-// high first, the name A to Z; a second tap flips it). The column set is the quick read: add and
-// the claim, this week and the rest of the season, then how his last three games ran against the
-// projection (beat, pace) and his usage (opp, snap). Everything else (the models' ROS and spread,
-// the two deltas, L3, tgt/snap, ypt, wt) is in his dialog.
+// A zero-height, invisible first row carrying each heading's label (and room for the sort arrow), so
+// the body's columns are never narrower than their headings: the heading is another table, sized to
+// the body (use-synced-header), and a label wider than its numbers would otherwise be clipped.
+function Sizer({ cols }: { cols: Column<PlayerRow>[] }) {
+  return (
+    <tr aria-hidden className="invisible border-0">
+      {cols.map((c) => {
+        const meta = c.columnDef.meta as Meta;
+        if (c.id === "expand") return <td key={c.id} className={EXPAND_PIN} />;
+        if (c.id === "name") return <td key={c.id} className={`${NAME_PIN} p-0`} />;
+        return (
+          <td key={c.id} className={`h-0 p-0 ${meta.className ?? ""}`}>
+            <span className={`${LABEL} flex h-0 gap-0.5 overflow-hidden whitespace-nowrap ${PAD}`}>{meta.label}{c.getCanSort() && <span className="w-3 shrink-0" />}</span>
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+// The player pool the view picks: shadcn's Table driven by TanStack (sorting, the compare rows).
+// The columns are the view's; rows arrive in its sort, and a heading re-sorts them here (numbers high
+// first, the name A to Z; a second tap flips it), writing the new sort into the URL without a fetch.
+// The numbers scroll sideways under the pinned chevron and name; the heading is its own table,
+// pinned under the nav and kept to the body's sideways scroll.
 export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: PlayerRow[]; roster: RosterRow[]; week: number; pos: string; q?: string | null; fa?: boolean }) {
-  const [sorting, setSorting] = useState<SortingState>([{ id: "add", desc: true }]);
-  // a search spans every position, so the caption names his; a position tab already does
-  const showPos = !!q;
-  // only the form columns this position has: a kicker never has snaps, a defence no
-  // opportunity, and before the week's snaps land nobody has a snap share yet
-  const keep = useMemo(() => new Set(FORM_COLS.filter((c) => rows.some((r) => r.form && formCell(r.form, c.key))).map((c) => c.key as string)), [rows]);
-  const cols = useMemo(() => columns(week, showPos).filter((c) => !FORM_COLS.some((f) => f.key === c.id) || keep.has(c.id!)), [week, showPos, keep]);
+  const { view, setSortLocal } = usePlayerView();
+  // a search spans every position, as does ALL, so the caption names his; a position tab already does
+  const showPos = !!q || pos === ALL;
+  const colKey = view.cols.join();
+  // keyed on the column ids, not the array, so PoolRow's memo holds across a heading tap
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const cols = useMemo(() => columns(week, showPos, view.cols), [week, showPos, colKey]);
+  const sort = sortFor(view.cols, view.sort);
+  // one array per sort, not per render: TanStack memoizes the sorted rows on its identity, and a fresh
+  // one each render re-sorts, which queues its page-index reset (a state change), which renders again,
+  // without end
+  const sorting: SortingState = useMemo(() => [{ id: sort.id, desc: sort.desc }], [sort.id, sort.desc]);
+  const onSortingChange = (u: Updater<SortingState>) => {
+    const next = typeof u === "function" ? u(sorting) : u;
+    if (next[0]) setSortLocal({ id: next[0].id, desc: next[0].desc });
+  };
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack v8 hands back a mutable instance; the compiler leaves this component unmemoized
   const table = useReactTable({
-    data: rows, columns: cols, state: { sorting }, onSortingChange: setSorting,
+    data: rows, columns: cols, state: { sorting }, onSortingChange,
     getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(),
     getRowId: (r) => String(r.player_id), getRowCanExpand: (r) => rowKind(r.original) !== "mine",
     enableSortingRemoval: false,
@@ -374,8 +414,10 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
   // a re-sort slides every row to its new place; opening a comparison slides the rows below down
   // to make room while my players fade in under him (motion.tsx)
   const order = table.getRowModel().rows.map((r) => `${r.id}${r.getIsExpanded() ? "+" : ""}`).join();
-  const body = useReorder<HTMLTableSectionElement>(order);
+  const bodyReorder = useReorder<HTMLTableSectionElement>(order);
+  const { head, body } = useSyncedHeader<HTMLDivElement, HTMLDivElement>(`${colKey}|${rows.length}|${rows[0]?.player_id}`);
   if (rows.length === 0) {
+    const where = pos === ALL ? "every position" : pos;
     // every rostered player is in the pool, the free agents only to ESPN's top 150 at each position (espn_season.POOL_SIZE)
     return (
       <Empty className="py-6">
@@ -383,44 +425,54 @@ export function WaiverTable({ rows, roster, week, pos, q, fa = true }: { rows: P
           <EmptyDescription>
             {q
               ? <>No player matching <span className="font-medium text-foreground">&ldquo;{q}&rdquo;</span>, rostered or among ESPN&apos;s top 150 free agents at each position.</>
-              : fa ? <>ESPN lists no free agents at {pos} right now.</> : <>Nobody at {pos} right now.</>}
+              : view.filters.length > 0 ? <>No player passes these filters at {where}.</>
+              : fa ? <>ESPN lists no free agents at {where} right now.</> : <>Nobody at {where} right now.</>}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
   }
-  // the card lets the header out to pin to the page (no overflow clip); the header's end cells
-  // round their own top corners to the card's
+  const leaf = table.getVisibleLeafColumns();
+  // the card lets the heading out to pin to the page (no overflow clip); the heading box and the body
+  // box round their own corners to the card's
   return (
     <div className="@container/table">
       <Card className="gap-0 overflow-visible rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)]">
-        <Table containerClassName="overflow-visible" className="[&_th:first-child]:rounded-tl-lg [&_th:last-child]:rounded-tr-lg">
-          <TableHeader className="[&_tr]:border-0">
-            {table.getHeaderGroups().map((g) => (
-              <TableRow key={g.id} className="hover:bg-transparent">
-                {g.headers.map((h) => {
-                  const meta = h.column.columnDef.meta as Meta;
-                  const sorted = h.column.getIsSorted();
-                  return (
-                    <TableHead key={h.id} aria-sort={sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined}
-                      className={`h-9 p-0 ${PIN} ${h.column.id === "expand" ? "w-0" : ""} ${meta.className ?? ""}`}>
-                      {h.column.getCanSort()
-                        ? <SortHead column={h.column} label={meta.label} title={meta.title} />
-                        : meta.label && <span className={`${LABEL} block ${PAD}`}>{meta.label}</span>}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody ref={body}>
-            {table.getRowModel().rows.map((row) => (
-              <PoolRow key={row.id} row={row} open={row.getIsExpanded()} cols={cols} roster={roster} week={week} showPos={showPos} />
-            ))}
-          </TableBody>
-        </Table>
+        {/* the heading: its own table, pinned under the nav, clipped and kept to the body's sideways scroll */}
+        <div ref={head} className={`overflow-hidden rounded-t-lg ${PIN}`}>
+          <Table containerClassName="overflow-visible" className="w-max min-w-full table-fixed">
+            <TableHeader className="[&_tr]:border-0">
+              {table.getHeaderGroups().map((g) => (
+                <TableRow key={g.id} className="hover:bg-transparent">
+                  {g.headers.map((h) => {
+                    const meta = h.column.columnDef.meta as Meta;
+                    const sorted = h.column.getIsSorted();
+                    const pin = h.column.id === "expand" ? `${EXPAND_PIN} ${HEAD_EXPAND} ${GROUND}` : h.column.id === "name" ? `${NAME_PIN} ${HEAD_EDGE} ${GROUND}` : "";
+                    return (
+                      <TableHead key={h.id} aria-sort={sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined}
+                        className={`h-9 p-0 ${pin} ${meta.className ?? ""}`}>
+                        {h.column.getCanSort()
+                          ? <SortHead column={h.column} label={meta.label} title={meta.title} />
+                          : meta.label && <span className={`${LABEL} block ${PAD}`}>{meta.label}</span>}
+                      </TableHead>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableHeader>
+          </Table>
+        </div>
+        <div ref={body} className="overflow-x-auto overscroll-x-contain rounded-b-lg [scrollbar-width:thin]">
+          <Table containerClassName="overflow-visible" className="w-max min-w-full">
+            <TableBody ref={bodyReorder}>
+              <Sizer cols={leaf} />
+              {table.getRowModel().rows.map((row) => (
+                <PoolRow key={row.id} row={row} open={row.getIsExpanded()} cols={cols} roster={roster} week={week} showPos={showPos} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </Card>
     </div>
   );
 }
-

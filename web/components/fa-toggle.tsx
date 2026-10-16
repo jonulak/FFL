@@ -1,19 +1,18 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useTransition } from "react";
 import { Toggle } from "@/components/ui/toggle";
-import { playersHref } from "@/lib/players";
+import { usePlayerView } from "./player-view-context";
 import { Presence, Spinner } from "./motion";
 import { Hint } from "./hint";
 
 // The Free agents filter: pressed (the default) shows the waiver pool at the tab's position,
 // released adds every rostered player there. It is URL state like the tab (fa=0 when released),
 // so a back button or a shared link lands on the same view. A search spans every player whatever
-// it says, so while one runs the chip steps back and says so rather than hiding.
-export function FaToggle({ fa, pos, q }: { fa: boolean; pos: string; q: string }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+// it says, so while one runs the chip steps back and says so rather than hiding. The rest of the view
+// (position, columns, filters, sort, search) rides along.
+export function FaToggle() {
+  const { view, go, pending, q } = usePlayerView();
+  const fa = view.fa;
   const searching = q.trim() !== "";
   return (
     <div className="flex items-center gap-2.5">
@@ -21,7 +20,7 @@ export function FaToggle({ fa, pos, q }: { fa: boolean; pos: string; q: string }
         <Toggle
           variant="outline"
           pressed={fa}
-          onPressedChange={(on) => startTransition(() => router.replace(playersHref(q, pos, on), { scroll: false }))}
+          onPressedChange={(on) => go({ ...view, fa: on })}
           aria-busy={pending}
           className={`h-10 gap-1.5 rounded-md border-foreground/15 px-3 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/70 hover:text-foreground sm:h-8 aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/85 ${searching ? "opacity-55" : ""}`}
         >
