@@ -228,7 +228,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   starter (`espn_season.league_starters`) becomes a row (fantasy `team_id`, delta, total, play text, clock)
   written through to the `plays` table (`plays.Store` keeps memory, reloads at boot; a failed write shows on `/live/status` as "plays not saved"). Rows carry no side: each board takes
   its two teams' rows and `plays.for_board` sides them from its left team. Every `/week` board carries its
-  game's latest five; `/plays` (`?team=` for any other game) the week.
+  game's latest five; `/plays` (`?team=` for any other game, `?week=` the board's week; each strip links its own) the week.
   On field: `fastcast.possession` adds `ball`/`red_zone` (lastPlay.end: next snap's team and yards to go;
   else the drive) to each game state, and `live.field` marks a player `on`/`red_zone` when his club has the
   ball, a D/ST when the other club does. The feed names no personnel, so this is the whole signal.

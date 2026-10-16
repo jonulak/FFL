@@ -141,7 +141,7 @@ export type Play = {
 // `live` keeps the page on the feed all game window; `game_on` is the badge: a starter in this game is playing.
 export type PlaysSide = { team_id: number; team: string; abbrev: string };
 export type Plays = {
-  week: number | null; live: boolean; game_on: boolean; mine: boolean; me: PlaysSide | null; opp: PlaysSide | null;
+  week: number | null; current: boolean; live: boolean; game_on: boolean; mine: boolean; me: PlaysSide | null; opp: PlaysSide | null;
   plays: Play[]; stale_since: string | null;
 };
 // The NFL tab (GET /nfl, GET /nfl/{week}/{team}): ESPN's public scoreboard and drives, with this week's two

@@ -520,7 +520,7 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
       <Scorebug data={data} now={now} />
       {/* The feed only earns its place once something has happened; before kickoff it stays out of the way. */}
       <Presence show={data.plays.length > 0} fold>
-        <div><PlayFeedStrip plays={data.plays} href={playsHref(data.mine !== false, data.me.team_id)} pick={pickById} /></div>
+        <div><PlayFeedStrip plays={data.plays} href={playsHref(data.mine !== false, data.me.team_id, data.week)} pick={pickById} /></div>
       </Presence>
       <Board data={data} now={now} onPick={onPick} />
       <BoxScoreDialog p={player} week={data.week} log={picked?.log ?? null} open={open && player != null} onOpenChange={setOpen} />

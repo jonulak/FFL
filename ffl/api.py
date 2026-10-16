@@ -825,13 +825,19 @@ def week_current():
 
 
 @app.get("/plays")
-def plays_(team: int | None = None):
-    """Every feed row of the current week for one game, newest first (the /plays page): mine, or
-    with `team` that team's. `me`/`opp` name the two sides the way the board does."""
+def plays_(team: int | None = None, week: int | None = None):
+    """Every feed row of one game's week, newest first (the /plays page): mine, or with `team` that team's;
+    `week` (a finished week's board links its own) else the current one. `me`/`opp` name the two sides the
+    way the board does; `current` says whether the week is the current one (the way back is then `/`)."""
     runner = getattr(app.state, "runner", None)
-    data = _board(None, None) if team is None else _board(runner.week if runner and runner.week else None, team)
+    current = _board(None, None)
+    if team is None:
+        data = current if week in (None, current["week"]) else _board(week, None)
+    else:
+        data = _board(week or (runner.week if runner and runner.week else None), team)
     club = lambda s: {k: s.get(k) for k in ("team_id", "team", "abbrev")} if s else None  # noqa: E731
-    return {"week": data["week"], "live": season.is_live(), "mine": data.get("mine", True),
+    return {"week": data["week"], "current": data["week"] == current["week"], "live": season.is_live(),
+            "mine": data.get("mine", True),
             "game_on": live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"])),
             "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data),
             "stale_since": data.get("stale_since")}

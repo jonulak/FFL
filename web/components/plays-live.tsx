@@ -32,7 +32,7 @@ export function PlaysLive({ initial, path }: { initial: Plays; path: string }) {
         plays={data.plays}
         title="All plays"
         count={data.plays.length}
-        link={{ href: boardHref(data.mine, data.week, data.me?.team_id ?? null), label: "Matchup" }}
+        link={{ href: boardHref(data.mine, data.week, data.me?.team_id ?? null, data.current), label: "Matchup" }}
         empty="No plays yet this week. A row appears each time a starter in the matchup scores."
       />
     </div>

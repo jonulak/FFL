@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { League } from "./api";
-import { boardHref, matchupHref, parseMatchupParams, parseTeam, playsHref } from "./matchup-link";
+import { boardHref, matchupHref, parseMatchupParams, parseTeam, parseWeek, playsHref } from "./matchup-link";
 
 const side = (team_id: number) => ({ team_id, team: `T${team_id}`, owner: "", abbrev: "", logo: "", wins: 0, losses: 0, ties: 0, score: 0, proj: 0, me: false, starter_ids: [], starter_teams: [], pending_teams: [], starters: [] });
 const m: League["scoreboard"][number] = { away: side(3), home: side(4), live: false, final: false };
@@ -25,14 +25,19 @@ describe("parseMatchupParams", () => {
 });
 
 describe("plays links", () => {
-  it("sends my board to /plays and any other game by its left team", () => {
-    expect(playsHref(true, 7)).toBe("/plays");
-    expect(playsHref(false, 3)).toBe("/plays?team=3");
+  it("sends a board to its own week's plays: mine plain, any other game by its left team", () => {
+    expect(playsHref(true, 7, 5)).toBe("/plays?week=5");
+    expect(playsHref(false, 3, 5)).toBe("/plays?week=5&team=3");
   });
   it("leads back to the board the plays came from", () => {
-    expect(boardHref(true, 5, 7)).toBe("/");
-    expect(boardHref(false, 5, 3)).toBe("/league/5/3");
-    expect(boardHref(false, null, 3)).toBe("/");
+    expect(boardHref(true, 6, 7, true)).toBe("/");
+    expect(boardHref(true, 5, 7, false)).toBe("/league/5/7");
+    expect(boardHref(false, 5, 3, true)).toBe("/league/5/3");
+    expect(boardHref(false, null, 3, true)).toBe("/");
+  });
+  it("reads ?week= as a positive integer or nothing", () => {
+    expect(parseWeek("5")).toBe(5);
+    for (const raw of [undefined, "", "x", "0", "2.5"]) expect(parseWeek(raw)).toBeNull();
   });
   it("reads ?team= as a positive integer or nothing", () => {
     expect(parseTeam("4")).toBe(4);

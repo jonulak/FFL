@@ -386,6 +386,24 @@ def test_every_board_carries_its_own_games_plays_sided_from_its_left(client, mon
     assert [p["delta"] for p in client.get("/plays").json()["plays"]] == [6.0]
 
 
+def test_plays_page_opens_the_week_it_was_linked_from(client, monkeypatch):
+    """A finished week's board links its whole feed with `week`: the page reads that week's stored rows, not
+    the current week's, and leads back to that week's board (`current` false); my current week stays `/`."""
+    monkeypatch.setattr(api.espn_season, "week_state", lambda week=None, team=None: {
+        "week": week or 6, "live": False, "me": {"team": "t", "team_id": team or 7, "abbrev": "L"},
+        "opp": {"team": "x", "team_id": 5, "abbrev": "R"}, "mine": team in (None, 7)})
+    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=_store([{"delta": 6.0, "team_id": 7}])),
+                        raising=False)
+    monkeypatch.setattr(api.db, "plays_rows", lambda week: [{"delta": 2.0, "team_id": 7, "week": week}])
+    past = client.get("/plays?week=5").json()
+    assert past["week"] == 5 and past["current"] is False and [p["delta"] for p in past["plays"]] == [2.0]
+    other = client.get("/plays?week=5&team=4").json()
+    assert other["week"] == 5 and other["me"]["team_id"] == 4
+    now = client.get("/plays?week=6").json()
+    assert now["week"] == 6 and now["current"] is True and [p["delta"] for p in now["plays"]] == [6.0]
+    assert client.get("/plays").json()["current"] is True
+
+
 def test_roster_cards_never_carry_last_weeks_live_overlay(client, monkeypatch):
     """The Roster page is gated on its own week like /week: after the rollover the feed still
     holds last week's points, final scores and stat lines, and none of them may reach this
