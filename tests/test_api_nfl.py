@@ -114,11 +114,12 @@ def test_sides_degrade_to_empty_when_board_fails(monkeypatch):
 
 def test_game_route_names_the_two_fantasy_teams(monkeypatch, c):
     """The In this game table heads each side with its fantasy team and owner, off the same board as the starters."""
-    board = {"week": 5, "me": {"team_id": 7, "team": "Mine", "owner": "Jon", "abbrev": "M", "lineup": ME},
-             "opp": {"team_id": 3, "team": "Theirs", "owner": "Pat", "abbrev": "T", "lineup": OPP}}
+    club = lambda tid, name, owner, abbrev, w: {"team_id": tid, "team": name, "owner": owner, "abbrev": abbrev,  # noqa: E731
+                                                "logo": f"https://x.test/{abbrev}.png", "wins": w, "losses": 5 - w, "ties": 0}
+    board = {"week": 5, "me": {**club(7, "Mine", "Jon", "M", 4), "lineup": ME, "bench": []},
+             "opp": {**club(3, "Theirs", "Pat", "T", 1), "lineup": OPP, "bench": []}}
     monkeypatch.setattr(api, "_nfl_board", lambda week: board)
-    assert api._nfl_teams(5) == {"me": {"team_id": 7, "team": "Mine", "owner": "Jon"},
-                                 "opp": {"team_id": 3, "team": "Theirs", "owner": "Pat"}}
+    assert api._nfl_teams(5) == {"me": club(7, "Mine", "Jon", "M", 4), "opp": club(3, "Theirs", "Pat", "T", 1)}
     assert c.get("/nfl/5/gb").json()["teams"]["opp"]["owner"] == "Pat"
     monkeypatch.setattr(api, "_nfl_board", lambda week: None)
     assert api._nfl_teams(5) is None and c.get("/nfl/5/gb").json()["teams"] is None

@@ -8,7 +8,9 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { NflGame, NflGamePage, NflPlay, NflStarter, NflTeam } from "@/lib/api";
 import { BOARD_CARD, LABEL, SLOT_LABEL } from "@/lib/board";
-import { pts, shortName } from "@/lib/format";
+import { pts, record, shortName } from "@/lib/format";
+import { clubLogoSrc } from "@/lib/teams";
+import { ClubLogo } from "./club-logo";
 import { NAME_LINK } from "@/lib/player-log";
 import { gameState, inGameRows, scoreLine, type FeedFilter } from "@/lib/nfl";
 import { KickoffTime } from "./local-time";
@@ -113,13 +115,20 @@ function StarterHalf({ s, end, onPick }: { s?: NflStarter; end: "me" | "opp"; on
   );
 }
 
-// A side's fantasy team over its column: the name opens its roster, the owner beneath it.
+// A side's fantasy team over its column, set like the Matchup scorebug's small: its mark at the outer edge, the
+// name (opens its roster), and the record in ink then the owner beneath.
 function TeamHead({ t, end }: { t?: NflTeam | null; end: "me" | "opp" }) {
   if (!t) return <span />;
   return (
-    <div className={`min-w-0 py-2 ${end === "opp" ? "text-right" : ""}`}>
-      <p className="truncate font-display text-[0.9375rem] font-semibold leading-tight tracking-tight"><TeamLink id={t.team_id}>{t.team}</TeamLink></p>
-      {t.owner && <p className="mt-0.5 truncate text-xs text-muted-foreground">{t.owner}</p>}
+    <div className={`flex min-w-0 items-center gap-2.5 py-2 ${end === "opp" ? "flex-row-reverse text-right" : ""}`}>
+      <ClubLogo src={clubLogoSrc(t)} abbrev={t.abbrev} size={32} />
+      <div className="min-w-0">
+        <p className="truncate font-display text-[0.9375rem] font-semibold leading-tight tracking-tight"><TeamLink id={t.team_id}>{t.team}</TeamLink></p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <span className="font-medium tabular-nums text-foreground/80">{record(t)}</span>
+          {t.owner && <> · {t.owner}</>}
+        </p>
+      </div>
     </div>
   );
 }

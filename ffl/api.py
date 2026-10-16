@@ -883,12 +883,13 @@ def _nfl_sides(week: int) -> tuple[list[dict], list[dict]] | None:
 
 
 def _nfl_teams(week: int) -> dict | None:
-    """The two fantasy teams of my game in `week` (id, name, owner), heading the game page's In this game table;
+    """The two fantasy teams of my game in `week` (id, name, owner, mark, record), heading the game page's In this game table;
     `opp` None on a bye, the whole None when the board failed."""
     data = _nfl_board(week)
     if data is None:
         return None
-    club = lambda s: {k: s.get(k) for k in ("team_id", "team", "owner")} if s else None  # noqa: E731
+    keys = ("team_id", "team", "owner", "abbrev", "logo", "wins", "losses", "ties")
+    club = lambda s: {k: s.get(k) for k in keys} if s else None  # noqa: E731
     return {"me": club(data.get("me")), "opp": club(data.get("opp"))}
 
 

@@ -161,9 +161,9 @@ export type NflPlay = {
 export type NflDrive = { id: string; team: string | null; description: string | null; result: string | null; plays: NflPlay[] };
 // the Matchup board's players, whole: a tap opens the same breakdown (BoxScoreDialog)
 export type NflStarter = Player;
-// The two fantasy teams of my game heading the In this game table; `teams` is null when the board failed, absent
-// from a payload cached before it existed.
-export type NflTeam = { team_id: number; team: string; owner: string | null };
+// The two fantasy teams of my game heading the In this game table (mark and record as the scorebug has them);
+// `teams` is null when the board failed.
+export type NflTeam = { team_id: number; team: string; owner: string | null; abbrev: string; logo: string; wins: number; losses: number; ties: number };
 export type NflGamePage = { week: number; live: boolean; game: NflGame; marked: boolean; starters: { me: NflStarter[]; opp: NflStarter[] }; teams?: { me: NflTeam | null; opp: NflTeam | null } | null; scoring: NflPlay[]; drives: NflDrive[]; stale_since: string | null };
 // `me` is the left side of the board, `opp` the right: I stand left of my own game (`mine`); any other
 // game (a League scoreboard tile) reads away then home.
