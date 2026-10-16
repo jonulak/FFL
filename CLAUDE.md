@@ -261,7 +261,8 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   dated, linked sources; never projections) by running `claude -p` (Opus, WebSearch + WebFetch) from a
   fact sheet: the card's non-projection facts, per-game usage rows (`form["rows"]`) and `ffl/news.py`'s
   context — Rotowire blurbs (ESPN's public fantasy news feed, per player), Sleeper's depth order (one bulk
-  dump), the teammates in scope by position with their injury status, and ESPN's per-player news stamps
+  dump), the teammates in scope by position with their injury status, plus every hurt teammate at his own position
+  wherever the chart puts him (ESPN's injury feed drops IR players) with that teammate's Rotowire items, where return dates are written, and ESPN's per-player news stamps
   (one `kona_player_info` call). Four calls at a time, each card saved as it lands, cached in
   the `outlooks` table (kind `week`) under a hash of the facts, the news stamps and the day (so at least daily).
   GETs never generate. `POST /outlook/refresh` starts a locked background run; `launchd/com.jonulak.ffl-outlook`

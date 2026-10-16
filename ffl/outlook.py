@@ -43,7 +43,8 @@ VOICE = ("Write this player's outlook as bullets labelled Injury, Usage, Depth, 
          "Injury: only when he is on the injury report, missed or was limited in practice this week, or is "
          "working back from an injury — then his status, practice reports and return timeline; a healthy "
          "player gets no Injury bullet. Usage: the trend across his recent games "
-         "in snaps, targets, receptions and carries. Depth: who is ahead of and behind him, and who is hurt. "
+         "in snaps, targets, receptions and carries. Depth: who is ahead of and behind him, and who is hurt, "
+         "with each hurt teammate's expected return week and its source, or that none has been reported. "
          "Team: teammate or scheme news that changes his week, such as his quarterback out, a coordinator "
          "fired or a receiver traded. " + TAKE + "Leave out any other label with nothing to report: never a bullet that only says there is no news. One or two sentences, at most thirty words, per "
          "bullet. Check the facts above with web search and add what they miss; say so when sources "
@@ -85,7 +86,8 @@ def fact_hash(card: dict, ctx: dict, today: date) -> str:
     """card_hash plus the news (his depth, the teammates' status and news stamps, his own stamp, his
     Rotowire items), the day, so every outlook is rewritten at least once a day, and the voice rule, so a
     changed prompt reaches the cards written under the old one."""
-    mates = [[m.get("name"), m.get("status"), m.get("last_news")] for m in ctx.get("teammates") or []]
+    mates = [[m.get("name"), m.get("status"), m.get("last_news"), [i.get("id") for i in m.get("rotowire") or []]]
+             for m in ctx.get("teammates") or []]
     return _sha([card_hash(card), ctx.get("depth"), mates, ctx.get("last_news"),
                  [i.get("id") for i in ctx.get("rotowire") or []], today.isoformat(), VOICE])
 
@@ -128,7 +130,13 @@ def _mate_text(m: dict) -> str:
         s += f" — {m['note']}"
     if m.get("last_news"):
         s += f" (latest news {_stamp(m['last_news'])})"
+    for i in m.get("rotowire") or []:
+        s += f"\n    {_rotowire_text(i)}"
     return s
+
+
+def _rotowire_text(i: dict) -> str:
+    return f"{_md(i.get('published'))} {i.get('headline')} {i.get('story')} ({i.get('url') or 'no link'})"
 
 
 def _kickoff_text(card: dict) -> str:
@@ -163,11 +171,11 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date, free_agent: bool =
         f"Recent games (source: ESPN game log, {GAMELOG.format(pid=card['player_id'])}):",
         *([_row_text(r) for r in _rows(card)] or ["  none yet"]),
         f"Depth (source: Sleeper depth chart, {SLEEPER}): {_depth_text(ctx.get('depth'))}",
-        f"Teammates whose news matters to him (source: ESPN injury report, {INJURY_REPORT}):",
+        f"Teammates whose news matters to him, and every hurt teammate at his position with his Rotowire news "
+        f"(source: ESPN injury report, {INJURY_REPORT}):",
         *([_mate_text(m) for m in ctx.get("teammates") or []] or ["  none in scope"]),
         "Rotowire news (source: Rotowire via ESPN, each linked):",
-        *([f"  {_md(i.get('published'))} {i.get('headline')} {i.get('story')} ({i.get('url') or 'no link'})"
-           for i in ctx.get("rotowire") or []] or ["  none"]),
+        *([f"  {_rotowire_text(i)}" for i in ctx.get("rotowire") or []] or ["  none"]),
         "",
         VOICE.replace(TAKE, FA_TAKE) if free_agent else VOICE,
     ]

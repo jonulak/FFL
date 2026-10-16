@@ -20,6 +20,9 @@ def test_parse_rotowire_keeps_rotowire_only_newest_first_three():
                       "url": "https://www.espn.com/nfl/player/_/id/4362628"}, \
         "the feed's own link redirects to ESPN's home page; his player page carries the blurb"
     assert news.parse_rotowire({}) == [], "a player nobody has written about is an empty list"
+    dupe = {**roto(6, "Rotowire", "2026-09-30T18:00:00Z"), "headline": "h3", "story": "s3"}
+    assert [g["id"] for g in news.parse_rotowire({"feed": feed + [dupe]})] == ["3", "5", "1"], \
+        "the feed repeats a blurb under a new id; the copy does not take a slot"
 
 def test_fetch_rotowire_serves_last_good_then_empty(monkeypatch):
     class R:
@@ -105,7 +108,7 @@ def test_context_joins_teammate_status_and_stamps_through_the_index():
     injuries = {10: {"status": "Out", "note": "Burrow (toe) won't play Sunday."}}
     ctx = news.context(c("Ja'Marr Chase", "WR", pid=1), CHART, index, injuries, [{"id": "9"}])
     burrow = ctx["teammates"][0]
-    assert burrow == {"name": "Joe Burrow", "pos": "QB", "rank": 1, "status": "Out",
+    assert burrow == {"name": "Joe Burrow", "pos": "QB", "rank": 1, "player_id": 10, "status": "Out",
                       "note": "Burrow (toe) won't play Sunday.", "last_news": 1790000000000}
     higgins = ctx["teammates"][1]
     assert higgins["status"] == "Active" and higgins["last_news"] is None, "not in the index: no stamp, no crash"
@@ -114,9 +117,40 @@ def test_context_joins_teammate_status_and_stamps_through_the_index():
 def test_context_falls_back_to_sleepers_status():
     ctx = news.context(c("Tee Higgins", "WR"), CHART, {}, {}, [])
     young = [m for m in ctx["teammates"] if m["name"] == "Colbie Young"]
-    assert young == [], "rank 4 WR is outside the top 3"
+    assert [m["status"] for m in young] == ["Out"], "rank 4 WR is outside the top 3, but hurt at his position"
     ctx = news.context(c("Joe Burrow", "QB"), {"CIN": [chart_row("Ja'Marr Chase", "WR", 1, injury="Questionable")]}, {}, {}, [])
     assert ctx["teammates"][0]["status"] == "Questionable"
+
+def test_context_adds_every_hurt_teammate_at_his_position_wherever_the_chart_has_him():
+    rows = [chart_row("Tyler Higbee", "TE", 1), chart_row("Colby Parkinson", "TE", 2),
+            chart_row("Davis Allen", "TE", 3), chart_row("Terrance Ferguson", "TE", 5, injury="IR"),
+            chart_row("Kyren Williams", "RB", 4, injury="Out"), chart_row("Matthew Stafford", "QB", 1)]
+    index = {77: {"name": "Terrance Ferguson", "pos": "TE", "team": "LAR", "last_news": 1791422702521},
+             78: {"name": "Davis Allen", "pos": "TE", "team": "LAR", "last_news": None}}
+    ctx = news.context(c("Tyler Higbee", "TE", team="LAR"), {"LAR": rows}, index, {}, [])
+    assert names(ctx["teammates"]) == ["Matthew Stafford", "Terrance Ferguson"], \
+        "the TE1 has no TE in scope, but the hurt TE5 joins; a healthy backup and a hurt RB do not"
+    ferg = ctx["teammates"][1]
+    assert ferg["status"] == "IR" and ferg["rank"] == 4 and ferg["player_id"] == 77
+    ctx = news.context(c("Tyler Higbee", "TE", team="LAR"), {"LAR": rows}, index, {78: {"status": "Doubtful", "note": None}}, [])
+    assert names(ctx["teammates"]) == ["Matthew Stafford", "Davis Allen", "Terrance Ferguson"], "ESPN's status counts too"
+
+def test_gather_fetches_rotowire_for_hurt_teammates_only(monkeypatch):
+    import ffl.espn_season as es
+    rows = [chart_row("Tyler Higbee", "TE", 1), chart_row("Terrance Ferguson", "TE", 5, injury="IR"),
+            chart_row("Matthew Stafford", "QB", 1)]
+    monkeypatch.setattr(news, "fetch_depth", lambda: {"LAR": rows})
+    monkeypatch.setattr(news, "fetch_news_index", lambda week: {
+        77: {"name": "Terrance Ferguson", "pos": "TE", "team": "LAR", "last_news": None},
+        78: {"name": "Matthew Stafford", "pos": "QB", "team": "LAR", "last_news": None}})
+    monkeypatch.setattr(es, "fetch_injuries", lambda: {})
+    asked = []
+    monkeypatch.setattr(news, "fetch_rotowire", lambda pid: asked.append(pid) or [{"id": f"r{pid}"}])
+    got = news.gather([c("Tyler Higbee", "TE", team="LAR", pid=1)], 7)
+    mates = {m["name"]: m for m in got[1]["teammates"]}
+    assert mates["Terrance Ferguson"]["rotowire"] == [{"id": "r77"}]
+    assert "rotowire" not in mates["Matthew Stafford"], "a healthy teammate's blurbs are not fetched"
+    assert sorted(asked) == [1, 77]
 
 def test_has_news():
     today = date(2026, 10, 2)

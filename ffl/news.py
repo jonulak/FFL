@@ -44,6 +44,8 @@ def parse_rotowire(payload: dict) -> list[dict]:
                     "story": (it.get("story") or "").strip(), "published": it.get("published"),
                     "url": PLAYER_PAGE.format(pid=it["playerId"]) if it.get("playerId") else None})
     out.sort(key=lambda i: i["published"] or "", reverse=True)
+    seen: set[tuple[str, str]] = set()  # the feed repeats a blurb under a new id
+    out = [i for i in out if (i["headline"], i["story"]) not in seen and not seen.add((i["headline"], i["story"]))]
     return out[:ROTOWIRE_KEEP]
 
 
@@ -151,16 +153,30 @@ def teammates(card: dict, chart: dict[str, list[dict]]) -> list[dict]:
     return out
 
 
+def _hurt(status: str | None) -> bool:
+    return (status or "Active").upper() != "ACTIVE"
+
+
 def context(card: dict, chart: dict, index: dict[int, dict], injuries: dict[int, dict], rotowire: list[dict]) -> dict:
     """Everything the fact sheet says about him beyond the card: his depth, the teammates in scope with
-    their injury status (ESPN's report, Sleeper's when ESPN has none) and news stamps, his Rotowire items."""
+    their injury status (ESPN's report, Sleeper's when ESPN has none) and news stamps, his Rotowire items.
+    Every hurt teammate at his own position joins the scope wherever the chart has him: Sleeper moves a hurt
+    player down the order, so the starter he stands in for is often outside the top-n (ESPN's report also
+    drops IR players, so Sleeper's status is the one that finds them)."""
     by_name = {(norm_name(v["name"]), v["team"]): pid for pid, v in index.items()}
+    scoped = teammates(card, chart)
+    seen, me = {(r["name"], r["pos"]) for r in scoped}, norm_name(card["name"])
+    extra = [r for r in _ranked(chart.get(card["team"]) or [], card["pos"])
+             if norm_name(r["name"]) != me and (r["name"], r["pos"]) not in seen]
     mates = []
-    for r in teammates(card, chart):
+    for r in scoped + extra:
         pid = by_name.get((norm_name(r["name"]), card["team"]))
         inj = injuries.get(pid) or {}
-        mates.append({"name": r["name"], "pos": r["pos"], "rank": r["rank"],
-                      "status": inj.get("status") or r.get("injury") or "Active", "note": inj.get("note"),
+        status = inj.get("status") or r.get("injury") or "Active"
+        if r in extra and not _hurt(status):
+            continue
+        mates.append({"name": r["name"], "pos": r["pos"], "rank": r["rank"], "player_id": pid,
+                      "status": status, "note": inj.get("note"),
                       "last_news": (index.get(pid) or {}).get("last_news")})
     return {"depth": own_depth(card, chart), "teammates": mates, "rotowire": rotowire,
             "last_news": (index.get(card["player_id"]) or {}).get("last_news")}
@@ -178,7 +194,7 @@ def has_news(card: dict, ctx: dict, today: date) -> bool:
     has written about him in the last RECENT_DAYS."""
     if (card.get("injury") or "ACTIVE") != "ACTIVE":
         return True
-    if any((m.get("status") or "Active").upper() != "ACTIVE" for m in ctx["teammates"]):
+    if any(_hurt(m.get("status")) for m in ctx["teammates"]):
         return True
     return any(_recent(i.get("published"), today) for i in ctx["rotowire"])
 
@@ -191,4 +207,12 @@ def gather(cards: list[dict], week: int) -> dict[int, dict]:
     players = [c for c in cards if c["pos"] != "D/ST"]  # a defence has no Rotowire page
     with ThreadPoolExecutor(8) as pool:
         roto = dict(zip((c["player_id"] for c in players), pool.map(lambda c: fetch_rotowire(c["player_id"]), players)))
-    return {c["player_id"]: context(c, chart, index, injuries, roto.get(c["player_id"], [])) for c in cards}
+    out = {c["player_id"]: context(c, chart, index, injuries, roto.get(c["player_id"], [])) for c in cards}
+    # a hurt teammate's own blurbs are where his return week is written ("eligible to return in Week 8")
+    hurt = [m for ctx in out.values() for m in ctx["teammates"] if m["player_id"] is not None and _hurt(m["status"])]
+    want = sorted({m["player_id"] for m in hurt} - set(roto))
+    with ThreadPoolExecutor(8) as pool:
+        roto.update(zip(want, pool.map(fetch_rotowire, want)))
+    for m in hurt:
+        m["rotowire"] = roto.get(m["player_id"], [])
+    return out

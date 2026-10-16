@@ -64,6 +64,16 @@ def test_fact_sheet_with_nothing_to_report_says_none():
     assert sheet.count("none") >= 3, "games, teammates and Rotowire each say none"
 
 
+def test_fact_sheet_gives_a_hurt_teammates_news_and_asks_for_his_return():
+    ferg = {"name": "Terrance Ferguson", "pos": "TE", "rank": 4, "status": "IR", "note": None, "last_news": None,
+            "rotowire": [{"id": "5", "headline": "Ferguson (ankle) is expected back after his IR stint.",
+                          "story": "He is eligible to return in Week 8.", "published": "2026-10-07T17:52:53Z",
+                          "url": "https://www.espn.com/nfl/player/_/id/4570037"}]}
+    sheet = outlook.fact_sheet(card(), 7, ctx(teammates=[ferg]), TODAY)
+    for s in ("TE4 Terrance Ferguson: IR", "10/7 Ferguson (ankle) is expected back", "eligible to return in Week 8",
+              "espn.com/nfl/player/_/id/4570037", "expected return week"):
+        assert s in sheet, s
+
 def test_fact_sheet_bye_and_unscheduled_still_differ():
     assert "none (bye)" in outlook.fact_sheet(card(bye=True, opponent=None, kickoff=None, call="BYE"), 5, ctx(), TODAY)
     assert "not scheduled" in outlook.fact_sheet(card(opponent=None, kickoff=None), 5, ctx(), TODAY)
@@ -84,6 +94,8 @@ def test_fact_hash_moves_with_news_and_the_day():
     mate = {**ctx()["teammates"][0], "last_news": 1790000009000}
     assert outlook.fact_hash(card(), ctx(teammates=[mate]), TODAY) != base, "a teammate's news rewrites him"
     assert outlook.fact_hash(card(), ctx(rotowire=[]), TODAY) != base
+    told = {**ctx()["teammates"][0], "rotowire": [{"id": "77"}]}
+    assert outlook.fact_hash(card(), ctx(teammates=[told]), TODAY) != base, "a hurt teammate's blurb rewrites him"
     assert outlook.fact_hash(card(), ctx(depth={"slot": "RB", "order": 2, "rank": 2, "of": 3}), TODAY) != base
     assert outlook.fact_hash(card(proj=30.0), ctx(), TODAY) == base
 
