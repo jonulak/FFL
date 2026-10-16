@@ -22,6 +22,7 @@ import { FILTER_SETS } from "@/lib/player-view";
 import { TEAMS } from "@/lib/teams";
 import { columnOrder, finishedFilters, needsRostered, moveColumn, presetView, removeFilter, setFilter, toggleColumn } from "@/lib/view-draft";
 import { PHONE_INSET } from "./claims-submit";
+import { useReorder } from "./motion";
 import { usePlayerView } from "./player-view-context";
 import { useDesk } from "./swap-sheet";
 
@@ -93,6 +94,9 @@ function ViewEditor({ focus, bodyRef, phone, onDone }: {
   );
 }
 
+// a row in hand: dragged, or travelling to its place after a tick (none when motion is reduced)
+const LIFT = "shadow-[0_8px_20px_-8px_rgb(0_0_0/0.35)] motion-reduce:shadow-none";
+
 // ---- Columns ---------------------------------------------------------------------------------------
 
 // Sensors as in the claims panel: a mouse drag after 4px, a touch drag after a 150 ms hold (so a swipe on
@@ -119,6 +123,13 @@ function ColumnsSection({ cols, setCols, scrollRef }: {
   // browser scrolled the sheet after the focused box. The sheet holds still: its scroll is put back
   // as soon as the list has moved, and the sheet anchors nothing ([overflow-anchor:none]).
   const hold = useRef<number | null>(null);
+  // and the row travels there: lifted like a dragged row, the rows it passes sliding aside (motion.tsx)
+  const [moving, setMoving] = useState<string | null>(null);
+  useEffect(() => {
+    if (!moving) return;
+    const t = setTimeout(() => setMoving(null), 560);
+    return () => clearTimeout(t);
+  }, [moving]);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && hold.current !== null) el.scrollTop = hold.current;
@@ -126,10 +137,12 @@ function ColumnsSection({ cols, setCols, scrollRef }: {
   }, [cols, scrollRef]);
   const toggle = (id: string) => {
     hold.current = scrollRef.current?.scrollTop ?? null;
+    setMoving(id);
     setCols(toggleColumn(cols, id));
   };
   const list = columnOrder(cols);
   const ids = list.map((c) => c.id);
+  const slide = useReorder<HTMLUListElement>(ids.join());
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (over && active.id !== over.id) setCols(moveColumn(cols, ids, String(active.id), String(over.id)));
   };
@@ -141,8 +154,8 @@ function ColumnsSection({ cols, setCols, scrollRef }: {
       </div>
       <DndContext id={dndId} sensors={sensors} collisionDetection={closestCenter} autoScroll={AUTO_SCROLL} onDragEnd={onDragEnd}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-          <ul className="border-b border-foreground/8">
-            {list.map((c) => <ColumnRow key={c.id} id={c.id} on={c.on} onToggle={() => toggle(c.id)} />)}
+          <ul ref={slide} className="border-b border-foreground/8">
+            {list.map((c) => <ColumnRow key={c.id} id={c.id} on={c.on} lifted={c.id === moving} onToggle={() => toggle(c.id)} />)}
           </ul>
         </SortableContext>
       </DndContext>
@@ -152,15 +165,15 @@ function ColumnsSection({ cols, setCols, scrollRef }: {
 
 // One column: the handle (shown columns only: the order is theirs), the checkbox and its heading, the
 // heading's hover as a second line. A hidden column is still a place a shown one can be dropped.
-function ColumnRow({ id, on, onToggle }: { id: string; on: boolean; onToggle: () => void }) {
+function ColumnRow({ id, on, lifted, onToggle }: { id: string; on: boolean; lifted: boolean; onToggle: () => void }) {
   const spec = columnSpec(id);
   const label = spec?.label ?? id;
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } =
     useSortable({ id, disabled: { draggable: !on, droppable: false } });
   const box = `col-${id}`;
   return (
-    <li ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={`flex items-center gap-1 border-t border-foreground/8 bg-popover ${isDragging ? "relative z-10 rounded-md shadow-[0_8px_20px_-8px_rgb(0_0_0/0.35)]" : ""}`}>
+    <li ref={setNodeRef} data-key={id} style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={`flex items-center gap-1 border-t border-foreground/8 bg-popover transition-[border-radius,box-shadow] duration-200 ${isDragging || lifted ? `relative z-10 rounded-md ${LIFT}` : ""}`}>
       <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners} disabled={!on}
         aria-label={`reorder ${label}`} data-base-ui-swipe-ignore data-drag-handle
         className="flex size-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-foreground/45 transition-[color,opacity] hover:text-foreground focus-visible:outline-2 active:cursor-grabbing disabled:cursor-default disabled:opacity-0">
