@@ -9,7 +9,8 @@ import { PosTabs } from "./pos-tabs";
 // The Players view the page is showing (ffl-8iz): the preset it starts from, the view as the API applied
 // it, and the two ways to change it. `go` navigates (the server filters, so a new position, filter or
 // column set is a fetch); a heading tap only re-sorts rows already here, so it rewrites the URL in place
-// (history.replaceState, which Next keeps useSearchParams in step with) without a fetch.
+// (history.replaceState, which Next keeps useSearchParams in step with) without a fetch, except on a
+// capped view (see setSortLocal).
 type Ctx = {
   q: string; presetId: string; preset: Preset; presets: Preset[]; defaultId: string;
   view: PlayerView; modified: boolean; pending: boolean;
@@ -19,8 +20,8 @@ type Ctx = {
 };
 const C = createContext<Ctx | null>(null);
 
-export function PlayerViewProvider({ applied, presets, defaultId, q, children }: {
-  applied: ResolvedView; presets: Preset[]; defaultId: string; q: string; children: ReactNode;
+export function PlayerViewProvider({ applied, presets, defaultId, q, capped = false, children }: {
+  applied: ResolvedView; presets: Preset[]; defaultId: string; q: string; capped?: boolean; children: ReactNode;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -40,6 +41,9 @@ export function PlayerViewProvider({ applied, presets, defaultId, q, children }:
   };
   const setSortLocal = (sort: ViewSort) => {
     const next = { ...view, sort };
+    // the exception: a capped view (ALL, no filter) is the server's first 150 by its sort, so the set
+    // shown must match the sort. A new sort there is a fetch that re-cuts the 150, not a local re-sort.
+    if (capped) return go(next);
     setView(next);
     window.history.replaceState(null, "", playersHref(q, preset.id, next, preset));
   };

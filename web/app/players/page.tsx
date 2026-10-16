@@ -46,7 +46,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
     player_id: r.player_id, name: r.name, pos: r.pos, team: r.team, add: r.add, ros_adj: r.ros_adj, status: r.status, waiver_date: r.waiver_date,
   }));
   const table = (
-    <PlayerViewProvider applied={data.view} presets={data.presets} defaultId={data.default} q={q}>
+    <PlayerViewProvider applied={data.view} presets={data.presets} defaultId={data.default} q={q} capped={data.capped}>
       <div className="min-w-0 space-y-3">
         {/* phone: the field, then the Free agents toggle, over the tabs; from `sm` the toggle and the
             field close the tab strip's line, one hairline under all three */}
