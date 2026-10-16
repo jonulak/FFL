@@ -206,11 +206,25 @@ export type RosterRow = Player & { ros_proj: number; ros_adj: number; week_proj:
 // ros_source "season": no source had anyone, every ROS is a scaled draft-day season total.
 // ros_week: the week ROS starts from; week_over: this week's games are all played (no week term).
 // fa: the Free agents toggle as the API applied it (a search ignores it and spans everyone).
+// capped: ALL with no filter, cut to the first 150 by the view's sort.
 export type Players = {
   week: number; ros_week: number; week_over: boolean; pos: string | null; q: string | null; fa: boolean;
   rows: PlayerRow[]; roster: RosterRow[];
   ros_source: "sources" | "season"; stale_since: string | null;
+  view: ResolvedView; capped: boolean; presets: Preset[]; default: string;
 };
+// ffl/player_views.py: a view of the Players table. A numeric filter keeps the rows whose figure is at
+// least (ge) or at most (le) the value; a set filter the rows in one of its buckets. Percent columns
+// (snap_pct, air_share) are whole percents.
+export type ViewFilter =
+  | { field: string; op: "ge" | "le"; value: number }
+  | { field: "injury" | "avail" | "team"; op: "in"; value: string[] };
+export type ViewSort = { id: string; desc: boolean };
+export type PlayerView = { pos: string; fa: boolean; cols: string[]; filters: ViewFilter[]; sort: ViewSort };
+export type Preset = PlayerView & { id: string; name: string };
+// the view /players applied: its preset with the URL's overrides laid over
+export type ResolvedView = PlayerView & { preset: string; name: string };
+export type PresetStore = { presets: Preset[]; default: string };
 // GET/POST /claims: the week's "get K of N" claim groups (the claim_plans table). A group gets
 // as many of its targets (best first) as it has rows under "make room": its cuts, first to go first,
 // plus `open` empty roster spots (only one group may use open spots, and it uses all of them).

@@ -1,7 +1,7 @@
 import { createTable, getCoreRowModel, getSortedRowModel, type SortingState, type TableOptionsResolved } from "@tanstack/react-table";
 import { describe, expect, it } from "vitest";
 import type { PlayerRow } from "./api";
-import { SORT_COLUMNS } from "./waiver-sort";
+import { COLUMN_IDS, PLAYER_COLUMNS, SORT_COLUMNS, sortFor } from "./player-columns";
 
 const row = (name: string, add: number | null, form: Partial<PlayerRow["form"]> | null, ros = 0) =>
   ({ name, add, week_proj: 0, ros_adj: ros, form } as unknown as PlayerRow);
@@ -38,5 +38,30 @@ describe("Players table sorting", () => {
   it("numbers open high first, the name A to Z", () => {
     expect(SORT_COLUMNS.add.sortDescFirst).toBe(true);
     expect(SORT_COLUMNS.name.sortDescFirst).toBe(false);
+  });
+});
+
+describe("the column catalogue", () => {
+  it("mirrors ffl/player_views.py COLUMNS, in order", () => {
+    expect(COLUMN_IDS).toEqual(["add", "wk", "ros", "ros_model", "ros_spread", "d_roster", "d_pool", "l3", "beat", "pace_gap", "opp",
+      "snap_pct", "tgt_snap", "ypt", "weight", "air_share", "air_catch", "rz_tgt", "rz_att", "rz_pass", "exp"]);
+  });
+  it("reads top-level and form figures", () => {
+    const r = { add: 2, week_proj: 9, ros_adj: 80, ros_proj: 70, ros_spread: 6, delta_roster: 1, delta_pool: 3, exp: 0,
+      form: { snap_pct: 55, rz_tgt: 1.3 } } as unknown as PlayerRow;
+    const get = (id: string) => PLAYER_COLUMNS.find((c) => c.id === id)!.get(r);
+    expect([get("add"), get("wk"), get("ros"), get("ros_model"), get("ros_spread"), get("d_roster"), get("d_pool"), get("exp"), get("snap_pct"), get("rz_tgt"), get("ypt")])
+      .toEqual([2, 9, 80, 70, 6, 1, 3, 0, 55, 1.3, undefined]);
+  });
+});
+
+describe("sortFor", () => {
+  it("keeps a shown column or the name", () => {
+    expect(sortFor(["wk"], { id: "wk", desc: false })).toEqual({ id: "wk", desc: false });
+    expect(sortFor([], { id: "name", desc: false })).toEqual({ id: "name", desc: false });
+  });
+  it("a hidden sort column falls to the first shown, high first; none shown, the name", () => {
+    expect(sortFor(["snap_pct", "wk"], { id: "add", desc: true })).toEqual({ id: "snap_pct", desc: true });
+    expect(sortFor([], { id: "add", desc: true })).toEqual({ id: "name", desc: false });
   });
 });

@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isFreeAgent, ownerLabel, playersHref, rowKind } from "./players";
+import { isFreeAgent, ownerLabel, rowKind } from "./players";
 import type { PlayerRow } from "./api";
-
-describe("playersHref", () => {
-  it("query and tab, fa on omitted", () => {
-    expect(playersHref("st. brown", "WR", true)).toBe("/players?q=st.+brown&pos=WR");
-    expect(playersHref("  gibbs ", "D/ST", true)).toBe("/players?q=gibbs&pos=D%2FST");
-  });
-  it("blank query is the tab alone", () => expect(playersHref("   ", "RB", true)).toBe("/players?pos=RB"));
-  it("fa off rides as fa=0", () => expect(playersHref("", "K", false)).toBe("/players?pos=K&fa=0"));
-});
 
 describe("rowKind", () => {
   it("free agent, another team's, mine", () => {
