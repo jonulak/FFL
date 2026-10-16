@@ -94,7 +94,9 @@ def test_store_ops():
 @pytest.mark.parametrize("body", [{"name": ""}, {"name": "x" * 41}, {"cols": ["add", "add"]}, {"pos": "FB"}, {"fa": "yes"},
                                   {"filters": [{"field": "nope", "op": "ge", "value": 1}]}, {"sort": {"id": "nope", "desc": True}},
                                   {"filters": [{"field": "add", "op": "ge", "value": float("nan")}]},
-                                  {"filters": [{"field": "add", "op": "ge", "value": 10**400}]}])
+                                  {"filters": [{"field": "add", "op": "ge", "value": 10**400}]},
+                                  {"filters": [{"field": ["a"], "op": "ge", "value": 1}]},
+                                  {"sort": {"id": ["a"], "desc": True}}])
 def test_clean_refuses_a_bad_preset(body):
     with pytest.raises(ValueError):
         pv.clean(body, partial=True)

@@ -77,6 +77,8 @@ def _filter(f) -> dict:
     if not isinstance(f, dict) or set(f) != {"field", "op", "value"}:
         raise ValueError(f"a filter is field, op and value: {f!r}")
     field, op, v = f["field"], f["op"], f["value"]
+    if not isinstance(field, str):
+        raise ValueError(f"a filter's field is a name: {field!r}")
     if field in COLUMNS:
         if op not in ("ge", "le") or isinstance(v, bool) or not isinstance(v, (int, float)):
             raise ValueError(f"{field} takes ge or le and a number")
@@ -105,7 +107,7 @@ def _cols(cols) -> list[str]:
 
 
 def _sort(s) -> dict:
-    if not isinstance(s, dict) or s.get("id") not in SORTS or not isinstance(s.get("desc"), bool):
+    if not isinstance(s, dict) or not isinstance(s.get("id"), str) or s["id"] not in SORTS or not isinstance(s.get("desc"), bool):
         raise ValueError("sort is a column id and desc true or false")
     return {"id": s["id"], "desc": s["desc"]}
 

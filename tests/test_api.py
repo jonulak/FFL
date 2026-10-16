@@ -1751,6 +1751,13 @@ def test_players_applies_the_default_preset_and_url_overrides(client, monkeypatc
     assert client.get("/players?pos=RB&fa=0").json()["rows"][-1]["player_id"] == 9, "fa=0 adds the rostered half"
 
 
+def test_players_avail_theirs_or_mine_reaches_the_rostered_half_whatever_fa_says(client, monkeypatch):
+    _views_pool(monkeypatch)
+    body = client.get("/players?pos=RB&f=avail:in:mine").json()
+    assert body["view"]["fa"] is True
+    assert [r["player_id"] for r in body["rows"]] == [9]
+
+
 def test_players_all_is_capped_unfiltered_and_whole_when_filtered(client, monkeypatch):
     _views_pool(monkeypatch)
     body = client.get("/players?pos=ALL").json()

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { columnOrder, toggleColumn, moveColumn, setFilter, removeFilter, finishedFilters, presetView } from "./view-draft";
+import { columnOrder, toggleColumn, moveColumn, setFilter, removeFilter, finishedFilters, presetView, needsRostered } from "./view-draft";
 
 describe("the Columns list", () => {
   it("lists the picked columns in order, then the rest in catalogue order", () => {
@@ -40,5 +40,15 @@ describe("presetView", () => {
   it("drops the id and the name", () => {
     const p = { id: "w", name: "Waivers", pos: "RB", fa: true, cols: ["add"], filters: [], sort: { id: "add", desc: true } };
     expect(presetView(p)).toEqual({ pos: "RB", fa: true, cols: ["add"], filters: [], sort: { id: "add", desc: true } });
+  });
+});
+
+describe("needsRostered", () => {
+  it("is true for an avail filter naming theirs or mine, false otherwise", () => {
+    expect(needsRostered([{ field: "avail", op: "in", value: ["fa", "theirs"] }])).toBe(true);
+    expect(needsRostered([{ field: "avail", op: "in", value: ["mine"] }])).toBe(true);
+    expect(needsRostered([{ field: "avail", op: "in", value: ["fa", "waivers"] }])).toBe(false);
+    expect(needsRostered([{ field: "injury", op: "in", value: ["out"] }])).toBe(false);
+    expect(needsRostered([])).toBe(false);
   });
 });

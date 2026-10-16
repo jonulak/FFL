@@ -13,6 +13,12 @@ export function finishedFilters(filters: ViewFilter[]): ViewFilter[] {
   return filters.filter((f) => (f.op === "in" ? f.value.length > 0 : Number.isFinite(f.value)));
 }
 
+// An Availability filter naming theirs or mine matches rostered players only, so the view must read
+// the rostered half (fa false).
+export function needsRostered(filters: ViewFilter[]): boolean {
+  return filters.some((f) => f.field === "avail" && f.op === "in" && f.value.some((v) => v === "theirs" || v === "mine"));
+}
+
 // The View sheet's edits, pure (ffl-8iz): the Columns list is every column, the picked ones first in
 // their order, the rest after in catalogue order; a drag reorders the picked ones; one filter per field.
 export function columnOrder(cols: string[]): { id: string; on: boolean }[] {

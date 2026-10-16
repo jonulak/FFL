@@ -20,7 +20,7 @@ import { LABEL } from "@/lib/board";
 import { columnSpec, PLAYER_COLUMNS, sortFor } from "@/lib/player-columns";
 import { FILTER_SETS } from "@/lib/player-view";
 import { TEAMS } from "@/lib/teams";
-import { columnOrder, finishedFilters, moveColumn, presetView, removeFilter, setFilter, toggleColumn } from "@/lib/view-draft";
+import { columnOrder, finishedFilters, needsRostered, moveColumn, presetView, removeFilter, setFilter, toggleColumn } from "@/lib/view-draft";
 import { PHONE_INSET } from "./claims-submit";
 import { usePlayerView } from "./player-view-context";
 import { useDesk } from "./swap-sheet";
@@ -66,7 +66,9 @@ function ViewEditor({ focus, bodyRef, phone, onDone }: {
     if (focus === "presets") presets.current?.scrollIntoView({ block: "start" });
   }, [focus]);
   const apply = () => {
-    go({ ...view, cols, filters: finishedFilters(filters), sort: sortFor(cols, view.sort) });
+    const done = finishedFilters(filters);
+    // theirs/mine live in the rostered half: the Free agents toggle must say so
+    go({ ...view, cols, filters: done, sort: sortFor(cols, view.sort), ...(needsRostered(done) ? { fa: false } : {}) });
     onDone();
   };
   return (
@@ -76,8 +78,8 @@ function ViewEditor({ focus, bodyRef, phone, onDone }: {
         <SheetDescription className="text-xs text-muted-foreground">Columns and filters apply together; presets save at once.</SheetDescription>
       </div>
       <div ref={bodyRef} tabIndex={-1} className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain px-4 pt-4 pb-6 outline-none">
-        <ColumnsSection cols={cols} setCols={setCols} />
         <FiltersSection filters={filters} setFilters={setFilters} />
+        <ColumnsSection cols={cols} setCols={setCols} />
         <section ref={presets} className="scroll-mt-4">
           <PresetsSection onDone={onDone} />
         </section>
@@ -235,7 +237,8 @@ function NumberControl({ f, autoFocus, onChange }: { f: Extract<ViewFilter, { op
         <ToggleGroupItem value="ge" variant="outline" aria-label="at least" className={`${PRESSABLE} text-base`}>≥</ToggleGroupItem>
         <ToggleGroupItem value="le" variant="outline" aria-label="at most" className={`${PRESSABLE} text-base`}>≤</ToggleGroupItem>
       </ToggleGroup>
-      <Input type="number" inputMode="decimal" step="any" autoFocus={autoFocus} aria-label={`${name} value`}
+      {/* no inputMode: the iOS decimal pad has no minus key, and beat, pace, Δ roster, Δ pool and air% are signed */}
+      <Input type="number" step="any" autoFocus={autoFocus} aria-label={`${name} value`}
         defaultValue={initial}
         onChange={(e) => onChange({ ...f, value: e.currentTarget.value.trim() === "" ? NaN : e.currentTarget.valueAsNumber })}
         className="h-10 w-20 border-foreground/15 text-right tabular-nums sm:h-8" />

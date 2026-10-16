@@ -1060,7 +1060,9 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "ALL"] | None = No
         found = [r for half in (data["positions"], rostered) for rows in half.values() for r in rows
                  if season.name_matches(r, q)]
     else:
-        halves = (data["positions"],) if view["fa"] else (data["positions"], rostered)
+        # an Availability filter naming theirs or mine can only match the rostered half
+        wants_rostered = any(f["field"] == "avail" and {"theirs", "mine"} & set(f["value"]) for f in view["filters"])
+        halves = (data["positions"],) if view["fa"] and not wants_rostered else (data["positions"], rostered)
         found = [r for half in halves for p, rows in half.items() if view["pos"] in (player_views.ALL, p) for r in rows]
     rows = [{"owner": None, "mine": False, **r, "has_outlook": not r.get("owner") and r["player_id"] in written}
             for r in season.rank_players(found)]
