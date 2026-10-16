@@ -241,6 +241,9 @@ def parse_envelope(stdout: str) -> list[dict]:
     return normalize(out)
 
 
+HOOKS_OFF = json.dumps({"disableAllHooks": True})
+
+
 def run_claude(prompt: str) -> list[dict]:
     """One outlook through the Claude Code CLI: Opus with web search and fetch (allowed up front: there is
     nobody to answer a permission prompt), structured output, the sheet on stdin."""
@@ -252,10 +255,11 @@ def run_claude(prompt: str) -> list[dict]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
     # No --bare: it skips the keychain, and every call then answers "Not logged in". The CLI reads
     # CLAUDE.md from its working directory, so run it from the outlook dir, not the repo — the sheet
-    # is the whole prompt.
+    # is the whole prompt. Hooks off: the user's global ones (moshi's phone notifications, plugin
+    # session hooks) would otherwise fire on every run.
     OUTLOOK_DIR.mkdir(parents=True, exist_ok=True)
     r = subprocess.run([exe, "-p", "--model", MODEL, "--tools", TOOLS, "--allowedTools", TOOLS,
-                        "--no-session-persistence", "--output-format", "json", "--json-schema", json.dumps(SCHEMA)],
+                        "--no-session-persistence", "--settings", HOOKS_OFF, "--output-format", "json", "--json-schema", json.dumps(SCHEMA)],
                        input=prompt, capture_output=True, text=True, timeout=TIMEOUT_S, env=env,
                        cwd=str(OUTLOOK_DIR))
     if r.returncode != 0:

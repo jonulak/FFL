@@ -290,7 +290,8 @@ def test_run_claude_invokes_the_cli_with_web_tools(monkeypatch):
     assert outlook.run_claude("the sheet") == [TAKE]
     assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--model", "opus",
                              "--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch",
-                             "--no-session-persistence", "--output-format", "json",
+                             "--no-session-persistence", "--settings", '{"disableAllHooks": true}',
+                             "--output-format", "json",
                              "--json-schema", json.dumps(outlook.SCHEMA)]
     assert "--bare" not in calls["args"]
     assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 300
