@@ -1,9 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import type { Player } from "@/lib/api";
 import { pts } from "@/lib/format";
+import { Heading } from "./player-dialog";
+import { BAND_CLOSE, PlayerHeader } from "./player-header";
 
 // The week's projection is one number, the consensus of every source that has him (ffl/consensus.py),
 // and `spread` says how far apart they were. Every board shows it as `±spread` beside the number,
@@ -46,16 +48,13 @@ export function ProjectionTrigger({ p, week, className = "", label, children }: 
       >
         {children}
       </DialogTrigger>
-      <DialogContent className="gap-0 p-0 sm:max-w-md">
-        <div className="flex items-start justify-between gap-4 px-5 pt-5 pr-12">
-          <div className="min-w-0">
-            <DialogTitle className="text-balance break-words font-display text-[1.375rem] font-semibold leading-tight tracking-tight">{p.name}</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              {week != null ? `Week ${week} projection` : "This week's projection"} · {p.pos}
-            </DialogDescription>
-          </div>
-        </div>
-        <div className="px-5 pt-4 pb-5"><ProjectionSources p={p} /></div>
+      {/* the team-colour header the player and box-score dialogs open on */}
+      <DialogContent className={`gap-0 overflow-hidden rounded-lg p-0 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-md ${BAND_CLOSE}`}>
+        <PlayerHeader p={p} week={week} />
+        <section aria-labelledby="proj-sources" className="space-y-3 px-4 pt-4 pb-5">
+          <Heading id="proj-sources" title={week != null ? `Week ${week}` : "This week"} note="projection" />
+          <ProjectionSources p={p} />
+        </section>
       </DialogContent>
     </Dialog>
   );

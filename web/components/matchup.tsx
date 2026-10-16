@@ -249,8 +249,10 @@ function Half({ p, week, now, end, onPick }: { p: Player; week: number; now: num
         {p.stat_line && <StatLine text={p.stat_line} className="mt-1.5 text-xs max-sm:hidden" wrap />}
       </ItemContent>
       <ItemActions className="self-start">
+        {/* a posted score is no button of its own: the tap passes through to the breakdown (the
+            Ticker is positioned, so it would otherwise stand over the half's button and take it) */}
         {on
-          ? <Num p={p} now={now} end={end} />
+          ? <div className="pointer-events-none"><Num p={p} now={now} end={end} /></div>
           : (
             <ProjectionTrigger p={p} week={week} className="relative z-10 -m-1 block p-1">
               <Num p={p} now={now} end={end} />
