@@ -98,12 +98,14 @@ def _blank(week: int, status: str) -> dict:
 
 
 def season_log(rows: list[dict], season: int, pos: str, scoring: list[dict], games: dict, byes: dict,
-               through: int, fallback_club: str | None) -> dict | None:
-    """Weeks 1..`through` of one season, then its totals; None when he played no game in it.
-    A week without a row is his club's bye, or a game he missed; the `through` week itself shows
-    only once he has played it (or it is his bye), since before kickoff there is nothing to show."""
+               through: int, fallback_club: str | None, missed: bool = False) -> dict | None:
+    """Weeks 1..`through` of one season, then its totals; None when he played no game in it,
+    unless `missed` (the current season: hurt since week 1, his weeks gone by are games missed),
+    which logs them with no totals. A week without a row is his club's bye, or a game he missed;
+    the `through` week itself shows only once he has played it (or it is his bye), since before
+    kickoff there is nothing to show."""
     played = _game_rows(rows, season)
-    if not played:
+    if not played and not missed:
         return None
     by_week = {r["scoringPeriodId"]: (r, c) for r, c in zip(played, _clubs(played, games, fallback_club))}
     weeks = []
@@ -126,6 +128,8 @@ def season_log(rows: list[dict], season: int, pos: str, scoring: list[dict], gam
     for b in box:  # a band's season count is the games that landed in it, not its summed basis
         if b["flat"]:
             b["count"] = totals.get(str(b["stat_id"]), 0.0)
+    if not played:
+        return {"season": season, "weeks": weeks, "totals": None} if weeks else None
     pts = round(sum(w["pts"] for w in weeks if w["status"] == "played"), 2)
     return {"season": season, "weeks": weeks,
             "totals": {"games": len(played), "pts": pts, "ppg": round(pts / len(played), 1),
@@ -274,13 +278,14 @@ def player_log(card: dict, scoring: list[dict], schedules: dict[int, dict], curr
         sched = schedules.get(yr) or {}
         games = parse_games(sched)
         through = current_week if yr == season else max((w for w, _, _ in games.values()), default=18)
-        s = season_log(p.get("stats") or [], yr, pos, scoring, games, parse_byes(sched), through, team)
+        s = season_log(p.get("stats") or [], yr, pos, scoring, games, parse_byes(sched), through, team,
+                       missed=yr == season)
         if yr == season:
             by_opp = (ranks or {}).get(pos, {})
             if s:
                 at = pos_ranks or {}
                 s = {**s, "weeks": [_ranked(w, by_opp, at.get("weeks", {}), p["id"], current_week) for w in s["weeks"]],
-                     "totals": {**s["totals"], "pos_rank": at.get("season", {}).get(p["id"])}}
+                     "totals": s["totals"] and {**s["totals"], "pos_rank": at.get("season", {}).get(p["id"])}}
                 s = with_snaps(s, snaps or {})
             # the current week is in the log once played (or his bye); otherwise it is still ahead
             logged = max((w["week"] for w in s["weeks"]), default=0) if s else 0

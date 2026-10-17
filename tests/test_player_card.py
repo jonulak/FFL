@@ -173,6 +173,20 @@ def test_player_log_weeks_ahead():
     assert now["totals"]["games"] == sum(w["status"] == "played" for w in now["weeks"])
 
 
+def test_player_log_no_game_yet_shows_the_weeks_missed():
+    """Hurt from week 1 (Josh Jacobs, 2026): no game played this season still logs the weeks gone
+    by, each a game missed or his bye, before the weeks ahead; there are no totals to show."""
+    allen = player(3918298)
+    rows = [r for r in allen["stats"] if r.get("seasonId") != 2026]
+    card = {"players": [{"player": {**allen, "stats": rows}}]}
+    now = pc.player_log(card, SCORING, {2026: SCHED25}, 9, 2026, now=0,
+                        pos_ranks={"season": {}, "weeks": {}}, snaps={})["seasons"][0]
+    assert now["season"] == 2026 and now["totals"] is None
+    assert [w["status"] for w in now["weeks"][:8]] == ["out"] * 6 + ["bye", "out"]
+    assert [w["week"] for w in now["weeks"]] == list(range(1, 19))
+    assert {w["status"] for w in now["weeks"][8:]} == {"upcoming"}
+
+
 def test_week_projections_mean_this_week_sleeper_after():
     """ESPN projects only the current week, so it is averaged with Sleeper there and the weeks
     after are Sleeper's alone; a week Sleeper has no row for him has no projection."""
