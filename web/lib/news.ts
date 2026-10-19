@@ -39,8 +39,10 @@ export function ownerTag(r: Pick<NewsRow, "owner" | "mine">): string {
 }
 
 // The arrows show; the ● rows wait behind "+k no change".
-export function splitRows(rows: NewsRow[]): { moved: NewsRow[]; none: NewsRow[] } {
-  return { moved: rows.filter((r) => r.effect !== "none"), none: rows.filter((r) => r.effect === "none") };
+// `pinMine` (the My players filter): his own no-change rows stay out with the arrows, never behind "+k no change".
+export function splitRows(rows: NewsRow[], pinMine = false): { moved: NewsRow[]; none: NewsRow[] } {
+  const shown = (r: NewsRow) => r.effect !== "none" || (pinMine && r.mine);
+  return { moved: rows.filter(shown), none: rows.filter((r) => !shown(r)) };
 }
 
 export function statusLabel(s: Story["status"]): string | null {

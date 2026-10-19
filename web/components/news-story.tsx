@@ -164,10 +164,13 @@ function Foot({ s, none, dim, tagged }: { s: Story; none: NewsRow[]; dim: boolea
 // `focus`: the player page's player, whose row (the only one the API sends there) opens out into his line.
 // `target`: the story a push opened, washed in ink and scrolled to by the feed.
 // `tagged`: the owners read succeeded, so the owner tags are true.
-export function NewsStory({ s, focus, target = false, tagged = true }: { s: Story; focus?: number; target?: boolean; tagged?: boolean }) {
+// `pinMine`: the My players filter, where my own chips show even when they are no change.
+export function NewsStory({ s, focus, target = false, tagged = true, pinMine = false }: {
+  s: Story; focus?: number; target?: boolean; tagged?: boolean; pinMine?: boolean;
+}) {
   const label = statusLabel(s.status);
   const retracted = s.status === "retracted";
-  const { moved, none } = splitRows(s.players);
+  const { moved, none } = splitRows(s.players, pinMine);
   return (
     <li id={`story-${s.id}`} data-target={target || undefined} className="news-story scroll-mt-16 space-y-2.5 px-3 py-4 sm:px-4">
       <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-4 text-muted-foreground">

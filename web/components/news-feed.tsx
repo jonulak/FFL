@@ -58,8 +58,8 @@ function Notices({ d }: { d: NewsPage }) {
   );
 }
 
-function List({ stories, focus, target, tagged, empty, next, loading, failed, older, pending = false }: {
-  stories: Story[]; focus?: number; target?: number | null; tagged: boolean; empty: string;
+function List({ stories, focus, target, tagged, pinMine = false, empty, next, loading, failed, older, pending = false }: {
+  stories: Story[]; focus?: number; target?: number | null; tagged: boolean; pinMine?: boolean; empty: string;
   next: string | null; loading: boolean; failed: boolean; older: () => void; pending?: boolean;
 }) {
   return (
@@ -71,7 +71,7 @@ function List({ stories, focus, target, tagged, empty, next, loading, failed, ol
               ? <p className="px-4 py-6 text-center text-xs text-muted-foreground">{empty}</p>
               : (
                 <ul className="divide-y divide-foreground/10">
-                  {stories.map((s) => <NewsStory key={s.id} s={s} focus={focus} target={s.id === target} tagged={tagged} />)}
+                  {stories.map((s) => <NewsStory key={s.id} s={s} focus={focus} target={s.id === target} tagged={tagged} pinMine={pinMine} />)}
                 </ul>
               )}
           </CardContent>
@@ -151,7 +151,7 @@ export function NewsFeed({ data, filter, target, pinned, quiet }: {
       {target != null && !pinned && !stories.some((s) => s.id === target) && (
         <p className="text-xs text-muted-foreground">The story from the notification is no longer in the feed.</p>
       )}
-      <List stories={list} target={target} tagged={!data.owners_error} next={next} loading={loading} failed={failed} older={older} pending={pending}
+      <List stories={list} target={target} tagged={!data.owners_error} pinMine={filter === "mine"} next={next} loading={loading} failed={failed} older={older} pending={pending}
         empty={quiet ? EMPTY[filter] : `${EMPTY[filter]} Stories that move nobody are hidden.`} />
     </div>
   );
