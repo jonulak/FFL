@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -8,7 +8,7 @@ from ffl.newsdesk.players import Index
 
 INDEX = Index(by_id={1: {"name": "Jalen Hurts", "pos": "QB", "team": "PHI"},
                      3: {"name": "Tank Bigsby", "pos": "RB", "team": "PHI"}})
-AT = "2026-10-19T12:00:00+00:00"
+AT = datetime.now(timezone.utc).isoformat(timespec="seconds")  # news pushes only while new (NEWS_PUSH_MAX_AGE)
 ME = 7
 
 
@@ -37,6 +37,9 @@ def stages(monkeypatch):
 def make(players, rev=1, headline="Hurts hurt", status="live"):
     """A written story: players are (pid, effect, kind)."""
     sid = db.add_story({"first_item_id": None, "first_at": AT, "updated_at": AT, "kind": "injury"})
+    [i] = db.add_news_items([{"source_id": "pft", "ext_id": f"x{sid}", "url": "u", "published_at": AT, "fetched_at": AT,
+                              "title": headline, "text": "", "club": "PHI", "hash": f"h{sid}"}])
+    db.tag_item(i, [p for p, _, _ in players], None, sid, AT)
     db.put_story_players(sid, [{"player_id": p, "effect": e, "kind": k, "prob": 0.9, "confidence": 0.5}
                                for p, e, k in players])
     for _ in range(rev - 1):
@@ -234,8 +237,36 @@ def test_retraction_supersedes_an_unsent_original(stages):
     assert keys() == [] and outcomes()[f"news:{sid}:1"] == "superseded"
 
 
+def test_corrected_story_never_pushed_runs_as_news(stages):
+    """"Contrary to reports, X is out": the first report moved nobody, so nothing went out; the correction does."""
+    _, written = stages
+    sid = make([(1, "none", "injury")])
+    written[:] = [(sid, 1)]
+    pipeline.run()
+    assert keys() == []
+    db.set_story_status(sid, "corrected", AT, "PFT")
+    db.put_story_players(sid, [{"player_id": 1, "effect": "down", "kind": "injury", "prob": 0.9, "confidence": 0.5}])
+    db.put_story_words(sid, 2, "Correction: Hurts out", "Overview.", {1: ("Out after all.", False)})
+    written[:] = [(sid, 2)]
+    pipeline.run()
+    [n] = db.unsent_notices()
+    assert (n["key"], n["title"], n["body"]) == (f"news:{sid}:2", "Correction: Hurts out", "▼ Jalen Hurts: Out after all.")
+
+
+def test_old_news_does_not_push(stages):
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    old = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat(timespec="seconds")
+    with db._write() as conn:  # the first run's backlog: written now, published seven hours ago
+        conn.execute(db.news_items_table.update().values(published_at=old))
+    written[:] = [(sid, 1)]
+    assert pipeline.run()["notices"]["queued"] == 0
+    assert keys() == []
+
+
 def test_retraction_pushes_status_only_after_the_original(stages):
     _, written = stages
+    db.put_news_sources([{"id": "PFT", "kind": "pft", "club": None, "name": "Pro Football Talk", "url": "u", "active": True}])
     sid = make([(1, "down", "injury")])
     written[:] = [(sid, 1)]
     pipeline.run()
@@ -245,7 +276,8 @@ def test_retraction_pushes_status_only_after_the_original(stages):
     written[:] = [(sid, 2)]
     pipeline.run()
     [n] = db.unsent_notices()
-    assert (n["key"], n["title"], n["body"]) == (f"news:{sid}:retracted", "Retracted: Report withdrawn: Hurts hurt", "PFT")
+    assert (n["key"], n["title"], n["body"]) == (f"news:{sid}:retracted", "Retracted: Report withdrawn: Hurts hurt",
+                                                 "Pro Football Talk")  # the source's name, not its id
     never = make([(1, "down", "trade")], rev=2, status="retracted")
     written[:] = [(never, 2)]
     pipeline.run()

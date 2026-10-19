@@ -13,8 +13,12 @@ def row(pid, effect, prob=0.9, reason="A reason.", flag=False, kind="injury", na
             "flag": flag, "name": name or f"P{pid}"}
 
 
-def story(*rows, sid=5, rev=1, headline="Something happened", status="live", note=None):
-    return {"id": sid, "rev": rev, "headline": headline, "status": status, "status_note": note, "players": list(rows)}
+FRESH = "2026-10-19T15:30:00+00:00"  # half an hour before AT
+
+
+def story(*rows, sid=5, rev=1, headline="Something happened", status="live", note=None, published=FRESH, status_at=FRESH):
+    return {"id": sid, "rev": rev, "headline": headline, "status": status, "status_note": note, "status_at": status_at,
+            "players": list(rows), "items": [{"published_at": "2026-10-18T09:00:00+00:00"}, {"published_at": published}]}
 
 
 def push(*rows, **kw):
@@ -100,3 +104,25 @@ def test_material_update_detected_by_an_earlier_rev_pushed():
     assert not notices.is_update(story(sid=5, rev=2), [])
     assert not notices.is_update(story(sid=5, rev=1), ["news:5:1"])
     assert not notices.is_update(story(sid=5, rev=2), ["news:55:1", "news:5:retracted"])
+
+
+def test_old_news_does_not_push():
+    """The first run collects three days of items, and a catch-up after a Haiku-limit stretch writes old stories:
+    only news whose newest source is at most NEWS_PUSH_MAX_AGE old pushes; the feed still shows the rest."""
+    t = datetime.fromisoformat(AT)
+    at_edge = (t - notices.NEWS_PUSH_MAX_AGE).isoformat()
+    stale = (t - notices.NEWS_PUSH_MAX_AGE - timedelta(minutes=1)).isoformat()
+    assert notices.NEWS_PUSH_MAX_AGE == timedelta(hours=6)
+    assert notices.for_story(story(row(1, "down"), published=at_edge), OWNERS, ME, set(), AT) is not None
+    assert notices.for_story(story(row(1, "down"), published=stale), OWNERS, ME, set(), AT) is None
+    assert notices.for_story({**story(row(1, "down")), "items": []}, OWNERS, ME, set(), AT) is None
+    s = story(row(1, "down"), sid=9, rev=2, status="retracted", published=stale)
+    assert notices.for_status({**s, "status_at": at_edge}, ["news:9:1"], AT) is not None  # the retraction's own time
+    assert notices.for_status({**s, "status_at": stale}, ["news:9:1"], AT) is None
+
+
+def test_status_note_names_the_source():
+    s = story(row(1, "down"), sid=9, rev=2, headline="Hurts out", status="corrected", note="espn:LAR")
+    sources = {"espn:LAR": {"id": "espn:LAR", "name": "ESPN Rams"}}
+    assert notices.for_status(s, ["news:9:1"], AT, sources)["body"] == "ESPN Rams"
+    assert notices.for_status(s, ["news:9:1"], AT)["body"] == "espn:LAR"  # an unknown source: its id

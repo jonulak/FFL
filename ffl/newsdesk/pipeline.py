@@ -59,6 +59,7 @@ def notify_written(written: list, index: players.Index) -> dict:
     waiting = [n["key"] for n in db.unsent_notices() if n["key"].startswith("news:")]
     at, t = notify.now(), datetime.now().astimezone()
     queued, stories = _queued(t)
+    sources = {s["id"]: s for s in db.news_sources(active_only=False)}
     added: set[tuple[int, str]] = set()  # rows pushed by this run
     out, superseded = [], []
     for sid, rev, _ in pending:
@@ -70,7 +71,12 @@ def notify_written(written: list, index: players.Index) -> dict:
         own = f"news:{sid}:"
         mine = [k for k in pushed if k.startswith(own)]
         stale = [k for k in waiting if k.startswith(own)]
-        if s["status"] == "live" or (s["status"] == "corrected" and (f"{own}corrected" in pushed or stale)):
+        # the status push says "the news you got changed": only for a story that pushed before (sent, none waiting) and
+        # whose status push has not gone yet. A correction of news never pushed is news in its own right
+        if s["status"] == "retracted" or (s["status"] == "corrected" and mine and not stale
+                                          and f"{own}corrected" not in pushed):
+            n = notices.for_status(s, mine, at, sources)
+        else:
             if notices.is_update(s, mine):
                 skip = set()
             else:
@@ -78,8 +84,6 @@ def notify_written(written: list, index: players.Index) -> dict:
             n = notices.for_story(s, who, me, muted, at, skip)
             if n:
                 added |= set(notices.rows(s, who, me, muted, skip))
-        else:
-            n = notices.for_status(s, mine, at)
         if n:
             out.append(n)
         superseded += [k for k in stale if not n or k != n["key"]]

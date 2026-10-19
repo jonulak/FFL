@@ -5,7 +5,9 @@ A player row pushes when it moves my roster down (▼ on a player I hold) or a f
 revision (`news:<id>:<rev>`); a correction or retraction pushes once more (`news:<id>:<status>`), only when the
 story pushed before. At most one push per player and kind of news in DEDUPE: `recent` is what was queued in that
 time (sent or waiting), off the notices table and the stories' rows; a story whose earlier revision pushed is a
-material update (`is_update`) and skips it.
+material update (`is_update`) and skips it. Only news still new pushes: the story's newest source (a status push: its
+status change) at most NEWS_PUSH_MAX_AGE old, so the first run's three days of items, or a catch-up after a stretch at
+Haiku's limit, stays in the feed without pushing.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from datetime import datetime, timedelta
 from ..notify import BODY_MAX
 
 NEWS_PUSH_PROB = 0.8
+NEWS_PUSH_MAX_AGE = timedelta(hours=6)
 DEDUPE = timedelta(hours=24)
 ARROW = {"down": "▼", "up": "▲"}
 SEP = " · "
@@ -65,10 +68,17 @@ def body(lines: list[str]) -> str:
     return SEP.join(kept) + _more(len(lines) - len(kept))
 
 
+def _new(when: str | None, at: str) -> bool:
+    """Within NEWS_PUSH_MAX_AGE of `at`; compared as times, since `at` is local and stored times are UTC."""
+    return bool(when) and datetime.fromisoformat(at) - datetime.fromisoformat(when) <= NEWS_PUSH_MAX_AGE
+
+
 def for_story(story: dict, owners: dict[int, dict], me: int, muted: set[int], at: str,
               recent: set[tuple[int, str]] = frozenset()) -> dict | None:
-    """The push for a written story revision, or None when no row qualifies. A row's name is `name` (the pipeline
-    dresses the rows from the player index)."""
+    """The push for a written story revision, or None when no row qualifies or its newest source is too old to be
+    news. A row's name is `name` (the pipeline dresses the rows from the player index)."""
+    if not _new(max((i["published_at"] for i in story.get("items") or []), default=None), at):
+        return None
     got = _qualifying(story, owners, me, muted, recent)
     if not got:
         return None
@@ -77,15 +87,18 @@ def for_story(story: dict, owners: dict[int, dict], me: int, muted: set[int], at
             "url": f"/news?story={story['id']}", "created_at": at}
 
 
-def for_status(story: dict, pushed: list[str], at: str) -> dict | None:
-    """A corrected or retracted story's one push, only when an earlier `news:<id>:*` notice was sent and Haiku gave it
-    a headline."""
+def for_status(story: dict, pushed: list[str], at: str, sources: dict[str, dict] | None = None) -> dict | None:
+    """A corrected or retracted story's one push, only when an earlier `news:<id>:*` notice was sent, Haiku gave it a
+    headline and the status changed within NEWS_PUSH_MAX_AGE. The body names the source behind it (`sources`: id ->
+    news_sources row, as feed.shape names it), its id when unknown."""
     status, sid = story["status"], story["id"]
     if (status not in STATUS_TITLE or not (story.get("headline") or "").strip()
-            or not any(k.startswith(f"news:{sid}:") for k in pushed)):
+            or not any(k.startswith(f"news:{sid}:") for k in pushed) or not _new(story.get("status_at"), at)):
         return None
+    note = story.get("status_note")
     return {"key": f"news:{sid}:{status}", "kind": "news", "title": f"{STATUS_TITLE[status]}: {story['headline']}",
-            "body": story.get("status_note") or STATUS_BODY[status], "url": f"/news?story={sid}", "created_at": at}
+            "body": ((sources or {}).get(note) or {}).get("name") or note or STATUS_BODY[status], "url": f"/news?story={sid}",
+            "created_at": at}
 
 
 def rev_key(key: str) -> tuple[int, int] | None:
