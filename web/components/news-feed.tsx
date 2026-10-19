@@ -6,7 +6,7 @@ import { clientGet } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { NewsPage, PlayerNews, Story } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
 import { filterHref, NEWS_FILTERS, ownerTag, type NewsFilter } from "@/lib/news";
@@ -130,19 +130,21 @@ export function NewsFeed({ data, filter, target, pinned, quiet }: {
         {/* on the title line from `sm`; on the phone the field takes the full width under it */}
         <div className="w-full sm:ml-auto sm:w-auto"><NewsSearch /></div>
       </div>
-      <ToggleGroup value={[shown]} onValueChange={(v: string[]) => {
-        const f = v[0] as NewsFilter | undefined;
-        if (f && f !== filter) go(f, quiet);
-      }} aria-label="Whose news" spacing={1} className="-mx-2 flex-wrap">
-        {/* tight enough that the four sit on one line at 360px; a larger text size wraps them rather than cutting one.
-            The chosen one is ink on inverse, the Transactions My team toggle's pressed state. */}
-        {NEWS_FILTERS.map(([f, label]) => (
-          <ToggleGroupItem key={f} value={f}
-            className="h-9 px-2 font-display text-sm font-semibold uppercase tracking-[0.08em] text-foreground/60 hover:text-foreground aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground sm:h-8">
-            {label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      {/* the chyron strip of the nav and the Players positions (pos-tabs): shadcn Tabs, line variant, the chosen filter
+          in full ink over a bar that slides to it; it scrolls on a phone too narrow for the four */}
+      <Tabs value={shown} onValueChange={(v) => {
+        const f = v as NewsFilter;
+        if (f !== filter) go(f, quiet);
+      }} aria-label="Whose news">
+        <TabsList variant="line" indicatorInset="0.625rem" className="h-10 w-full justify-start gap-0 overflow-x-auto overflow-y-hidden border-b border-foreground/12 p-0 [scrollbar-width:none]">
+          {NEWS_FILTERS.map(([f, label]) => (
+            <TabsTrigger key={f} value={f}
+              className="h-full flex-none rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground">
+              {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
       <label className="flex w-fit cursor-pointer items-center gap-2.5 text-xs text-muted-foreground">
         <Switch className="data-unchecked:bg-foreground/20 dark:data-unchecked:bg-foreground/25" checked={quietShown} onCheckedChange={(on) => go(filter, on)} />
         Show no-change stories
