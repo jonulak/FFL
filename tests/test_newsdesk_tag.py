@@ -32,7 +32,7 @@ def story(players=(1,), effect="down", at="2026-10-19T10:00:00+00:00", first_ite
     return sid
 
 
-def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="injury", story_prob=0.8):
+def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="injury", story_prob=0.8, fresh=0.9):
     """A Jev stand-in: every question answered; `story` is the choice for the story question."""
     calls = []
 
@@ -42,7 +42,7 @@ def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="i
         for k, q in qs.items():
             name, _, pid = k.partition(":")
             if q["type"] == "noul":
-                v = (about or {}).get(int(pid), 0.95) if name == "about" else {"retract": retract, "changed": changed}[name]
+                v = (about or {}).get(int(pid), 0.95) if name == "about" else {"retract": retract, "changed": changed, "fresh": fresh}[name]
                 out[k] = {"type": "noul", "noul": v}
                 continue
             opts = list(q["criteria"])
@@ -64,7 +64,8 @@ def test_questions_shape():
     it = {"title": "Kyren Williams limited", "text": "body", "club": "LAR"}
     ps = [{"player_id": 1, **INDEX.by_id[1]}, {"player_id": 2, **INDEX.by_id[2]}]
     qs = tag.questions(it, ps, [])
-    assert set(qs) == {"about:1", "effect:1", "kind:1", "about:2", "effect:2", "kind:2"}
+    assert set(qs) == {f"{q}:{p}" for q in ("about", "fresh", "effect", "kind") for p in (1, 2)}
+    assert qs["fresh:1"]["type"] == "noul" and "new information about Kyren Williams" in qs["fresh:1"]["instructions"]
     assert list(qs["effect:1"]["criteria"]) == ["up", "down", "none"]
     assert list(qs["kind:2"]["criteria"]) == ["injury", "return", "role", "depth", "other"]
     assert qs["about:1"]["type"] == "noul" and "Kyren Williams, the LAR RB" in qs["about:1"]["instructions"]
@@ -101,6 +102,17 @@ def test_read_takes_argmax_and_prob():
     assert len(by) == 19 and got["story"] is None  # the spike's story answer was "new"
     assert tag.read({**answers, "story": {"type": "choice", "choice": "s12", "probabilities": {}, "confidence": 1}},
                     [{"player_id": p} for p in pids])["story"] == 12
+
+
+@pytest.mark.parametrize("fresh,effect", [(0.2, "none"), (0.8, "down")])
+def test_passing_mention_forced_none(fresh, effect):
+    i = item("a", "Panthers preview", text="With Kyren Williams out, the Rams lean on the pass")
+    tag.run(INDEX, ask=fake(effect="down", fresh=fresh), now=NOW)
+    [s] = db.recent_stories([1], "2026-10-01")
+    row = rows(s["id"])[1]
+    assert (row["effect"], row["kind"]) == (effect, "injury")
+    assert row["prob"] == pytest.approx(0.1 if effect == "none" else 0.8)  # the shown effect's own probability
+    assert s["items"][0]["jev"]["fresh:1"]["noul"] == fresh and s["items"][0]["id"] == i
 
 
 def test_new_story_when_new():

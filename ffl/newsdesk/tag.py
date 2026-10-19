@@ -2,7 +2,9 @@
 
 One call an item: per matched player, `about:<pid>` (is the text about him, not a coach or another
 player with his name; under ABOUT he is dropped before anything else), `effect:<pid>` (▲ up / ▼ down /
-● none for his fantasy value) and `kind:<pid>`; with stories in the window, `story` (which one this
+● none for his fantasy value), `fresh:<pid>` (new information about him, not a passing mention of news
+already known; under FRESH his effect is forced to ●, so a preview naming an old injury never pushes)
+and `kind:<pid>`; with stories in the window, `story` (which one this
 item reports, or `new`) and `retract` (does it say an earlier report was wrong). The story pick is a
 proposal: the item joins only at STORY_ATTACH_PROB, through a shared player with the same kind of news
 (`_joins`); otherwise it starts its own story. An attached item that
@@ -26,6 +28,7 @@ WINDOW = timedelta(days=3)  # a story takes new items while it was updated this 
 ABOUT = 0.5
 RETRACT = 0.5
 CHANGED = 0.5
+FRESH = 0.5  # under this the item only mentions known news about him: his row is ● whatever `effect` said
 STORY_ATTACH_PROB = 0.6  # Jev's story pick is a proposal: below this the item starts its own story
 MAX_OPTIONS = 254  # Jev takes 255 options a choice; plus `new`
 MAX_TEXT = 60_000  # chars (~15k tokens): inside the 32k per-question context with room for the question
@@ -68,6 +71,10 @@ def questions(item: dict, players: list[dict], candidates: list[dict]) -> dict:
         pid, who, name = p["player_id"], _who(p), p["name"]
         qs[f"about:{pid}"] = {"type": "noul", "instructions":
                               f"This text is about {who}, not someone else with that name (a coach, a different player)."}
+        qs[f"fresh:{pid}"] = {"type": "noul", "instructions":
+                              f"This text reports new information about {name} (a new injury, status, role, transaction "
+                              "or return date), not a passing reference to news already known (a recap, preview or "
+                              "roundup mentioning it in passing)."}
         qs[f"effect:{pid}"] = {"type": "choice", "instructions":
                                f"What does this news mean for {who}'s fantasy value over the coming weeks?",
                                "criteria": {"up": f"{name} should score more fantasy points or play a bigger role than before",
@@ -92,8 +99,10 @@ def read(answers: dict, players: list[dict]) -> dict:
         if answers[f"about:{pid}"]["noul"] < ABOUT:
             continue
         eff = answers[f"effect:{pid}"]
-        kept.append({"player_id": pid, "effect": eff["choice"], "kind": answers[f"kind:{pid}"]["choice"],
-                     "prob": eff["probabilities"][eff["choice"]], "confidence": eff["confidence"]})
+        # a passing mention of news already known moves nobody; answers from before `fresh` count as fresh
+        effect = eff["choice"] if (answers.get(f"fresh:{pid}") or {}).get("noul", 1.0) >= FRESH else "none"
+        kept.append({"player_id": pid, "effect": effect, "kind": answers[f"kind:{pid}"]["choice"],
+                     "prob": eff["probabilities"].get(effect, 0.0), "confidence": eff["confidence"]})
     ans = answers.get("story") or {}
     pick = ans.get("choice")
     story = int(pick[1:]) if kept and pick and pick != "new" else None
