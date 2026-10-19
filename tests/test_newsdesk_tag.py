@@ -327,7 +327,7 @@ def test_one_bad_answer_skips_the_item_not_the_run(error):
 def test_account_failure_stops_the_run_and_counts_nothing(error):
     """A dead key or no credits fails every item alike: the run stops and no item moves towards giving up, even
     after Jev has answered earlier items this run."""
-    item("a", "Puka Nacua limited", at="2026-10-19T09:00:00+00:00")
+    item("a", "Puka Nacua limited", at="2026-10-19T12:00:00+00:00")  # newest: tagged first, so Jev has answered
     b = item("b", "Kyren Williams limited", at="2026-10-19T10:00:00+00:00")
     c = item("c", "Kyren Williams questionable", at="2026-10-19T11:00:00+00:00")
     for _ in range(tag.TAG_MAX_TRIES + 1):
@@ -335,6 +335,27 @@ def test_account_failure_stops_the_run_and_counts_nothing(error):
         assert got["error"] == str(error) and got["failed"] == [] and got["given_up"] == []
     assert sorted(u["id"] for u in db.untagged_items()) == [b, c]
     assert not db.get_state(tag.TRIES)
+
+
+def test_untagged_newest_first():
+    a = item("a", "Puka Nacua limited", at="2026-10-19T09:00:00+00:00")
+    b = item("b", "Kyren Williams limited", at="2026-10-19T11:00:00+00:00")
+    assert [u["id"] for u in db.untagged_items()] == [b, a]
+
+
+def test_older_item_joining_newer_news_never_changes_or_corrects_it():
+    """A backlog is tagged newest first: Saturday's "questionable" joining Monday's "out" story is a source of it,
+    not a change to it, so Jev's changed/retract answers are not acted on and the story keeps its rev."""
+    sid = story()
+    new = item("new", "Kyren Williams out", at="2026-10-19T11:00:00+00:00")
+    db.tag_item(new, [1], None, sid, NOW.isoformat())
+    old = item("old", "Kyren Williams questionable", at="2026-10-17T11:00:00+00:00")
+    ask = fake(story=f"s{sid}", retract=0.9, changed=0.9)
+    got = tag.run(INDEX, ask=ask, now=NOW)
+    assert got["attached"] == 1 and got["updated"] == 0
+    s = db.story(sid)
+    assert s["rev"] == 1 and s["status"] == "live" and s["first_item_id"] == old
+    assert not any("changed" in qs for _, qs in ask.calls)
 
 
 def test_server_error_after_an_answer_is_the_items():

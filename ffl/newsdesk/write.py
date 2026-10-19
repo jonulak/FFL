@@ -12,7 +12,6 @@ from ..config import DATA
 from . import tag
 from .players import Index
 
-LIMIT = 40  # stories a run
 BATCH = 8
 MODEL = "haiku"
 TIMEOUT = 180
@@ -93,7 +92,7 @@ def _put(s: dict, w: dict | None) -> bool:
 
 def run(index: Index, run_cli=claude_cli.run) -> dict:
     out = {"written": 0, "written_ids": [], "missing": 0, "failed": False, "error": None}
-    stories = db.unwritten_stories(LIMIT)
+    stories = db.unwritten_stories()  # all of them, newest first: no cap a run (Jonathan, 2026-10-19)
     for at in range(0, len(stories), BATCH):
         batch = stories[at:at + BATCH]
         try:

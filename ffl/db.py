@@ -1127,9 +1127,10 @@ def set_story_status(story_id: int, status: str, at: str, note: str | None, seas
 
 
 def untagged_items(season: int = SEASON) -> list[dict]:
+    """Newest first: in a backlog (a first run, Jev down a while) today's news is tagged before last week's."""
     t = news_items_table
     q = (sa.select(t).where(t.c.season == season, t.c.tagged_at.is_(None), t.c.withdrawn_at.is_(None))
-         .order_by(t.c.published_at, t.c.id))
+         .order_by(t.c.published_at.desc(), t.c.id.desc()))
     with _read() as c:
         return [_item_out(r) for r in c.execute(q)]
 
@@ -1208,10 +1209,11 @@ def put_story_players(story_id: int, rows: list[dict], season: int = SEASON) -> 
         c.execute(_upsert(news_story_players, vals, ["season", "story_id", "player_id"], cols))
 
 
-def unwritten_stories(limit: int, season: int = SEASON) -> list[dict]:
+def unwritten_stories(limit: int | None = None, season: int = SEASON) -> list[dict]:
+    """Newest first, so the freshest news is written (and can push) before a backlog's."""
     t = news_stories
     q = (sa.select(t).where(t.c.season == season, t.c.written_rev < t.c.rev)
-         .order_by(t.c.updated_at, t.c.id).limit(limit))
+         .order_by(t.c.updated_at.desc(), t.c.id.desc()).limit(limit))
     with _read() as c:
         return _stories_out(c, c.execute(q).all(), season)
 

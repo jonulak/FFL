@@ -227,8 +227,11 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
         out["tagged"] += 1
         out["new"] += 1
         return
-    corrected = (got["retract"] or 0) >= RETRACT
-    bumped = _attach(item, chosen, kept, not corrected and changed(chosen, item, ask), corrected, at)
+    # Items are tagged newest first, so a backlog's older item can join a story its newer news already made: it is
+    # a source, never a change or a correction of what came after it.
+    older = any(i["published_at"] > item["published_at"] for i in chosen["items"] if not i.get("withdrawn_at"))
+    corrected = not older and (got["retract"] or 0) >= RETRACT
+    bumped = _attach(item, chosen, kept, not older and not corrected and changed(chosen, item, ask), corrected, at)
     db.tag_item(item["id"], pids, answers, chosen["id"], at)
     out["tagged"] += 1
     out["attached"] += 1

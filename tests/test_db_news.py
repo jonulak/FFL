@@ -129,11 +129,11 @@ def test_put_story_words_rejects_stale_rev():
     assert db.unwritten_stories(10) == []
 
 
-def test_unwritten_stories_oldest_first():
+def test_unwritten_stories_newest_first():
     a = story("2026-10-18T10:00:00", players=[1])
     b = story("2026-10-17T10:00:00", players=[1])
-    assert [s["id"] for s in db.unwritten_stories(10)] == [b, a]
-    assert [s["id"] for s in db.unwritten_stories(1)] == [b]
+    assert [s["id"] for s in db.unwritten_stories()] == [a, b]
+    assert [s["id"] for s in db.unwritten_stories(1)] == [a]
 
 
 def test_set_story_status_bumps_rev():
