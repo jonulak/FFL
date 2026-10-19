@@ -1,4 +1,4 @@
-"""Player index off Sleeper's bulk dump, and the name matcher that finds who a news item names.
+"""Player index off ESPN's player list, and the name matcher that finds who a news item names.
 
 False positives are the risk, not misses: a wrong player on a story pushes a notice about someone
 who is not in it. So a bare surname or a garbled name counts only among the clubs the item is
@@ -6,19 +6,27 @@ about, and a name that fits two players in scope matches neither.
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
 import requests
+from espn_api.football.constant import PRO_TEAM_MAP
 
 from .. import news
 from ..adp import norm_name
+from ..config import SEASON, raw_league_get
 
-POSITIONS = {"QB", "RB", "WR", "TE", "K"}
+PLAYERS_URL = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/players"
 INDEX_S = 6 * 3600
 FUZZY = 0.85
+# surnames that are also plain words: a bare "Love" or "Hill" in a sentence is far more often the word
+COMMON_WORD_SURNAMES = {
+    "love", "hill", "brown", "white", "young", "price", "hunt", "wise", "moore", "hall", "green", "gray",
+    "rice", "little", "strong", "bell", "long", "smart", "hope", "rich", "ward", "banks", "mills",
+    "waddle", "pierce"}
 _INDEX: list = []  # [expires_at, Index]
 
 
@@ -29,23 +37,41 @@ class Index:
     by_full: dict[str, list[int]] = field(default_factory=dict)  # normalized full name -> ids
 
 
-def build_index(sleeper: dict) -> Index:
-    """Skill players and kickers who are active, on a club, and have an ESPN id (the id the rest of
-    the app keys on). Club codes are ESPN's."""
+def build_index(players: list[dict]) -> Index:
+    """QB/RB/WR/TE/K on a club, from ESPN's player records. The public list has no `active` flag;
+    ESPN keeps a `ownership` block only on players it still lists (retired and long-gone players with
+    an old club have none), so that stands in for it, and an explicit `active: false` also drops."""
     idx = Index()
-    for v in sleeper.values():
-        pos, team, espn = v.get("position"), v.get("team"), v.get("espn_id")
-        if pos not in POSITIONS or not team or not espn or not v.get("active"):
+    for p in players:
+        pos = news.DEFAULT_POS.get(p.get("defaultPositionId"))
+        team = PRO_TEAM_MAP.get(p.get("proTeamId"))
+        name = p.get("fullName") or ""
+        if pos is None or p.get("id") is None or not team or team == "None" or not name:
             continue
-        name = v.get("full_name") or ""
+        if p.get("active") is False or not (p.get("ownership") or p.get("active")):
+            continue
         full = norm_name(name)
         if len(full.split()) < 2:
             continue
-        pid, team = int(espn), news.SLEEPER_TO_ESPN.get(team, team)
+        pid = int(p["id"])
         idx.by_id[pid] = {"name": name, "pos": pos, "team": team}
         idx.by_club.setdefault(team, []).append(pid)
         idx.by_full.setdefault(full, []).append(pid)
     return idx
+
+
+def _public_players() -> list[dict]:
+    r = requests.get(PLAYERS_URL.format(season=SEASON), params={"view": "players_wl"}, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+def _league_players() -> list[dict]:
+    """Same records through the league's kona view, which needs the league cookies."""
+    filters = {"players": {"filterSlotIds": {"value": [0, 2, 4, 6, 17]}, "limit": 1500,
+                           "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}}
+    data = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filters)})
+    return [e["player"] for e in data.get("players") or [] if e.get("player")]
 
 
 def fetch_index() -> Index:
@@ -53,10 +79,13 @@ def fetch_index() -> Index:
     if _INDEX and _INDEX[0] > time.time():
         return _INDEX[1]
     try:
-        r = requests.get(news.SLEEPER_PLAYERS, timeout=60)
-        r.raise_for_status()
-        idx = build_index(r.json())
-    except (requests.RequestException, ValueError):
+        try:
+            idx = build_index(_public_players())
+        except (requests.RequestException, ValueError):
+            idx = build_index(_league_players())
+        if not idx.by_id:
+            raise ValueError("ESPN's player list came back empty")
+    except (Exception, SystemExit):  # noqa: BLE001 — config exits on missing cookies; keep the last good index
         if _INDEX:
             return _INDEX[1]
         raise
@@ -64,15 +93,28 @@ def fetch_index() -> Index:
     return idx
 
 
-def _tokens(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", norm_name(text))
+_OPENERS = " \t\r\n\"\u201c\u2018'([“"
+
+
+def _tokens(text: str) -> list[tuple[str, bool]]:
+    """Normalized tokens, each with whether a bare surname may stand on it: capitalized in the text
+    and not the first word of a sentence."""
+    out: list[tuple[str, bool]] = []
+    text = text.replace("\u2019", "'")
+    for m in re.finditer(r"[A-Za-z0-9][A-Za-z0-9'\-]*", text):
+        before = text[:m.start()].rstrip(_OPENERS)
+        starts = not before or before[-1] in ".!?:" or "\n" in text[len(before):m.start()]
+        for t in re.findall(r"[a-z0-9]+", norm_name(m.group())):
+            out.append((t, m.group()[0].isupper() and not starts))
+    return out
 
 
 def match(text: str, index: Index, clubs: tuple[str, ...] = ()) -> list[int]:
     """ESPN ids of the players `text` names, by first mention. A full name matches league-wide; a
     surname alone, or a name within a fuzzy ratio of a full one, only among `clubs`; one that fits
     two or more players there matches none of them."""
-    toks = _tokens(text)
+    pairs = _tokens(text)
+    toks = [t for t, _ in pairs]
     taken = [False] * len(toks)
     found: list[tuple[int, int]] = []  # (token position, id)
 
@@ -109,7 +151,7 @@ def match(text: str, index: Index, clubs: tuple[str, ...] = ()) -> list[int]:
                     taken[i:i + 2] = [True, True]
                     i += 2
                     continue
-            ids = surname.get(toks[i])
+            ids = surname.get(toks[i]) if pairs[i][1] and toks[i] not in COMMON_WORD_SURNAMES else None
             if ids and len(ids) == 1:
                 found.append((i, ids[0]))
             i += 1

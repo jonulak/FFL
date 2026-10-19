@@ -1,0 +1,277 @@
+[
+ {
+  "defaultPositionId": 2,
+  "droppable": true,
+  "eligibleSlots": [
+   2,
+   3,
+   23,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Kyren",
+  "fullName": "Kyren Williams",
+  "id": 4430737,
+  "lastName": "Williams",
+  "lastNewsDate": 1792370719000,
+  "lastVideoDate": 1791152864000,
+  "ownership": {
+   "percentOwned": 99.54
+  },
+  "proTeamId": 14,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 2,
+  "droppable": true,
+  "eligibleSlots": [
+   2,
+   3,
+   23,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Blake",
+  "fullName": "Blake Corum",
+  "id": 4429096,
+  "lastName": "Corum",
+  "lastNewsDate": 1792371647000,
+  "lastVideoDate": 1792357407000,
+  "ownership": {
+   "percentOwned": 67.2
+  },
+  "proTeamId": 14,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 2,
+  "droppable": false,
+  "eligibleSlots": [
+   2,
+   3,
+   23,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Bijan",
+  "fullName": "Bijan Robinson",
+  "id": 4430807,
+  "lastName": "Robinson",
+  "lastNewsDate": 1792390718000,
+  "lastVideoDate": 1791301528000,
+  "ownership": {
+   "percentOwned": 99.92
+  },
+  "proTeamId": 1,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 2,
+  "droppable": true,
+  "eligibleSlots": [
+   2,
+   3,
+   23,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Brian",
+  "fullName": "Brian Robinson Jr.",
+  "id": 4241474,
+  "lastName": "Robinson Jr.",
+  "lastNewsDate": 1792380008000,
+  "lastVideoDate": 1787972857000,
+  "ownership": {
+   "percentOwned": 44.5
+  },
+  "proTeamId": 1,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 1,
+  "droppable": true,
+  "eligibleSlots": [
+   0,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Jordan",
+  "fullName": "Jordan Love",
+  "id": 4036378,
+  "lastName": "Love",
+  "lastNewsDate": 1792383346000,
+  "lastVideoDate": 1791996858000,
+  "ownership": {
+   "percentOwned": 85.92
+  },
+  "proTeamId": 9,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 1,
+  "droppable": false,
+  "eligibleSlots": [
+   0,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Josh",
+  "fullName": "Josh Allen",
+  "id": 3918298,
+  "lastName": "Allen",
+  "lastNewsDate": 1792395941000,
+  "lastVideoDate": 1792363877000,
+  "ownership": {
+   "percentOwned": 99.93
+  },
+  "proTeamId": 2,
+  "universeId": 1
+ },
+ {
+  "defaultPositionId": 1,
+  "droppable": true,
+  "eligibleSlots": [
+   0,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Kyle",
+  "fullName": "Kyle Allen",
+  "id": 3115293,
+  "lastName": "Allen",
+  "lastNewsDate": 1773100014000,
+  "ownership": {
+   "percentOwned": 0.09
+  },
+  "proTeamId": 2,
+  "universeId": 1
+ },
+ {
+  "defaultPositionId": 1,
+  "droppable": true,
+  "eligibleSlots": [
+   0,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Marcus",
+  "fullName": "Marcus Mariota",
+  "id": 2576980,
+  "lastName": "Mariota",
+  "lastNewsDate": 1792256101000,
+  "lastVideoDate": 1791122798000,
+  "ownership": {
+   "percentOwned": 2.79
+  },
+  "proTeamId": 28,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 1,
+  "droppable": true,
+  "eligibleSlots": [
+   0,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Jayden",
+  "fullName": "Jayden Daniels",
+  "id": 4426348,
+  "lastName": "Daniels",
+  "lastNewsDate": 1791756856000,
+  "lastVideoDate": 1791755087000,
+  "ownership": {
+   "percentOwned": 94.1
+  },
+  "proTeamId": 28,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 5,
+  "droppable": true,
+  "eligibleSlots": [
+   17,
+   20,
+   21
+  ],
+  "firstName": "Blake",
+  "fullName": "Blake Grupe",
+  "id": 4259619,
+  "lastName": "Grupe",
+  "lastNewsDate": 1792361980000,
+  "ownership": {
+   "percentOwned": 12.56
+  },
+  "proTeamId": 14,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 3,
+  "droppable": true,
+  "eligibleSlots": [
+   3,
+   4,
+   5,
+   23,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Tavon",
+  "fullName": "Tavon Austin",
+  "id": 15786,
+  "lastName": "Austin",
+  "lastNewsDate": 1723566712000,
+  "proTeamId": 0,
+  "universeId": 0
+ },
+ {
+  "defaultPositionId": 2,
+  "droppable": true,
+  "eligibleSlots": [
+   2,
+   3,
+   23,
+   7,
+   20,
+   21
+  ],
+  "firstName": "Sony",
+  "fullName": "Sony Michel",
+  "id": 3128721,
+  "lastName": "Michel",
+  "lastNewsDate": 1690727108000,
+  "proTeamId": 14,
+  "universeId": 2
+ },
+ {
+  "defaultPositionId": 9,
+  "droppable": true,
+  "eligibleSlots": [
+   8,
+   11,
+   15,
+   20,
+   21
+  ],
+  "firstName": "DJ",
+  "fullName": "DJ Davidson",
+  "id": 4242899,
+  "lastName": "Davidson",
+  "lastNewsDate": 1786226583000,
+  "ownership": {
+   "percentOwned": 0.01
+  },
+  "proTeamId": 28,
+  "universeId": 2
+ }
+]
