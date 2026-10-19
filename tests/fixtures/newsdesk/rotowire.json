@@ -1,0 +1,102 @@
+{
+ "feed": [
+  {
+   "id": 64319628,
+   "nowId": "23-64319628",
+   "contentKey": "64319628-23-1-1",
+   "dataSourceIdentifier": "9e17890e19e4f",
+   "type": "Rotowire",
+   "headline": "Mahomes completed 23 of 30 passes for 272 yards, no touchdowns and one interception and rushed five times for 16 yards during Sunday's 22-6 win versus the Chargers.",
+   "description": "Mahomes completed 23 of 30 passes for 272 yards, no touchdowns and one interception and rushed five times for 16 yards during Sunday's 22-6 win versus the Chargers.",
+   "categorized": "2026-10-19T00:55:30Z",
+   "lastModified": "2026-10-19T00:51:19Z",
+   "published": "2026-10-19T00:51:19Z",
+   "story": "The Chiefs offense continues to be the Kenneth Walker show, as the No. 1 RB reeled off 100-plus rushing yards for the fourth time in five appearances to begin his tenure with the team. Meanwhile, Mahomes failed to record a touchdown pass for the first time this season after tossing multiple TDs in each of the first four contests. Considering Kansas City's receiving corps is particularly ravaged by injuries at the moment, the offense may continue to lean more on Walker's legs than Mahomes' right arm next Sunday at Seattle.",
+   "allowContentReactions": false,
+   "allowSearch": false,
+   "isLiveBlog": false,
+   "links": {
+    "api": {
+     "self": {}
+    },
+    "mobile": {
+     "href": "http://m.espn.go.com/wireless/story?storyId=64319628"
+    }
+   },
+   "premium": false,
+   "playerId": 3139477
+  },
+  {
+   "id": 64077928,
+   "nowId": "23-64077928",
+   "contentKey": "64077928-23-1-1",
+   "dataSourceIdentifier": "53715f770e99c",
+   "type": "Rotowire",
+   "headline": "Mahomes completed 15 of 30 passes for 225 yards and two touchdowns in Sunday's 30-27 win over the Raiders. He also rushed twice for no gain.",
+   "description": "Mahomes completed 15 of 30 passes for 225 yards and two touchdowns in Sunday's 30-27 win over the Raiders. He also rushed twice for no gain.",
+   "categorized": "2026-10-05T00:50:12Z",
+   "lastModified": "2026-10-05T00:49:46Z",
+   "published": "2026-10-05T00:49:46Z",
+   "story": "Mahomes threw touchdown passes of two yards and eight yards to Tyquan Thornton, who exited the game in the fourth quarter due to an ankle injury suffered at the end of a 55-yard catch. The Chiefs also lost Rashee Rice (hamstring) in the first half. Thornton is likely looking at a lengthy absence, but Rice has a chance to recover during Kansas City's Week 5 bye before facing the Chargers in Week 6. Mahomes has led the Chiefs to a 4-0 record while posting a 9:2 TD:INT, but the team is down to Xavier Worthy, Cyrus Allen, Jalen Royals and Nikko Remigio at wide receiver at the moment.",
+   "allowContentReactions": false,
+   "allowSearch": false,
+   "isLiveBlog": false,
+   "links": {
+    "api": {
+     "self": {}
+    },
+    "mobile": {
+     "href": "http://m.espn.go.com/wireless/story?storyId=64077928"
+    }
+   },
+   "premium": false,
+   "playerId": 3139477
+  },
+  {
+   "id": 50174803,
+   "nowId": "1-50174803",
+   "contentKey": "50174803-1-6-1",
+   "dataSourceIdentifier": "9d050fb7f7d40",
+   "publishedkey": "50174803",
+   "type": "Story",
+   "feedDisplayType": "Default",
+   "headline": "Knockout league pickups: Walker, Lamb, McMillan among big names available",
+   "description": "Tristan H. Cockcroft lists the most common players on eliminated teams and finds how much FAB to spend this week.",
+   "title": "Fantasy football Knockout league pickups for Week 6",
+   "linkText": "Knockout league pickups: Walker, Lamb among big names available in Week 6",
+   "categorized": "2026-10-18T11:11:21Z",
+   "originallyPosted": "2026-10-13T17:27:00Z",
+   "lastModified": "2026-10-13T18:17:51Z",
+   "published": "2026-10-13T18:17:51Z",
+   "root": "ffl/2026",
+   "section": "Fantasy NFL",
+   "story": "<p><photo1></p>\n<p>Availability is paramount in Knockout league lineup planning.</p>\n<p>We've already seen its effect through five weeks. Seven of the 25 players with the highest knocked-out rates sat out those weeks due to injury. Another eight of those 25 left their games early, playing fewer than 50% of their teams' offensive snaps, with injuries. Additionally, Week 5 brought us the second-most",
+   "allowAMP": true,
+   "allowComments": true,
+   "allowContentReactions": true,
+   "allowSearch": true,
+   "byline": "Tristan H. Cockcroft",
+   "isLiveBlog": false,
+   "links": {
+    "api": {
+     "self": {
+      "href": "https://content.core.api.espn.com/v1/sports/news/50174803"
+     }
+    },
+    "app": {
+     "sportscenter": {
+      "href": "sportscenter://x-callback-url/showStory?uid=50174803"
+     }
+    },
+    "mobile": {
+     "href": "http://m.espn.go.com/wireless/story?storyId=50174803"
+    },
+    "web": {
+     "href": "https://www.espn.com/fantasy/football/story/_/id/50174803/fantasy-football-knockout-waiver-wire-free-agent-pickups-nfl-week-6"
+    }
+   },
+   "premium": false,
+   "playerId": 3139477
+  }
+ ]
+}

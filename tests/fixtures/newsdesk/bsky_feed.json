@@ -1,0 +1,175 @@
+{
+ "feed": [
+  {
+   "post": {
+    "uri": "at://did:plc:hlvr2omhnmvdmfnvmcuhyevz/app.bsky.feed.post/3myabt5hxxc24",
+    "cid": "bafyreigjit5xr7lm2cxlgrjeu7vlttdyudw2gyotc2gi3ekdsthhmzog7m",
+    "author": {
+     "did": "did:plc:hlvr2omhnmvdmfnvmcuhyevz",
+     "handle": "rapsheet.bsky.social",
+     "displayName": "Ian Rapoport",
+     "avatar": "https://cdn.bsky.app/img/avatar/plain/did:plc:hlvr2omhnmvdmfnvmcuhyevz/bafkreigfqyg46veq74vxajiwot2dbtjkcuzch6tmr52h7errnpbs7loofy",
+     "associated": {
+      "activitySubscription": {
+       "allowSubscriptions": "followers"
+      }
+     },
+     "labels": [],
+     "createdAt": "2024-11-15T15:01:06.234Z",
+     "verification": {
+      "verifications": [
+       {
+        "issuer": "did:plc:z72i7hdynmk6r22z27h6tvur",
+        "issuerDisplayName": "Bluesky",
+        "issuerHandle": "bsky.app",
+        "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.graph.verification/3lndpqyq5mc2z",
+        "isValid": true,
+        "createdAt": "2025-04-21T10:45:09.683Z"
+       }
+      ],
+      "verifiedStatus": "valid",
+      "trustedVerifierStatus": "none"
+     }
+    },
+    "record": {
+     "$type": "app.bsky.feed.post",
+     "createdAt": "2026-10-19T14:01:10.358Z",
+     "langs": [
+      "en"
+     ],
+     "text": "The Colts have fired GM Chris Ballard."
+    },
+    "bookmarkCount": 2,
+    "replyCount": 11,
+    "repostCount": 9,
+    "likeCount": 136,
+    "quoteCount": 23,
+    "indexedAt": "2026-10-19T14:01:13.762Z",
+    "labels": []
+   }
+  },
+  {
+   "post": {
+    "uri": "at://did:plc:otherauthor0000000000000/app.bsky.feed.post/3my6aaaaaaaaa",
+    "cid": "bafyreih2acsnuh67ttpdop3kspj3rwqy2t52zv2o3x4n4eeglv6g2whsme",
+    "author": {
+     "did": "did:plc:otherauthor0000000000000",
+     "handle": "someoneelse.bsky.social",
+     "displayName": "Someone Else"
+    },
+    "record": {
+     "$type": "app.bsky.feed.post",
+     "createdAt": "2026-10-18T21:56:32.558Z",
+     "langs": [
+      "en"
+     ],
+     "text": "Bills S CJ Gardner-Johnson has been ejected."
+    },
+    "bookmarkCount": 2,
+    "replyCount": 10,
+    "repostCount": 7,
+    "likeCount": 90,
+    "quoteCount": 8,
+    "indexedAt": "2026-10-18T21:56:33.360Z",
+    "labels": []
+   },
+   "reason": {
+    "$type": "app.bsky.feed.defs#reasonRepost",
+    "by": {
+     "did": "did:plc:hlvr2omhnmvdmfnvmcuhyevz",
+     "handle": "rapsheet.bsky.social",
+     "displayName": "Ian Rapoport",
+     "avatar": "https://cdn.bsky.app/img/avatar/plain/did:plc:hlvr2omhnmvdmfnvmcuhyevz/bafkreigfqyg46veq74vxajiwot2dbtjkcuzch6tmr52h7errnpbs7loofy",
+     "associated": {
+      "activitySubscription": {
+       "allowSubscriptions": "followers"
+      }
+     },
+     "labels": [],
+     "createdAt": "2024-11-15T15:01:06.234Z",
+     "verification": {
+      "verifications": [
+       {
+        "issuer": "did:plc:z72i7hdynmk6r22z27h6tvur",
+        "issuerDisplayName": "Bluesky",
+        "issuerHandle": "bsky.app",
+        "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.graph.verification/3lndpqyq5mc2z",
+        "isValid": true,
+        "createdAt": "2025-04-21T10:45:09.683Z"
+       }
+      ],
+      "verifiedStatus": "valid",
+      "trustedVerifierStatus": "none"
+     }
+    },
+    "indexedAt": "2026-10-18T22:00:00.000Z"
+   }
+  },
+  {
+   "post": {
+    "uri": "at://did:plc:hlvr2omhnmvdmfnvmcuhyevz/app.bsky.feed.post/3my6rl4l63k2a",
+    "cid": "bafyreidmfkspcfsmisrcfor3bug3crdrbdzjdslhovyqvvzrwtalqbzaue",
+    "author": {
+     "did": "did:plc:hlvr2omhnmvdmfnvmcuhyevz",
+     "handle": "rapsheet.bsky.social",
+     "displayName": "Ian Rapoport",
+     "avatar": "https://cdn.bsky.app/img/avatar/plain/did:plc:hlvr2omhnmvdmfnvmcuhyevz/bafkreigfqyg46veq74vxajiwot2dbtjkcuzch6tmr52h7errnpbs7loofy",
+     "associated": {
+      "activitySubscription": {
+       "allowSubscriptions": "followers"
+      }
+     },
+     "labels": [],
+     "createdAt": "2024-11-15T15:01:06.234Z",
+     "verification": {
+      "verifications": [
+       {
+        "issuer": "did:plc:z72i7hdynmk6r22z27h6tvur",
+        "issuerDisplayName": "Bluesky",
+        "issuerHandle": "bsky.app",
+        "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.graph.verification/3lndpqyq5mc2z",
+        "isValid": true,
+        "createdAt": "2025-04-21T10:45:09.683Z"
+       }
+      ],
+      "verifiedStatus": "valid",
+      "trustedVerifierStatus": "none"
+     }
+    },
+    "record": {
+     "$type": "app.bsky.feed.post",
+     "createdAt": "2026-10-18T23:37:41.373Z",
+     "langs": [
+      "en"
+     ],
+     "text": "Giants QB J.J. McCarthy threw for 243 yards in the 4th quarter despite coming off the bench. It\u2019s the most passing yards in a 4th quarter by any player this season and the 2nd-most passing yards in a 4th quarter by any QB who didn't start over the last 25 seasons.",
+     "reply": {
+      "root": {
+       "uri": "at://did:plc:hlvr2omhnmvdmfnvmcuhyevz/app.bsky.feed.post/3myabt5hxxc24",
+       "cid": "bafyreigjit5xr7lm2cxlgrjeu7vlttdyudw2gyotc2gi3ekdsthhmzog7m"
+      },
+      "parent": {
+       "uri": "at://did:plc:hlvr2omhnmvdmfnvmcuhyevz/app.bsky.feed.post/3myabt5hxxc24",
+       "cid": "bafyreigjit5xr7lm2cxlgrjeu7vlttdyudw2gyotc2gi3ekdsthhmzog7m"
+      }
+     }
+    },
+    "bookmarkCount": 2,
+    "replyCount": 11,
+    "repostCount": 14,
+    "likeCount": 167,
+    "quoteCount": 10,
+    "indexedAt": "2026-10-18T23:37:41.654Z",
+    "labels": []
+   },
+   "reply": {
+    "root": {
+     "uri": "at://did:plc:hlvr2omhnmvdmfnvmcuhyevz/app.bsky.feed.post/3myabt5hxxc24"
+    },
+    "parent": {
+     "uri": "at://did:plc:hlvr2omhnmvdmfnvmcuhyevz/app.bsky.feed.post/3myabt5hxxc24"
+    }
+   }
+  }
+ ]
+}

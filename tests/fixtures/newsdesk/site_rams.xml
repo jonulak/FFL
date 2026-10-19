@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>News</title>
+    <description>Latest News</description>
+    <atom:link href="https://www.therams.com/rss/news" rel="self" type="application/rss+xml" />
+    <link>https://www.therams.com</link>
+    <language>en-US</language>
+    <image>
+      <title>News</title>
+      <url>https://static.nfl.com/static/content/public/static/wildcat/assets/img/logos/teams/LA.svg</url>
+      <link>https://www.therams.com</link>
+    </image>
+      <item>
+        <title><![CDATA[From the Podium: Sean McVay, Matthew Stafford and Puka Nacua share thoughts on Rams' loss to Cardinals]]></title>
+          <description><![CDATA[Rams head coach Sean McVay, quarterback Matthew Stafford and wide receiver Puka Nacua share their thoughts on the loss and "lack of execution."]]></description>
+        <link>https://www.therams.com/news/from-the-podium-head-coach-sean-mcvay-quarterback-matthew-stafford-wide-receiver-puka-nacua-share-thoughts-on-rams-loss-to-cardinals-press-conference-2026</link>
+        <pubDate>Mon, 19 Oct 2026 00:32:57 GMT</pubDate>
+        <guid isPermaLink="false">71f9b9dc-dfe1-4cf5-ba20-ba951663d0fc</guid>
+        <source url="https://www.therams.com/rss/news">News</source>
+          <media:content url="https://static.clubs.nfl.com/image/upload/t_editorial_landscape_12_desktop/rams/tpebbedvqqokaovot9xm.jpg" />
+          <enclosure url="https://static.clubs.nfl.com/image/upload/t_editorial_landscape_12_desktop/rams/tpebbedvqqokaovot9xm.jpg" length="0" type="image/jpeg"></enclosure>
+            <media:keywords>
+              <![CDATA[From the Podium, Football, Arizona Cardinals at Los Angeles Rams (2026-REG-6), Sean McVay, Matthew Stafford, Puka Nacua]]>
+            </media:keywords>
+      </item>
+<item>
+        <title><![CDATA[Game Recap: Rams fall to Cardinals 18-16 at SoFi Stadium]]></title>
+          <description><![CDATA[Late rally not enough to overcome untimely unforced errors, Cardinals' long and sustained drives]]></description>
+        <link>https://www.therams.com/news/game-recap-rams-fall-to-cardinals-18-16-at-sofi-stadium</link>
+        <pubDate>Sun, 18 Oct 2026 23:05:35 GMT</pubDate>
+        <guid isPermaLink="false">308dea7b-b52e-4a4b-95bc-04bff5577e4a</guid>
+        <source url="https://www.therams.com/rss/news">News</source>
+          <media:content url="https://static.clubs.nfl.com/image/upload/t_editorial_landscape_12_desktop/rams/uecjkgpsbfn695kyelmm.jpg" />
+          <enclosure url="https://static.clubs.nfl.com/image/upload/t_editorial_landscape_12_desktop/rams/uecjkgpsbfn695kyelmm.jpg" length="0" type="image/jpeg"></enclosure>
+            <media:keywords>
+              <![CDATA[Gameday Sponsorship - Cedars-Sinai, Football, Game Recap, Arizona Cardinals at Los Angeles Rams (2026-REG-6)]]>
+            </media:keywords>
+      </item>
+<item>
+        <title><![CDATA[Trent McDuffie among Rams' inactives for Week 6 vs. Cardinals]]></title>
+          <description><![CDATA[Inactives for Sunday's Week 6 regular season game between the Rams and the Cardinals at SoFi Stadium.]]></description>
+        <link>https://www.therams.com/news/trent-mcduffie-among-rams-inactives-for-week-6-2026-vs-cardinals</link>
+        <pubDate>Sun, 18 Oct 2026 18:49:16 GMT</pubDate>
+        <guid isPermaLink="false">a5e64712-45a7-46a7-bcab-99a436e65eaa</guid>
+        <source url="https://www.therams.com/rss/news">News</source>
+          <media:content url="https://static.clubs.nfl.com/image/upload/t_editorial_landscape_12_desktop/rams/sckq2e7ekmhvoc2nn72e.jpg" />
+          <enclosure url="https://static.clubs.nfl.com/image/upload/t_editorial_landscape_12_desktop/rams/sckq2e7ekmhvoc2nn72e.jpg" length="0" type="image/jpeg"></enclosure>
+            <media:keywords>
+              <![CDATA[Inactives, Football, Arizona Cardinals at Los Angeles Rams (2026-REG-6), CJ Daniels, Tutu Atwell, Ty Simpson, Trent McDuffie, Larrell Murchison, Bill Murray]]>
+            </media:keywords>
+      </item>
+  </channel>
+</rss>
