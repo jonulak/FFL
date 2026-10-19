@@ -81,7 +81,7 @@ INSTANT_OFF = "instant adds are switched off (FFL_INSTANT_ADDS=0)"
 IR_BLOCK = "on IR without an injury designation: ESPN allows no add or claim until he is off IR"
 
 
-def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True):
+def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True, owners=None):
     """Check the plan for errors. Returns list of dicts: {"group": int, "player_id": int|None, "reason": str}.
 
     instant_adds False (FFL_INSTANT_ADDS off): every free-agent target is an error, since Submit would add him.
@@ -126,8 +126,10 @@ def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True):
             targets.setdefault(t, gi)
             if t in by_id:
                 err(gi, t, "already on your roster")
+            elif (owners or {}).get(t):
+                err(gi, t, f"taken by {owners[t]}; remove him from the group")
             elif t not in pool_ids:
-                err(gi, t, "not in the free-agent pool (added by another team?)")
+                err(gi, t, "not in the free-agent pool")
             if not instant_adds and status.get(t) == FREE:
                 err(gi, t, INSTANT_OFF)
 

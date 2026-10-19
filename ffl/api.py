@@ -443,8 +443,21 @@ def _fresh_status(data):
         return _status(data)
 
 
+def _rostered_rows(data):
+    """Every other team's players (the pool's `rostered` half): a target another team took keeps his name here."""
+    return {r["player_id"]: r for rows in data.get("rostered", {}).values() for r in rows if not r.get("mine")}
+
+
+def _owners(data):
+    """player_id -> the name of the fantasy team that took him, for the claims' "taken by" error."""
+    return {i: (r.get("owner") or {}).get("name") or (r.get("owner") or {}).get("abbrev") or "another team"
+            for i, r in _rostered_rows(data).items()}
+
+
 def _players(groups, data):
-    rows, roster = _pool_rows(data), {r["player_id"]: r for r in data.get("roster", [])}
+    # droppable None: the panel reads a non-null droppable as one of my own (its cut picker)
+    rows = {i: {**r, "droppable": None, "locked": None} for i, r in _rostered_rows(data).items()} | _pool_rows(data)
+    roster = {r["player_id"]: r for r in data.get("roster", [])}
     want = {i for g in groups for i in g["targets"] + g["cuts"]} | set(roster)
     keys = ("name", "pos", "team", "add", "ros_adj", "slot", "status", "waiver_date", "droppable", "locked")
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
@@ -474,7 +487,7 @@ def _claims_payload(plan, data, status=None):
                and claims_mod.matches(expansion, [c for c in pending if c["id"] in ids]))
     return {"week": plan["week"], "groups": plan["groups"], "now": now, "claims": expansion,
             "errors": claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status,
-                                          _instant_adds()),
+                                          _instant_adds(), _owners(data)),
             "open_spots": claims_mod.open_spots(roster, _roster_size()),
             "status": {str(i): s for i, s in status.items()},
             "pending": [{**c, "from_app": c["id"] in ids} for c in pending], "pending_error": perr,
@@ -520,7 +533,8 @@ def claims_submit(body: SubmitIn):
         now = claims_mod.plan_now(plan["groups"], status)
         if now != [m.model_dump() for m in body.expect_now]:
             raise HTTPException(409, {"error": "statuses changed — review again", "now": now})
-        errs = claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status, _instant_adds())
+        errs = claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status, _instant_adds(),
+                                   _owners(data))
         if errs:
             raise HTTPException(422, {"errors": errs})
         try:

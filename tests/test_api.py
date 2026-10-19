@@ -510,6 +510,18 @@ def test_plan_roundtrip_dst(claims_env):
     assert claims_env.get("/claims").json()["groups"] == [g]
 
 
+def test_a_target_another_team_took_keeps_his_name_and_says_who(claims_env, monkeypatch):
+    roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
+    taken = {"player_id": 102, "name": "Mims", "pos": "WR", "team": "DEN", "owner": {"team_id": 3, "name": "Hawks", "abbrev": "HWK"}, "mine": False}
+    pool = {"WR": [claims_env.pool["WR"][0]]}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool",
+                        lambda week=None: {"week": 6, "roster": roster, "positions": pool, "rostered": {"WR": [taken]}})
+    r = claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 1}]}).json()
+    assert r["players"]["102"]["name"] == "Mims"
+    assert r["players"]["102"]["droppable"] is None, "not offered as a cut: the panel reads droppable as mine"
+    assert [e["reason"] for e in r["errors"] if e["player_id"] == 102] == ["taken by Hawks; remove him from the group"]
+
+
 def test_submit_happy_path_and_decision(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 1}]})

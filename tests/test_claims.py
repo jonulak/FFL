@@ -155,6 +155,12 @@ def test_target_not_in_pool():
     assert any("not in the free-agent pool" in r for r in errs([{"targets": [777], "cuts": [1], "open": 0}]))
 
 
+def test_target_another_team_took_names_the_team():
+    g = [{"targets": [777], "cuts": [1], "open": 0}]
+    reasons = [e["reason"] for e in C.validate(g, ROSTER, {101}, 17, {}, owners={777: "Hawks"})]
+    assert reasons == ["taken by Hawks; remove him from the group"]
+
+
 def test_target_already_on_roster():
     assert "already on your roster" in errs([{"targets": [5], "cuts": [1], "open": 0}])
 
