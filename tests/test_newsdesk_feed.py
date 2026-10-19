@@ -77,6 +77,13 @@ def test_story_shape_first_and_sources():
     assert shape(story(prow(1)))[0]["updated"] is False
 
 
+def test_status_note_names_the_source():
+    out = shape({**story(prow(1)), "status": "corrected", "status_note": "rotowire"},
+                {**story(prow(1), sid=2), "status": "retracted", "status_note": "site:GONE"},
+                {**story(prow(1), sid=3)})
+    assert [s["status_note"] for s in out] == ["Rotowire", "site:GONE", None]
+
+
 def test_search_prefix_first_then_owned():
     assert [p["player_id"] for p in feed.search(INDEX, "jal")] == [1, 4]
     assert [p["player_id"] for p in feed.search(INDEX, "bigs")] == [2]

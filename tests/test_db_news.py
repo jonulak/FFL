@@ -146,6 +146,18 @@ def test_news_feed_hides_unwritten_and_pages():
     assert [s["id"] for s in db.news_feed(None, 10, since="2026-10-16T00:00:00")] == [s3, s2]
 
 
+def test_feed_pages_through_equal_timestamps():
+    ids = [story("2026-10-17T10:00:00") for _ in range(5)]
+    for sid in ids:
+        db.put_story_words(sid, 1, "H", "O", {})
+    seen, cursor = [], None
+    for _ in range(3):
+        page = db.news_feed(cursor, 2)
+        seen += [s["id"] for s in page]
+        cursor = f"{page[-1]['updated_at']}|{page[-1]['id']}"
+    assert seen == sorted(ids, reverse=True) and db.news_feed(cursor, 2) == []
+
+
 def test_notice_keys_only_sent():
     rows = [{"key": k, "kind": "news", "title": "t", "body": "b", "url": "u", "created_at": "t"}
             for k in ("news:1", "news:2", "news:3", "move:1")]

@@ -1502,10 +1502,10 @@ def _news_page(ctx: dict, limit: int, before: str | None, *, filter: str = "all"
             if news_feed.keep(s, filter):
                 kept.append(s)
                 if len(kept) == limit:
-                    return {"stories": kept, "next_before": s["at"]}
+                    return {"stories": kept, "next_before": f"{s['at']}|{s['id']}"}
         if len(raw) < limit:
             return {"stories": kept, "next_before": None}
-        before = raw[-1]["updated_at"]
+        before = f"{raw[-1]['updated_at']}|{raw[-1]['id']}"
 
 
 @app.get("/news")

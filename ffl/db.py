@@ -1233,11 +1233,14 @@ def put_story_words(story_id: int, rev: int, headline: str, overview: str, lines
 def news_feed(before: str | None, limit: int, player_id: int | None = None, since: str | None = None,
               season: int = SEASON) -> list[dict]:
     """Written stories (retracted and corrected ones too, with their status), newest update first, strictly
-    before `before`; optionally only those naming a player, or updated at or after `since`."""
+    after the cursor `before` ("<updated_at>|<id>" in the (updated_at, id) order, or a bare timestamp, which
+    is everything older); optionally only those naming a player, or updated at or after `since`."""
     t, p = news_stories, news_story_players
     q = sa.select(t).where(t.c.season == season, t.c.written_rev >= 1)
-    if before is not None:
-        q = q.where(t.c.updated_at < before)
+    if before:
+        at, _, sid = before.partition("|")
+        q = q.where(t.c.updated_at < at if not sid.isdigit()
+                    else sa.tuple_(t.c.updated_at, t.c.id) < sa.tuple_(at, int(sid)))
     if since is not None:
         q = q.where(t.c.updated_at >= since)
     if player_id is not None:
