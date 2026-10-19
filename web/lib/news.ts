@@ -14,7 +14,18 @@ export function parseId(raw: string | string[] | undefined): number | null {
   return typeof raw === "string" && raw !== "" && Number.isInteger(n) && n > 0 ? n : null;
 }
 
-export const filterHref =(f: NewsFilter) => (f === "all" ? "/news" : `/news?filter=${f}`);
+// The page's URL: the filter and, when no-change stories are shown, `quiet=1` (the feed hides them by default).
+export function filterHref(f: NewsFilter, quiet = false, story: number | null = null): string {
+  const q = new URLSearchParams();
+  if (f !== "all") q.set("filter", f);
+  if (quiet) q.set("quiet", "1");
+  if (story != null) q.set("story", String(story));
+  const s = q.toString();
+  return s ? `/news?${s}` : "/news";
+}
+
+// A story that moves somebody: at least one ▲ or ▼ row. The rest (every row ●) are hidden unless asked for.
+export const hasMover = (s: Pick<Story, "players">) => s.players.some((r) => r.effect !== "none");
 export const playerNewsHref = (id: number) => `/news/player/${id}`;
 
 // The push's glyphs (ffl/newsdesk/notices.py): the arrow is the effect, never a colour (the Three Verdicts Rule).

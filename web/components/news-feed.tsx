@@ -1,14 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useOptimistic, useState, useTransition, ViewTransition } from "react";
 import { clientGet } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { NewsPage, PlayerNews, Story } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
-import { filterHref, NEWS_FILTERS, ownerTag, type NewsFilter } from "@/lib/news";
+import { filterHref, hasMover, NEWS_FILTERS, ownerTag, type NewsFilter } from "@/lib/news";
 import { NAME_LINK } from "@/lib/player-log";
 import { Spinner } from "./motion";
 import { NewsSearch } from "./news-search";
@@ -97,15 +99,24 @@ const EMPTY: Record<NewsFilter, string> = {
 };
 
 // /news: the search, the four filters (URL state, ?filter=) and the feed. `target` is ?story=, the story a push
-// opened: scrolled to and washed in ink once the page is in.
-export function NewsFeed({ data, filter, target }: { data: NewsPage; filter: NewsFilter; target: number | null }) {
+// opened: scrolled to and washed in ink once the page is in. Stories that move nobody (every row ●) are hidden
+// unless the switch is on (?quiet=1); the hiding is over the pages loaded, so the switch needs no fetch, and a
+// pushed story always shows.
+export function NewsFeed({ data, filter, target, quiet: quietAtLoad }: { data: NewsPage; filter: NewsFilter; target: number | null; quiet: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   // the chip pressed takes at once; the page's own filter takes over when it lands
   const [shown, setShown] = useOptimistic(filter);
-  const path = filterHref(filter);
-  const { stories, next, loading, failed, older } = useOlder(data, path);
+  const [quiet, setQuiet] = useState(quietAtLoad);
+  const { stories, next, loading, failed, older } = useOlder(data, `/news?filter=${filter}`);
   const found = target != null && stories.some((s) => s.id === target);
+  const visible = quiet ? stories : stories.filter((s) => hasMover(s) || s.id === target);
+  const hidden = stories.length - visible.length;
+  const quietSwitch = (on: boolean) => {
+    setQuiet(on);
+    // the URL keeps the switch for back and reload; no server round trip, the filtering is here
+    window.history.replaceState(null, "", filterHref(filter, on, target));
+  };
   useEffect(() => {
     if (target == null) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -122,21 +133,35 @@ export function NewsFeed({ data, filter, target }: { data: NewsPage; filter: New
         const f = v[0] as NewsFilter | undefined;
         if (f && f !== filter) start(() => {
           setShown(f);
-          router.replace(filterHref(f), { scroll: false });
+          router.replace(filterHref(f, quiet), { scroll: false });
         });
       }} aria-label="Whose news" spacing={1} className="-mx-2 flex-wrap">
-        {/* tight enough that the four sit on one line at 360px; a larger text size wraps them rather than cutting one */}
+        {/* tight enough that the four sit on one line at 360px; a larger text size wraps them rather than cutting one.
+            The chosen one is ink on inverse, the Transactions My team toggle's pressed state. */}
         {NEWS_FILTERS.map(([f, label]) => (
-          <ToggleGroupItem key={f} value={f} className="h-9 px-2 font-display text-sm font-semibold uppercase tracking-[0.08em] sm:h-8">{label}</ToggleGroupItem>
+          <ToggleGroupItem key={f} value={f}
+            className="h-9 px-2 font-display text-sm font-semibold uppercase tracking-[0.08em] text-foreground/60 hover:text-foreground aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground sm:h-8">
+            {label}
+          </ToggleGroupItem>
         ))}
       </ToggleGroup>
+      <label className="flex w-fit cursor-pointer items-center gap-2.5 text-xs text-muted-foreground">
+        <Switch className="data-unchecked:bg-foreground/20 dark:data-unchecked:bg-foreground/25" checked={quiet} onCheckedChange={quietSwitch} />
+        <span>
+          Show no-change stories
+          {!quiet && hidden > 0 && <span className="tabular-nums"> · {hidden} hidden</span>}
+        </span>
+      </label>
       <Notices d={data} />
       {target != null && !found && (
         <p className="text-xs text-muted-foreground">
-          {next ? "The story from the notification is further back than this page; Older loads more." : "The story from the notification is no longer in the feed."}
+          {filter !== "all"
+            ? <>The story from the notification is not in this filter. <Link href={filterHref("all", quiet, target)} className={`font-medium text-foreground/85 ${NAME_LINK}`}>Show it under All</Link></>
+            : next ? "The story from the notification is further back than this page; Older loads more." : "The story from the notification is no longer in the feed."}
         </p>
       )}
-      <List stories={stories} target={target} tagged={!data.owners_error} empty={EMPTY[filter]} next={next} loading={loading} failed={failed} older={older} pending={pending} />
+      <List stories={visible} target={target} tagged={!data.owners_error} next={next} loading={loading} failed={failed} older={older} pending={pending}
+        empty={stories.length ? "Nothing on this page moves anyone. Older looks further back, or show the no-change stories." : EMPTY[filter]} />
     </div>
   );
 }

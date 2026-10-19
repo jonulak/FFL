@@ -2,7 +2,6 @@
 
 import { ArrowUpRight, ChevronDown, MessageCircleQuestion } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -66,11 +65,11 @@ const seedOf = (r: NewsRow) => ({ player_id: r.player_id, name: r.name, pos: r.p
 
 // A player chip: the arrow, his short name and the owner tag; a tap opens his line over the feed. `tagged` is false
 // when the owners read failed: every row then comes as a free agent, so no tag is shown rather than a false FA.
-function Chip({ r, dim, tagged, enter = false }: { r: NewsRow; dim: boolean; tagged: boolean; enter?: boolean }) {
+function Chip({ r, dim, tagged }: { r: NewsRow; dim: boolean; tagged: boolean }) {
   return (
     <Popover>
       <PopoverTrigger
-        className={`inline-flex min-h-8 items-center gap-1.5 rounded-sm border px-2 py-1 text-left outline-none transition-colors hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring/60 data-popup-open:bg-foreground/[0.08] sm:min-h-7 ${enter ? "fx-in" : ""} ${r.mine ? "border-foreground/30 bg-foreground/[0.04]" : "border-foreground/12"}`}
+        className={`inline-flex min-h-8 items-center gap-1.5 rounded-sm border px-2 py-1 text-left outline-none transition-colors hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring/60 data-popup-open:bg-foreground/[0.08] sm:min-h-7 ${r.mine ? "border-foreground/30 bg-foreground/[0.04]" : "border-foreground/12"}`}
         aria-label={`${r.name}, ${EFFECT_WORD[r.effect]}${tagged ? `, ${ownerTag(r)}` : ""}${r.flag ? ", Haiku doubts this arrow" : ""}: his line`}
       >
         <Arrow effect={r.effect} dim={dim} />
@@ -103,56 +102,62 @@ function OpenRow({ r, dim }: { r: NewsRow; dim: boolean }) {
   );
 }
 
-// The ● rows (named by the source, not moved by it) join the strip only when "+k no change" is opened.
+
 function Chips({ rows, dim, tagged }: { rows: NewsRow[]; dim: boolean; tagged: boolean }) {
   if (!rows.length) return null;
-  return <div className="flex flex-wrap items-center gap-1.5">{rows.map((r) => <Chip key={r.player_id} r={r} dim={dim} tagged={tagged} enter={r.effect === "none"} />)}</div>;
+  return <div className="flex flex-wrap items-center gap-1.5">{rows.map((r) => <Chip key={r.player_id} r={r} dim={dim} tagged={tagged} />)}</div>;
 }
 
 const FOOT_LINK = "inline-flex min-h-8 items-center gap-1 rounded-sm text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60";
+const CHEVRON = "size-3.5 transition-transform duration-300 ease-(--ease-arrive) group-aria-expanded:rotate-180 motion-reduce:transition-none";
 
-// The story's foot, one line: the full story, "+N sources" (the rest of the reporting, each linked, by time, opened
-// under the line) and "+k no change".
-function Foot({ s, none, more, setMore }: { s: Story; none: number; more: boolean; setMore: (v: boolean) => void }) {
+// The story's foot, one line: the full story, "+N sources" and "+k no change", each a Collapsible. Their roots are
+// `display: contents` so both triggers share the line and the panels fall out of it by flex order: the ● chips
+// (named by the source, not moved by it) open above the line, under the strip of arrows; the rest of the reporting
+// (each source linked, by time) opens below it.
+function Foot({ s, none, dim, tagged }: { s: Story; none: NewsRow[]; dim: boolean; tagged: boolean }) {
   const n = s.sources.length;
-  if (!s.first?.url && !n && !none) return null;
+  if (!s.first?.url && !n && !none.length) return null;
   return (
-    <Collapsible>
-      <div className="flex flex-wrap items-center gap-x-4">
-        {s.first?.url && (
-          <a href={s.first.url} target="_blank" rel="noreferrer"
-            className={`inline-flex min-h-8 items-center gap-1 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground ${NAME_LINK}`}>
-            Full story<ArrowUpRight aria-hidden className="size-3.5" />
-          </a>
-        )}
-        {n > 0 && (
-          <CollapsibleTrigger className={`group ${FOOT_LINK}`}>
-            +{n} {n === 1 ? "source" : "sources"}
-            <ChevronDown aria-hidden className="size-3.5 transition-transform duration-300 ease-(--ease-arrive) group-aria-expanded:rotate-180 motion-reduce:transition-none" />
-          </CollapsibleTrigger>
-        )}
-        {none > 0 && (
-          <button type="button" onClick={() => setMore(!more)} aria-expanded={more} className={FOOT_LINK}>
-            {more ? "Hide no change" : `+${none} no change`}
-          </button>
-        )}
-      </div>
-      {n > 0 && (
-        <CollapsibleContent>
-          <ul className="mt-1 space-y-1 border-l border-foreground/12 pl-3">
-            {s.sources.map((c, i) => (
-              <li key={i} className="flex flex-wrap items-baseline gap-x-1.5 text-xs leading-5 text-muted-foreground">
-                {c.url
-                  ? <a href={c.url} target="_blank" rel="noreferrer" className={`font-medium text-foreground/85 ${NAME_LINK}`}>{c.source}</a>
-                  : <span className="font-medium text-foreground/85">{c.source}</span>}
-                <span aria-hidden>·</span>
-                <Ago iso={c.at} />
-              </li>
-            ))}
-          </ul>
-        </CollapsibleContent>
+    <div className="flex flex-wrap items-center gap-x-4">
+      {s.first?.url && (
+        <a href={s.first.url} target="_blank" rel="noreferrer"
+          className={`order-1 inline-flex min-h-8 items-center gap-1 font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground ${NAME_LINK}`}>
+          Full story<ArrowUpRight aria-hidden className="size-3.5" />
+        </a>
       )}
-    </Collapsible>
+      {n > 0 && (
+        <Collapsible className="contents">
+          <CollapsibleTrigger className={`group order-2 ${FOOT_LINK}`}>
+            +{n} {n === 1 ? "source" : "sources"}<ChevronDown aria-hidden className={CHEVRON} />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="order-last basis-full">
+            <ul className="mt-1 space-y-1 border-l border-foreground/12 pl-3">
+              {s.sources.map((c, i) => (
+                <li key={i} className="flex flex-wrap items-baseline gap-x-1.5 text-xs leading-5 text-muted-foreground">
+                  {c.url
+                    ? <a href={c.url} target="_blank" rel="noreferrer" className={`font-medium text-foreground/85 ${NAME_LINK}`}>{c.source}</a>
+                    : <span className="font-medium text-foreground/85">{c.source}</span>}
+                  <span aria-hidden>·</span>
+                  <Ago iso={c.at} />
+                </li>
+              ))}
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+      {none.length > 0 && (
+        <Collapsible className="contents">
+          <CollapsibleTrigger className={`group order-3 ${FOOT_LINK}`}>
+            +{none.length} no change<ChevronDown aria-hidden className={CHEVRON} />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="order-first basis-full">
+            {/* the padding is inside the fold, so a shut panel takes no room */}
+            <div className="px-px pt-px pb-2.5"><Chips rows={none} dim={dim} tagged={tagged} /></div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
   );
 }
 
@@ -163,7 +168,6 @@ export function NewsStory({ s, focus, target = false, tagged = true }: { s: Stor
   const label = statusLabel(s.status);
   const retracted = s.status === "retracted";
   const { moved, none } = splitRows(s.players);
-  const [more, setMore] = useState(false);
   return (
     <li id={`story-${s.id}`} data-target={target || undefined} className="news-story scroll-mt-16 space-y-2.5 px-3 py-4 sm:px-4">
       <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-4 text-muted-foreground">
@@ -180,8 +184,8 @@ export function NewsStory({ s, focus, target = false, tagged = true }: { s: Stor
       </div>
       {focus != null
         ? s.players.filter((r) => r.player_id === focus).map((r) => <OpenRow key={r.player_id} r={r} dim={retracted} />)
-        : <Chips rows={more ? [...moved, ...none] : moved} dim={retracted} tagged={tagged} />}
-      <Foot s={s} none={focus != null ? 0 : none.length} more={more} setMore={setMore} />
+        : <Chips rows={moved} dim={retracted} tagged={tagged} />}
+      <Foot s={s} none={focus != null ? [] : none} dim={retracted} tagged={tagged} />
     </li>
   );
 }

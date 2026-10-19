@@ -33,7 +33,8 @@ export function NewsSearch() {
         .catch(() => { if (live) { setHits([]); setFailed(true); } })
         .finally(() => { if (live) setBusy(false); });
     }, DEBOUNCE_MS);
-    return () => { live = false; clearTimeout(t); };
+    // a new term (or an emptied field) abandons the search in flight, and its spinner with it
+    return () => { live = false; clearTimeout(t); setBusy(false); };
   }, [q]);
 
   const shown = q.trim() ? hits : [];

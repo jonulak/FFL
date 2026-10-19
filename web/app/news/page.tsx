@@ -7,8 +7,9 @@ import { parseId, parseNewsFilter } from "@/lib/news";
 export const dynamic = "force-dynamic";
 
 // The news desk's wire: every written story, newest update first, its players tagged with who holds them now.
-// `?filter=` narrows it to mine, free agents or other rosters; `?story=` is a push's target.
-export default async function Page({ searchParams }: { searchParams: Promise<{ filter?: string | string[]; story?: string | string[] }> }) {
+// `?filter=` narrows it to mine, free agents or other rosters; `?quiet=1` shows the stories that move nobody;
+// `?story=` is a push's target.
+export default async function Page({ searchParams }: { searchParams: Promise<{ filter?: string | string[]; story?: string | string[]; quiet?: string | string[] }> }) {
   const sp = await searchParams;
   const filter = parseNewsFilter(sp.filter);
   let d: NewsPage;
@@ -17,5 +18,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ f
   } catch (e) {
     return <ErrorCard {...errorFields(e)} />;
   }
-  return <NewsFeed data={d} filter={filter} target={parseId(sp.story)} />;
+  return <NewsFeed data={d} filter={filter} target={parseId(sp.story)} quiet={sp.quiet === "1"} />;
 }

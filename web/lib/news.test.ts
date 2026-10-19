@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NewsRow } from "./api";
-import { arrow, filterHref, ownerTag, parseId, parseNewsFilter, playerNewsHref, splitRows, statusLabel } from "./news";
+import { arrow, filterHref, hasMover, ownerTag, parseId, parseNewsFilter, playerNewsHref, splitRows, statusLabel } from "./news";
 
 const row = (over: Partial<NewsRow> = {}): NewsRow => ({
   player_id: 1, name: "Blake Corum", pos: "RB", team: "LAR", effect: "up", kind: "role", reason: null, flag: false,
@@ -20,6 +20,23 @@ describe("filterHref", () => {
     expect(filterHref("fa")).toBe("/news?filter=fa");
     expect(filterHref("mine")).toBe("/news?filter=mine");
     expect(filterHref("all")).toBe("/news");
+  });
+  it("carries the no-change switch and a story target", () => {
+    expect(filterHref("all", true)).toBe("/news?quiet=1");
+    expect(filterHref("fa", true)).toBe("/news?filter=fa&quiet=1");
+    expect(filterHref("all", false, 7)).toBe("/news?story=7");
+  });
+});
+
+describe("hasMover", () => {
+  const story = (effects: NewsRow["effect"][]) => ({ players: effects.map((effect, i) => row({ player_id: i, effect })) });
+  it("is true when any row has an arrow", () => {
+    expect(hasMover(story(["none", "down"]))).toBe(true);
+    expect(hasMover(story(["up"]))).toBe(true);
+  });
+  it("is false for an all-no-change story or one with no rows", () => {
+    expect(hasMover(story(["none", "none"]))).toBe(false);
+    expect(hasMover(story([]))).toBe(false);
   });
 });
 
