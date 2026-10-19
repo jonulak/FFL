@@ -13,7 +13,8 @@ again. A player row's `prob` is the probability of the chosen effect: the push c
 
 A media item (a transcript excerpt, ext_id `<media id>#<pid>`) is already one player's: he comes from
 the suffix, and the excerpt is matched only to add the others it names, all under the same `about`.
-An edited item (tagged_at cleared by the collectors' recheck) is tagged again against its own story.
+An edited item (tagged_at cleared by the collectors' recheck) is tagged again against its own story; one that is
+now about none of its players is withdrawn from it, so a story it was the last source of is retracted.
 """
 from __future__ import annotations
 
@@ -37,7 +38,8 @@ MAX_OPTIONS = 254  # Jev takes 255 options a choice; plus `new`
 MAX_TEXT = 60_000  # chars (~15k tokens): inside the 32k per-question context with room for the question
 FACT_TEXT = 1500  # chars of each earlier source shown to `changed`
 MEDIA = ("yt:", "pod:")
-OWN_FAULT = {400, 413, 422}  # this item's request is bad: skip it, the rest still run
+TAG_MAX_TRIES = 5  # an item failing this many runs is tagged with no story: it must not head the queue for good
+TRIES = "news_tag_tries"  # state: {item id: failed runs}
 KINDS = {"injury": "he is hurt, limited, or listed on an injury report",
          "return": "he is coming back from injury, suspension or a reserve list",
          "role": "his playing time, targets, carries or job changes",
@@ -165,24 +167,37 @@ def _joins(story: dict, kept: list[dict], prob: float | None) -> bool:
     return (prob or 0) >= STORY_ATTACH_PROB and any(on.get(p["player_id"]) == p["kind"] for p in kept)
 
 
-def _attach(item: dict, story: dict, kept: list[dict], bump: bool, corrected: bool, at: str) -> None:
-    """Rows for every player on a bump or a correction, else only for players new to the story."""
+def _attach(item: dict, story: dict, kept: list[dict], bump: bool, corrected: bool, at: str) -> bool:
+    """Rows for every player on a bump or a correction, else only for players new to the story. A new player
+    with ▲/▼ is news of its own: the story is bumped too, so Haiku writes his line and it may push. Returns
+    whether the rev moved."""
     sid = story["id"]
     if story.get("first_at") is None or item["published_at"] < story["first_at"]:
         db.update_story(sid, {"first_item_id": item["id"], "first_at": item["published_at"]})
+    on = {p["player_id"] for p in story["players"]}
+    rows = [p for p in kept if bump or corrected or p["player_id"] not in on]
     if corrected:
         db.set_story_status(sid, "corrected", at, note=item["source_id"])
-    elif bump:
+    elif bump or any(p["effect"] != "none" for p in rows):
         db.update_story(sid, {"rev": story["rev"] + 1, "updated_at": at})
-    on = {p["player_id"] for p in story["players"]}
-    db.put_story_players(sid, [p for p in kept if bump or corrected or p["player_id"] not in on])
+        bump = True
+    db.put_story_players(sid, rows)
+    return bump or corrected
+
+
+def _untag(item: dict, answers: dict | None, at: str) -> None:
+    """An item about none of the players: no story. An edit that was in one leaves it as a withdrawn source does,
+    so the story is retracted when no live source is left."""
+    db.tag_item(item["id"], [], answers, item["story_id"], at)
+    if item["story_id"] is not None:
+        db.withdraw_item(item["id"], at)
 
 
 def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
     at = now.isoformat()
     players = _players(item, index)
     if not players:
-        db.tag_item(item["id"], [], None, None, at)
+        _untag(item, None, at)
         out["tagged"] += 1
         return
     own = db.story(item["story_id"]) if item["story_id"] is not None else None
@@ -192,15 +207,14 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
     kept = got["players"]
     pids = [p["player_id"] for p in kept]
     if not kept:
-        db.tag_item(item["id"], [], answers, None, at)
+        _untag(item, answers, at)
         out["tagged"] += 1
         return
     if own:  # an edit: its own story only, bumped when the new text says something new
-        bump = changed(own, item, ask)
-        _attach(item, own, kept, bump, False, at)
+        bumped = _attach(item, own, kept, changed(own, item, ask), False, at)
         db.tag_item(item["id"], pids, answers, own["id"], at)
         out["tagged"] += 1
-        out["updated"] += bump
+        out["updated"] += bumped
         return
     chosen = next((c for c in cands if c["id"] == got["story"]), None)
     if chosen and not _joins(chosen, kept, got["story_prob"]):
@@ -214,29 +228,61 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
         out["new"] += 1
         return
     corrected = (got["retract"] or 0) >= RETRACT
-    bump = not corrected and changed(chosen, item, ask)
-    _attach(item, chosen, kept, bump, corrected, at)
+    bumped = _attach(item, chosen, kept, not corrected and changed(chosen, item, ask), corrected, at)
     db.tag_item(item["id"], pids, answers, chosen["id"], at)
     out["tagged"] += 1
     out["attached"] += 1
-    out["updated"] += bump or corrected
+    out["updated"] += bumped
+
+
+def _down(e: Exception) -> bool:
+    """The service failed, not this item: no answer at all (connection, timeout, no key) or a 5xx."""
+    return isinstance(e, JevError) and (e.status is None or e.status >= 500)
 
 
 def run(index: Index, ask=jev.ask, now: datetime | None = None) -> dict:
-    """Tag every untagged item, oldest first. An item whose request Jev refuses (OWN_FAULT) is skipped and
-    left untagged; any other Jev failure, or a DB error, stops the run (`error`), the rest wait for the next."""
+    """Tag every untagged item, oldest first. An item that fails on its own (Jev refuses its request, answers in
+    a shape `read` cannot take, or fails with a 5xx once Jev has answered this run) is skipped and left untagged,
+    and after TAG_MAX_TRIES failed runs tagged with no story (`given_up`). Jev down (two service failures before
+    any answer: the first may be the item's own) or a DB error stops the run (`error`); the rest wait."""
     now = now or datetime.now(timezone.utc)
-    out = {"tagged": 0, "new": 0, "attached": 0, "updated": 0, "failed": [], "error": None}
+    out = {"tagged": 0, "new": 0, "attached": 0, "updated": 0, "failed": [], "given_up": [], "error": None}
+    up = False  # Jev answered this run, so a service failure is the item's
+    early: list[int] = []  # items a service failure stopped before any answer: counted only once Jev is seen up
+
+    def asked(state, qs):
+        nonlocal up
+        got = ask(state, qs)
+        up = True
+        return got
+
     try:
+        tries: dict[str, int] = db.get_state(TRIES, {}) or {}
         for item in db.untagged_items():
             try:
-                _tag(item, index, ask, now, out)
-            except JevError as e:
-                if e.status in OWN_FAULT:
-                    out["failed"].append(item["id"])
+                _tag(item, index, asked, now, out)
+            except db.DBError:
+                raise
+            except Exception as e:  # noqa: BLE001 — anything else is this item's (KeyError/TypeError: an odd answer)
+                if _down(e) and not up:
+                    if early:
+                        out["error"] = str(e)
+                        break
+                    early.append(item["id"])
                     continue
-                out["error"] = str(e)
-                break
+                up = up or not _down(e)  # Jev answered, if only to refuse
+                out["failed"].append(item["id"])
+            else:
+                tries.pop(str(item["id"]), None)
+        out["failed"] = sorted(out["failed"] + (early if up else []))
+        at = now.isoformat()
+        for iid in out["failed"]:
+            n = tries[str(iid)] = tries.get(str(iid), 0) + 1
+            if n >= TAG_MAX_TRIES:
+                db.tag_item(iid, [], None, None, at)
+                out["given_up"].append(iid)
+                del tries[str(iid)]
+        db.put_state(TRIES, tries)
     except db.DBError as e:
         out["error"] = f"db: {e}"
     return out

@@ -51,6 +51,7 @@ def test_withdraw_last_item_retracts_story():
     assert s["status"] == "retracted"
     got = db.story(sid)
     assert (got["status"], got["rev"], got["status_at"]) == ("retracted", 2, "2026-10-18T13:00:00")
+    assert got["updated_at"] == "2026-10-18T13:00:00"  # re-surfaces, like set_story_status
     assert db.withdraw_item(db.add_news_items([item("c")])[0], "t") is None  # no story at all
 
 
@@ -103,6 +104,15 @@ def test_recent_stories_window_and_players():
     assert [s["id"] for s in got] == [s1]
     assert got[0]["players"][0]["player_id"] == 1 and got[0]["items"][0]["id"] == a
     assert db.recent_stories([], "2026-10-01") == []
+
+
+def test_recent_stories_leave_out_retracted():
+    [a] = db.add_news_items([item("a")])
+    sid = story("2026-10-18T10:00:00", players=[1])
+    db.tag_item(a, [1], None, sid, "t")
+    assert [s["id"] for s in db.recent_stories([1], "2026-10-16T00:00:00")] == [sid]
+    db.withdraw_item(a, "2026-10-18T13:00:00")
+    assert db.recent_stories([1], "2026-10-16T00:00:00") == []  # a new item never joins a retracted story
 
 
 def test_put_story_words_rejects_stale_rev():

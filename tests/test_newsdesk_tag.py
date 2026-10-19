@@ -131,12 +131,23 @@ def test_attach_when_story_chosen():
     i = item("a", "Kyren Williams limited again", text="Puka Nacua full")
     ask = fake(story=f"s{sid}")
     got = tag.run(INDEX, ask=ask, now=NOW)
-    assert got["new"] == 0 and got["attached"] == 1 and got["updated"] == 0
+    assert got["new"] == 0 and got["attached"] == 1
     s = db.story(sid)
-    assert [x["id"] for x in s["items"]] == [i] and s["rev"] == 1
+    assert [x["id"] for x in s["items"]] == [i]
     assert rows(sid)[1]["effect"] == "down"  # unchanged story: an existing player's row stands
     assert rows(sid)[2]["effect"] == "up"  # a player new to the story gets his row
+    # and his arrow is news: the story is rewritten (his line) and may push
+    assert (s["rev"], s["updated_at"], got["updated"]) == (2, AT, 1)
     assert "story" in ask.calls[0][1] and "retract" in ask.calls[0][1]
+
+
+def test_new_player_without_an_arrow_does_not_bump():
+    sid = story()
+    item("a", "Kyren Williams limited again", text="Puka Nacua full")
+    got = tag.run(INDEX, ask=fake(story=f"s{sid}", effect="none"), now=NOW)
+    s = db.story(sid)
+    assert got["attached"] == 1 and got["updated"] == 0
+    assert (s["rev"], s["updated_at"]) == (1, "2026-10-19T10:00:00+00:00") and rows(sid)[2]["effect"] == "none"
 
 
 def test_attach_needs_same_kind():
@@ -209,6 +220,22 @@ def test_edited_item_retagged_on_own_story():
     assert got["updated"] == 1 and got["new"] == 0
 
 
+@pytest.mark.parametrize("others", [False, True])
+def test_edited_item_about_nobody_now_leaves_its_story(others):
+    sid = story()
+    i = item("a", "Kyren Williams limited")
+    db.tag_item(i, [1], None, sid, "2026-10-19T12:30:00+00:00")
+    if others:
+        db.tag_item(item("b", "Kyren Williams limited again"), [1], None, sid, "2026-10-19T12:30:00+00:00")
+    db.update_item_text(i, "Kyren Williams the coach", "", "h2", "2026-10-19T14:00:00+00:00")
+    got = tag.run(INDEX, ask=fake(about={1: 0.1}), now=NOW)
+    s = db.story(sid)
+    assert got["tagged"] == 1 and db.untagged_items() == []
+    assert [x["withdrawn_at"] for x in s["items"] if x["id"] == i] == [AT]  # no longer one of its sources
+    # with no live source left the story is retracted (and re-surfaces), as a deleted source would leave it
+    assert (s["status"], s["rev"]) == (("live", 1) if others else ("retracted", 2))
+
+
 def test_item_without_players_has_no_story():
     i = item("a", "Rams sign a long snapper")
     ask = fake()
@@ -268,3 +295,74 @@ def test_bad_item_skipped_outage_stops_run():
     got = tag.run(INDEX, ask=down, now=NOW)
     assert got["tagged"] == 0 and "529" in got["error"]
     assert len(db.untagged_items()) == 2
+
+
+def flaky(bad, error):
+    """Jev answering every item but the ones titled with `bad`, where `error` is raised (or returned, a dict)."""
+    good = fake()
+
+    def ask(state, qs):
+        if bad in state["title"]:
+            if isinstance(error, dict):
+                return error
+            raise error
+        return good(state, qs)
+    return ask
+
+
+@pytest.mark.parametrize("error", [{}, {"about:1": {"noul": 0.9}}, jev.JevError("jev: no answer to ['kind:1']", 200),
+                                   jev.JevError("jev 403: nope", 403)])
+def test_one_bad_answer_skips_the_item_not_the_run(error):
+    a = item("a", "Kyren Williams limited", at="2026-10-19T10:00:00+00:00")
+    item("b", "Puka Nacua limited", at="2026-10-19T11:00:00+00:00")
+    got = tag.run(INDEX, ask=flaky("Kyren", error), now=NOW)
+    assert got["failed"] == [a] and got["tagged"] == 1 and got["error"] is None
+    assert [u["id"] for u in db.untagged_items()] == [a]
+    assert db.get_state(tag.TRIES) == {str(a): 1}
+
+
+def test_server_error_after_an_answer_is_the_items():
+    item("a", "Puka Nacua limited", at="2026-10-19T09:00:00+00:00")
+    b = item("b", "Kyren Williams limited", at="2026-10-19T10:00:00+00:00")
+    item("c", "Puka Nacua questionable", at="2026-10-19T11:00:00+00:00")
+    got = tag.run(INDEX, ask=flaky("Kyren", jev.JevError("jev 500", 500)), now=NOW)
+    assert got["failed"] == [b] and got["tagged"] == 2 and got["error"] is None
+
+
+def test_server_error_first_is_the_items_when_the_next_answers():
+    """The item heading the queue may be the one Jev chokes on: it must not stop tagging for good."""
+    a = item("a", "Kyren Williams limited", at="2026-10-19T10:00:00+00:00")
+    item("b", "Puka Nacua limited", at="2026-10-19T11:00:00+00:00")
+    got = tag.run(INDEX, ask=flaky("Kyren", jev.JevError("jev 502", 502)), now=NOW)
+    assert got["failed"] == [a] and got["tagged"] == 1 and got["error"] is None
+    assert db.get_state(tag.TRIES) == {str(a): 1}
+
+
+@pytest.mark.parametrize("error", [jev.JevError("jev: connection refused"), jev.JevError("jev 503", 503)])
+def test_outage_stops_the_run_and_counts_nothing(error):
+    item("a", "Kyren Williams limited", at="2026-10-19T10:00:00+00:00")
+    item("b", "Puka Nacua limited", at="2026-10-19T11:00:00+00:00")
+    item("c", "Puka Nacua questionable", at="2026-10-19T12:00:00+00:00")
+    calls = []
+
+    def down(state, qs):
+        calls.append(state["title"])
+        raise error
+
+    got = tag.run(INDEX, ask=down, now=NOW)
+    assert got["tagged"] == 0 and str(error) in got["error"] and len(calls) == 2
+    assert len(db.untagged_items()) == 3 and not db.get_state(tag.TRIES)
+
+
+def test_item_given_up_after_max_tries():
+    a = item("a", "Kyren Williams limited", at="2026-10-19T10:00:00+00:00")
+    ask = flaky("Kyren", {})
+    for n in range(1, tag.TAG_MAX_TRIES):
+        assert tag.run(INDEX, ask=ask, now=NOW)["failed"] == [a]
+        assert db.get_state(tag.TRIES) == {str(a): n}
+    got = tag.run(INDEX, ask=ask, now=NOW)
+    assert got["failed"] == [a] and got["given_up"] == [a]
+    assert db.untagged_items() == [] and db.get_state(tag.TRIES) == {}
+    with db._read() as c:
+        r = c.execute(db.sa.select(db.news_items_table).where(db.news_items_table.c.id == a)).first()
+    assert (r.story_id, r.tagged_at, r.player_ids) == (None, AT, [])

@@ -305,7 +305,7 @@ source_cache = sa.Table(
     sa.PrimaryKeyConstraint("season", "name", "key"),
 )
 
-# The news catalog (ffl/news_*): where items come from, what they said, the stories they were grouped into and which
+# The news catalog (ffl/newsdesk/): where items come from, what they said, the stories they were grouped into and which
 # players each story moves. Times are ISO strings, so they compare as text.
 news_sources_table = sa.Table(
     "news_sources", metadata, _season(),
@@ -1103,8 +1103,8 @@ def _bump_story(c, story_id: int, season: int, **values) -> None:
 
 
 def withdraw_item(item_id: int, at: str, season: int = SEASON) -> dict | None:
-    """Mark an item deleted or gone. When that leaves its story no live item, the story is retracted (rev+1) and
-    returned; otherwise None."""
+    """Mark an item deleted or gone. When that leaves its story no live item, the story is retracted (rev+1, and it
+    re-surfaces like set_story_status) and returned; otherwise None."""
     t, s = news_items_table, news_stories
     with _write() as c:
         c.execute(sa.update(t).where(t.c.season == season, t.c.id == item_id).values(withdrawn_at=at))
@@ -1116,7 +1116,7 @@ def withdraw_item(item_id: int, at: str, season: int = SEASON) -> dict | None:
         cur = c.execute(sa.select(s.c.status).where(s.c.season == season, s.c.id == sid)).scalar()
         if live or cur in (None, "retracted"):
             return None
-        _bump_story(c, sid, season, status="retracted", status_at=at)
+        _bump_story(c, sid, season, status="retracted", status_at=at, updated_at=at)
         return dict(c.execute(sa.select(s).where(s.c.id == sid)).first()._mapping)
 
 
@@ -1185,12 +1185,14 @@ def story(story_id: int, season: int = SEASON) -> dict | None:
 
 
 def recent_stories(player_ids: list[int], since: str, season: int = SEASON) -> list[dict]:
-    """Stories naming any of these players and updated at or after `since`, newest first."""
+    """Stories naming any of these players and updated at or after `since`, newest first: what a new item may join,
+    so never a retracted one (news after a withdrawn report is a story of its own)."""
     if not player_ids:
         return []
     t, p = news_stories, news_story_players
     named = sa.select(p.c.story_id).where(p.c.season == season, p.c.player_id.in_(player_ids))
-    q = (sa.select(t).where(t.c.season == season, t.c.updated_at >= since, t.c.id.in_(named))
+    q = (sa.select(t).where(t.c.season == season, t.c.updated_at >= since, t.c.id.in_(named),
+                            t.c.status != "retracted")
          .order_by(t.c.updated_at.desc(), t.c.id.desc()))
     with _read() as c:
         return _stories_out(c, c.execute(q).all(), season)
