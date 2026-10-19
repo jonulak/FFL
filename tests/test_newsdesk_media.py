@@ -25,9 +25,10 @@ SEGS = [{"start": 0.0, "text": "Injuries for the game."}, {"start": 4.0, "text":
 
 
 class Resp:
-    def __init__(self, body=b"", status=200):
+    def __init__(self, body=b"", status=200, headers=None):
         self.status_code, self.content = status, body
         self.text = body.decode()
+        self.headers = headers or {}
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -63,8 +64,21 @@ def items_of(source_id):
 def test_is_presser():
     assert media.is_presser("Kyle Shanahan Postgame Press Conference")
     assert media.is_presser("Ben Johnson podium")
-    assert not media.is_presser("Top 10 plays")
-    assert not media.is_presser("Hype video")
+    for title in ("Shanahan Previews Commanders Matchup, Injury Updates | 49ers",
+                  "Brock Purdy Talks Team's 'Locked In' Mindset, Chemistry with Mike Evans and Brandin Cooks | 49ers",
+                  "Coach Jeff Hafley meets with the media | Miami Dolphins",
+                  "LIVE: The Houston Texans address the media after the win over the Jaguars",
+                  "Derrick Henry On Loss at Browns  | Baltimore Ravens",
+                  "QB Bo Nix on Denver\u2019s 4-2 start: \u2018Excited for our team right now\u2019",
+                  "Shane Steichen on what went wrong in Colts' Week 6 loss to Titans",
+                  "CB Ja\u2019Quan McMillian on his overtime interception"):
+        assert media.is_presser(title), title
+    for title in ("Top 10 plays", "Hype video", "Full-game highlights: Broncos 17, Seahawks 14 (OT) | Week 6",
+                  "Chicago Bears Highlights vs. Atlanta Falcons | 2026 Regular Season Week 6",
+                  "A cinematic recap of the Broncos' win vs. the Seahawks | Sights & Sounds",
+                  "Tennessee Titans FIRST WIN of the Season | Full Highlights vs. the Indianapolis Colts",
+                  "WE GOT IMI ON OUR TEAM", "WAKING UP ON VICTORY MONDAY LIKE:"):
+        assert not media.is_presser(title), title
 
 
 def test_parse_channel_feed():
@@ -200,6 +214,42 @@ def test_one_unavailable_video_does_not_stop_the_rest(monkeypatch):
     got = media.run_all(INDEX, now=NOW)
     assert got["new"] == 2 and got["failed"] == ["yt:SF"]
     assert db.news_media("good0000000") is not None
+
+
+def test_podcast_feed_polled_hourly(monkeypatch):
+    db.put_news_sources([POD])
+    calls = []
+
+    def get(url, **kw):
+        assert url == POD["url"], url  # every episode in the fixture is older than three days
+        calls.append(kw.get("headers"))
+        if len(calls) == 1:
+            return Resp(fix("omny.xml"), headers={"ETag": 'W/"abc"', "Last-Modified": "Mon, 19 Oct 2026 17:00:00 GMT"})
+        return Resp(b"", status=304)
+    monkeypatch.setattr(media, "_get", get)
+
+    assert media.run_all(INDEX, now=NOW)["failed"] == []
+    assert calls == [None]
+    media.run_all(INDEX, now=NOW + timedelta(minutes=30))
+    assert len(calls) == 1  # inside the hour: not polled
+    got = media.run_all(INDEX, now=NOW + timedelta(minutes=61))
+    assert calls[1] == {"If-None-Match": 'W/"abc"', "If-Modified-Since": "Mon, 19 Oct 2026 17:00:00 GMT"}
+    assert got == {"new": 0, "media": 0, "pending": 0, "failed": []}
+    assert db.get_state("news_podcast_polled")["pod:LAR"]["etag"] == 'W/"abc"'
+
+
+def test_failed_episode_drops_the_validators(monkeypatch):
+    db.put_news_sources([POD])
+    eps = media.parse_podcast_feed(fix("omny.xml").decode(), POD)
+
+    def get(url, **kw):
+        if url == POD["url"]:
+            return Resp(fix("omny.xml"), headers={"ETag": 'W/"abc"'})
+        return Resp(b"", status=500)
+    monkeypatch.setattr(media, "_get", get)
+    got = media.run_all(INDEX, now=datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc))
+    assert got["failed"] == ["pod:LAR"] and eps[0]["transcript_url"]
+    assert "etag" not in db.get_state("news_podcast_polled")["pod:LAR"]
 
 
 def test_podcast_episode_stored_and_split(monkeypatch):

@@ -4,6 +4,16 @@ from ffl.newsdesk.players import Index
 INDEX = Index(by_id={1: {"name": "Puka Nacua", "pos": "WR", "team": "LAR"},
                      2: {"name": "Matthew Stafford", "pos": "QB", "team": "LAR"}},
               by_club={"LAR": [1, 2]}, by_full={"puka nacua": [1], "matthew stafford": [2]})
+CHI = Index(by_id={10: {"name": "Caleb Williams", "pos": "QB", "team": "CHI"},
+                   11: {"name": "Luther Burden III", "pos": "WR", "team": "CHI"},
+                   12: {"name": "Kyle Monangai", "pos": "RB", "team": "CHI"},
+                   13: {"name": "Kyle Pitts", "pos": "TE", "team": "ATL"},
+                   14: {"name": "Tyler Scott", "pos": "WR", "team": "CHI"},
+                   15: {"name": "Kyle Brandt", "pos": "TE", "team": "CHI"},
+                   16: {"name": "Baker Mayfield", "pos": "QB", "team": "TB"}},
+            by_club={"CHI": [10, 11, 12, 14, 15], "ATL": [13], "TB": [16]},
+            by_full={"caleb williams": [10], "luther burden": [11], "kyle monangai": [12], "kyle pitts": [13],
+                     "tyler scott": [14], "kyle brandt": [15], "baker mayfield": [16]})
 
 
 def segs(mentions: dict[int, str], until: int = 500) -> list[dict]:
@@ -36,3 +46,29 @@ def test_split_window_clamped_at_zero_and_name_across_segs():
 
 def test_split_no_players():
     assert split.by_player(segs({}), INDEX, ("LAR",)) == []
+
+
+def test_first_name_matches_in_club():
+    got = split.by_player([{"start": 50.0, "text": "Caleb was sharp, and Luther's catch"}], CHI, ("CHI",))
+    assert [g["player_id"] for g in got] == [10, 11]
+    assert got[0]["start"] == 20.0
+    assert split.by_player([{"start": 50.0, "text": "Caleb was sharp"}], CHI, ("ATL",)) == []
+
+
+def test_first_name_shared_on_club_matches_nobody():
+    assert split.by_player([{"start": 0.0, "text": "I thought Kyle ran hard"}], CHI, ("CHI",)) == []
+
+
+def test_common_first_name_not_matched():
+    assert split.by_player([{"start": 0.0, "text": "And Tyler did his job"}], CHI, ("CHI",)) == []
+
+
+def test_title_player_gets_item_without_mentions():
+    segs = [{"start": float(t), "text": "the quarterback is progressing well"} for t in range(0, 300, 10)]
+    got = split.by_player(segs, CHI, ("TB",), title="Todd Bowles on Baker Mayfield\u2019s Timeline to Return")
+    assert [(g["player_id"], g["start"]) for g in got] == [(16, 0.0)]
+    assert got[0]["text"] == " ".join(["the quarterback is progressing well"] * 13)  # 0..120 s
+
+    segs[20] = {"start": 200.0, "text": "Baker is doing everything"}  # common first name, but the title says who
+    got = split.by_player(segs, CHI, ("TB",), title="Todd Bowles on Baker Mayfield\u2019s Timeline to Return")
+    assert got[0]["start"] == 170.0 and "Baker is doing everything" in got[0]["text"]

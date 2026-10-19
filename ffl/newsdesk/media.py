@@ -15,6 +15,10 @@ at most CAPTIONS_PER_RUN a run with the pending ones first, and a blocked read s
 and fails its source, never reading as "no captions yet".
 
 Podcasts: Omny feeds carry `<podcast:transcript>` in SubRip, WebVTT and plain text; SubRip is taken.
+A feed lists every episode ever published (NE's is 0.9 MB gzipped), so each is polled at most once per
+PODCAST_EVERY, conditionally on the ETag / Last-Modified it last gave (state `news_podcast_polled`
+`{source id: {at, etag, modified}}`). The validators are kept only when every episode of that poll was
+read: after a failed transcript fetch the next poll takes the whole feed again.
 """
 from __future__ import annotations
 
@@ -36,7 +40,11 @@ from .players import Index
 YT_FEED = "https://www.youtube.com/feeds/videos.xml?channel_id={id}"
 YT_WATCH = "https://www.youtube.com/watch?v={id}"
 PRESSER = re.compile(r"press conference|presser|postgame|media availability|podium|availability|speaks to"
-                     r"|talks to the media", re.I)
+                     r"|talks to the media|meets with the media|address(?:es)? the media|\bpreviews\b|\btalks\b", re.I)
+# "<Name> on <topic>" at the start, a position or title first: "QB Bo Nix on Denver's 4-2 start", "Derrick Henry On Loss…"
+_NAME = r"[A-Z](?:[a-z]|\.[A-Z])[\w.'’\-]*"  # "Nix", "Ja’Quan", "J.J."; never an all-caps word
+NAME_ON = re.compile(rf"(?:[A-Z/]{{1,4}} )?{_NAME}(?: {_NAME}){{1,3}} (?i:on) ")
+PODCAST_EVERY = timedelta(hours=1)
 LANGS = ("en", "en-US", "en-GB")
 GAP_S = 2.0
 CAPTIONS_PER_RUN = 10
@@ -60,7 +68,7 @@ def _xml(body: str | bytes) -> ET.Element:
 
 
 def is_presser(title: str) -> bool:
-    return bool(PRESSER.search(title))
+    return bool(PRESSER.search(title) or NAME_ON.match(title))
 
 
 def parse_channel_feed(xml: str | bytes, source: dict) -> list[dict]:
@@ -128,7 +136,7 @@ def items_for(media: dict, segs: list[dict], index: Index, clubs: tuple[str, ...
     """One item per player the transcript names: ext_id `<media id>#<player id>`, his excerpt as the text."""
     youtube = media["source_id"].startswith("yt:")
     out = []
-    for part in split.by_player(segs, index, clubs):
+    for part in split.by_player(segs, index, clubs, media["title"]):
         url = f"{YT_WATCH.format(id=media['id'])}&t={int(part['start'])}s" if youtube else media["url"]
         it = collect._item({"id": media["source_id"]}, f"{media['id']}#{part['player_id']}", url,
                            media["published_at"], media["title"], part["text"], clubs[0] if clubs else None)
@@ -144,12 +152,20 @@ def _store(media: dict, segs: list[dict], index: Index, club: str | None, at: st
                                   for i in items]))
 
 
-def _poll(source: dict) -> list[dict] | Exception:
+def _poll(source: dict, last: dict | None = None) -> tuple[list[dict], dict | None] | Exception:
+    """(rows, validators) off the feed; a 304 against `last`'s validators is no rows and `last`'s kept."""
+    headers = {}
+    if last and last.get("etag"):
+        headers["If-None-Match"] = last["etag"]
+    if last and last.get("modified"):
+        headers["If-Modified-Since"] = last["modified"]
     try:
-        r = _get(source["url"])
+        r = _get(source["url"], headers=headers) if headers else _get(source["url"])
+        if r.status_code == 304:
+            return [], {"etag": last.get("etag"), "modified": last.get("modified")}
         r.raise_for_status()
         parse = parse_channel_feed if source["kind"] == "youtube" else parse_podcast_feed
-        return parse(r.content, source)
+        return parse(r.content, source), {"etag": r.headers.get("ETag"), "modified": r.headers.get("Last-Modified")}
     except (requests.RequestException, ET.ParseError, ValueError) as e:
         return e
 
@@ -164,10 +180,17 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     at = now.astimezone(timezone.utc).isoformat(timespec="seconds")
     cutoff = collect._utc(now - collect.MAX_AGE)
-    sources = [s for s in db.news_sources() if s["kind"] in collect.MEDIA_KINDS]
+    last_poll: dict[str, dict] = db.get_state("news_podcast_polled", {}) or {}
+
+    def due(s: dict) -> bool:
+        seen = last_poll.get(s["id"])
+        return s["kind"] != "podcast" or not seen or now - datetime.fromisoformat(seen["at"]) >= PODCAST_EVERY
+
+    sources = [s for s in db.news_sources() if s["kind"] in collect.MEDIA_KINDS and due(s)]
     with ThreadPoolExecutor(collect.WORKERS) as pool:
-        polled = dict(zip([s["id"] for s in sources], pool.map(_poll, sources)))
-    errors = {sid: _err(got) for sid, got in polled.items() if isinstance(got, Exception)}
+        got = dict(zip([s["id"] for s in sources], pool.map(lambda s: _poll(s, last_poll.get(s["id"])), sources)))
+    errors = {sid: _err(g) for sid, g in got.items() if isinstance(g, Exception)}
+    polled = {sid: g[0] for sid, g in got.items() if sid not in errors}
     new = stored = 0
 
     def fresh(rows: list[dict], key: str) -> list[dict]:
@@ -189,6 +212,10 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
                 stored += 1
             except (requests.RequestException, db.DBError) as e:
                 errors[source["id"]] = _err(e)
+        if source["id"] in polled:  # a failed episode drops the validators, so the next poll reads it again
+            kept = got[source["id"]][1] if source["id"] not in errors else {}
+            last_poll[source["id"]] = {"at": at, **(kept or {})}
+    db.put_state("news_podcast_polled", last_poll)
 
     pending: dict[str, str] = db.get_state("news_pending_media", {}) or {}
     lag: list[float] = db.get_state("news_caption_lag", []) or []
