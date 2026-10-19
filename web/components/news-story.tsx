@@ -40,7 +40,7 @@ function OwnerTag({ r }: { r: NewsRow }) {
 }
 
 // His line: what the arrow is for, in Haiku's words, and the way on to his record and his news.
-function Line({ r, dim, onPage = false }: { r: NewsRow; dim: boolean; onPage?: boolean }) {
+export function Line({ r, dim, onPage = false }: { r: NewsRow; dim: boolean; onPage?: boolean }) {
   return (
     <div className="space-y-1.5">
       <p className="flex flex-wrap items-center gap-x-1.5 text-xs leading-4 text-muted-foreground">

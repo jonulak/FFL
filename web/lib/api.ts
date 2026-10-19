@@ -5,7 +5,7 @@ export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 export const API_TIMEOUT_MS = 20_000;
 
 // ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
-export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; quiet: [string, string] };
+export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; quiet: [string, string] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
 
 export class ApiError extends Error {

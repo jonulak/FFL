@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { NewsRow } from "./api";
-import { arrow, filterHref, ownerTag, parseId, parseNewsFilter, playerNewsHref, splitRows, statusLabel } from "./news";
+import type { NewsRow, PlayerNews, Story } from "./api";
+import { arrow, filterHref, ownerTag, parseId, parseNewsFilter, playerNewsHref, recentFor, splitRows, statusLabel } from "./news";
 
 const row = (over: Partial<NewsRow> = {}): NewsRow => ({
   player_id: 1, name: "Blake Corum", pos: "RB", team: "LAR", effect: "up", kind: "role", reason: null, flag: false,
@@ -77,5 +77,27 @@ describe("parseId", () => {
 describe("playerNewsHref", () => {
   it("is the player's news page", () => {
     expect(playerNewsHref(4430737)).toBe("/news/player/4430737");
+  });
+});
+
+describe("recentFor", () => {
+  const story = (id: number, players: NewsRow[]): Story => ({
+    id, headline: `h${id}`, overview: "", status: "live", status_note: null, updated: false, at: "2026-10-18T12:00:00+00:00",
+    first: null, sources: [], players,
+  });
+  const page = (stories: Story[]): PlayerNews => ({
+    player: { player_id: 1, name: "Blake Corum", pos: "RB", team: "LAR", owner: null, mine: false }, muted: false,
+    stories, next_before: null,
+  });
+
+  it("keeps the newest three stories, each with his row only", () => {
+    const d = page([1, 2, 3, 4].map((i) => story(i, [row({ player_id: 9 }), row({ player_id: 1, effect: "down" })])));
+    const out = recentFor(d);
+    expect(out.map((x) => x.story.id)).toEqual([1, 2, 3]);
+    expect(out.every((x) => x.row.player_id === 1 && x.row.effect === "down")).toBe(true);
+  });
+  it("skips a story without his row, and a missing read is no news", () => {
+    expect(recentFor(page([story(1, [row({ player_id: 9 })]), story(2, [row({ player_id: 1 })])])).map((x) => x.story.id)).toEqual([2]);
+    expect(recentFor(null)).toEqual([]);
   });
 });

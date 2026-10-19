@@ -1,4 +1,4 @@
-import type { NewsEffect, NewsRow, Story } from "./api";
+import type { NewsEffect, NewsRow, PlayerNews, Story } from "./api";
 
 // The News page's filters, in the URL as ?filter= (GET /news takes the same four).
 export type NewsFilter = "all" | "mine" | "fa" | "others";
@@ -45,4 +45,18 @@ export function splitRows(rows: NewsRow[]): { moved: NewsRow[]; none: NewsRow[] 
 
 export function statusLabel(s: Story["status"]): string | null {
   return s === "retracted" ? "Retracted" : s === "corrected" ? "Corrected" : null;
+}
+
+// The player dialog's Recent news: his newest three stories off GET /news/player/{id}, each with his own row (the
+// only one that page sends). A failed read is no news.
+export const RECENT = 3;
+export function recentFor(d: PlayerNews | null): { story: Story; row: NewsRow }[] {
+  if (!d) return [];
+  const out: { story: Story; row: NewsRow }[] = [];
+  for (const story of d.stories) {
+    const row = story.players.find((r) => r.player_id === d.player.player_id);
+    if (row) out.push({ story, row });
+    if (out.length === RECENT) break;
+  }
+  return out;
 }

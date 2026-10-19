@@ -158,7 +158,7 @@ export function NewsFeed({ data, filter, target, pinned, quiet }: {
 }
 
 // /news/player/<id>: his header, then every story that names him in the window, his row opened out into his line.
-// `bell` is the slot for the mute switch (Task 11); nothing stands there yet.
+// `bell` is the push mute (news-mute.tsx), at the header's end.
 export function PlayerNewsView({ data, days, bell }: { data: PlayerNews; days: number; bell?: React.ReactNode }) {
   const p = data.player;
   const { stories, next, loading, failed, older } = useOlder(data, `/news/player/${p.player_id}?days=${days}`);

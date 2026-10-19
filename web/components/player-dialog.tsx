@@ -14,8 +14,9 @@ import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { Decision, OppRank, PlayerLog, PlayerTx, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
+import type { Decision, OppRank, PlayerLog, PlayerNews, PlayerTx, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
 import { reasonText } from "@/lib/decisions";
+import { recentFor } from "@/lib/news";
 import { ordinal, pts } from "@/lib/format";
 import { cells, columns, hasSnaps, NAME_LINK, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
 import { volumeText } from "@/lib/box";
@@ -25,6 +26,7 @@ import { HISTORY_LABEL, historyDetail, historyWhen } from "@/lib/transactions";
 import { BoxTable } from "./box-table";
 import { ClubLogo } from "./club-logo";
 import { useDecisionPrefs } from "./decision-prefs";
+import { RecentNews } from "./news-recent";
 import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
 import { TeamLogo } from "./player-media";
 import { SeasonFacts } from "./season-facts";
@@ -45,8 +47,11 @@ const HOLD_MS = 180;
 
 // `history`: his moves (the draft pick included), asked for in the same tap so they land with the
 // log (the API answers from cached payloads). A failure is no history: the section is left out.
-// `decisions` are the journal rows that name him, from the same answer.
-export type LogFetch = { promise: Promise<PlayerLog>; log?: PlayerLog; history: Promise<PlayerTx[]>; decisions: Promise<Decision[]> };
+// `decisions` are the journal rows that name him, from the same answer. `news` is his newest stories and his push
+// mute (GET /news/player/{id}), asked for in the same tap; a failure is null, and the section is left out.
+export type LogFetch = {
+  promise: Promise<PlayerLog>; log?: PlayerLog; history: Promise<PlayerTx[]>; decisions: Promise<Decision[]>; news: Promise<PlayerNews | null>;
+};
 type Shown = { seed: PlayerSeed; fetch: LogFetch };
 
 // A tap's request for the log and the history, with `log` set as soon as it lands.
@@ -56,6 +61,7 @@ export function fetchLog(id: number): LogFetch {
     promise: clientGet<PlayerLog>(`/player/${id}`),
     history: tx.then((d) => d.history, () => []),
     decisions: tx.then((d) => d.decisions ?? [], () => []),
+    news: clientGet<PlayerNews>(`/news/player/${id}?limit=3`).catch(() => null),
   };
   // registered before any race on it, so `log` is set by the time the race settles
   fetch.promise.then((log) => { fetch.log = log; }, () => {});
@@ -168,10 +174,12 @@ function FormSection({ p }: { p: PlayerSeed }) {
 export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Load; retry: () => void; fetch: LogFetch; className?: string }) {
   const [moves, setMoves] = useState<PlayerTx[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [news, setNews] = useState<PlayerNews | null>(null);
   useEffect(() => {
     let current = true;
     void fetch.history.then((h) => current && setMoves(h));
     void fetch.decisions.then((d) => current && setDecisions(d));
+    void fetch.news.then((n) => current && setNews(n));
     return () => { current = false; };
   }, [fetch]);
   // under the seasons, once they are in: above the skeleton it would be pushed down by the log
@@ -180,11 +188,14 @@ export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Loa
   // frame, enough to snap the Matchup breakdown (its week already above) to the dialog's cap.
   // the section links into the Decisions page, so it goes when the page is turned off in Settings
   const logged = useDecisionPrefs().page && load.state === "ready" && decisions.length > 0;
-  const grow = useGrow(`${load.state}${history ? "+moves" : ""}${logged ? "+decisions" : ""}`);
+  // his news under his moves, in the grow with them for the same reason
+  const recent = load.state === "ready" && news != null && recentFor(news).length > 0;
+  const grow = useGrow(`${load.state}${history ? "+moves" : ""}${recent ? "+news" : ""}${logged ? "+decisions" : ""}`);
   return (
     <div ref={grow} className="overflow-hidden">
       <LogBody load={load} retry={retry} className={className} />
       {history && <History moves={moves} />}
+      {recent && news && <RecentNews d={news} />}
       {logged && <Decisions rows={decisions} />}
     </div>
   );

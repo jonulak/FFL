@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ErrorCard } from "@/components/error-card";
 import { PlayerNewsView } from "@/components/news-feed";
+import { NewsMute } from "@/components/news-mute";
 import { apiGet, type PlayerNews } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 import { parseId } from "@/lib/news";
@@ -25,5 +26,5 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       </div>
     );
   }
-  return <PlayerNewsView data={d} days={DAYS} />;
+  return <PlayerNewsView data={d} days={DAYS} bell={<NewsMute id={id} muted={d.muted} name={d.player.name} className="max-w-[10rem] shrink-0" />} />;
 }

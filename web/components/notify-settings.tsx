@@ -15,7 +15,8 @@ import { Spinner, Swap } from "./motion";
 
 const KINDS = [["move", "League moves", "Adds, drops and trades, batched per sync"],
                ["injury", "My starter hurt", "OUT, Doubtful or IR before his game locks"],
-               ["waivers", "Waiver results", "Claims won and lost after the run"]] as const;
+               ["waivers", "Waiver results", "Claims won and lost after the run"],
+               ["news", "Player news", "Hurts one of mine, or helps a free agent"]] as const;
 
 const noSubscribe = () => () => {};
 
