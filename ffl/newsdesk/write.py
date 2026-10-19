@@ -76,6 +76,21 @@ def _trim(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n - 1].rstrip() + "…"
 
 
+def _put(s: dict, w: dict | None) -> bool:
+    """Store Haiku's words for a story, unless they are incomplete: no headline or overview, or a ▲/▼ player left
+    without a line (his push needs one). Those, like a story Haiku skipped, stay unwritten for the next run."""
+    if w is None:
+        return False
+    mine = {p["player_id"] for p in s["players"]}
+    lines = {int(x["player_id"]): (_trim(x["reason"], LINE), bool(x["disagree"]))
+             for x in w.get("players") or [] if int(x["player_id"]) in mine}
+    headline, overview = _trim(w["headline"], HEADLINE), (w["overview"] or "").strip()
+    if not headline or not overview or any(p["effect"] != "none" and not (lines.get(p["player_id"]) or ("",))[0]
+                                           for p in s["players"]):
+        return False
+    return db.put_story_words(s["id"], s["rev"], headline, overview, lines)
+
+
 def run(index: Index, run_cli=claude_cli.run) -> dict:
     out = {"written": 0, "written_ids": [], "missing": 0, "failed": False, "error": None}
     stories = db.unwritten_stories(LIMIT)
@@ -102,18 +117,3 @@ def run(index: Index, run_cli=claude_cli.run) -> dict:
             else:
                 out["missing"] += 1
     return out
-
-
-def _put(s: dict, w: dict | None) -> bool:
-    """Store Haiku's words for a story, unless they are incomplete: no headline or overview, or a ▲/▼ player left
-    without a line (his push needs one). Those, like a story Haiku skipped, stay unwritten for the next run."""
-    if w is None:
-        return False
-    mine = {p["player_id"] for p in s["players"]}
-    lines = {int(x["player_id"]): (_trim(x["reason"], LINE), bool(x["disagree"]))
-             for x in w.get("players") or [] if int(x["player_id"]) in mine}
-    headline, overview = _trim(w["headline"], HEADLINE), (w["overview"] or "").strip()
-    if not headline or not overview or any(p["effect"] != "none" and not (lines.get(p["player_id"]) or ("",))[0]
-                                           for p in s["players"]):
-        return False
-    return db.put_story_words(s["id"], s["rev"], headline, overview, lines)

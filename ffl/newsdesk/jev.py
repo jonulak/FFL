@@ -20,8 +20,8 @@ TIMEOUT_S = 20
 
 
 class JevError(RuntimeError):
-    """A call that gave no answers. `status` is the HTTP status, None when no answer came at all; a 400,
-    413 or 422 is the request's own fault (too long, malformed), anything else is the service's."""
+    """A call that gave no answers. `status` is the HTTP status, None when no answer came at all. None or a
+    5xx is the service failing; any other status (a 4xx, or a 200 with answers missing) is this request's."""
 
     def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
