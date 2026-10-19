@@ -47,6 +47,7 @@ from .journal import sync_results, sync_transactions
 from .newsdesk import feed as news_feed
 from .newsdesk import pipeline
 from .newsdesk import players as news_players
+from .newsdesk import usage as news_usage
 from .settings import load
 
 log = logging.getLogger(__name__)
@@ -1506,7 +1507,7 @@ def _news_page(ctx: dict, limit: int, before: str | None, *, filter: str = "all"
                     return {"stories": kept, "next_before": f"{s['at']}|{s['id']}"}
         if len(raw) < limit:
             return {"stories": kept, "next_before": None}
-        before = f"{raw[-1]['updated_at']}|{raw[-1]['id']}"
+        before = f"{raw[-1]['latest_at']}|{raw[-1]['id']}"
 
 
 @app.get("/news")
@@ -1563,7 +1564,9 @@ def news_mute(player_id: int, body: MuteIn):
 def news_status():
     cols = ("id", "name", "kind", "active", "ok_at", "error", "failing_since")
     return {"sources": [{k: s[k] for k in cols} for s in db.news_sources(active_only=False)],
-            "last_run": db.get_state("news_last_run")}
+            "last_run": db.get_state("news_last_run"),
+            # {UTC date: {input, output, calls}}, the last 30 days (ffl/newsdesk/usage.py)
+            "haiku_usage": db.get_state(news_usage.HAIKU, {}) or {}, "jev_usage": db.get_state(news_usage.JEV, {}) or {}}
 
 
 def correction_pass() -> dict:

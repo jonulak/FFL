@@ -1872,6 +1872,36 @@ def test_news_status(client):
     assert [s["id"] for s in body["sources"]] == ["pft", "site:DAL"]
     assert set(body["sources"][0]) == {"id", "name", "kind", "active", "ok_at", "error", "failing_since"}
     assert body["last_run"]["stages"] == {"seed": 2}
+    assert body["haiku_usage"] == {} and body["jev_usage"] == {}
+    db.put_state("news_haiku_usage", {"2026-10-19": {"input": 5, "output": 1, "calls": 1}})
+    db.put_state("news_jev_usage", {"2026-10-19": {"input": 9, "output": 2, "calls": 3}})
+    body = client.get("/news/status").json()
+    assert body["haiku_usage"]["2026-10-19"]["input"] == 5 and body["jev_usage"]["2026-10-19"]["calls"] == 3
+
+
+def test_api_feed_orders_by_latest_news(news_client):
+    """A backlog run processes old news late: the feed follows the news's time, pages on it, and serves the newest
+    source as `latest`."""
+    now = datetime.now(timezone.utc)
+
+    def t(h):
+        return (now - timedelta(hours=h)).isoformat(timespec="seconds")
+
+    old = _news_story([2], t(26), "old news, processed now")
+    db.update_story(old, {"updated_at": t(0)})
+    _news_story([2], t(14), "newer")
+    grown = _news_story([2], t(48), "first two days ago, updated an hour ago")
+    [i] = db.add_news_items([{"source_id": "pft", "ext_id": "u", "url": "https://x/u", "published_at": t(1),
+                              "fetched_at": t(1), "title": "u", "text": "", "club": "PHI", "hash": "hu"}])
+    db.tag_item(i, [2], None, grown, t(0))
+    feed = news_client.get("/news").json()
+    assert [s["headline"] for s in feed["stories"]] == ["first two days ago, updated an hour ago", "newer",
+                                                       "old news, processed now"]
+    assert feed["stories"][0]["latest"]["at"] == t(1) and feed["stories"][0]["at"] == t(1)
+    page = news_client.get("/news?limit=1").json()
+    assert page["next_before"] == f"{t(1)}|{grown}"
+    nxt = news_client.get("/news", params={"limit": 2, "before": page["next_before"]}).json()
+    assert [s["headline"] for s in nxt["stories"]] == ["newer", "old news, processed now"]
 
 
 def _news_story(player_ids, updated_at, headline="H", effect="down"):

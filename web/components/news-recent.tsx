@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { DialogClose } from "@/components/ui/dialog";
 import type { PlayerNews } from "@/lib/api";
-import { filterHref, playerNewsHref, statusLabel, type Recent } from "@/lib/news";
+import { filterHref, playerNewsHref, statusLabel, storyStamp, type Recent } from "@/lib/news";
 import { NAME_LINK } from "@/lib/player-log";
 import { Ago } from "./local-time";
 import { NewsMute } from "./news-mute";
@@ -13,9 +13,10 @@ import { Line } from "./news-story";
 import { Heading } from "./player-dialog";
 
 // The player dialog's News section: his newest three stories (`recent`, recentFor's), each the headline (two lines at
-// most, opening the story in the feed and closing the modal), the source (linked off-site) and its age, then his line
-// (the arrow and Haiku's words, the feed's own Line); last, the way on to all his news and the push mute. The overview
-// is left to the feed, one tap away. The caller leaves the section out when he has no story.
+// most, opening the story in the feed and closing the modal), the stamp (storyStamp: the source, linked off-site, or
+// Updated) and its age, then his line (the arrow and Haiku's words, the feed's own Line); last, the way on to all his
+// news and the push mute. The overview is left to the feed, one tap away. The caller leaves the section out when he
+// has no story.
 export function RecentNews({ d, recent }: { d: PlayerNews; recent: Recent }) {
   const p = d.player;
   return (
@@ -24,6 +25,7 @@ export function RecentNews({ d, recent }: { d: PlayerNews; recent: Recent }) {
       <ul className="divide-y divide-foreground/10">
         {recent.map(({ story: s, row }) => {
           const label = statusLabel(s.status);
+          const stamp = storyStamp(s);
           return (
             <li key={s.id} className="space-y-1.5 py-2.5">
               <DialogClose nativeButton={false} render={<Link href={filterHref("all", false, s.id)} />}
@@ -31,13 +33,15 @@ export function RecentNews({ d, recent }: { d: PlayerNews; recent: Recent }) {
                 {s.headline}
               </DialogClose>
               <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-4 text-muted-foreground">
-                {s.first?.url
-                  ? <a href={s.first.url} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-0.5 font-medium text-foreground/85 ${NAME_LINK}`}>
-                      {s.first.source}<ArrowUpRight aria-hidden className="size-3" />
-                    </a>
-                  : s.first && <span className="font-medium text-foreground/85">{s.first.source}</span>}
-                {s.first && <span aria-hidden>·</span>}
-                <Ago iso={s.first?.at ?? s.at} />
+                {stamp.updated
+                  ? <span className="font-medium text-foreground/85">Updated</span>
+                  : stamp.cite?.url
+                    ? <a href={stamp.cite.url} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-0.5 font-medium text-foreground/85 ${NAME_LINK}`}>
+                        {stamp.cite.source}<ArrowUpRight aria-hidden className="size-3" />
+                      </a>
+                    : stamp.cite && <span className="font-medium text-foreground/85">{stamp.cite.source}</span>}
+                {(stamp.updated || stamp.cite) && <span aria-hidden>·</span>}
+                <Ago iso={stamp.at} />
                 {label && <Badge variant="muted" shape="chip" className="ml-1">{label}</Badge>}
               </p>
               {/* onPage: the one way on to his news is the section's, below */}

@@ -49,8 +49,10 @@ def shape(stories: list[dict], owners: dict[int, dict], me: int, index: Index, s
         if player is not None:
             rows = [p for p in rows if p["player_id"] == player]
         out.append({"id": s["id"], "headline": s["headline"], "overview": s["overview"], "status": s["status"],
-                    "status_note": (sources.get(s["status_note"]) or {}).get("name") or s["status_note"], "updated": s["rev"] > 1, "at": s["updated_at"],
-                    "first": cites[0] if cites else None, "sources": cites[1:],
+                    "status_note": (sources.get(s["status_note"]) or {}).get("name") or s["status_note"], "updated": s["rev"] > 1,
+                    # the news time the feed is ordered by; `first` is the scoop, `latest` where it stands now
+                    "at": s["latest_at"], "first": cites[0] if cites else None,
+                    "latest": cites[-1] if cites else None, "sources": cites[1:],
                     "players": [_row(p, owners, me, index) for p in rows]})
     return out
 

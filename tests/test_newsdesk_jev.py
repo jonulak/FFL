@@ -24,6 +24,7 @@ def test_ask_posts_bearer_and_parses(monkeypatch):
     monkeypatch.setattr(requests, "post", post)
     got = jev.ask({"title": "t"}, {"q": {"type": "noul", "instructions": "?"}})
     assert got == {"q": {"type": "noul", "noul": 0.9}}
+    assert got.usage == {"input_tokens": 10, "output_tokens": 2}  # the bill, beside the answers
     assert seen["url"] == "https://api.typesafe.ai/v1/systemone"
     assert seen["headers"]["Authorization"] == "Bearer k123"
     assert seen["body"]["model"] == "jev-latest" and seen["body"]["state"] == {"title": "t"}

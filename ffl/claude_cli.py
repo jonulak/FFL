@@ -14,8 +14,13 @@ from pathlib import Path
 HOOKS_OFF = json.dumps({"disableAllHooks": True})
 
 
-def parse_envelope(stdout: str) -> dict:
-    """The schema'd object out of `claude -p --output-format json`.
+class Structured(dict):
+    """The schema'd object; `usage` is the call's {input, output, cost_usd}, input counting the cache's tokens too."""
+    usage: dict = {"input": 0, "output": 0, "cost_usd": 0.0}
+
+
+def parse_envelope(stdout: str) -> Structured:
+    """The schema'd object out of `claude -p --output-format json`, with the envelope's usage.
 
     The envelope is one JSON object: `is_error` + `result` on failure ("Not logged in …"),
     `structured_output` holding the object on success; older CLIs put that JSON in `result` instead.
@@ -26,10 +31,15 @@ def parse_envelope(stdout: str) -> dict:
     out = d.get("structured_output")
     if not isinstance(out, dict):
         out = json.loads(d.get("result") or "{}")
+    out = Structured(out)
+    u = d.get("usage") or {}
+    out.usage = {"input": sum(u.get(k) or 0 for k in ("input_tokens", "cache_creation_input_tokens",
+                                                      "cache_read_input_tokens")),
+                 "output": u.get("output_tokens") or 0, "cost_usd": d.get("total_cost_usd") or 0.0}
     return out
 
 
-def run(prompt: str, *, model: str, schema: dict, tools: str, cwd: Path, timeout: int) -> dict:
+def run(prompt: str, *, model: str, schema: dict, tools: str, cwd: Path, timeout: int) -> Structured:
     """One call through the CLI: `model`, structured output to `schema`, the prompt on stdin.
 
     `tools` is a comma list, allowed up front (there is nobody to answer a permission prompt); "" gives the

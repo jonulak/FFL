@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { NewsRow, Story } from "@/lib/api";
 import { shortName } from "@/lib/format";
-import { arrow, EFFECT_WORD, ownerTag, playerNewsHref, splitRows, statusLabel } from "@/lib/news";
+import { arrow, EFFECT_WORD, ownerTag, playerNewsHref, splitRows, statusLabel, storyStamp } from "@/lib/news";
 import { NAME_LINK } from "@/lib/player-log";
 import { Ago } from "./local-time";
 import { PlayerTrigger } from "./player-dialog";
@@ -171,14 +171,16 @@ export function NewsStory({ s, focus, target = false, tagged = true, onlyMine = 
   const label = statusLabel(s.status);
   const retracted = s.status === "retracted";
   const { moved, none } = splitRows(s.players, onlyMine);
+  const stamp = storyStamp(s);
   return (
     <li id={`story-${s.id}`} data-target={target || undefined} className="news-story scroll-mt-16 space-y-2.5 px-3 py-4 sm:px-4">
       <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-4 text-muted-foreground">
-        {s.first && <span className="font-medium text-foreground/85">{s.first.source}</span>}
-        {s.first && <span aria-hidden>·</span>}
-        <Ago iso={s.first?.at ?? s.at} />
+        {stamp.updated
+          ? <span className="font-medium text-foreground/85">Updated</span>
+          : stamp.cite && <span className="font-medium text-foreground/85">{stamp.cite.source}</span>}
+        {(stamp.updated || stamp.cite) && <span aria-hidden>·</span>}
+        <Ago iso={stamp.at} />
         {label && <Badge variant="muted" shape="chip" className="ml-1">{label}</Badge>}
-        {!label && s.updated && <Badge variant="muted" shape="chip" className="ml-1">Updated</Badge>}
         {s.status === "corrected" && s.status_note && <span>by {s.status_note}</span>}
       </p>
       <div className="space-y-1">

@@ -11,7 +11,9 @@ proposal: the item joins only at STORY_ATTACH_PROB, through a shared player with
 updated within THREAD_HOURS, one he leads (`_lead`: its founding item's surest mover) and is ▲/▼ on (`_thread`):
 doubtful, out and IR are steps of one situation, not three stories. Otherwise it starts its own story. An attached item that
 adds a material fact (`changed`, a second call) bumps the story's rev, so it is written and pushed
-again. A player row's `prob` is the probability of the chosen effect: the push cutoff (Task 8) reads it.
+again. The same call asks, of a story with written words, whether its headline still sums it up (`headline`): under
+HEADLINE_OK the story is rewritten at the same rev, so the headline follows the news without a push. A player row's
+`prob` is the probability of the chosen effect: the push cutoff (Task 8) reads it.
 
 A media item (a transcript excerpt, ext_id `<media id>#<pid>`) is already one player's: he comes from
 the suffix, and the excerpt is matched only to add the others it names, all under the same `about`.
@@ -23,7 +25,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from .. import db
-from . import jev
+from . import jev, usage
 from .jev import JevError
 from .players import Index, match
 
@@ -31,6 +33,7 @@ WINDOW = timedelta(days=3)  # a story takes new items while it was updated this 
 ABOUT = 0.5
 RETRACT = 0.5
 CHANGED = 0.5
+HEADLINE_OK = 0.5  # under it the written headline no longer sums the story up: rewritten, not pushed
 # under FRESH the item only mentions known news about him: his row is ● whatever `effect` said. Set from Hurts
 # week (2026-10-19): the IR and blood-clot reports read 0.73-0.93; previews, recaps and the inactives list
 # repeating them read 0.55-0.65
@@ -57,6 +60,9 @@ RETRACT_Q = "This text says an earlier report was wrong or has been withdrawn."
 CHANGED_Q = ("Does this text report a new fact about the development in `story` that changes it: a new status, "
              "diagnosis, timeline or role, beyond what `story` already says? More detail, quotes or reaction "
              "about the same facts is not a change.")
+HEADLINE_Q = ("Is this headline still an accurate summary of the story in `story` once this new text is included: "
+              "{headline!r}? A headline that gives an earlier step (doubtful when he is now out or on injured reserve) "
+              "is not.")
 
 
 def _who(p: dict) -> str:
@@ -130,14 +136,26 @@ def _facts(story: dict, item_id: int | None) -> dict:
     return facts
 
 
-def changed(story: dict, item: dict, ask=jev.ask) -> bool:
-    """Does the item add a material fact to the story? A story with nothing on record yet is unwritten
-    anyway, so it counts as changed without a call."""
+def weigh(story: dict, item: dict, ask=jev.ask) -> tuple[bool, bool]:
+    """(Does the item add a material fact to the story, is the story's written headline stale with it?) A story with
+    nothing on record yet is unwritten anyway, so it counts as changed without a call; one whose words Haiku has not
+    written has no headline to judge."""
     facts = _facts(story, item.get("id"))
     if not facts:
-        return True
+        return True, False
     q = {"changed": {"type": "noul", "instructions": {"story": facts, "question": CHANGED_Q}}}
-    return ask(_state(item), q)["changed"]["noul"] >= CHANGED
+    if story.get("written_rev") and story.get("headline"):
+        q["headline"] = {"type": "noul", "instructions": {
+            "story": facts, "question": HEADLINE_Q.format(headline=story["headline"])}}
+    got = ask(_state(item), q)
+    return got["changed"]["noul"] >= CHANGED, "headline" in q and got["headline"]["noul"] < HEADLINE_OK
+
+
+def _reword(story: dict, stale: bool, bumped: bool, out: dict) -> None:
+    """A stale headline on a story whose rev did not move: rewritten at the same rev (a bump rewrites it anyway)."""
+    if stale and not bumped:
+        db.ask_reword(story["id"])
+        out["reworded"] += 1
 
 
 def _players(item: dict, index: Index) -> list[dict]:
@@ -252,8 +270,10 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
         out["tagged"] += 1
         return
     if own:  # an edit: its own story only, bumped when the new text says something new
-        bumped = _attach(item, own, kept, changed(own, item, ask), False, at)
+        change, stale = weigh(own, item, ask)
+        bumped = _attach(item, own, kept, change, False, at)
         db.tag_item(item["id"], pids, answers, own["id"], at)
+        _reword(own, stale, bumped, out)
         out["tagged"] += 1
         out["updated"] += bumped
         return
@@ -276,8 +296,10 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
     older = any(i["published_at"] > item["published_at"] for i in chosen["items"] if not i.get("withdrawn_at"))
     # a retraction names the report it takes back: Jev did not pick a threaded story, so it cannot be corrected
     corrected = not older and not threaded and (got["retract"] or 0) >= RETRACT
-    bumped = _attach(item, chosen, rows, not older and not corrected and changed(chosen, item, ask), corrected, at)
+    change, stale = weigh(chosen, item, ask) if not older and not corrected else (False, False)
+    bumped = _attach(item, chosen, rows, change, corrected, at)
     db.tag_item(item["id"], pids, answers, chosen["id"], at)
+    _reword(chosen, stale, bumped, out)
     out["tagged"] += 1
     out["attached"] += 1
     out["updated"] += bumped
@@ -293,9 +315,11 @@ def run(index: Index, ask=jev.ask, now: datetime | None = None) -> dict:
     a shape `read` cannot take, or fails with a 5xx once Jev has answered this run) is skipped and left untagged,
     and after TAG_MAX_TRIES failed runs tagged with no story (`given_up`). Jev down (two service failures before
     any answer: the first may be the item's own), the account failing (no key, a bad key, no credits, rate
-    limited: JevError.account) or a DB error stops the run (`error`); the rest wait, uncounted."""
+    limited: JevError.account) or a DB error stops the run (`error`); the rest wait, uncounted. `usage` is what Jev
+    read and answered this run, added to the day's in state `news_jev_usage`."""
     now = now or datetime.now(timezone.utc)
-    out = {"tagged": 0, "new": 0, "attached": 0, "updated": 0, "failed": [], "given_up": [], "error": None}
+    out = {"tagged": 0, "new": 0, "attached": 0, "updated": 0, "reworded": 0, "failed": [], "given_up": [],
+           "error": None, "usage": usage.zero()}
     up = False  # Jev answered this run, so a service failure is the item's
     early: list[int] = []  # items a service failure stopped before any answer: counted only once Jev is seen up
 
@@ -303,6 +327,8 @@ def run(index: Index, ask=jev.ask, now: datetime | None = None) -> dict:
         nonlocal up
         got = ask(state, qs)
         up = True
+        bill = getattr(got, "usage", None) or {}
+        usage.add(out["usage"], bill.get("input_tokens", 0), bill.get("output_tokens", 0))
         return got
 
     try:
@@ -336,6 +362,7 @@ def run(index: Index, ask=jev.ask, now: datetime | None = None) -> dict:
                 out["given_up"].append(iid)
                 del tries[str(iid)]
         db.put_state(TRIES, tries)
+        usage.record(usage.JEV, out["usage"], now)
     except db.DBError as e:
         out["error"] = f"db: {e}"
     return out

@@ -22,7 +22,7 @@ def item(i, source, at, url=None, withdrawn=None):
 
 def story(*rows, sid=1, rev=1, items=None):
     return {"id": sid, "headline": "H", "overview": "O", "status": "live", "status_note": None, "rev": rev,
-            "updated_at": "2026-10-19T12:00:00+00:00",
+            "updated_at": "2026-10-19T12:00:00+00:00", "latest_at": "2026-10-19T11:00:00+00:00",
             "items": items or [item(1, "pft", "2026-10-19T10:00:00+00:00")], "players": list(rows)}
 
 
@@ -73,8 +73,11 @@ def test_story_shape_first_and_sources():
     out = shape(s)[0]
     assert out["first"] == {"source": "PFT", "url": "https://pft.example/a", "at": "2026-10-19T10:00:00+00:00"}
     assert [c["source"] for c in out["sources"]] == ["Rotowire"]
-    assert out["updated"] is True and out["at"] == "2026-10-19T12:00:00+00:00"
-    assert shape(story(prow(1)))[0]["updated"] is False
+    # `latest` is the newest live source (the withdrawn 11:30 is none); `at` the news time the feed is ordered by
+    assert out["latest"] == {"source": "Rotowire", "url": "https://x/2", "at": "2026-10-19T11:00:00+00:00"}
+    assert out["updated"] is True and out["at"] == "2026-10-19T11:00:00+00:00"
+    one = shape(story(prow(1)))[0]
+    assert one["updated"] is False and one["latest"] == one["first"]
 
 
 def test_status_note_names_the_source():

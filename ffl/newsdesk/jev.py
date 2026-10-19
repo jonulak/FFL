@@ -34,8 +34,14 @@ class JevError(RuntimeError):
         self.account = account or status in ACCOUNT
 
 
-def ask(state, questions: dict) -> dict:
-    """The answers, keyed like `questions`. Raises JevError on no key, a failed call or a missing answer."""
+class Answers(dict):
+    """The answers, keyed like the questions; `usage` is the call's own ({input_tokens, output_tokens}, {} if none)."""
+    usage: dict = {}
+
+
+def ask(state, questions: dict) -> Answers:
+    """The answers, keyed like `questions`, with the call's `usage`. Raises JevError on no key, a failed call or a
+    missing answer."""
     key = os.environ.get("TYPESAFE_API_KEY")
     if not key:
         raise JevError("no TYPESAFE_API_KEY in .env", account=True)
@@ -47,10 +53,12 @@ def ask(state, questions: dict) -> dict:
     if r.status_code != 200:
         raise JevError(f"jev {r.status_code}: {r.text[:300]}", r.status_code)
     try:
-        answers = r.json()["answers"]
+        body = r.json()
+        answers = Answers(body["answers"])
     except (ValueError, KeyError, TypeError) as e:
         raise JevError(f"jev: unreadable answer ({e})", r.status_code) from e
     missing = set(questions) - set(answers)
     if missing:
         raise JevError(f"jev: no answer to {sorted(missing)[:5]}", r.status_code)
+    answers.usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
     return answers

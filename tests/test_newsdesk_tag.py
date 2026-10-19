@@ -33,7 +33,8 @@ def story(players=(1,), effect="down", at="2026-10-19T10:00:00+00:00", first_ite
     return sid
 
 
-def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="injury", story_prob=0.8, fresh=0.9):
+def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="injury", story_prob=0.8, fresh=0.9,
+         headline=0.9):
     """A Jev stand-in: every question answered; `story` is the choice for the story question."""
     calls = []
 
@@ -43,7 +44,8 @@ def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="i
         for k, q in qs.items():
             name, _, pid = k.partition(":")
             if q["type"] == "noul":
-                v = (about or {}).get(int(pid), 0.95) if name == "about" else {"retract": retract, "changed": changed, "fresh": fresh}[name]
+                v = (about or {}).get(int(pid), 0.95) if name == "about" else {"retract": retract, "changed": changed, "fresh": fresh,
+                                                                         "headline": headline}[name]
                 out[k] = {"type": "noul", "noul": v}
                 continue
             opts = list(q["criteria"])
@@ -427,6 +429,63 @@ def test_older_item_joining_newer_news_never_changes_or_corrects_it():
     s = db.story(sid)
     assert s["rev"] == 1 and s["status"] == "live" and s["first_item_id"] == old
     assert not any("changed" in qs for _, qs in ask.calls)
+
+
+def test_headline_question_only_when_written_and_not_older():
+    """A new step that is no material change (changed low) can still leave the headline behind: Jev's `headline` noul
+    under HEADLINE_OK asks for a rewrite at the same rev. Asked only of a story with written words, in the `changed`
+    call, and never of an older item joining newer news."""
+    def asked(ask):
+        return [qs for _, qs in ask.calls if "changed" in qs]
+
+    # unwritten: no headline of Haiku's to check (written_rev 0)
+    sid = story()
+    item("a", "Kyren Williams ruled out", at="2026-10-19T12:00:00+00:00")
+    ask = fake(story=f"s{sid}", changed=0.2, headline=0.1)
+    tag.run(INDEX, ask=ask, now=NOW)
+    assert all("headline" not in qs for qs in asked(ask)) and db.story(sid)["reword"] == 0
+
+    # written, the new text leaves the headline stale: rewritten, rev unchanged
+    db.put_story_words(sid, 1, "Kyren Williams doubtful", "O", {})
+    item("b", "Kyren Williams placed on IR", at="2026-10-19T13:00:00+00:00")
+    ask = fake(story=f"s{sid}", changed=0.2, headline=0.1)
+    got = tag.run(INDEX, ask=ask, now=NOW)
+    [qs] = asked(ask)
+    assert "Kyren Williams doubtful" in qs["headline"]["instructions"]["question"] and qs["headline"]["type"] == "noul"
+    s = db.story(sid)
+    assert (s["rev"], s["reword"], got["updated"], got["reworded"]) == (1, 1, 0, 1)
+    assert [x["id"] for x in db.unwritten_stories()] == [sid]
+
+    # written, the headline still holds: nothing to do
+    db.put_story_words(sid, 1, "Kyren Williams on IR", "O", {}, reword=1)
+    item("c", "Kyren Williams to IR, per source", at="2026-10-19T13:30:00+00:00")
+    tag.run(INDEX, ask=fake(story=f"s{sid}", changed=0.2, headline=0.8), now=NOW)
+    assert db.story(sid)["reword"] == 0
+
+    # an older item joining: a source of the newer news, never asked
+    item("d", "Kyren Williams questionable", at="2026-10-17T11:00:00+00:00")
+    ask = fake(story=f"s{sid}", changed=0.2, headline=0.1)
+    tag.run(INDEX, ask=ask, now=NOW)
+    assert asked(ask) == [] and db.story(sid)["reword"] == 0
+
+
+def test_jev_usage_recorded():
+    item("a", "Kyren Williams limited")
+    item("b", "Puka Nacua limited")
+    inner = fake()
+
+    def ask(state, qs):
+        got = jev.Answers(inner(state, qs))
+        got.usage = {"input_tokens": 100, "output_tokens": 20}
+        return got
+
+    got = tag.run(INDEX, ask=ask, now=NOW)
+    assert got["usage"] == {"input": 200, "output": 40, "calls": 2}
+    assert db.get_state("news_jev_usage") == {"2026-10-19": {"input": 200, "output": 40, "calls": 2}}
+    tag.run(INDEX, ask=ask, now=NOW)  # nothing left to tag: no calls, the day's total stands
+    item("c", "Roschon Johnson limited", club="CHI")
+    tag.run(INDEX, ask=ask, now=NOW)
+    assert db.get_state("news_jev_usage") == {"2026-10-19": {"input": 300, "output": 60, "calls": 3}}
 
 
 def test_server_error_after_an_answer_is_the_items():

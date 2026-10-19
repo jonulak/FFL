@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
+
 import pytest
 
-from ffl import db
+from ffl import claude_cli, db
 from ffl.newsdesk import write
 from ffl.newsdesk.players import Index
 
@@ -32,8 +34,94 @@ def test_prompt_carries_jev_effects():
     sid = make()
     text = write.prompt(db.unwritten_stories(10), INDEX)
     assert "Kyren Williams" in text and "up" in text and "Puka Nacua" in text and "none" in text
-    assert "Body text %d-0" % sid in text
-    assert "Title %d-1" % sid in text and "Body text %d-1" % sid not in text
+    assert "Body text %d-0" % sid in text and "Body text %d-1" % sid in text
+
+
+def steps(texts, sources=None):
+    """A story whose sources are `texts` in time order (oldest first), an hour apart."""
+    sid = db.add_story({"first_item_id": None, "first_at": AT, "updated_at": AT, "kind": "injury"})
+    db.put_story_players(sid, [{"player_id": 1, "effect": "down", "kind": "injury", "prob": 0.9, "confidence": 0.5}])
+    ids = db.add_news_items([{"source_id": (sources or {}).get(k, "rotowire"), "ext_id": f"{sid}-{k}", "url": f"https://x/{k}",
+                              "published_at": f"2026-10-19T{10 + k:02d}:00:00+00:00", "fetched_at": AT,
+                              "title": f"Title {k}", "text": t, "club": "LAR", "hash": f"h{sid}{k}"}
+                             for k, t in enumerate(texts)])
+    for i in ids:
+        db.tag_item(i, [1], None, sid, AT)
+    return sid
+
+
+def test_prompt_newest_source_full_and_first():
+    """A developing story is written from where it stands now: every source in full, newest first, each named with
+    its outlet and time, and the instructions say the headline is the newest source's."""
+    steps(["Williams limps off.", "Williams doubtful to return.", "Williams out for the game.", "Williams placed on IR."],
+          sources={3: "pft"})
+    text = write.prompt(db.unwritten_stories(), INDEX, {"pft": {"name": "ProFootballTalk"}, "rotowire": {"name": "Rotowire"}})
+    at = [text.index(s) for s in ("Williams placed on IR.", "Williams out for the game.", "Williams doubtful to return.",
+                                  "Williams limps off.")]
+    assert at == sorted(at)  # newest first
+    assert "Source 1 (newest): ProFootballTalk, 2026-10-19 13:00 UTC: Title 3" in text
+    assert "Source 4: Rotowire, 2026-10-19 10:00 UTC: Title 0" in text
+    assert "where things stand now, from the newest source" in text
+    # an unknown outlet goes by its id
+    assert "Source 1 (newest): pft, 2026-10-19 13:00 UTC" in write.prompt(db.unwritten_stories(), INDEX)
+
+
+def test_prompt_caps_story_chars_older_by_title():
+    """Each source's text is cut at SOURCE_CHARS and the story's at STORY_CHARS: the newest sources fill it, and the
+    older ones past it go in by title only, in time order."""
+    texts = [f"<{k}>" + "x" * 7000 for k in range(6)]
+    steps(texts)
+    text = write.prompt(db.unwritten_stories(), INDEX)
+    full = [k for k in range(6) if f"<{k}>" in text]
+    assert full == [2, 3, 4, 5]  # 4 × 6000 = STORY_CHARS
+    assert text.count("x" * (write.SOURCE_CHARS - 3)) == 4 and "x" * (write.SOURCE_CHARS - 2) not in text  # "<k>" + x…
+    older = text[text.index("Earlier sources"):]
+    assert older.index("Title 0") < older.index("Title 1") and "Title 2" not in older
+    assert len(text) < write.STORY_CHARS + 4000
+
+    # a cut source takes what is left of the story's total
+    steps(["a" * 5000, "b" * 5000, "c" * 5000, "d" * 5000, "e" * 6000])
+    s = [x for x in db.unwritten_stories() if x["items"][0]["text"].startswith("a")]
+    text = write.prompt(s, INDEX)
+    assert "e" * 6000 in text and "a" * 3000 in text and "a" * 3001 not in text
+
+
+def test_usage_recorded():
+    """The CLI's usage (input with the cache's tokens, output) is added up per run and into the day's total."""
+    a, b = make(), make()
+
+    def fake(prompt, **kw):
+        got = claude_cli.Structured({"stories": answer(a)["stories"] + answer(b)["stories"]})
+        got.usage = {"input": 1200, "output": 300, "cost_usd": 0.01}
+        return got
+
+    out = write.run(INDEX, run_cli=fake)
+    assert out["usage"] == {"input": 1200, "output": 300, "calls": 1}
+    day = datetime.now(timezone.utc).date().isoformat()
+    assert db.get_state("news_haiku_usage") == {day: {"input": 1200, "output": 300, "calls": 1}}
+    db.ask_reword(a)
+    write.run(INDEX, run_cli=fake)
+    assert db.get_state("news_haiku_usage") == {day: {"input": 2400, "output": 600, "calls": 2}}
+    old = {f"2026-09-{d:02d}": {"input": 1, "output": 1, "calls": 1} for d in range(1, 31)}
+    db.put_state("news_haiku_usage", {**old, day: {"input": 0, "output": 0, "calls": 0}})
+    db.ask_reword(a)
+    write.run(INDEX, run_cli=fake)
+    kept = db.get_state("news_haiku_usage")
+    assert len(kept) == 30 and "2026-09-01" not in kept and kept[day]["calls"] == 1
+
+
+def test_reword_writes_without_a_written_id():
+    """A headline refresh (Jev found the headline stale) is rewritten at the same rev and not reported in written_ids,
+    which is what the pushes are queued from."""
+    sid = make()
+    write.run(INDEX, run_cli=lambda prompt, **kw: answer(sid))
+    db.ask_reword(sid)
+    got = answer(sid)
+    got["stories"][0]["headline"] = "Williams placed on IR"
+    out = write.run(INDEX, run_cli=lambda prompt, **kw: got)
+    assert (out["written"], out["refreshed"], out["written_ids"]) == (1, 1, [])
+    s = db.story(sid)
+    assert (s["headline"], s["rev"], s["written_rev"], s["reword"]) == ("Williams placed on IR", 1, 1, 0)
 
 
 def test_prompt_says_corrected_and_passing_mention():
@@ -54,7 +142,8 @@ def test_run_writes_and_flags():
 
     out = write.run(INDEX, run_cli=fake)
     assert calls[0]["model"] == "haiku" and calls[0]["tools"] == "" and calls[0]["timeout"] == 180
-    assert out == {"written": 1, "written_ids": [(sid, 1)], "missing": 0, "failed": False, "error": None}
+    assert out == {"written": 1, "written_ids": [(sid, 1)], "refreshed": 0, "missing": 0, "failed": False, "error": None,
+                   "usage": {"input": 0, "output": 0, "calls": 1}}
     s = db.story(sid)
     assert (s["headline"], s["written_rev"]) == ("Williams limited", 1)
     rows = {p["player_id"]: p for p in s["players"]}

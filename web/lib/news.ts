@@ -1,4 +1,4 @@
-import type { NewsEffect, NewsRow, PlayerNews, Story } from "./api";
+import type { NewsCite, NewsEffect, NewsRow, PlayerNews, Story } from "./api";
 
 // The News page's filters, in the URL as ?filter= (GET /news takes the same four).
 export type NewsFilter = "all" | "mine" | "fa" | "others";
@@ -43,6 +43,14 @@ export function ownerTag(r: Pick<NewsRow, "owner" | "mine">): string {
 export function splitRows(rows: NewsRow[], onlyMine = false): { moved: NewsRow[]; none: NewsRow[] } {
   if (onlyMine) return { moved: rows.filter((r) => r.mine), none: [] };
   return { moved: rows.filter((r) => r.effect !== "none"), none: rows.filter((r) => r.effect === "none") };
+}
+
+// The card's stamp, the same in the feed and the player dialog: a story that had a real update (rev > 1; another
+// outlet repeating the news is none) reads "Updated" and the age of its newest source; any other, its first source
+// and that one's age. The feed is ordered by the newest source, so an updated story's age is its place in the order.
+export function storyStamp(s: Pick<Story, "updated" | "first" | "latest" | "at">): { updated: boolean; cite: NewsCite | null; at: string } {
+  const cite = s.updated ? s.latest : s.first;
+  return { updated: s.updated, cite, at: cite?.at ?? s.at };
 }
 
 export function statusLabel(s: Story["status"]): string | null {

@@ -164,8 +164,46 @@ def test_feed_pages_through_equal_timestamps():
     for _ in range(3):
         page = db.news_feed(cursor, 2)
         seen += [s["id"] for s in page]
-        cursor = f"{page[-1]['updated_at']}|{page[-1]['id']}"
+        cursor = f"{page[-1]['latest_at']}|{page[-1]['id']}"
     assert seen == sorted(ids, reverse=True) and db.news_feed(cursor, 2) == []
+
+
+def test_feed_orders_by_latest_news():
+    """The feed's order is the news's time, not when the app last touched a story: a backlog run processes old news
+    late, and an update (its newest item) re-surfaces the story."""
+    old = story("2026-10-17T10:00:00", players=[1])          # processed now, its news two days old
+    db.update_story(old, {"updated_at": "2026-10-19T12:00:00"})
+    fresh = story("2026-10-19T08:00:00", players=[2])
+    grown = story("2026-10-16T10:00:00", players=[1])         # first news oldest, but an update came in last
+    a, b, c, d = db.add_news_items([item("a", at="2026-10-17T10:00:00"), item("b", at="2026-10-19T08:00:00"),
+                                    item("c", at="2026-10-16T10:00:00"), item("d", at="2026-10-19T09:00:00")])
+    for i, sid in ((a, old), (b, fresh), (c, grown), (d, grown)):
+        db.tag_item(i, [1], None, sid, "2026-10-19T12:00:00")
+    for sid in (old, fresh, grown):
+        db.put_story_words(sid, 1, "H", "O", {})
+    assert db.story(grown)["latest_at"] == "2026-10-19T09:00:00"
+    assert [s["id"] for s in db.news_feed(None, 10)] == [grown, fresh, old]
+    page = db.news_feed(None, 1)
+    assert [s["id"] for s in db.news_feed(f"{page[-1]['latest_at']}|{page[-1]['id']}", 10)] == [fresh, old]
+    assert [s["id"] for s in db.news_feed(None, 10, since="2026-10-19T00:00:00")] == [grown, fresh]
+    # a withdrawn update hands the time back to the newest source left
+    db.withdraw_item(d, "2026-10-19T13:00:00")
+    assert db.story(grown)["latest_at"] == "2026-10-16T10:00:00"
+    assert [s["id"] for s in db.news_feed(None, 10)] == [fresh, old, grown]
+
+
+def test_reword_rewrites_at_the_same_rev():
+    sid = story("2026-10-18T10:00:00", players=[1])
+    assert db.put_story_words(sid, 1, "H", "O", {})
+    assert db.unwritten_stories() == []
+    db.ask_reword(sid)
+    [s] = db.unwritten_stories()
+    assert (s["rev"], s["written_rev"], s["reword"]) == (1, 1, 1)
+    db.ask_reword(sid)  # asked again while the first was being written: that write is stale
+    assert db.put_story_words(sid, 1, "H2", "O", {}, reword=1) is False
+    assert db.put_story_words(sid, 1, "H2", "O", {}, reword=2) is True
+    s = db.story(sid)
+    assert (s["headline"], s["rev"], s["reword"]) == ("H2", 1, 0) and db.unwritten_stories() == []
 
 
 def test_notice_keys_only_sent():

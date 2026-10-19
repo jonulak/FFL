@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NewsRow, PlayerNews, Story } from "./api";
-import { arrow, filterHref, ownerTag, parseId, parseNewsFilter, playerNewsHref, recentFor, splitRows, statusLabel } from "./news";
+import { arrow, filterHref, ownerTag, parseId, parseNewsFilter, playerNewsHref, recentFor, splitRows, statusLabel, storyStamp } from "./news";
 
 const row = (over: Partial<NewsRow> = {}): NewsRow => ({
   player_id: 1, name: "Blake Corum", pos: "RB", team: "LAR", effect: "up", kind: "role", reason: null, flag: false,
@@ -89,10 +89,30 @@ describe("playerNewsHref", () => {
   });
 });
 
+describe("storyStamp", () => {
+  const first = { source: "Rotowire", url: "https://rw/1", at: "2026-10-17T12:00:00+00:00" };
+  const latest = { source: "PFT", url: "https://pft/2", at: "2026-10-19T09:00:00+00:00" };
+  const s = (over: Partial<Story>): Story => ({
+    id: 1, headline: "h", overview: "", status: "live", status_note: null, updated: false, at: latest.at,
+    first, latest, sources: [latest], players: [], ...over,
+  });
+
+  it("dates a real update by its newest source", () => {
+    expect(storyStamp(s({ updated: true }))).toEqual({ updated: true, cite: latest, at: latest.at });
+  });
+  it("dates a story with no update, however many outlets repeated it, by its first source", () => {
+    expect(storyStamp(s({}))).toEqual({ updated: false, cite: first, at: first.at });
+  });
+  it("falls back to the story's time without a source", () => {
+    expect(storyStamp(s({ first: null, latest: null, at: "2026-10-18T00:00:00+00:00" })))
+      .toEqual({ updated: false, cite: null, at: "2026-10-18T00:00:00+00:00" });
+  });
+});
+
 describe("recentFor", () => {
   const story = (id: number, players: NewsRow[]): Story => ({
     id, headline: `h${id}`, overview: "", status: "live", status_note: null, updated: false, at: "2026-10-18T12:00:00+00:00",
-    first: null, sources: [], players,
+    first: null, latest: null, sources: [], players,
   });
   const page = (stories: Story[]): PlayerNews => ({
     player: { player_id: 1, name: "Blake Corum", pos: "RB", team: "LAR", owner: null, mine: false }, muted: false,

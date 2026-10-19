@@ -17,6 +17,16 @@ def test_parse_envelope_structured_then_result():
     assert claude_cli.parse_envelope(json.dumps({"result": json.dumps(obj)})) == obj
 
 
+def test_parse_envelope_carries_usage():
+    """Every token read counts as input, cache writes and reads too (the envelope of a real call, 2026-10-19)."""
+    env = {"structured_output": {"a": 1}, "total_cost_usd": 0.00097,
+           "usage": {"input_tokens": 2, "cache_creation_input_tokens": 4486, "cache_read_input_tokens": 1067,
+                     "output_tokens": 129}}
+    got = claude_cli.parse_envelope(json.dumps(env))
+    assert got == {"a": 1} and got.usage == {"input": 5555, "output": 129, "cost_usd": 0.00097}
+    assert claude_cli.parse_envelope(json.dumps({"result": "{}"})).usage == {"input": 0, "output": 0, "cost_usd": 0.0}
+
+
 def test_run_passes_model_and_strips_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setattr(claude_cli.shutil, "which", lambda name: "/bin/claude")

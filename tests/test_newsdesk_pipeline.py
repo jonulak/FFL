@@ -5,6 +5,7 @@ import pytest
 from ffl import db, notify
 from ffl.newsdesk import pipeline
 from ffl.newsdesk.players import Index
+from ffl.newsdesk.write import run as write_run  # the real one: the stages fixture stubs write.run
 
 INDEX = Index(by_id={1: {"name": "Jalen Hurts", "pos": "QB", "team": "PHI"},
                      3: {"name": "Tank Bigsby", "pos": "RB", "team": "PHI"}})
@@ -139,7 +140,7 @@ def test_material_update_pushes_again(stages):
     written[:] = [(sid, 1)]
     pipeline.run()
     flushed()
-    with db._write() as conn:  # tag.changed: a material fact bumps the rev
+    with db._write() as conn:  # tag.weigh: a material fact bumps the rev
         db._bump_story(conn, sid, db.SEASON)
     db.put_story_words(sid, 2, "Hurts out longer", "Overview.", {1: ("Out four weeks now.", False)})
     written[:] = [(sid, 2)]
@@ -308,3 +309,30 @@ def test_muted_player_never_pushes(stages):
     written[:] = [(sid, 1)]
     pipeline.run()
     assert [n["body"] for n in db.unsent_notices()] == ["▲ Tank Bigsby: A reason."]
+
+
+def test_stale_headline_rewrites_without_push(stages):
+    """Jev found the headline stale (no material change): Haiku writes it again at the same rev, and the pipeline gets
+    no revision to push, so nothing is queued and a push still waiting is not superseded."""
+    _, written = stages
+    sent, waiting = make([(1, "down", "injury")]), make([(3, "up", "role")], headline="Bigsby up")
+    written[:] = [(sent, 1)]
+    pipeline.run()
+    flushed()
+    written[:] = [(waiting, 1)]
+    pipeline.run()  # its push waits (quiet hours)
+    assert keys() == [f"news:{waiting}:1"]
+    for sid in (sent, waiting):
+        db.ask_reword(sid)
+
+    def haiku(prompt, **kw):
+        return {"stories": [{"id": sid, "headline": f"New headline {sid}", "overview": "Now.",
+                             "players": [{"player_id": p, "reason": "Still.", "disagree": False} for p in (1, 3)]}
+                            for sid in (sent, waiting)]}
+
+    out = write_run(INDEX, run_cli=haiku)
+    assert (out["written"], out["refreshed"], out["written_ids"]) == (2, 2, [])
+    assert db.story(sent)["headline"] == f"New headline {sent}" and db.story(sent)["rev"] == 1
+    written[:] = out["written_ids"]
+    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0, "superseded": 0}
+    assert keys() == [f"news:{waiting}:1"] and outcomes()[f"news:{sent}:1"] == "sent"

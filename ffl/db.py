@@ -377,9 +377,13 @@ news_stories = sa.Table(
     _season(),
     sa.Column("first_item_id", sa.Integer),
     sa.Column("first_at", sa.String, nullable=False),
-    sa.Column("updated_at", sa.String, nullable=False),
+    sa.Column("updated_at", sa.String, nullable=False),  # when the app last moved it (a rev, a status): Jev's window
+    sa.Column("latest_at", sa.String, nullable=False),   # its newest live source's published_at: the feed's order
     sa.Column("rev", sa.Integer, nullable=False, default=1),
     sa.Column("written_rev", sa.Integer, nullable=False, default=0),   # < rev = the words are stale or not yet written
+    # headline refreshes asked since the words were written (Jev: the headline no longer sums the story up). A refresh
+    # is rewritten but never bumps rev, so it never pushes
+    sa.Column("reword", sa.Integer, nullable=False, default=0, server_default=sa.text("0")),
     sa.Column("headline", sa.String, nullable=False, default=""),
     sa.Column("overview", sa.String, nullable=False, default=""),
     sa.Column("kind", sa.String, nullable=False, default=""),
@@ -388,6 +392,7 @@ news_stories = sa.Table(
     sa.Column("status_note", sa.String),                 # which source corrected or withdrew it
 )
 sa.Index("ix_news_stories_updated", news_stories.c.season, news_stories.c.updated_at)
+sa.Index("ix_news_stories_latest", news_stories.c.season, news_stories.c.latest_at)
 
 # Owners are read-time, so there is no ownership column here.
 news_story_players = sa.Table(
@@ -1102,9 +1107,19 @@ def _bump_story(c, story_id: int, season: int, **values) -> None:
     c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id).values(rev=t.c.rev + 1, **values))
 
 
+def _relatest(c, story_id: int, season: int) -> None:
+    """The story's latest_at from its newest live item; a story with none keeps its own."""
+    t, s = news_items_table, news_stories
+    at = c.execute(sa.select(sa.func.max(t.c.published_at))
+                   .where(t.c.season == season, t.c.story_id == story_id, t.c.withdrawn_at.is_(None))).scalar()
+    if at is not None:
+        c.execute(sa.update(s).where(s.c.season == season, s.c.id == story_id).values(latest_at=at))
+
+
 def withdraw_item(item_id: int, at: str, season: int = SEASON) -> dict | None:
     """Mark an item deleted or gone. When that leaves its story no live item, the story is retracted (rev+1, and it
-    re-surfaces like set_story_status) and returned; otherwise None."""
+    re-surfaces like set_story_status, at the retraction's time) and returned; otherwise None, its news time now the
+    newest source left."""
     t, s = news_items_table, news_stories
     with _write() as c:
         c.execute(sa.update(t).where(t.c.season == season, t.c.id == item_id).values(withdrawn_at=at))
@@ -1115,8 +1130,9 @@ def withdraw_item(item_id: int, at: str, season: int = SEASON) -> dict | None:
                          .where(t.c.season == season, t.c.story_id == sid, t.c.withdrawn_at.is_(None))).scalar()
         cur = c.execute(sa.select(s.c.status).where(s.c.season == season, s.c.id == sid)).scalar()
         if live or cur in (None, "retracted"):
+            _relatest(c, sid, season)
             return None
-        _bump_story(c, sid, season, status="retracted", status_at=at, updated_at=at)
+        _bump_story(c, sid, season, status="retracted", status_at=at, updated_at=at, latest_at=at)
         return dict(c.execute(sa.select(s).where(s.c.id == sid)).first()._mapping)
 
 
@@ -1141,11 +1157,14 @@ def tag_item(item_id: int, player_ids: list[int], jev: dict | None, story_id: in
     with _write() as c:
         c.execute(sa.update(t).where(t.c.season == season, t.c.id == item_id)
                   .values(player_ids=player_ids, jev=jev, story_id=story_id, tagged_at=at))
+        if story_id is not None:
+            _relatest(c, story_id, season)
 
 
 def add_story(row: dict, season: int = SEASON) -> int:
-    cols = ("first_item_id", "first_at", "updated_at", "headline", "overview", "kind")
-    vals = {k: row[k] for k in cols if k in row}
+    """`latest_at` starts at `first_at`; tagging its items into it moves it on."""
+    cols = ("first_item_id", "first_at", "updated_at", "latest_at", "headline", "overview", "kind")
+    vals = {"latest_at": row["first_at"], **{k: row[k] for k in cols if k in row}}
     with _write() as c:
         return c.execute(sa.insert(news_stories).values(season=season, **vals).returning(news_stories.c.id)).scalar()
 
@@ -1209,23 +1228,32 @@ def put_story_players(story_id: int, rows: list[dict], season: int = SEASON) -> 
         c.execute(_upsert(news_story_players, vals, ["season", "story_id", "player_id"], cols))
 
 
-def unwritten_stories(limit: int | None = None, season: int = SEASON) -> list[dict]:
-    """Newest first, so the freshest news is written (and can push) before a backlog's."""
+def ask_reword(story_id: int, season: int = SEASON) -> None:
+    """Jev found the written headline stale: the story is written again, at the same rev (so it does not push)."""
     t = news_stories
-    q = (sa.select(t).where(t.c.season == season, t.c.written_rev < t.c.rev)
-         .order_by(t.c.updated_at.desc(), t.c.id.desc()).limit(limit))
+    with _write() as c:
+        c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id).values(reword=t.c.reword + 1))
+
+
+def unwritten_stories(limit: int | None = None, season: int = SEASON) -> list[dict]:
+    """Stories whose rev moved past their words, or whose headline Jev found stale; the newest news first, so the
+    freshest is written (and can push) before a backlog's."""
+    t = news_stories
+    q = (sa.select(t).where(t.c.season == season, sa.or_(t.c.written_rev < t.c.rev, t.c.reword > 0))
+         .order_by(t.c.latest_at.desc(), t.c.id.desc()).limit(limit))
     with _read() as c:
         return _stories_out(c, c.execute(q).all(), season)
 
 
 def put_story_words(story_id: int, rev: int, headline: str, overview: str, lines: dict[int, tuple[str, bool]],
-                    season: int = SEASON) -> bool:
-    """Store the written story, but only for the rev it was written from: a story that moved on meanwhile is
-    written again, and this stale text is dropped (False)."""
+                    reword: int = 0, season: int = SEASON) -> bool:
+    """Store the written story, but only for the rev (and the headline refreshes, `reword`) it was written from: a
+    story that moved on meanwhile is written again, and this stale text is dropped (False)."""
     t, p = news_stories, news_story_players
     with _write() as c:
-        done = c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id, t.c.rev == rev)
-                         .values(headline=headline, overview=overview, written_rev=rev))
+        done = c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id, t.c.rev == rev,
+                                            t.c.reword == reword)
+                         .values(headline=headline, overview=overview, written_rev=rev, reword=0))
         if not done.rowcount:
             return False
         for pid, (reason, flag) in lines.items():
@@ -1236,20 +1264,21 @@ def put_story_words(story_id: int, rev: int, headline: str, overview: str, lines
 
 def news_feed(before: str | None, limit: int, player_id: int | None = None, since: str | None = None,
               season: int = SEASON) -> list[dict]:
-    """Written stories (retracted and corrected ones too, with their status), newest update first, strictly
-    after the cursor `before` ("<updated_at>|<id>" in the (updated_at, id) order, or a bare timestamp, which
-    is everything older); optionally only those naming a player, or updated at or after `since`."""
+    """Written stories (retracted and corrected ones too, with their status), newest news first (latest_at: an
+    update is its newest source, so it re-surfaces the story), strictly after the cursor `before` ("<latest_at>|<id>"
+    in the (latest_at, id) order, or a bare timestamp, which is everything older); optionally only those naming a
+    player, or with news at or after `since`."""
     t, p = news_stories, news_story_players
     q = sa.select(t).where(t.c.season == season, t.c.written_rev >= 1)
     if before:
         at, _, sid = before.partition("|")
-        q = q.where(t.c.updated_at < at if not sid.isdigit()
-                    else sa.tuple_(t.c.updated_at, t.c.id) < sa.tuple_(at, int(sid)))
+        q = q.where(t.c.latest_at < at if not sid.isdigit()
+                    else sa.tuple_(t.c.latest_at, t.c.id) < sa.tuple_(at, int(sid)))
     if since is not None:
-        q = q.where(t.c.updated_at >= since)
+        q = q.where(t.c.latest_at >= since)
     if player_id is not None:
         q = q.where(t.c.id.in_(sa.select(p.c.story_id).where(p.c.season == season, p.c.player_id == player_id)))
-    q = q.order_by(t.c.updated_at.desc(), t.c.id.desc()).limit(limit)
+    q = q.order_by(t.c.latest_at.desc(), t.c.id.desc()).limit(limit)
     with _read() as c:
         return _stories_out(c, c.execute(q).all(), season)
 

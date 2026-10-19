@@ -308,11 +308,12 @@ export type NewsRow = {
   owner: Owner | null; mine: boolean;
 };
 export type NewsCite = { source: string; url: string | null; at: string };
-// `first` is the earliest live source, `sources` the rest by time; `at` the last update. A corrected story's
-// status_note names the source that corrected it.
+// `first` is the earliest live source (the scoop), `latest` the newest, `sources` all but the first by time; `at` the
+// news time the feed is ordered by (the newest live source). `updated`: the story had a real update (rev > 1). A
+// corrected story's status_note names the source that corrected it.
 export type Story = {
   id: number; headline: string; overview: string; status: "live" | "corrected" | "retracted"; status_note: string | null;
-  updated: boolean; at: string; first: NewsCite | null; sources: NewsCite[]; players: NewsRow[];
+  updated: boolean; at: string; first: NewsCite | null; latest: NewsCite | null; sources: NewsCite[]; players: NewsRow[];
 };
 // next_before: the cursor for Older, null at the end. owners_error / index_error: the read that failed, the feed
 // served without owner tags / names.
