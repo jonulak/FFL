@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from youtube_transcript_api import RequestBlocked
+from youtube_transcript_api import RequestBlocked, VideoUnavailable
 
 from ffl import db
 from ffl.newsdesk import collect, media
@@ -183,6 +183,23 @@ def test_blocked_captions_fail_the_source_and_stop(monkeypatch):
     assert got["failed"] == ["yt:SF"]
     assert db.get_state("news_pending_media", {}) == {}
     assert db.news_sources()[0]["error"].startswith("RequestBlocked")
+
+
+def test_one_unavailable_video_does_not_stop_the_rest(monkeypatch):
+    db.put_news_sources([YT])
+    entry = channel().split(b" <entry>")[3].split(b"</feed>")[0]
+    feed = channel().split(b" <entry>")[0] + b"".join(
+        b" <entry>" + entry.replace(PRESSER_ID.encode(), vid) for vid in (b"gone0000000", b"good0000000")) + b"</feed>\n"
+    serve(monkeypatch, {YT["url"]: feed})
+
+    def caps(vid):
+        if vid == "gone0000000":
+            raise VideoUnavailable(vid)
+        return SEGS
+    monkeypatch.setattr(media, "captions", caps)
+    got = media.run_all(INDEX, now=NOW)
+    assert got["new"] == 2 and got["failed"] == ["yt:SF"]
+    assert db.news_media("good0000000") is not None
 
 
 def test_podcast_episode_stored_and_split(monkeypatch):

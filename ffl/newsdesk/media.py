@@ -26,7 +26,8 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 import requests
-from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled, VideoUnplayable, YouTubeTranscriptApi
+from youtube_transcript_api import (CouldNotRetrieveTranscript, NoTranscriptFound, RequestBlocked, TranscriptsDisabled,
+                                    VideoUnplayable, YouTubeRequestFailed, YouTubeTranscriptApi)
 
 from .. import db
 from . import collect, split
@@ -204,9 +205,12 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
         vid = v["video_id"]
         try:
             segs = captions(vid)
-        except Exception as e:  # noqa: BLE001 — a refused read (429, blocked IP) is the source's failure, not "no captions"
+        except (RequestBlocked, YouTubeRequestFailed, requests.RequestException) as e:  # 429, a blocked IP, no network
             errors[source["id"]] = _err(e)
             break
+        except CouldNotRetrieveTranscript as e:  # this video's own problem (unlisted, age-gated): the rest still run
+            errors[source["id"]] = _err(e)
+            continue
         if segs is None:
             pending.setdefault(vid, at)
             continue
