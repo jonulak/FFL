@@ -67,6 +67,7 @@ def test_build_index_filters(index):
 
 def test_fetch_index_serves_last_good_on_failure(monkeypatch):
     players._INDEX.clear()
+    monkeypatch.setattr(players, "MIN_INDEX", 1)  # the fixture is a handful of players
     raw = json.loads(FIXTURE.read_text())
 
     def down():
@@ -86,6 +87,7 @@ def test_fetch_index_serves_last_good_on_failure(monkeypatch):
 
 def test_fetch_index_falls_back_to_league_view(monkeypatch):
     players._INDEX.clear()
+    monkeypatch.setattr(players, "MIN_INDEX", 1)
     raw = json.loads(FIXTURE.read_text())
 
     def down():
@@ -94,4 +96,29 @@ def test_fetch_index_falls_back_to_league_view(monkeypatch):
     monkeypatch.setattr(players, "_public_players", down)
     monkeypatch.setattr(players, "_league_players", lambda: raw)
     assert CORUM in players.fetch_index().by_id
+    players._INDEX.clear()
+
+
+def _fake_players(n):
+    return [{"id": 10_000 + i, "fullName": f"Player Number{i}", "defaultPositionId": 3, "proTeamId": 14,
+             "ownership": {"percentOwned": 1.0}} for i in range(n)]
+
+
+def test_short_index_is_a_failure(monkeypatch):
+    players._INDEX.clear()
+    monkeypatch.setattr(players, "_public_players", lambda: _fake_players(50))
+    monkeypatch.setattr(players, "_league_players", lambda: _fake_players(50))
+    with pytest.raises(ValueError, match="short"):
+        players.fetch_index()  # never good: raises rather than install 50
+    assert players._INDEX == []
+    monkeypatch.setattr(players, "_public_players", lambda: _fake_players(600))
+    good = players.fetch_index()
+    assert len(good.by_id) == 600 and good.owned[10_000] == 1.0
+    players._INDEX[0] = 0  # expired; the public view answers short, the league view too
+    monkeypatch.setattr(players, "_public_players", lambda: _fake_players(50))
+    assert players.fetch_index() is good
+    players._INDEX[0] = 0  # a short public answer falls back to the league view
+    monkeypatch.setattr(players, "_public_players", lambda: [])
+    monkeypatch.setattr(players, "_league_players", lambda: _fake_players(700))
+    assert len(players.fetch_index().by_id) == 700
     players._INDEX.clear()

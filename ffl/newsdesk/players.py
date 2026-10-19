@@ -21,6 +21,10 @@ from ..config import SEASON, raw_league_get
 
 PLAYERS_URL = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/players"
 INDEX_S = 6 * 3600
+# without a filter the public view answers 50 players; a limit needs a sort (400 FILTER_LIMIT_MISSING_SORT otherwise)
+PUBLIC_FILTER = {"filterActive": {"value": True}, "limit": 5000,
+                 "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}
+MIN_INDEX = 500  # fewer kept is a short answer, not the league: treated as a failed fetch
 FUZZY = 0.85
 # surnames that are also plain words: a bare "Love" or "Hill" in a sentence is far more often the word
 COMMON_WORD_SURNAMES = {
@@ -35,6 +39,7 @@ class Index:
     by_id: dict[int, dict] = field(default_factory=dict)  # espn id -> {name, pos, team}
     by_club: dict[str, list[int]] = field(default_factory=dict)
     by_full: dict[str, list[int]] = field(default_factory=dict)  # normalized full name -> ids
+    owned: dict[int, float] = field(default_factory=dict)  # espn id -> ESPN's percent owned
 
 
 def build_index(players: list[dict]) -> Index:
@@ -57,11 +62,13 @@ def build_index(players: list[dict]) -> Index:
         idx.by_id[pid] = {"name": name, "pos": pos, "team": team}
         idx.by_club.setdefault(team, []).append(pid)
         idx.by_full.setdefault(full, []).append(pid)
+        idx.owned[pid] = float((p.get("ownership") or {}).get("percentOwned") or 0)
     return idx
 
 
 def _public_players() -> list[dict]:
-    r = requests.get(PLAYERS_URL.format(season=SEASON), params={"view": "players_wl"}, timeout=60)
+    r = requests.get(PLAYERS_URL.format(season=SEASON), params={"view": "players_wl"},
+                     headers={"x-fantasy-filter": json.dumps(PUBLIC_FILTER)}, timeout=60)
     r.raise_for_status()
     return r.json()
 
@@ -74,17 +81,21 @@ def _league_players() -> list[dict]:
     return [e["player"] for e in data.get("players") or [] if e.get("player")]
 
 
+def _checked(idx: Index) -> Index:
+    if len(idx.by_id) < MIN_INDEX:
+        raise ValueError(f"ESPN's player list came back short: {len(idx.by_id)} players kept")
+    return idx
+
+
 def fetch_index() -> Index:
     """Cached 6 h; the last good index on a failure. Raises only when it has never succeeded."""
     if _INDEX and _INDEX[0] > time.time():
         return _INDEX[1]
     try:
         try:
-            idx = build_index(_public_players())
+            idx = _checked(build_index(_public_players()))
         except (requests.RequestException, ValueError):
-            idx = build_index(_league_players())
-        if not idx.by_id:
-            raise ValueError("ESPN's player list came back empty")
+            idx = _checked(build_index(_league_players()))
     except (Exception, SystemExit):  # noqa: BLE001 — config exits on missing cookies; keep the last good index
         if _INDEX:
             return _INDEX[1]

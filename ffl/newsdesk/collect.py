@@ -11,8 +11,8 @@ that fell off its feed (404/410 withdraws it). Items still in the feed are never
 
 Rotowire (ESPN's fantasy news feed): it answers only per player (no playerId is a 500, playerId=0 an
 empty feed; checked 2026-10-19), so the one `rotowire` source polls every rostered player and the
-free-agent pool, ids off the Players page's stored pool (page_cache "waivers"), else
-`espn_season.free_agent_pool`. It keeps its own 30-min cache of the raw document, since
+best ROTOWIRE_FA free agents (by the pool's `add`, else ESPN's percent owned), ids off the Players
+page's stored pool (page_cache "waivers"), else `espn_season.free_agent_pool`. It keeps its own 30-min cache of the raw document, since
 `news.fetch_rotowire` keeps only the three newest blurbs, already reshaped for the outlook's sheet.
 
 ESPN team news lists league-wide pieces (betting lines, highlights) under every club; an article is kept
@@ -47,6 +47,8 @@ BSKY_BATCH = 25  # getPosts takes at most 25 uris
 ESPN_STORY = "https://content.core.api.espn.com/v1/sports/news/{id}"
 ESPN_MAX_CLUBS = 2
 ROTO_S = 1800
+ROTOWIRE_FA = 150  # free agents polled beside every rostered player
+ROTOWIRE_WORKERS = 4
 GONE = {404, 410}
 _CONTENT = "{http://purl.org/rss/1.0/modules/content/}encoded"
 _SEEN: dict[str, set[str]] = {}  # source id -> the ext_ids its last good poll listed (recheck's "still in the feed")
@@ -169,14 +171,21 @@ def parse_rotowire(doc: dict, source: dict, index: Index | None = None) -> list[
     return out
 
 
-def _rotowire_ids() -> list[int]:
-    """Every rostered player and the free-agent pool, off the Players page's stored pool, else built."""
+def _rotowire_ids(index: Index | None = None) -> list[int]:
+    """Every rostered player and the top ROTOWIRE_FA free agents, off the Players page's stored pool, else built."""
     pool = next((p["payload"] for p in db.pages() if p["key"] == "waivers"), None)
     if pool is None:
         from ..espn_season import free_agent_pool  # espn_season imports a lot; keep the collectors importable alone
         pool = free_agent_pool()
-    rows = [r for half in ("positions", "rostered") for rs in (pool.get(half) or {}).values() for r in rs]
-    return sorted({r["player_id"] for r in rows if r.get("pos") != "D/ST" and (r.get("player_id") or 0) > 0})
+
+    def ids(rows):
+        return [r["player_id"] for r in rows if r.get("pos") != "D/ST" and (r.get("player_id") or 0) > 0]
+    rostered = set(ids(r for rs in (pool.get("rostered") or {}).values() for r in rs))
+    owned = index.owned if index else {}
+    frees = sorted((r for rs in (pool.get("positions") or {}).values() for r in rs),
+                   key=lambda r: (r.get("add") is None, -(r.get("add") or 0), -owned.get(r.get("player_id"), 0)))
+    top = [pid for pid in dict.fromkeys(ids(frees)) if pid not in rostered][:ROTOWIRE_FA]
+    return sorted(rostered | set(top))
 
 
 def _rotowire_doc(pid: int) -> dict | None:
@@ -195,8 +204,8 @@ def _rotowire_doc(pid: int) -> dict | None:
 
 
 def _poll_rotowire(source: dict, index: Index | None) -> list[dict]:
-    ids = _rotowire_ids()
-    with ThreadPoolExecutor(WORKERS) as pool:
+    ids = _rotowire_ids(index)
+    with ThreadPoolExecutor(ROTOWIRE_WORKERS) as pool:
         docs = [d for d in pool.map(_rotowire_doc, ids) if d is not None]
     if ids and not docs:
         raise RuntimeError(f"no Rotowire feed answered for {len(ids)} players")
