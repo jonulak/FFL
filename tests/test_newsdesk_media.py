@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -244,20 +245,44 @@ def test_one_unavailable_video_does_not_stop_the_rest(monkeypatch):
         return SEGS
     monkeypatch.setattr(media, "captions", caps)
     got = media.run_all(INDEX, now=NOW)
-    assert got["new"] == 2 and got["failed"] == ["yt:SF"]
+    assert got["new"] == 2 and got["failed"] == [] and got["unreadable"] == ["gone0000000"]
     assert db.news_media("good0000000") is not None
+    [s] = db.news_sources()
+    assert s["error"] is None and s["failing_since"] is None  # one video's problem is not the channel failing
 
 
-def test_unexpected_caption_error_fails_the_source_and_saves_state(monkeypatch):
+def test_unreadable_video_backs_off_like_a_pending_one(monkeypatch):
     db.put_news_sources([YT])
     serve(monkeypatch, {YT["url"]: channel()})
+    calls = []
 
     def boom(vid):
+        calls.append(vid)
         raise KeyError("player response changed shape")
     monkeypatch.setattr(media, "captions", boom)
-    assert media.run_all(INDEX, now=NOW)["failed"] == ["yt:SF"]
-    assert db.get_state("news_pending_media") == {}
-    assert db.news_sources()[0]["error"].startswith("KeyError")
+    got = media.run_all(INDEX, now=NOW)
+    assert got["failed"] == [] and got["unreadable"] == [PRESSER_ID] and calls == [PRESSER_ID]
+    at = NOW.isoformat(timespec="seconds")
+    assert db.get_state("news_pending_media") == {PRESSER_ID: at} and db.get_state("news_pending_tried") == {PRESSER_ID: at}
+    assert db.news_sources()[0]["error"] is None
+    media.run_all(INDEX, now=NOW + timedelta(minutes=10))  # not at the front of the queue every run
+    assert calls == [PRESSER_ID]
+    media.run_all(INDEX, now=NOW + media.RETRY_EVERY)
+    assert calls == [PRESSER_ID, PRESSER_ID]
+    monkeypatch.setattr(media, "captions", lambda vid: SEGS)  # readable now
+    assert media.run_all(INDEX, now=NOW + 2 * media.RETRY_EVERY)["new"] == 2
+    assert db.get_state("news_pending_media") == {} and db.get_state("news_pending_tried") == {}
+
+
+def test_podcast_minus_0000_is_utc(monkeypatch):
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    try:
+        xml = fix("omny.xml").replace(b"Thu, 15 Oct 2026 22:59:00 +0000", b"Thu, 15 Oct 2026 22:59:00 -0000")
+        assert media.parse_podcast_feed(xml, POD)[0]["published_at"] == "2026-10-15T22:59:00+00:00"
+    finally:
+        monkeypatch.undo()
+        time.tzset()
 
 
 def test_podcast_feed_polled_hourly(monkeypatch):
@@ -278,7 +303,7 @@ def test_podcast_feed_polled_hourly(monkeypatch):
     assert len(calls) == 1  # inside the hour: not polled
     got = media.run_all(INDEX, now=NOW + timedelta(minutes=61))
     assert calls[1] == {"If-None-Match": 'W/"abc"', "If-Modified-Since": "Mon, 19 Oct 2026 17:00:00 GMT"}
-    assert got == {"new": 0, "media": 0, "pending": 0, "failed": []}
+    assert got == {"new": 0, "media": 0, "pending": 0, "failed": [], "unreadable": []}
     assert db.get_state("news_podcast_polled")["pod:LAR"]["etag"] == 'W/"abc"'
 
 

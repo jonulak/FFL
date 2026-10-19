@@ -65,7 +65,9 @@ def item_hash(title: str, text: str) -> str:
 
 
 def _utc(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).isoformat()
+    """A naive time is UTC, never local: parsedate_to_datetime returns one for RFC 5322's -0000 (UTC, with no
+    claim about the sender's zone)."""
+    return (dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt).astimezone(timezone.utc).isoformat()
 
 
 def _iso(s: str) -> str:
@@ -322,7 +324,7 @@ def _bsky_posts(uris: list[str]) -> dict[str, dict]:
     for i in range(0, len(uris), BSKY_BATCH):
         r = _get(BSKY + "app.bsky.feed.getPosts", params={"uris": uris[i:i + BSKY_BATCH]})
         r.raise_for_status()
-        out.update({p["uri"]: p for p in r.json().get("posts") or []})
+        out.update({p["uri"]: p for p in r.json().get("posts") or [] if isinstance(p, dict) and p.get("uri")})
     return out
 
 
@@ -360,7 +362,12 @@ def recheck(now: datetime) -> dict:
         else:
             for row in posts:
                 post = live.get(row["ext_id"])
-                it = _bsky_item(post, {"id": row["source_id"], "club": row["club"]}) if post else None
+                try:
+                    it = _bsky_item(post, {"id": row["source_id"], "club": row["club"]}) if post else None
+                except (KeyError, TypeError, ValueError, IndexError, AttributeError) as e:
+                    # a post in a shape we cannot read is still there: left alone, never taken for deleted
+                    print(f"news recheck: Bluesky post {row['ext_id']}: {type(e).__name__}: {e}")
+                    continue
                 if it is None:
                     withdraw(row)
                 else:

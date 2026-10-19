@@ -15,7 +15,8 @@ on the first read are no lag: the video may simply have been seen late). YouTube
 (one HTTP 429 in testing), so they are GAP_S apart and at most CAPTIONS_PER_RUN a run: new videos first,
 newest first, then pending ones in the slots left, so a pile of never-captioned live-stream pages cannot
 starve a new presser. A blocked read stops the run's captions and fails its source, never reading as
-"no captions yet".
+"no captions yet". A video that cannot be read for its own reasons (private, deleted, age-gated) waits as a
+pending one does (`unreadable` in the run's result); only a failed feed or transport fails the source.
 
 Podcasts: Omny feeds carry `<podcast:transcript>` in SubRip, WebVTT and plain text; SubRip is taken.
 A feed lists every episode ever published (NE's is 0.9 MB gzipped), so each is polled at most once per
@@ -237,6 +238,7 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
     # new videos first; pending ones fill what is left of the budget, each at most once per RETRY_EVERY
     videos = ([sv for sv in videos if sv[1]["video_id"] not in pending]
               + [sv for sv in videos if sv[1]["video_id"] in pending and retry_due(sv[1]["video_id"])])
+    unreadable: list[str] = []
     for source, v in videos[:CAPTIONS_PER_RUN]:
         vid = v["video_id"]
         try:
@@ -244,9 +246,12 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
         except (RequestBlocked, YouTubeRequestFailed, requests.RequestException) as e:  # 429, a blocked IP, no network
             errors[source["id"]] = _err(e)
             break
-        except Exception as e:  # noqa: BLE001 — this video's own problem (unlisted, age-gated…): the rest still run
-            errors[source["id"]] = _err(e)
-            continue
+        except Exception as e:  # noqa: BLE001 — this video's own problem (private, deleted, age-gated…): the rest still run
+            # not the channel failing (its feed read fine): the video waits like one with no captions yet, so it is
+            # retried once per RETRY_EVERY while PENDING, not at the front of every run
+            print(f"news media: {vid}: {_err(e)}")
+            unreadable.append(vid)
+            segs = None
         if segs is None:
             pending.setdefault(vid, at)
             tried[vid] = at
@@ -272,4 +277,4 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
         except db.DBError as e:
             print(f"news source {source['id']} not marked: {e}")
     return {"new": new, "media": stored, "pending": sum(1 for vid in pending if waiting(vid)),
-            "failed": sorted(errors)}
+            "failed": sorted(errors), "unreadable": unreadable}

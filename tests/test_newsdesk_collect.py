@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -68,6 +69,22 @@ def test_parse_rss_pft_strips_html_and_scripts():
     assert got[0]["published_at"] == "2026-10-19T17:28:59+00:00"  # -0400 in the feed
     assert got[0]["club"] is None
     assert "Nix" in got[0]["text"] and "<" not in got[0]["text"] and "adManagerUrl" not in got[0]["text"]
+
+
+@pytest.fixture
+def east(monkeypatch):
+    """A local zone that is not UTC, so a naive time read as local shows."""
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_parse_rss_minus_0000_is_utc(east):
+    """RFC 5322: -0000 is UTC with no claim about the local zone; parsedate_to_datetime returns it naive."""
+    xml = text("site_rams.xml").replace(b"Mon, 19 Oct 2026 00:32:57 GMT", b"Mon, 19 Oct 2026 00:32:57 -0000")
+    assert collect.parse_rss(xml, RAMS)[0]["published_at"] == "2026-10-19T00:32:57+00:00"
 
 
 def test_parse_rss_falls_back_to_link():
@@ -251,6 +268,32 @@ def test_deleted_bluesky_post_withdrawn(monkeypatch):
     assert (out["withdrawn"], out["edited"], out["retracted"]) == (1, 0, [sid])
     rows = {r["id"]: r for r in items_of(RAP["id"])}
     assert rows[deleted["id"]]["withdrawn_at"] is not None and rows[kept["id"]]["withdrawn_at"] is None
+
+
+def test_malformed_bluesky_post_skipped_rest_of_recheck_runs(monkeypatch):
+    _register(RAP, RAMS)
+    feed = json.loads(text("bsky_feed.json"))
+    monkeypatch.setattr(collect, "poll", lambda s, index=None: (collect.parse_bluesky(feed, s) if s["kind"] == "bluesky"
+                                                                else collect.parse_rss(text("site_rams.xml"), s)[:2]))
+    monkeypatch.setattr(collect, "_get", lambda url, **kw: Resp(body=text("article.html")))
+    collect.run_all(Index(), now=NOW)
+    kept, deleted = items_of(RAP["id"])
+    monkeypatch.setattr(collect, "poll", lambda s, index=None: ([] if s["kind"] == "bluesky"
+                                                                else collect.parse_rss(text("site_rams.xml"), s)[:1]))
+    collect.run_all(Index(), now=NOW)  # both posts and the recap fell off their feeds
+    post = next(e["post"] for e in feed["feed"] if e["post"]["uri"] == kept["ext_id"])
+    odd = {**post, "record": {k: v for k, v in post["record"].items() if k != "createdAt"}}
+
+    def get(url, params=None, **kw):
+        if params:  # getPosts: the kept post without its time, and a post with no uri at all
+            return Resp(doc={"posts": [odd, {"cid": "x"}]})
+        return Resp(410)
+    monkeypatch.setattr(collect, "_get", get)
+    out = collect.recheck(NOW + timedelta(hours=1))
+    assert (out["withdrawn"], out["edited"]) == (2, 0)  # the deleted post and the recap; the odd post left alone
+    rows = {r["id"]: r for r in items_of(RAP["id"])}
+    assert rows[deleted["id"]]["withdrawn_at"] is not None and rows[kept["id"]]["withdrawn_at"] is None
+    assert items_of("site:LAR")[1]["withdrawn_at"] is not None
 
 
 def test_article_410_withdrawn(monkeypatch):
