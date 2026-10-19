@@ -11,6 +11,7 @@ from ffl.newsdesk.players import Index
 FIX = Path(__file__).parent / "fixtures" / "newsdesk"
 NOW = datetime(2026, 10, 19, 15, 0, tzinfo=timezone.utc)
 AT = NOW.isoformat()
+OLD = "2026-10-17T10:00:00+00:00"  # inside tag.WINDOW, past tag.THREAD_HOURS
 INDEX = Index(by_id={1: {"name": "Kyren Williams", "pos": "RB", "team": "LAR"},
                      2: {"name": "Puka Nacua", "pos": "WR", "team": "LAR"},
                      3: {"name": "Roschon Johnson", "pos": "RB", "team": "CHI"}},
@@ -158,13 +159,83 @@ def test_attach_needs_same_kind():
 
 
 def test_attach_needs_prob():
-    sid = story()
+    sid = story(at=OLD)  # a candidate, but past THREAD_HOURS: only Jev's pick can join it
     item("a", "Kyren Williams limited again")
     got = tag.run(INDEX, ask=fake(story=f"s{sid}", story_prob=0.55), now=NOW)
     assert got["new"] == 1 and got["attached"] == 0 and db.story(sid)["items"] == []
     item("b", "Kyren Williams limited on Friday")
     got = tag.run(INDEX, ask=fake(story=f"s{sid}", story_prob=0.6), now=NOW)
     assert got["attached"] == 1
+
+
+def test_status_steps_thread_into_one_story():
+    """Doubtful, then out, then IR: Jev calls each step a new development, but they are one developing situation,
+    each step an update to it."""
+    for n, (ext, title) in enumerate([("a", "Kyren Williams doubtful"), ("b", "Kyren Williams ruled out"),
+                                      ("c", "Rams place Kyren Williams on IR")]):
+        item(ext, title, at=f"2026-10-19T1{n}:00:00+00:00")
+        tag.run(INDEX, ask=fake(story="new", effect="down", changed=0.7), now=NOW)
+    [s] = db.recent_stories([1], "2026-10-01")
+    assert s["rev"] == 3 and len(s["items"]) == 3
+
+
+def test_roundup_adds_no_rows_to_anothers_thread():
+    sid = story(players=(1,))
+    item("a", "Rams injury report", text="Kyren Williams ruled out; Puka Nacua limited")
+    got = tag.run(INDEX, ask=fake(story="new", effect="down", changed=0.7), now=NOW)
+    assert got["attached"] == 1 and got["new"] == 0
+    assert set(rows(sid)) == {1}  # Nacua's news is not on Williams's story
+    assert db.story(sid)["rev"] == 2
+
+
+def test_thread_joins_only_the_story_he_leads():
+    """A roundup naming two hurt players founds a story led by the surer one (here a tie: the first named). The
+    other's next news is a story of his own, and only the lead's threads into the roundup's."""
+    item("r", "Rams injuries", text="Kyren Williams is out; Puka Nacua is out", at="2026-10-19T10:00:00+00:00")
+    tag.run(INDEX, ask=fake(story="new", effect="down"), now=NOW)
+    [roundup] = db.recent_stories([1], "2026-10-01")
+    assert tag._lead(roundup) == 1
+    item("n", "Puka Nacua to IR", at="2026-10-19T11:00:00+00:00")
+    item("k", "Kyren Williams to IR", at="2026-10-19T11:00:00+00:00")
+    got = tag.run(INDEX, ask=fake(story="new", effect="down"), now=NOW)
+    assert got["new"] == 1 and got["attached"] == 1
+    assert [i["title"] for i in db.story(roundup["id"])["items"]] == ["Rams injuries", "Kyren Williams to IR"]
+
+
+def test_a_passing_mention_never_erases_an_arrow():
+    """A recap that says something new bumps the story, but a ● for him does not overwrite his ▼: the story stays
+    his, so the next step of his situation can still thread into it."""
+    sid = story(players=(1,))
+    item("a", "Rams fall to Cardinals", text="Kyren Williams watched; Puka Nacua had 100 yards")
+    got = tag.run(INDEX, ask=fake(story=f"s{sid}", effect="none", changed=0.7), now=NOW)
+    assert got["updated"] == 1 and db.story(sid)["rev"] == 2
+    assert rows(sid)[1]["effect"] == "down" and rows(sid)[2]["effect"] == "none"
+
+
+def test_thread_takes_the_surest_player():
+    williams, nacua = story(players=(1,)), story(players=(2,))
+    item("a", "Rams injury report", text="Kyren Williams ruled out; Puka Nacua limited")
+    base = fake(story="new", effect="down")
+
+    def ask(state, qs):
+        out = base(state, qs)
+        if "effect:2" in out:
+            out["effect:2"]["probabilities"]["down"] = 0.95
+        return out
+
+    tag.run(INDEX, ask=ask, now=NOW)
+    assert len(db.story(nacua)["items"]) == 1 and db.story(williams)["items"] == []
+
+
+@pytest.mark.parametrize("row,kind,fresh,at", [("none", "injury", 0.9, AT),  # his row on it is ●
+                                               ("down", "other", 0.9, AT),  # another kind of news about him
+                                               ("down", "injury", 0.5, AT),  # a passing mention: ● on this item
+                                               ("down", "injury", 0.9, OLD)])  # past THREAD_HOURS
+def test_thread_needs_same_kind_and_an_arrow(row, kind, fresh, at):
+    sid = story(effect=row, kind=kind, at=at)
+    item("a", "Panthers preview", text="With Kyren Williams out, the Rams lean on the pass")
+    got = tag.run(INDEX, ask=fake(story="new", effect="down", kind="injury", fresh=fresh), now=NOW)
+    assert got["new"] == 1 and got["attached"] == 0 and db.story(sid)["items"] == []
 
 
 @pytest.mark.parametrize("changed,rev", [(0.7, 2), (0.3, 1)])
@@ -201,7 +272,7 @@ def test_correction_marks_story_corrected():
 
 
 def test_retract_without_a_story_is_a_new_story():
-    sid = story()
+    sid = story(at=OLD)
     item("a", "Kyren Williams report was wrong")
     got = tag.run(INDEX, ask=fake(story="new", retract=0.8), now=NOW)
     assert got["new"] == 1 and db.story(sid)["status"] == "live"

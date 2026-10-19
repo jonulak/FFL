@@ -7,7 +7,9 @@ already known; under FRESH his effect is forced to ●, so a preview naming an o
 and `kind:<pid>`; with stories in the window, `story` (which one this
 item reports, or `new`) and `retract` (does it say an earlier report was wrong). The story pick is a
 proposal: the item joins only at STORY_ATTACH_PROB, through a shared player with the same kind of news
-(`_joins`); otherwise it starts its own story. An attached item that
+(`_joins`). Failing that, a player the item moves (▲/▼) threads it into his newest story of the same kind
+updated within THREAD_HOURS, one he leads (`_lead`: its founding item's surest mover) and is ▲/▼ on (`_thread`):
+doubtful, out and IR are steps of one situation, not three stories. Otherwise it starts its own story. An attached item that
 adds a material fact (`changed`, a second call) bumps the story's rev, so it is written and pushed
 again. A player row's `prob` is the probability of the chosen effect: the push cutoff (Task 8) reads it.
 
@@ -34,6 +36,7 @@ CHANGED = 0.5
 # repeating them read 0.55-0.65
 FRESH = 0.7
 STORY_ATTACH_PROB = 0.6  # Jev's story pick is a proposal: below this the item starts its own story
+THREAD_HOURS = 48  # a player's ▲/▼ news joins his story of the same kind updated this recently, whatever Jev picked
 MAX_OPTIONS = 254  # Jev takes 255 options a choice; plus `new`
 MAX_TEXT = 60_000  # chars (~15k tokens): inside the 32k per-question context with room for the question
 FACT_TEXT = 1500  # chars of each earlier source shown to `changed`
@@ -45,6 +48,8 @@ KINDS = {"injury": "he is hurt, limited, or listed on an injury report",
          "role": "his playing time, targets, carries or job changes",
          "depth": "a teammate's move or injury changes the depth chart around him",
          "other": "anything else: contract, off-field, a quote, a recap mention"}
+# Kept as "the same specific development": asked about "the same ongoing development" (2026-10-19), Jev let game
+# recaps, previews and podcast excerpts into a player's story (a 31-item Hurts story); `_thread` joins the steps instead
 STORY_Q = ("Which earlier story reports the same specific development as this text: the same injury, the same "
            "transaction, the same change in a player's role or status? Sharing a game, a week or a team is not "
            "enough. `new` if none of them does.")
@@ -167,15 +172,51 @@ def _joins(story: dict, kept: list[dict], prob: float | None) -> bool:
     return (prob or 0) >= STORY_ATTACH_PROB and any(on.get(p["player_id"]) == p["kind"] for p in kept)
 
 
+def _lead(story: dict) -> int | None:
+    """Whose situation the story is: the surest ▲/▼ player (effect prob; a tie goes to the first named) of the item
+    that founded it, the first tagged into it (a run tags newest first). A story with no tagged item falls back to
+    its surest ▲/▼ row."""
+    tagged = sorted((i for i in story.get("items") or [] if i.get("tagged_at") and i.get("jev")),
+                    key=lambda i: (i["published_at"], i["id"]), reverse=True)
+    if tagged:
+        founder = min(tagged, key=lambda i: i["tagged_at"])
+        rows = read(founder["jev"], [{"player_id": p} for p in founder["player_ids"] or []])["players"]
+    else:
+        rows = story["players"]
+    moved = [r for r in rows if r["effect"] != "none"]
+    return max(moved, key=lambda r: r["prob"])["player_id"] if moved else None
+
+
+def _thread(cands: list[dict], kept: list[dict], now: datetime) -> tuple[dict, list[dict]] | None:
+    """The story of a player's developing situation: one he leads (`_lead`), ▲/▼ on it with the same kind of news.
+    Only his row is written, so a roundup's other players never land on someone else's story; and a roundup's other
+    movers do not pull their own news into the roundup's story. With stories for several of its players, the item
+    goes to the one of the player Jev is surest of (effect prob)."""
+    since = (now - timedelta(hours=THREAD_HOURS)).isoformat()
+
+    def his(c: dict, p: dict) -> bool:
+        return (c["updated_at"] >= since and _lead(c) == p["player_id"]
+                and any(r["player_id"] == p["player_id"] and r["effect"] != "none" and r["kind"] == p["kind"]
+                        for r in c["players"]))
+
+    for p in sorted((p for p in kept if p["effect"] != "none"), key=lambda p: p["prob"], reverse=True):
+        story = next((c for c in cands if his(c, p)), None)  # cands: newest first
+        if story:
+            return story, [p]
+    return None
+
+
 def _attach(item: dict, story: dict, kept: list[dict], bump: bool, corrected: bool, at: str) -> bool:
     """Rows for every player on a bump or a correction, else only for players new to the story. A new player
-    with ▲/▼ is news of its own: the story is bumped too, so Haiku writes his line and it may push. Returns
+    with ▲/▼ is news of its own: the story is bumped too, so Haiku writes his line and it may push. On a bump a ●
+    never overwrites his ▲/▼: a recap mentioning him leaves the story his, for his next step to thread into. Returns
     whether the rev moved."""
     sid = story["id"]
     if story.get("first_at") is None or item["published_at"] < story["first_at"]:
         db.update_story(sid, {"first_item_id": item["id"], "first_at": item["published_at"]})
-    on = {p["player_id"] for p in story["players"]}
-    rows = [p for p in kept if bump or corrected or p["player_id"] not in on]
+    on = {p["player_id"]: p["effect"] for p in story["players"]}
+    rows = [p for p in kept if corrected or p["player_id"] not in on
+            or (bump and (p["effect"] != "none" or on[p["player_id"]] == "none"))]
     if corrected:
         db.set_story_status(sid, "corrected", at, note=item["source_id"])
     elif bump or any(p["effect"] != "none" for p in rows):
@@ -219,6 +260,9 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
     chosen = next((c for c in cands if c["id"] == got["story"]), None)
     if chosen and not _joins(chosen, kept, got["story_prob"]):
         chosen = None
+    rows, threaded = kept, False
+    if chosen is None and (thread := _thread(cands, kept, now)):
+        (chosen, rows), threaded = thread, True
     if chosen is None:
         sid = db.add_story({"first_item_id": item["id"], "first_at": item["published_at"], "updated_at": at,
                             "kind": _kind(kept)})
@@ -230,8 +274,9 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
     # Items are tagged newest first, so a backlog's older item can join a story its newer news already made: it is
     # a source, never a change or a correction of what came after it.
     older = any(i["published_at"] > item["published_at"] for i in chosen["items"] if not i.get("withdrawn_at"))
-    corrected = not older and (got["retract"] or 0) >= RETRACT
-    bumped = _attach(item, chosen, kept, not older and not corrected and changed(chosen, item, ask), corrected, at)
+    # a retraction names the report it takes back: Jev did not pick a threaded story, so it cannot be corrected
+    corrected = not older and not threaded and (got["retract"] or 0) >= RETRACT
+    bumped = _attach(item, chosen, rows, not older and not corrected and changed(chosen, item, ask), corrected, at)
     db.tag_item(item["id"], pids, answers, chosen["id"], at)
     out["tagged"] += 1
     out["attached"] += 1
