@@ -3,7 +3,9 @@
 One call an item: per matched player, `about:<pid>` (is the text about him, not a coach or another
 player with his name; under ABOUT he is dropped before anything else), `effect:<pid>` (▲ up / ▼ down /
 ● none for his fantasy value) and `kind:<pid>`; with stories in the window, `story` (which one this
-item reports, or `new`) and `retract` (does it say an earlier report was wrong). An attached item that
+item reports, or `new`) and `retract` (does it say an earlier report was wrong). The story pick is a
+proposal: the item joins only at STORY_ATTACH_PROB, through a shared player with the same kind of news
+(`_joins`); otherwise it starts its own story. An attached item that
 adds a material fact (`changed`, a second call) bumps the story's rev, so it is written and pushed
 again. A player row's `prob` is the probability of the chosen effect: the push cutoff (Task 8) reads it.
 
@@ -24,7 +26,8 @@ WINDOW = timedelta(days=3)  # a story takes new items while it was updated this 
 ABOUT = 0.5
 RETRACT = 0.5
 CHANGED = 0.5
-MAX_OPTIONS = 254  # Jev takes 255 options a choice; `new` is the last
+STORY_ATTACH_PROB = 0.6  # Jev's story pick is a proposal: below this the item starts its own story
+MAX_OPTIONS = 254  # Jev takes 255 options a choice; plus `new`
 MAX_TEXT = 60_000  # chars (~15k tokens): inside the 32k per-question context with room for the question
 FACT_TEXT = 1500  # chars of each earlier source shown to `changed`
 MEDIA = ("yt:", "pod:")
@@ -91,9 +94,11 @@ def read(answers: dict, players: list[dict]) -> dict:
         eff = answers[f"effect:{pid}"]
         kept.append({"player_id": pid, "effect": eff["choice"], "kind": answers[f"kind:{pid}"]["choice"],
                      "prob": eff["probabilities"][eff["choice"]], "confidence": eff["confidence"]})
-    pick = (answers.get("story") or {}).get("choice")
+    ans = answers.get("story") or {}
+    pick = ans.get("choice")
     story = int(pick[1:]) if kept and pick and pick != "new" else None
-    return {"players": kept, "story": story, "retract": (answers.get("retract") or {}).get("noul")}
+    return {"players": kept, "story": story, "story_prob": (ans.get("probabilities") or {}).get(pick) if story else None,
+            "retract": (answers.get("retract") or {}).get("noul")}
 
 
 def _facts(story: dict, item_id: int | None) -> dict:
@@ -140,6 +145,14 @@ def _kind(kept: list[dict]) -> str:
     return next((p["kind"] for p in kept if p["effect"] != "none"), kept[0]["kind"])
 
 
+def _joins(story: dict, kept: list[dict], prob: float | None) -> bool:
+    """Jev's story pick is a proposal; it stands only when Jev is sure enough and the story shares a player
+    the item is about, with the same kind of news for him. An injury report never sinks into a game recap:
+    a merged story hides the news, a duplicate does not."""
+    on = {p["player_id"]: p["kind"] for p in story["players"]}
+    return (prob or 0) >= STORY_ATTACH_PROB and any(on.get(p["player_id"]) == p["kind"] for p in kept)
+
+
 def _attach(item: dict, story: dict, kept: list[dict], bump: bool, corrected: bool, at: str) -> None:
     """Rows for every player on a bump or a correction, else only for players new to the story."""
     sid = story["id"]
@@ -178,8 +191,8 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
         out["updated"] += bump
         return
     chosen = next((c for c in cands if c["id"] == got["story"]), None)
-    if chosen and not {p["player_id"] for p in chosen["players"]} & set(pids):
-        chosen = None  # its only link to this item was a player the item turned out not to be about
+    if chosen and not _joins(chosen, kept, got["story_prob"]):
+        chosen = None
     if chosen is None:
         sid = db.add_story({"first_item_id": item["id"], "first_at": item["published_at"], "updated_at": at,
                             "kind": _kind(kept)})

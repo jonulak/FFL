@@ -24,15 +24,15 @@ def item(ext, title, text="", source="site:LAR", at="2026-10-19T12:00:00+00:00",
     return i
 
 
-def story(players=(1,), effect="down", at="2026-10-19T10:00:00+00:00", first_item=None):
+def story(players=(1,), effect="down", at="2026-10-19T10:00:00+00:00", first_item=None, kind="injury"):
     sid = db.add_story({"first_item_id": first_item, "first_at": at, "updated_at": at, "kind": "injury",
                         "headline": "Kyren Williams limited", "overview": ""})
-    db.put_story_players(sid, [{"player_id": p, "effect": effect, "kind": "injury", "prob": 0.6, "confidence": 0.5}
+    db.put_story_players(sid, [{"player_id": p, "effect": effect, "kind": kind, "prob": 0.6, "confidence": 0.5}
                                for p in players])
     return sid
 
 
-def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up"):
+def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="injury", story_prob=0.8):
     """A Jev stand-in: every question answered; `story` is the choice for the story question."""
     calls = []
 
@@ -46,8 +46,9 @@ def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up"):
                 out[k] = {"type": "noul", "noul": v}
                 continue
             opts = list(q["criteria"])
-            pick = {"story": story, "effect": effect, "kind": "role"}[name]
-            probs = {o: 0.8 if o == pick else 0.2 / (len(opts) - 1) for o in opts}
+            pick = {"story": story, "effect": effect, "kind": kind}[name]
+            top = story_prob if name == "story" else 0.8
+            probs = {o: top if o == pick else (1 - top) / (len(opts) - 1) for o in opts}
             out[k] = {"type": "choice", "choice": pick, "probabilities": probs, "confidence": 0.7}
         return out
 
@@ -124,6 +125,23 @@ def test_attach_when_story_chosen():
     assert rows(sid)[1]["effect"] == "down"  # unchanged story: an existing player's row stands
     assert rows(sid)[2]["effect"] == "up"  # a player new to the story gets his row
     assert "story" in ask.calls[0][1] and "retract" in ask.calls[0][1]
+
+
+def test_attach_needs_same_kind():
+    recap = story(kind="other")
+    item("a", "Kyren Williams limited with an ankle injury")
+    got = tag.run(INDEX, ask=fake(story=f"s{recap}", kind="injury"), now=NOW)
+    assert got["new"] == 1 and got["attached"] == 0 and db.story(recap)["items"] == []
+
+
+def test_attach_needs_prob():
+    sid = story()
+    item("a", "Kyren Williams limited again")
+    got = tag.run(INDEX, ask=fake(story=f"s{sid}", story_prob=0.55), now=NOW)
+    assert got["new"] == 1 and got["attached"] == 0 and db.story(sid)["items"] == []
+    item("b", "Kyren Williams limited on Friday")
+    got = tag.run(INDEX, ask=fake(story=f"s{sid}", story_prob=0.6), now=NOW)
+    assert got["attached"] == 1
 
 
 @pytest.mark.parametrize("changed,rev", [(0.7, 2), (0.3, 1)])
