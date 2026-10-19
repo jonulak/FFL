@@ -39,10 +39,10 @@ export function ownerTag(r: Pick<NewsRow, "owner" | "mine">): string {
 }
 
 // The arrows show; the ● rows wait behind "+k no change".
-// `pinMine` (the My players filter): his own no-change rows stay out with the arrows, never behind "+k no change".
-export function splitRows(rows: NewsRow[], pinMine = false): { moved: NewsRow[]; none: NewsRow[] } {
-  const shown = (r: NewsRow) => r.effect !== "none" || (pinMine && r.mine);
-  return { moved: rows.filter(shown), none: rows.filter((r) => !shown(r)) };
+// `onlyMine` (the My players filter): only my own rows, every one out in the open, none behind "+k no change".
+export function splitRows(rows: NewsRow[], onlyMine = false): { moved: NewsRow[]; none: NewsRow[] } {
+  if (onlyMine) return { moved: rows.filter((r) => r.mine), none: [] };
+  return { moved: rows.filter((r) => r.effect !== "none"), none: rows.filter((r) => r.effect === "none") };
 }
 
 export function statusLabel(s: Story["status"]): string | null {

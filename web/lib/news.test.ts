@@ -55,12 +55,13 @@ describe("splitRows", () => {
     expect(none.map((r) => r.player_id)).toEqual([2]);
   });
 
-  it("keeps my no-change rows out under My players", () => {
-    const rows = [row({ player_id: 1 }), row({ player_id: 2, effect: "none", mine: true }), row({ player_id: 3, effect: "none" })];
+  it("shows only my rows, all of them, under My players", () => {
+    const rows = [row({ player_id: 1 }), row({ player_id: 2, effect: "none", mine: true }), row({ player_id: 3, effect: "none" }),
+                  row({ player_id: 4, effect: "down", mine: true })];
     expect(splitRows(rows).none.map((r) => r.player_id)).toEqual([2, 3]);
     const { moved, none } = splitRows(rows, true);
-    expect(moved.map((r) => r.player_id)).toEqual([1, 2]);
-    expect(none.map((r) => r.player_id)).toEqual([3]);
+    expect(moved.map((r) => r.player_id)).toEqual([2, 4]);
+    expect(none).toEqual([]);
   });
 });
 
