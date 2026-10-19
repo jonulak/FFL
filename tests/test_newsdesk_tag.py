@@ -311,7 +311,7 @@ def flaky(bad, error):
 
 
 @pytest.mark.parametrize("error", [{}, {"about:1": {"noul": 0.9}}, jev.JevError("jev: no answer to ['kind:1']", 200),
-                                   jev.JevError("jev 403: nope", 403)])
+                                   jev.JevError("jev 400: nope", 400)])
 def test_one_bad_answer_skips_the_item_not_the_run(error):
     a = item("a", "Kyren Williams limited", at="2026-10-19T10:00:00+00:00")
     item("b", "Puka Nacua limited", at="2026-10-19T11:00:00+00:00")
@@ -319,6 +319,22 @@ def test_one_bad_answer_skips_the_item_not_the_run(error):
     assert got["failed"] == [a] and got["tagged"] == 1 and got["error"] is None
     assert [u["id"] for u in db.untagged_items()] == [a]
     assert db.get_state(tag.TRIES) == {str(a): 1}
+
+
+@pytest.mark.parametrize("error", [jev.JevError("jev 401: bad key", 401), jev.JevError("jev 402: no credits", 402),
+                                   jev.JevError("jev 403: revoked", 403), jev.JevError("jev 429: slow down", 429),
+                                   jev.JevError("no TYPESAFE_API_KEY in .env", account=True)])
+def test_account_failure_stops_the_run_and_counts_nothing(error):
+    """A dead key or no credits fails every item alike: the run stops and no item moves towards giving up, even
+    after Jev has answered earlier items this run."""
+    item("a", "Puka Nacua limited", at="2026-10-19T09:00:00+00:00")
+    b = item("b", "Kyren Williams limited", at="2026-10-19T10:00:00+00:00")
+    c = item("c", "Kyren Williams questionable", at="2026-10-19T11:00:00+00:00")
+    for _ in range(tag.TAG_MAX_TRIES + 1):
+        got = tag.run(INDEX, ask=flaky("Kyren", error), now=NOW)
+        assert got["error"] == str(error) and got["failed"] == [] and got["given_up"] == []
+    assert sorted(u["id"] for u in db.untagged_items()) == [b, c]
+    assert not db.get_state(tag.TRIES)
 
 
 def test_server_error_after_an_answer_is_the_items():

@@ -244,7 +244,8 @@ def run(index: Index, ask=jev.ask, now: datetime | None = None) -> dict:
     """Tag every untagged item, oldest first. An item that fails on its own (Jev refuses its request, answers in
     a shape `read` cannot take, or fails with a 5xx once Jev has answered this run) is skipped and left untagged,
     and after TAG_MAX_TRIES failed runs tagged with no story (`given_up`). Jev down (two service failures before
-    any answer: the first may be the item's own) or a DB error stops the run (`error`); the rest wait."""
+    any answer: the first may be the item's own), the account failing (no key, a bad key, no credits, rate
+    limited: JevError.account) or a DB error stops the run (`error`); the rest wait, uncounted."""
     now = now or datetime.now(timezone.utc)
     out = {"tagged": 0, "new": 0, "attached": 0, "updated": 0, "failed": [], "given_up": [], "error": None}
     up = False  # Jev answered this run, so a service failure is the item's
@@ -264,6 +265,10 @@ def run(index: Index, ask=jev.ask, now: datetime | None = None) -> dict:
             except db.DBError:
                 raise
             except Exception as e:  # noqa: BLE001 — anything else is this item's (KeyError/TypeError: an odd answer)
+                if isinstance(e, JevError) and e.account:
+                    # the key or its credits: every item would fail the same, so none is counted towards giving up
+                    out["error"] = str(e)
+                    break
                 if _down(e) and not up:
                     if early:
                         out["error"] = str(e)

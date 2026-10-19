@@ -19,20 +19,26 @@ MODEL = "jev-latest"
 TIMEOUT_S = 20
 
 
+# The account, not the request: a bad or revoked key, no credits left, rate limited. Every item would fail alike.
+ACCOUNT = frozenset({401, 402, 403, 429})
+
+
 class JevError(RuntimeError):
     """A call that gave no answers. `status` is the HTTP status, None when no answer came at all. None or a
-    5xx is the service failing; any other status (a 4xx, or a 200 with answers missing) is this request's."""
+    5xx is the service failing; `account` (no key, or a status in ACCOUNT) is the key or its credits; any other
+    status (a 4xx, or a 200 with answers missing) is this request's."""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, account: bool = False):
         super().__init__(message)
         self.status = status
+        self.account = account or status in ACCOUNT
 
 
 def ask(state, questions: dict) -> dict:
     """The answers, keyed like `questions`. Raises JevError on no key, a failed call or a missing answer."""
     key = os.environ.get("TYPESAFE_API_KEY")
     if not key:
-        raise JevError("no TYPESAFE_API_KEY in .env")
+        raise JevError("no TYPESAFE_API_KEY in .env", account=True)
     try:
         r = requests.post(URL, headers={"Authorization": f"Bearer {key}"},
                           json={"state": state, "model": MODEL, "questions": questions}, timeout=TIMEOUT_S)
