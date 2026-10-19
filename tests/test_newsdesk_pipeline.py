@@ -170,6 +170,58 @@ def test_newer_rev_supersedes_unsent(stages):
     assert outcomes()[f"news:{sid}:1"] == "superseded"
 
 
+def queued_then(written, rev2, status=None, flag=False, headline="Correction: Hurts out longer"):
+    """Rev 1 queued and held (quiet hours); then rev 2 (a status change, or `changed`) written and run."""
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+    pipeline.run()
+    if status:
+        db.set_story_status(sid, status, AT, "ESPN")
+    else:
+        with db._write() as conn:
+            db._bump_story(conn, sid, db.SEASON)
+    db.put_story_words(sid, 2, headline, "Overview.", {1: (rev2, flag)})
+    written[:] = [(sid, 2)]
+    pipeline.run()
+    return sid
+
+
+def test_corrected_while_queued_qualifying(stages):
+    _, written = stages
+    sid = queued_then(written, "Out four weeks, not two.", status="corrected")
+    [n] = db.unsent_notices()
+    assert (n["key"], n["title"]) == (f"news:{sid}:2", "Correction: Hurts out longer")
+    assert outcomes()[f"news:{sid}:1"] == "superseded"
+
+
+def test_corrected_while_queued_not_qualifying(stages):
+    _, written = stages
+    sid = queued_then(written, "The sources do not say he is hurt.", status="corrected", flag=True)
+    assert keys() == [] and outcomes()[f"news:{sid}:1"] == "superseded"
+
+
+def test_live_rev2_not_qualifying_supersedes_rev1(stages):
+    _, written = stages
+    sid = queued_then(written, "Only named in a recap.", flag=True, headline="Hurts limited")
+    assert keys() == [] and outcomes()[f"news:{sid}:1"] == "superseded"
+
+
+def test_no_index_leaves_the_written_revisions_waiting(stages, monkeypatch):
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    db.put_state(pipeline.PENDING, [[sid, 1, notify.now()]])  # written by a run whose notices stage failed
+
+    def exits():
+        raise SystemExit("no LEAGUE_ID in .env")
+
+    monkeypatch.setattr(pipeline.players, "fetch_index", exits)
+    assert pipeline.run()["notices"] == {"skipped": "no player index"}
+    assert keys() == [] and db.get_state(pipeline.PENDING)[0][:2] == [sid, 1]
+    monkeypatch.setattr(pipeline.players, "fetch_index", lambda: INDEX)
+    pipeline.run()
+    assert [n["body"] for n in db.unsent_notices()] == ["▼ Jalen Hurts: A reason."]
+
+
 def test_retraction_supersedes_an_unsent_original(stages):
     _, written = stages
     sid = make([(1, "down", "injury")])

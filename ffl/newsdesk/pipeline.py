@@ -43,12 +43,13 @@ def _queued(t: datetime) -> tuple[list[dict], dict[int, dict]]:
     return queued, {sid: s for sid in sids if (s := db.story(sid))}
 
 
-def notify_written(written: list, index: players.Index | None) -> dict:
-    """Queue the pushes for the written revisions (and any still waiting from a run that could not read owners).
+def notify_written(written: list, index: players.Index) -> dict:
+    """Queue the pushes for the written revisions (and any still waiting from a run that could not read owners or
+    the player index, whose names the pushes carry).
 
     A story's own earlier notices never hold back its newer revision: one already sent makes it a material update,
-    and one still waiting (quiet hours) is marked `superseded` when the newer revision or its status push is queued,
-    so the newest goes out, not the stale one. A retraction supersedes a waiting push whether or not it pushes itself."""
+    and one still waiting (quiet hours) is marked `superseded` whatever the newer revision produces: a revision that
+    no longer pushes means the news no longer warrants one, so its outdated predecessor must not go out either."""
     pending = _queue(written)
     if not pending:
         return {"stories": 0, "queued": 0, "superseded": 0}
@@ -65,7 +66,7 @@ def notify_written(written: list, index: players.Index | None) -> dict:
         if s is None or s["rev"] != rev or s["written_rev"] != rev:
             continue
         for p in s["players"]:
-            p["name"] = (index.by_id.get(p["player_id"]) or {}).get("name") if index else None
+            p["name"] = (index.by_id.get(p["player_id"]) or {}).get("name")
         own = f"news:{sid}:"
         mine = [k for k in pushed if k.startswith(own)]
         stale = [k for k in waiting if k.startswith(own)]
@@ -81,8 +82,7 @@ def notify_written(written: list, index: players.Index | None) -> dict:
             n = notices.for_status(s, mine, at)
         if n:
             out.append(n)
-        if n or s["status"] == "retracted":
-            superseded += [k for k in stale if not n or k != n["key"]]
+        superseded += [k for k in stale if not n or k != n["key"]]
     db.mark_notices(superseded, "superseded", at)
     n_queued = db.add_notices(out)
     db.put_state(PENDING, [])
@@ -121,7 +121,7 @@ def run() -> dict:
     stage("tag", lambda: tag.run(index, now=now), needs_index=True)
     stage("write", lambda: write.run(index), needs_index=True)
     written = out["write"].get("written_ids", []) if isinstance(out["write"], dict) else []
-    stage("notices", lambda: notify_written(written, index))
+    stage("notices", lambda: notify_written(written, index), needs_index=True)  # its revisions wait for the index
     stage("health", _health)
     try:
         db.put_state("news_last_run", {"at": notify.now(), "stages": out})

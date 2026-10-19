@@ -74,6 +74,7 @@ def test_status_push_only_if_original_pushed():
     assert n == {"key": "news:9:retracted", "kind": "news", "title": "Retracted: Report withdrawn: Hurts out",
                  "body": "PFT", "url": "/news?story=9", "created_at": AT}
     assert notices.for_status(s, [], AT) is None
+    assert notices.for_status({**s, "headline": " "}, ["news:9:1"], AT) is None
     assert notices.for_status(s, ["news:19:1", "news:91:1"], AT) is None
     c = story(row(1, "down"), sid=9, rev=2, headline="Hurts out", status="corrected", note="ESPN")
     assert notices.for_status(c, ["news:9:1"], AT)["title"] == "Corrected: Hurts out"

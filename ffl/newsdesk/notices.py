@@ -78,9 +78,11 @@ def for_story(story: dict, owners: dict[int, dict], me: int, muted: set[int], at
 
 
 def for_status(story: dict, pushed: list[str], at: str) -> dict | None:
-    """A corrected or retracted story's one push, only when an earlier `news:<id>:*` notice was sent."""
+    """A corrected or retracted story's one push, only when an earlier `news:<id>:*` notice was sent and Haiku gave it
+    a headline."""
     status, sid = story["status"], story["id"]
-    if status not in STATUS_TITLE or not any(k.startswith(f"news:{sid}:") for k in pushed):
+    if (status not in STATUS_TITLE or not (story.get("headline") or "").strip()
+            or not any(k.startswith(f"news:{sid}:") for k in pushed)):
         return None
     return {"key": f"news:{sid}:{status}", "kind": "news", "title": f"{STATUS_TITLE[status]}: {story['headline']}",
             "body": story.get("status_note") or STATUS_BODY[status], "url": f"/news?story={sid}", "created_at": at}
