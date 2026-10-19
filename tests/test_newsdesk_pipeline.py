@@ -64,7 +64,7 @@ def test_pipeline_stage_failure_reported_rest_run(stages, monkeypatch):
     out = pipeline.run()
     assert out["collect"] == {"error": "RuntimeError: feeds down"}
     assert calls == ["seed", "index", "recheck", "media", "tag", "write"]
-    assert out["tag"] == {"tagged": 0} and out["notices"] == {"stories": 0, "queued": 0} and out["health"] == 0
+    assert out["tag"] == {"tagged": 0} and out["notices"] == {"stories": 0, "queued": 0, "superseded": 0} and out["health"] == 0
     assert db.get_state("news_last_run")["stages"]["collect"] == {"error": "RuntimeError: feeds down"}
 
 
@@ -86,12 +86,12 @@ def test_written_story_pushes_once(stages):
     sid = make([(1, "down", "injury")])
     written.append((sid, 1))
     out = pipeline.run()
-    assert out["notices"] == {"stories": 1, "queued": 1}
+    assert out["notices"] == {"stories": 1, "queued": 1, "superseded": 0}
     [n] = db.unsent_notices()
     assert (n["key"], n["title"], n["body"], n["url"]) == (f"news:{sid}:1", "Hurts hurt", "▼ Jalen Hurts: A reason.",
                                                           f"/news?story={sid}")
     written.clear()
-    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0}
+    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0, "superseded": 0}
 
 
 def test_dedupe_one_push_per_player_kind_per_day(stages):
@@ -150,6 +150,36 @@ def test_material_update_pushes_again(stages):
     written[:] = [(other, 2)]
     pipeline.run()
     assert keys() == [f"news:{sid}:2"]
+
+
+def outcomes():
+    return {n["key"]: n["outcome"] for n in db.recent_notices(50)}
+
+
+def test_newer_rev_supersedes_unsent(stages):
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+    pipeline.run()  # queued, held by quiet hours
+    with db._write() as conn:
+        db._bump_story(conn, sid, db.SEASON)
+    db.put_story_words(sid, 2, "Hurts out longer", "Overview.", {1: ("Out four weeks now.", False)})
+    written[:] = [(sid, 2)]
+    assert pipeline.run()["notices"] == {"stories": 1, "queued": 1, "superseded": 1}
+    assert keys() == [f"news:{sid}:2"]
+    assert outcomes()[f"news:{sid}:1"] == "superseded"
+
+
+def test_retraction_supersedes_an_unsent_original(stages):
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+    pipeline.run()  # waiting, never sent: the retraction has nothing to push, and the original must not go out
+    db.set_story_status(sid, "retracted", AT, "PFT")
+    db.put_story_words(sid, 2, "Report withdrawn: Hurts hurt", "Withdrawn.", {1: ("Withdrawn.", False)})
+    written[:] = [(sid, 2)]
+    pipeline.run()
+    assert keys() == [] and outcomes()[f"news:{sid}:1"] == "superseded"
 
 
 def test_retraction_pushes_status_only_after_the_original(stages):
