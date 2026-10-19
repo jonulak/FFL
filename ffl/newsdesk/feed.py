@@ -67,6 +67,11 @@ def keep(story: dict, filter: str) -> bool:
     return True
 
 
+def moves(story: dict) -> bool:
+    """A shaped story moves somebody: some row is ▲ or ▼. The /news feed hides the rest unless asked (`quiet`)."""
+    return any(p["effect"] != "none" for p in story["players"])
+
+
 def search(index: Index, q: str) -> list[dict]:
     """Up to SEARCH_MAX players: a prefix on any name token first, then the name containing it; the more
     widely held first within each."""

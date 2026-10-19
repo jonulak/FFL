@@ -1874,9 +1874,9 @@ def test_news_status(client):
     assert body["last_run"]["stages"] == {"seed": 2}
 
 
-def _news_story(player_ids, updated_at, headline="H"):
+def _news_story(player_ids, updated_at, headline="H", effect="down"):
     sid = db.add_story({"first_item_id": None, "first_at": updated_at, "updated_at": updated_at, "kind": "injury"})
-    db.put_story_players(sid, [{"player_id": p, "effect": "down", "kind": "injury", "prob": 0.9, "confidence": 0.5}
+    db.put_story_players(sid, [{"player_id": p, "effect": effect, "kind": "injury", "prob": 0.9, "confidence": 0.5}
                                for p in player_ids])
     db.put_story_words(sid, 1, headline, "O.", {p: ("R.", False) for p in player_ids})
     return sid
@@ -1924,6 +1924,41 @@ def test_api_news_routes(news_client):
     assert news_client.get("/news/player/2").json()["muted"] is True
     assert news_client.post("/news/mute/2", json={"muted": False}).json() == {"muted": False}
     assert db.get_state("news_mutes") == []
+
+
+def test_news_quiet_param(news_client):
+    now = datetime.now(timezone.utc)
+
+    def t(h):
+        return (now - timedelta(hours=h)).isoformat(timespec="seconds")
+
+    # newest first: two all-● stories ahead of each mover, so a page of 2 movers has to scan past them
+    _news_story([1], t(1), "quiet 1", effect="none")
+    _news_story([2], t(2), "quiet 2", effect="none")
+    _news_story([2], t(3), "mover 1", effect="up")
+    _news_story([1], t(4), "quiet 3", effect="none")
+    _news_story([1, 2], t(5), "mover 2", effect="down")
+    _news_story([2], t(6), "mover 3", effect="up")
+
+    page = news_client.get("/news?limit=2").json()
+    assert [s["headline"] for s in page["stories"]] == ["mover 1", "mover 2"] and page["next_before"]
+    nxt = news_client.get("/news", params={"limit": 2, "before": page["next_before"]}).json()
+    assert [s["headline"] for s in nxt["stories"]] == ["mover 3"] and nxt["next_before"] is None
+    every = news_client.get("/news?quiet=1").json()["stories"]
+    assert [s["headline"] for s in every] == ["quiet 1", "quiet 2", "mover 1", "quiet 3", "mover 2", "mover 3"]
+    # a player's page keeps everything
+    assert len(news_client.get("/news/player/1").json()["stories"]) == 3
+
+
+def test_news_story_route(news_client):
+    sid = _news_story([2], datetime.now(timezone.utc).isoformat(timespec="seconds"), "quiet", effect="none")
+    s = news_client.get(f"/news/story/{sid}").json()
+    assert s["id"] == sid and s["headline"] == "quiet" and s["players"][0]["name"] == "Tank Bigsby"
+    assert s["players"][0]["owner"] is None
+    assert news_client.get("/news/story/99999").status_code == 404
+    unwritten = db.add_story({"first_item_id": None, "first_at": "2026-10-19T00:00:00+00:00",
+                              "updated_at": "2026-10-19T00:00:00+00:00", "kind": "injury"})
+    assert news_client.get(f"/news/story/{unwritten}").status_code == 404
 
 
 def test_api_news_player_days_window(news_client):

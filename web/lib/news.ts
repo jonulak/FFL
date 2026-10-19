@@ -24,8 +24,6 @@ export function filterHref(f: NewsFilter, quiet = false, story: number | null = 
   return s ? `/news?${s}` : "/news";
 }
 
-// A story that moves somebody: at least one ▲ or ▼ row. The rest (every row ●) are hidden unless asked for.
-export const hasMover = (s: Pick<Story, "players">) => s.players.some((r) => r.effect !== "none");
 export const playerNewsHref = (id: number) => `/news/player/${id}`;
 
 // The push's glyphs (ffl/newsdesk/notices.py): the arrow is the effect, never a colour (the Three Verdicts Rule).

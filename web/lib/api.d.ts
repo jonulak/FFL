@@ -813,8 +813,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** News Get */
+        /**
+         * News Get
+         * @description The feed; stories in which every player is ● (no change) only with `quiet=1`.
+         */
         get: operations["news_get_news_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/news/story/{story_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * News Story
+         * @description One written story, shaped as the feed shapes it: a push's target, which the feed may hide (quiet) or have paged past.
+         */
+        get: operations["news_story_news_story__story_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2374,9 +2397,41 @@ export interface operations {
                 filter?: "all" | "mine" | "fa" | "others";
                 before?: string | null;
                 limit?: number;
+                quiet?: boolean;
             };
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    news_story_news_story__story_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: number;
+            };
             cookie?: never;
         };
         requestBody?: never;

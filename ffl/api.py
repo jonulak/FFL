@@ -1493,13 +1493,14 @@ def _news_context() -> dict:
 
 
 def _news_page(ctx: dict, limit: int, before: str | None, *, filter: str = "all", player: int | None = None,
-               since: str | None = None) -> dict:
-    """Read pages until `limit` stories pass the filter or the table ends (next_before None)."""
+               since: str | None = None, quiet: bool = True) -> dict:
+    """Read pages until `limit` stories pass the filter or the table ends (next_before None). `quiet` False keeps only
+    the stories that move somebody (a ▲/▼ row), so a page fills with them rather than thinning."""
     kept: list[dict] = []
     while True:
         raw = db.news_feed(before, limit, player_id=player, since=since)
         for s in news_feed.shape(raw, ctx["owners"], ctx["me"], ctx["index"], ctx["sources"], player):
-            if news_feed.keep(s, filter):
+            if news_feed.keep(s, filter) and (quiet or news_feed.moves(s)):
                 kept.append(s)
                 if len(kept) == limit:
                     return {"stories": kept, "next_before": f"{s['at']}|{s['id']}"}
@@ -1510,9 +1511,20 @@ def _news_page(ctx: dict, limit: int, before: str | None, *, filter: str = "all"
 
 @app.get("/news")
 def news_get(filter: Literal["all", "mine", "fa", "others"] = "all", before: str | None = None,
-             limit: int = Query(30, ge=1, le=100)):
+             limit: int = Query(30, ge=1, le=100), quiet: bool = False):
+    """The feed; stories in which every player is ● (no change) only with `quiet=1`."""
     ctx = _news_context()
-    return {**_news_page(ctx, limit, before, filter=filter), **ctx["extra"]}
+    return {**_news_page(ctx, limit, before, filter=filter, quiet=quiet), **ctx["extra"]}
+
+
+@app.get("/news/story/{story_id}")
+def news_story(story_id: int):
+    """One written story, shaped as the feed shapes it: a push's target, which the feed may hide (quiet) or have paged past."""
+    ctx = _news_context()
+    raw = db.story(story_id)
+    if raw is None or not raw.get("written_rev"):
+        raise HTTPException(404, f"no story {story_id}")
+    return {**news_feed.shape([raw], ctx["owners"], ctx["me"], ctx["index"], ctx["sources"])[0], **ctx["extra"]}
 
 
 @app.get("/news/player/{player_id}")

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useOptimistic, useState, useTransition, ViewTransition } from "react";
 import { clientGet } from "@/app/api-client";
@@ -10,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { NewsPage, PlayerNews, Story } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
-import { filterHref, hasMover, NEWS_FILTERS, ownerTag, type NewsFilter } from "@/lib/news";
+import { filterHref, NEWS_FILTERS, ownerTag, type NewsFilter } from "@/lib/news";
 import { NAME_LINK } from "@/lib/player-log";
 import { Spinner } from "./motion";
 import { NewsSearch } from "./news-search";
@@ -98,30 +97,32 @@ const EMPTY: Record<NewsFilter, string> = {
   others: "No news on other rosters' players yet.",
 };
 
-// /news: the search, the four filters (URL state, ?filter=) and the feed. `target` is ?story=, the story a push
-// opened: scrolled to and washed in ink once the page is in. Stories that move nobody (every row ●) are hidden
-// unless the switch is on (?quiet=1); the hiding is over the pages loaded, so the switch needs no fetch, and a
-// pushed story always shows.
-export function NewsFeed({ data, filter, target, quiet: quietAtLoad }: { data: NewsPage; filter: NewsFilter; target: number | null; quiet: boolean }) {
+// /news: the search, the four filters (URL state, ?filter=) and the feed. Stories that move nobody (every row ●) are
+// left out by the API unless the switch is on (?quiet=1), so each page fills with stories that move someone.
+// `target` is ?story=, the story a push opened: scrolled to and washed in ink. `pinned` is that story read on its own
+// (GET /news/story/{id}); when the first page does not hold it (the feed hides it, the filter excludes it, or it is
+// further back) it stands first, so a push always lands on its story.
+export function NewsFeed({ data, filter, target, pinned, quiet }: {
+  data: NewsPage; filter: NewsFilter; target: number | null; pinned: Story | null; quiet: boolean;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  // the chip pressed takes at once; the page's own filter takes over when it lands
+  // the chip pressed and the switch take at once; the page's own values take over when it lands
   const [shown, setShown] = useOptimistic(filter);
-  const [quiet, setQuiet] = useState(quietAtLoad);
-  const { stories, next, loading, failed, older } = useOlder(data, `/news?filter=${filter}`);
-  const found = target != null && stories.some((s) => s.id === target);
-  const visible = quiet ? stories : stories.filter((s) => hasMover(s) || s.id === target);
-  const hidden = stories.length - visible.length;
-  const quietSwitch = (on: boolean) => {
-    setQuiet(on);
-    // the URL keeps the switch for back and reload; no server round trip, the filtering is here
-    window.history.replaceState(null, "", filterHref(filter, on, target));
-  };
+  const [quietShown, setQuietShown] = useOptimistic(quiet);
+  const { stories, next, loading, failed, older } = useOlder(data, `/news?filter=${filter}${quiet ? "&quiet=1" : ""}`);
+  const pinOn = pinned != null && !data.stories.some((s) => s.id === pinned.id);
+  const list = pinOn ? [pinned, ...stories.filter((s) => s.id !== pinned.id)] : stories;
+  const go = (f: NewsFilter, q: boolean) => start(() => {
+    setShown(f);
+    setQuietShown(q);
+    router.replace(filterHref(f, q, target), { scroll: false });
+  });
   useEffect(() => {
     if (target == null) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     document.getElementById(`story-${target}`)?.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
-  }, [target, found]); // `found`: a target Older brings in is scrolled to as it lands
+  }, [target]);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
@@ -131,10 +132,7 @@ export function NewsFeed({ data, filter, target, quiet: quietAtLoad }: { data: N
       </div>
       <ToggleGroup value={[shown]} onValueChange={(v: string[]) => {
         const f = v[0] as NewsFilter | undefined;
-        if (f && f !== filter) start(() => {
-          setShown(f);
-          router.replace(filterHref(f, quiet), { scroll: false });
-        });
+        if (f && f !== filter) go(f, quiet);
       }} aria-label="Whose news" spacing={1} className="-mx-2 flex-wrap">
         {/* tight enough that the four sit on one line at 360px; a larger text size wraps them rather than cutting one.
             The chosen one is ink on inverse, the Transactions My team toggle's pressed state. */}
@@ -146,22 +144,15 @@ export function NewsFeed({ data, filter, target, quiet: quietAtLoad }: { data: N
         ))}
       </ToggleGroup>
       <label className="flex w-fit cursor-pointer items-center gap-2.5 text-xs text-muted-foreground">
-        <Switch className="data-unchecked:bg-foreground/20 dark:data-unchecked:bg-foreground/25" checked={quiet} onCheckedChange={quietSwitch} />
-        <span>
-          Show no-change stories
-          {!quiet && hidden > 0 && <span className="tabular-nums"> · {hidden} hidden</span>}
-        </span>
+        <Switch className="data-unchecked:bg-foreground/20 dark:data-unchecked:bg-foreground/25" checked={quietShown} onCheckedChange={(on) => go(filter, on)} />
+        Show no-change stories
       </label>
       <Notices d={data} />
-      {target != null && !found && (
-        <p className="text-xs text-muted-foreground">
-          {filter !== "all"
-            ? <>The story from the notification is not in this filter. <Link href={filterHref("all", quiet, target)} className={`font-medium text-foreground/85 ${NAME_LINK}`}>Show it under All</Link></>
-            : next ? "The story from the notification is further back than this page; Older loads more." : "The story from the notification is no longer in the feed."}
-        </p>
+      {target != null && !pinned && !stories.some((s) => s.id === target) && (
+        <p className="text-xs text-muted-foreground">The story from the notification is no longer in the feed.</p>
       )}
-      <List stories={visible} target={target} tagged={!data.owners_error} next={next} loading={loading} failed={failed} older={older} pending={pending}
-        empty={stories.length ? "Nothing on this page moves anyone. Older looks further back, or show the no-change stories." : EMPTY[filter]} />
+      <List stories={list} target={target} tagged={!data.owners_error} next={next} loading={loading} failed={failed} older={older} pending={pending}
+        empty={quiet ? EMPTY[filter] : `${EMPTY[filter]} Stories that move nobody are hidden.`} />
     </div>
   );
 }
