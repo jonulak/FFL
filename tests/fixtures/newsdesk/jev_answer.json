@@ -1,0 +1,1410 @@
+{
+ "a_one_player_real": {
+  "status": 200,
+  "latency_s": 0.26,
+  "n_questions": 3,
+  "state": {
+   "title": "Quite the bounce-back effort for Roschon Johnson, whose third-down reception moved the sticks, and then his third-down run put the Bears up",
+   "text": "Quite the bounce-back effort for Roschon Johnson, whose third-down reception moved the sticks, and then his third-down run put the Bears up 28-7.\n\nThe Bears are 7-for-12 on third down today. The Falcons are 1-for-8.",
+   "club": "CHI"
+  },
+  "questions": {
+   "about:4426386": {
+    "type": "noul",
+    "instructions": "This text is about Roschon Johnson, the CHI RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4426386": {
+    "type": "choice",
+    "instructions": "What does this news mean for Roschon Johnson, the CHI RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Roschon Johnson should score more fantasy points or play a bigger role than before",
+     "down": "Roschon Johnson should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Roschon Johnson's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4426386": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Roschon Johnson, the CHI RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   }
+  },
+  "response": {
+   "model": "jev-1.13.0",
+   "answers": {
+    "about:4426386": {
+     "type": "noul",
+     "noul": 0.96
+    },
+    "effect:4426386": {
+     "type": "choice",
+     "choice": "up",
+     "confidence": 0.64,
+     "probabilities": {
+      "up": 0.76,
+      "down": 0.0,
+      "none": 0.24
+     }
+    },
+    "kind:4426386": {
+     "type": "choice",
+     "choice": "other",
+     "confidence": 0.95,
+     "probabilities": {
+      "injury": 0.0,
+      "return": 0.04,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.96
+     }
+    }
+   },
+   "usage": {
+    "input_tokens": 667,
+    "output_tokens": 128
+   }
+  }
+ },
+ "a_false_ben_johnson": {
+  "status": 200,
+  "latency_s": 0.12,
+  "n_questions": 3,
+  "state": {
+   "title": "That's about as early as I've seen Ben Johnson go to the bench, and the Falcons have made it a two-score game with 9:34 left. Wonder if the",
+   "text": "That's about as early as I've seen Ben Johnson go to the bench, and the Falcons have made it a two-score game with 9:34 left. Wonder if the quick turnaround with a Thursday night game played a role in that decision.\n\nBears 31, Falcons 15",
+   "club": "CHI"
+  },
+  "questions": {
+   "about:4426386": {
+    "type": "noul",
+    "instructions": "This text is about Roschon Johnson, the CHI RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4426386": {
+    "type": "choice",
+    "instructions": "What does this news mean for Roschon Johnson, the CHI RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Roschon Johnson should score more fantasy points or play a bigger role than before",
+     "down": "Roschon Johnson should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Roschon Johnson's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4426386": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Roschon Johnson, the CHI RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   }
+  },
+  "response": {
+   "model": "jev-1.13.0",
+   "answers": {
+    "about:4426386": {
+     "type": "noul",
+     "noul": 0.08
+    },
+    "effect:4426386": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.66,
+     "probabilities": {
+      "up": 0.14,
+      "down": 0.09,
+      "none": 0.77
+     }
+    },
+    "kind:4426386": {
+     "type": "choice",
+     "choice": "other",
+     "confidence": 0.49,
+     "probabilities": {
+      "injury": 0.05,
+      "return": 0.0,
+      "role": 0.36,
+      "depth": 0.0,
+      "other": 0.59
+     }
+    }
+   },
+   "usage": {
+    "input_tokens": 680,
+    "output_tokens": 128
+   }
+  }
+ },
+ "a_false_lavonte_david": {
+  "status": 200,
+  "latency_s": 0.13,
+  "n_questions": 3,
+  "state": {
+   "title": "Todd Bowles on Baker Mayfield\u2019s Timeline to Return | Press Conference | Tampa Bay Buccaneers",
+   "text": "Dixon, you know, was I think 31st in punting last year and you guys brought him back and 31st again this year, 33rd in net punting. Where where have things gone wrong where his numbers have dropped? >> We got to get more hang time. We got to get more distance. Obviously, uh I didn't think yesterday ",
+   "club": "TB"
+  },
+  "questions": {
+   "about:3871102": {
+    "type": "noul",
+    "instructions": "This text is about David Sills V, the TB WR, not someone else with that name (a coach, a different player)."
+   },
+   "effect:3871102": {
+    "type": "choice",
+    "instructions": "What does this news mean for David Sills V, the TB WR's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "David Sills V should score more fantasy points or play a bigger role than before",
+     "down": "David Sills V should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to David Sills V's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:3871102": {
+    "type": "choice",
+    "instructions": "What kind of news is this about David Sills V, the TB WR?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   }
+  },
+  "response": {
+   "model": "jev-1.13.0",
+   "answers": {
+    "about:3871102": {
+     "type": "noul",
+     "noul": 0.06
+    },
+    "effect:3871102": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 1.0,
+     "probabilities": {
+      "up": 0.0,
+      "down": 0.0,
+      "none": 1.0
+     }
+    },
+    "kind:3871102": {
+     "type": "choice",
+     "choice": "other",
+     "confidence": 0.9,
+     "probabilities": {
+      "injury": 0.01,
+      "return": 0.04,
+      "role": 0.03,
+      "depth": 0.0,
+      "other": 0.92
+     }
+    }
+   },
+   "usage": {
+    "input_tokens": 1089,
+    "output_tokens": 128
+   }
+  }
+ },
+ "b_roundup_20": {
+  "status": 200,
+  "latency_s": 0.22,
+  "n_questions": 62,
+  "state": {
+   "title": "Panthers vs. Eagles Injury Report",
+   "text": "The Eagles will not have quarterback Jalen Hurts this Sunday against the Carolina Panthers, but quarterback Tanner McKee will have some additional help in his first start of the season.\n\nWide receivers DeVonta Smith and Dontayvion Wicks are good to go after practicing fully on Friday. Smith has miss",
+   "club": "PHI"
+  },
+  "questions": {
+   "about:4040715": {
+    "type": "noul",
+    "instructions": "This text is about Jalen Hurts, the PHI QB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4040715": {
+    "type": "choice",
+    "instructions": "What does this news mean for Jalen Hurts, the PHI QB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Jalen Hurts should score more fantasy points or play a bigger role than before",
+     "down": "Jalen Hurts should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Jalen Hurts's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4040715": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Jalen Hurts, the PHI QB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4685201": {
+    "type": "noul",
+    "instructions": "This text is about Tanner McKee, the PHI QB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4685201": {
+    "type": "choice",
+    "instructions": "What does this news mean for Tanner McKee, the PHI QB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Tanner McKee should score more fantasy points or play a bigger role than before",
+     "down": "Tanner McKee should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Tanner McKee's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4685201": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Tanner McKee, the PHI QB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4241478": {
+    "type": "noul",
+    "instructions": "This text is about DeVonta Smith, the PHI WR, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4241478": {
+    "type": "choice",
+    "instructions": "What does this news mean for DeVonta Smith, the PHI WR's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "DeVonta Smith should score more fantasy points or play a bigger role than before",
+     "down": "DeVonta Smith should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to DeVonta Smith's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4241478": {
+    "type": "choice",
+    "instructions": "What kind of news is this about DeVonta Smith, the PHI WR?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4428850": {
+    "type": "noul",
+    "instructions": "This text is about Dontayvion Wicks, the PHI WR, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4428850": {
+    "type": "choice",
+    "instructions": "What does this news mean for Dontayvion Wicks, the PHI WR's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Dontayvion Wicks should score more fantasy points or play a bigger role than before",
+     "down": "Dontayvion Wicks should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Dontayvion Wicks's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4428850": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Dontayvion Wicks, the PHI WR?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:3929630": {
+    "type": "noul",
+    "instructions": "This text is about Saquon Barkley, the PHI RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:3929630": {
+    "type": "choice",
+    "instructions": "What does this news mean for Saquon Barkley, the PHI RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Saquon Barkley should score more fantasy points or play a bigger role than before",
+     "down": "Saquon Barkley should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Saquon Barkley's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:3929630": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Saquon Barkley, the PHI RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4240657": {
+    "type": "noul",
+    "instructions": "This text is about Michael Carter, the TEN RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4240657": {
+    "type": "choice",
+    "instructions": "What does this news mean for Michael Carter, the TEN RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Michael Carter should score more fantasy points or play a bigger role than before",
+     "down": "Michael Carter should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Michael Carter's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4240657": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Michael Carter, the TEN RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4431545": {
+    "type": "noul",
+    "instructions": "This text is about Will Shipley, the PHI RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4431545": {
+    "type": "choice",
+    "instructions": "What does this news mean for Will Shipley, the PHI RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Will Shipley should score more fantasy points or play a bigger role than before",
+     "down": "Will Shipley should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Will Shipley's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4431545": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Will Shipley, the PHI RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4360238": {
+    "type": "noul",
+    "instructions": "This text is about Dameon Pierce, the PHI RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4360238": {
+    "type": "choice",
+    "instructions": "What does this news mean for Dameon Pierce, the PHI RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Dameon Pierce should score more fantasy points or play a bigger role than before",
+     "down": "Dameon Pierce should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Dameon Pierce's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4360238": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Dameon Pierce, the PHI RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4714365": {
+    "type": "noul",
+    "instructions": "This text is about Carson Steele, the PHI RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4714365": {
+    "type": "choice",
+    "instructions": "What does this news mean for Carson Steele, the PHI RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Carson Steele should score more fantasy points or play a bigger role than before",
+     "down": "Carson Steele should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Carson Steele's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4714365": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Carson Steele, the PHI RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4685279": {
+    "type": "noul",
+    "instructions": "This text is about Jaydon Blue, the PHI RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4685279": {
+    "type": "choice",
+    "instructions": "What does this news mean for Jaydon Blue, the PHI RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Jaydon Blue should score more fantasy points or play a bigger role than before",
+     "down": "Jaydon Blue should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Jaydon Blue's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4685279": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Jaydon Blue, the PHI RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4241372": {
+    "type": "noul",
+    "instructions": "This text is about Hollywood Brown, the PHI WR, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4241372": {
+    "type": "choice",
+    "instructions": "What does this news mean for Hollywood Brown, the PHI WR's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Hollywood Brown should score more fantasy points or play a bigger role than before",
+     "down": "Hollywood Brown should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Hollywood Brown's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4241372": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Hollywood Brown, the PHI WR?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4241374": {
+    "type": "noul",
+    "instructions": "This text is about Grant Calcaterra, the PHI TE, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4241374": {
+    "type": "choice",
+    "instructions": "What does this news mean for Grant Calcaterra, the PHI TE's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Grant Calcaterra should score more fantasy points or play a bigger role than before",
+     "down": "Grant Calcaterra should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Grant Calcaterra's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4241374": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Grant Calcaterra, the PHI TE?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4431574": {
+    "type": "noul",
+    "instructions": "This text is about Eli Stowers, the PHI TE, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4431574": {
+    "type": "choice",
+    "instructions": "What does this news mean for Eli Stowers, the PHI TE's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Eli Stowers should score more fantasy points or play a bigger role than before",
+     "down": "Eli Stowers should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Eli Stowers's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4431574": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Eli Stowers, the PHI TE?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4685350": {
+    "type": "noul",
+    "instructions": "This text is about Trevor Etienne, the CAR RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4685350": {
+    "type": "choice",
+    "instructions": "What does this news mean for Trevor Etienne, the CAR RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Trevor Etienne should score more fantasy points or play a bigger role than before",
+     "down": "Trevor Etienne should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Trevor Etienne's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4685350": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Trevor Etienne, the CAR RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4709392": {
+    "type": "noul",
+    "instructions": "This text is about Anthony Tyus III, the CAR RB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4709392": {
+    "type": "choice",
+    "instructions": "What does this news mean for Anthony Tyus III, the CAR RB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Anthony Tyus III should score more fantasy points or play a bigger role than before",
+     "down": "Anthony Tyus III should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Anthony Tyus III's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4709392": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Anthony Tyus III, the CAR RB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4695883": {
+    "type": "noul",
+    "instructions": "This text is about Jalen Coker, the CAR WR, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4695883": {
+    "type": "choice",
+    "instructions": "What does this news mean for Jalen Coker, the CAR WR's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Jalen Coker should score more fantasy points or play a bigger role than before",
+     "down": "Jalen Coker should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Jalen Coker's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4695883": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Jalen Coker, the CAR WR?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4248557": {
+    "type": "noul",
+    "instructions": "This text is about E.J. Jenkins, the PHI TE, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4248557": {
+    "type": "choice",
+    "instructions": "What does this news mean for E.J. Jenkins, the PHI TE's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "E.J. Jenkins should score more fantasy points or play a bigger role than before",
+     "down": "E.J. Jenkins should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to E.J. Jenkins's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4248557": {
+    "type": "choice",
+    "instructions": "What kind of news is this about E.J. Jenkins, the PHI TE?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4372780": {
+    "type": "noul",
+    "instructions": "This text is about Tommy Tremble, the CAR TE, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4372780": {
+    "type": "choice",
+    "instructions": "What does this news mean for Tommy Tremble, the CAR TE's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Tommy Tremble should score more fantasy points or play a bigger role than before",
+     "down": "Tommy Tremble should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Tommy Tremble's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4372780": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Tommy Tremble, the CAR TE?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:2576925": {
+    "type": "noul",
+    "instructions": "This text is about Darren Waller, the CAR TE, not someone else with that name (a coach, a different player)."
+   },
+   "effect:2576925": {
+    "type": "choice",
+    "instructions": "What does this news mean for Darren Waller, the CAR TE's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Darren Waller should score more fantasy points or play a bigger role than before",
+     "down": "Darren Waller should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Darren Waller's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:2576925": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Darren Waller, the CAR TE?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "about:4685720": {
+    "type": "noul",
+    "instructions": "This text is about Bryce Young, the CAR QB, not someone else with that name (a coach, a different player)."
+   },
+   "effect:4685720": {
+    "type": "choice",
+    "instructions": "What does this news mean for Bryce Young, the CAR QB's fantasy value over the coming weeks?",
+    "criteria": {
+     "up": "Bryce Young should score more fantasy points or play a bigger role than before",
+     "down": "Bryce Young should score fewer fantasy points, miss time, or lose work",
+     "none": "no real change to Bryce Young's fantasy value, or he is only mentioned"
+    }
+   },
+   "kind:4685720": {
+    "type": "choice",
+    "instructions": "What kind of news is this about Bryce Young, the CAR QB?",
+    "criteria": {
+     "injury": "he is hurt, limited, or listed on an injury report",
+     "return": "he is coming back from injury, suspension or a reserve list",
+     "role": "his playing time, targets, carries or job changes",
+     "depth": "a teammate's move or injury changes the depth chart around him",
+     "other": "anything else: contract, off-field, a quote, a recap mention"
+    }
+   },
+   "story": {
+    "type": "choice",
+    "instructions": "Which earlier story reports the same news event as this text? `new` if none of them does.",
+    "criteria": {
+     "new": "none of the stories below; this is news of its own",
+     "s100": "2026-10-10 Eagles injury note 0",
+     "s101": "2026-10-11 Eagles injury note 1",
+     "s102": "2026-10-12 Eagles injury note 2",
+     "s103": "2026-10-13 Eagles injury note 3",
+     "s104": "2026-10-14 Eagles injury note 4",
+     "s105": "2026-10-15 Eagles injury note 5",
+     "s106": "2026-10-16 Eagles injury note 6",
+     "s107": "2026-10-17 Eagles injury note 7",
+     "s108": "2026-10-18 Eagles injury note 8",
+     "s109": "2026-10-10 Eagles injury note 9"
+    }
+   },
+   "retract": {
+    "type": "noul",
+    "instructions": "This text says an earlier report was wrong or has been withdrawn."
+   }
+  },
+  "response": {
+   "model": "jev-1.13.0",
+   "answers": {
+    "about:4040715": {
+     "type": "noul",
+     "noul": 0.97
+    },
+    "effect:4040715": {
+     "type": "choice",
+     "choice": "down",
+     "confidence": 0.89,
+     "probabilities": {
+      "up": 0.0,
+      "down": 0.93,
+      "none": 0.07
+     }
+    },
+    "kind:4040715": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 0.99,
+     "probabilities": {
+      "injury": 0.99,
+      "return": 0.0,
+      "role": 0.01,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4685201": {
+     "type": "noul",
+     "noul": 0.95
+    },
+    "effect:4685201": {
+     "type": "choice",
+     "choice": "up",
+     "confidence": 0.67,
+     "probabilities": {
+      "up": 0.78,
+      "down": 0.07,
+      "none": 0.15
+     }
+    },
+    "kind:4685201": {
+     "type": "choice",
+     "choice": "role",
+     "confidence": 0.85,
+     "probabilities": {
+      "injury": 0.0,
+      "return": 0.0,
+      "role": 0.88,
+      "depth": 0.12,
+      "other": 0.0
+     }
+    },
+    "about:4241478": {
+     "type": "noul",
+     "noul": 0.97
+    },
+    "effect:4241478": {
+     "type": "choice",
+     "choice": "up",
+     "confidence": 0.72,
+     "probabilities": {
+      "up": 0.81,
+      "down": 0.07,
+      "none": 0.12
+     }
+    },
+    "kind:4241478": {
+     "type": "choice",
+     "choice": "return",
+     "confidence": 0.45,
+     "probabilities": {
+      "injury": 0.44,
+      "return": 0.56,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4428850": {
+     "type": "noul",
+     "noul": 0.94
+    },
+    "effect:4428850": {
+     "type": "choice",
+     "choice": "down",
+     "confidence": 0.31,
+     "probabilities": {
+      "up": 0.25,
+      "down": 0.54,
+      "none": 0.21
+     }
+    },
+    "kind:4428850": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 0.92,
+     "probabilities": {
+      "injury": 0.94,
+      "return": 0.06,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:3929630": {
+     "type": "noul",
+     "noul": 0.97
+    },
+    "effect:3929630": {
+     "type": "choice",
+     "choice": "down",
+     "confidence": 0.95,
+     "probabilities": {
+      "up": 0.0,
+      "down": 0.97,
+      "none": 0.03
+     }
+    },
+    "kind:3929630": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 1.0,
+     "probabilities": {
+      "injury": 1.0,
+      "return": 0.0,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4240657": {
+     "type": "noul",
+     "noul": 0.13
+    },
+    "effect:4240657": {
+     "type": "choice",
+     "choice": "down",
+     "confidence": 0.31,
+     "probabilities": {
+      "up": 0.02,
+      "down": 0.54,
+      "none": 0.44
+     }
+    },
+    "kind:4240657": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 0.97,
+     "probabilities": {
+      "injury": 0.98,
+      "return": 0.0,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.02
+     }
+    },
+    "about:4431545": {
+     "type": "noul",
+     "noul": 0.96
+    },
+    "effect:4431545": {
+     "type": "choice",
+     "choice": "down",
+     "confidence": 1.0,
+     "probabilities": {
+      "up": 0.0,
+      "down": 1.0,
+      "none": 0.0
+     }
+    },
+    "kind:4431545": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 1.0,
+     "probabilities": {
+      "injury": 1.0,
+      "return": 0.0,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4360238": {
+     "type": "noul",
+     "noul": 0.69
+    },
+    "effect:4360238": {
+     "type": "choice",
+     "choice": "up",
+     "confidence": 0.88,
+     "probabilities": {
+      "up": 0.92,
+      "down": 0.01,
+      "none": 0.07
+     }
+    },
+    "kind:4360238": {
+     "type": "choice",
+     "choice": "depth",
+     "confidence": 0.75,
+     "probabilities": {
+      "injury": 0.0,
+      "return": 0.0,
+      "role": 0.2,
+      "depth": 0.8,
+      "other": 0.0
+     }
+    },
+    "about:4714365": {
+     "type": "noul",
+     "noul": 0.76
+    },
+    "effect:4714365": {
+     "type": "choice",
+     "choice": "up",
+     "confidence": 0.25,
+     "probabilities": {
+      "up": 0.5,
+      "down": 0.21,
+      "none": 0.29
+     }
+    },
+    "kind:4714365": {
+     "type": "choice",
+     "choice": "depth",
+     "confidence": 0.9,
+     "probabilities": {
+      "injury": 0.0,
+      "return": 0.0,
+      "role": 0.08,
+      "depth": 0.92,
+      "other": 0.0
+     }
+    },
+    "about:4685279": {
+     "type": "noul",
+     "noul": 0.55
+    },
+    "effect:4685279": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.45,
+     "probabilities": {
+      "up": 0.34,
+      "down": 0.03,
+      "none": 0.63
+     }
+    },
+    "kind:4685279": {
+     "type": "choice",
+     "choice": "depth",
+     "confidence": 0.95,
+     "probabilities": {
+      "injury": 0.0,
+      "return": 0.0,
+      "role": 0.02,
+      "depth": 0.96,
+      "other": 0.02
+     }
+    },
+    "about:4241372": {
+     "type": "noul",
+     "noul": 0.88
+    },
+    "effect:4241372": {
+     "type": "choice",
+     "choice": "up",
+     "confidence": 0.85,
+     "probabilities": {
+      "up": 0.9,
+      "down": 0.02,
+      "none": 0.08
+     }
+    },
+    "kind:4241372": {
+     "type": "choice",
+     "choice": "return",
+     "confidence": 0.85,
+     "probabilities": {
+      "injury": 0.12,
+      "return": 0.88,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4241374": {
+     "type": "noul",
+     "noul": 0.94
+    },
+    "effect:4241374": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.13,
+     "probabilities": {
+      "up": 0.17,
+      "down": 0.41,
+      "none": 0.42
+     }
+    },
+    "kind:4241374": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 0.86,
+     "probabilities": {
+      "injury": 0.89,
+      "return": 0.11,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4431574": {
+     "type": "noul",
+     "noul": 0.93
+    },
+    "effect:4431574": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.27,
+     "probabilities": {
+      "up": 0.28,
+      "down": 0.21,
+      "none": 0.51
+     }
+    },
+    "kind:4431574": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 0.77,
+     "probabilities": {
+      "injury": 0.82,
+      "return": 0.18,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4685350": {
+     "type": "noul",
+     "noul": 0.96
+    },
+    "effect:4685350": {
+     "type": "choice",
+     "choice": "up",
+     "confidence": 0.91,
+     "probabilities": {
+      "up": 0.94,
+      "down": 0.01,
+      "none": 0.05
+     }
+    },
+    "kind:4685350": {
+     "type": "choice",
+     "choice": "return",
+     "confidence": 1.0,
+     "probabilities": {
+      "injury": 0.0,
+      "return": 1.0,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4709392": {
+     "type": "noul",
+     "noul": 0.86
+    },
+    "effect:4709392": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.19,
+     "probabilities": {
+      "up": 0.45,
+      "down": 0.09,
+      "none": 0.46
+     }
+    },
+    "kind:4709392": {
+     "type": "choice",
+     "choice": "depth",
+     "confidence": 0.91,
+     "probabilities": {
+      "injury": 0.0,
+      "return": 0.03,
+      "role": 0.03,
+      "depth": 0.93,
+      "other": 0.01
+     }
+    },
+    "about:4695883": {
+     "type": "noul",
+     "noul": 0.8
+    },
+    "effect:4695883": {
+     "type": "choice",
+     "choice": "up",
+     "confidence": 0.64,
+     "probabilities": {
+      "up": 0.76,
+      "down": 0.01,
+      "none": 0.23
+     }
+    },
+    "kind:4695883": {
+     "type": "choice",
+     "choice": "return",
+     "confidence": 0.99,
+     "probabilities": {
+      "injury": 0.01,
+      "return": 0.99,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4248557": {
+     "type": "noul",
+     "noul": 0.83
+    },
+    "effect:4248557": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.79,
+     "probabilities": {
+      "up": 0.04,
+      "down": 0.1,
+      "none": 0.86
+     }
+    },
+    "kind:4248557": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 1.0,
+     "probabilities": {
+      "injury": 1.0,
+      "return": 0.0,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4372780": {
+     "type": "noul",
+     "noul": 0.88
+    },
+    "effect:4372780": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.8,
+     "probabilities": {
+      "up": 0.01,
+      "down": 0.12,
+      "none": 0.87
+     }
+    },
+    "kind:4372780": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 1.0,
+     "probabilities": {
+      "injury": 1.0,
+      "return": 0.0,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:2576925": {
+     "type": "noul",
+     "noul": 0.78
+    },
+    "effect:2576925": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.59,
+     "probabilities": {
+      "up": 0.01,
+      "down": 0.26,
+      "none": 0.73
+     }
+    },
+    "kind:2576925": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 1.0,
+     "probabilities": {
+      "injury": 1.0,
+      "return": 0.0,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.0
+     }
+    },
+    "about:4685720": {
+     "type": "noul",
+     "noul": 0.91
+    },
+    "effect:4685720": {
+     "type": "choice",
+     "choice": "none",
+     "confidence": 0.88,
+     "probabilities": {
+      "up": 0.05,
+      "down": 0.03,
+      "none": 0.92
+     }
+    },
+    "kind:4685720": {
+     "type": "choice",
+     "choice": "injury",
+     "confidence": 0.91,
+     "probabilities": {
+      "injury": 0.93,
+      "return": 0.01,
+      "role": 0.0,
+      "depth": 0.0,
+      "other": 0.06
+     }
+    },
+    "story": {
+     "type": "choice",
+     "choice": "new",
+     "confidence": 0.51,
+     "probabilities": {
+      "new": 0.55,
+      "s100": 0.05,
+      "s101": 0.07,
+      "s102": 0.05,
+      "s103": 0.05,
+      "s104": 0.06,
+      "s105": 0.04,
+      "s106": 0.04,
+      "s107": 0.03,
+      "s108": 0.03,
+      "s109": 0.03
+     }
+    },
+    "retract": {
+     "type": "noul",
+     "noul": 0.1
+    }
+   },
+   "usage": {
+    "input_tokens": 9318,
+    "output_tokens": 2653
+   }
+  }
+ },
+ "c_story_10": {
+  "status": 200,
+  "latency_s": 0.18,
+  "n_questions": 3,
+  "state": {
+   "title": "Rams kicker Blake Grupe is officially out for the game with a knee injury.",
+   "text": "Rams kicker Blake Grupe is officially out for the game with a knee injury.\n\nExpect the Rams to continue to go for it over kicking unless maybe it's a really short kick.",
+   "club": "LAR"
+  },
+  "questions": {
+   "story": {
+    "type": "choice",
+    "instructions": "Which earlier story reports the same news event as this text? `new` if none of them does.",
+    "criteria": {
+     "new": "none of these stories; this is news of its own",
+     "s1": "2026-10-18 Rams K Blake Grupe doubtful to return with a knee injury \u2014 Blake Grupe",
+     "s2": "2026-10-18 Patriots WR Romeo Doubs questionable to return, shoulder \u2014 Romeo Doubs",
+     "s3": "2026-10-17 Eagles place QB Jalen Hurts on injured reserve \u2014 Jalen Hurts",
+     "s4": "2026-10-18 Rams sign K Blake Grupe, waive Harrison Mevis \u2014 Blake Grupe, Harrison Mevis",
+     "s5": "2026-10-16 Colts activate TE Will Mallory from IR \u2014 Will Mallory",
+     "s6": "2026-10-18 Bears RB Roschon Johnson bounces back with key third-down catch \u2014 Roschon Johnson",
+     "s7": "2026-10-17 Steelers optimistic on TE Pat Freiermuth \u2014 Pat Freiermuth",
+     "s8": "2026-10-18 Davante Adams suffers non-contact leg injury \u2014 Davante Adams",
+     "s9": "2026-10-17 Commanders RB Croskey-Merritt re-injures groin \u2014 Jacory Croskey-Merritt",
+     "s10": "2026-10-16 Lions place three on injured reserve \u2014 Tom Kennedy"
+    }
+   },
+   "retract": {
+    "type": "noul",
+    "instructions": "This text says an earlier report was wrong or has been withdrawn."
+   },
+   "changed": {
+    "type": "noul",
+    "instructions": {
+     "story": "Blake Grupe doubtful to return with a knee injury.",
+     "question": "Does this text add a material new fact to `story` (a status, a diagnosis, a timeline or a role change), beyond what `story` already says?"
+    }
+   }
+  },
+  "response": {
+   "model": "jev-1.13.0",
+   "answers": {
+    "story": {
+     "type": "choice",
+     "choice": "s1",
+     "confidence": 0.74,
+     "probabilities": {
+      "new": 0.24,
+      "s1": 0.76,
+      "s2": 0.0,
+      "s3": 0.0,
+      "s4": 0.0,
+      "s5": 0.0,
+      "s6": 0.0,
+      "s7": 0.0,
+      "s8": 0.0,
+      "s9": 0.0,
+      "s10": 0.0
+     }
+    },
+    "retract": {
+     "type": "noul",
+     "noul": 0.06
+    },
+    "changed": {
+     "type": "noul",
+     "noul": 0.83
+    }
+   },
+   "usage": {
+    "input_tokens": 855,
+    "output_tokens": 140
+   }
+  }
+ },
+ "c_story_10_reversed": {
+  "status": 200,
+  "latency_s": 0.17,
+  "n_questions": 1,
+  "state": {
+   "title": "Rams kicker Blake Grupe is officially out for the game with a knee injury.",
+   "text": "Rams kicker Blake Grupe is officially out for the game with a knee injury.\n\nExpect the Rams to continue to go for it over kicking unless maybe it's a really short kick.",
+   "club": "LAR"
+  },
+  "questions": {
+   "story": {
+    "type": "choice",
+    "instructions": "Which earlier story reports the same news event as this text? `new` if none of them does.",
+    "criteria": {
+     "s10": "2026-10-16 Lions place three on injured reserve \u2014 Tom Kennedy",
+     "s9": "2026-10-17 Commanders RB Croskey-Merritt re-injures groin \u2014 Jacory Croskey-Merritt",
+     "s8": "2026-10-18 Davante Adams suffers non-contact leg injury \u2014 Davante Adams",
+     "s7": "2026-10-17 Steelers optimistic on TE Pat Freiermuth \u2014 Pat Freiermuth",
+     "s6": "2026-10-18 Bears RB Roschon Johnson bounces back with key third-down catch \u2014 Roschon Johnson",
+     "s5": "2026-10-16 Colts activate TE Will Mallory from IR \u2014 Will Mallory",
+     "s4": "2026-10-18 Rams sign K Blake Grupe, waive Harrison Mevis \u2014 Blake Grupe, Harrison Mevis",
+     "s3": "2026-10-17 Eagles place QB Jalen Hurts on injured reserve \u2014 Jalen Hurts",
+     "s2": "2026-10-18 Patriots WR Romeo Doubs questionable to return, shoulder \u2014 Romeo Doubs",
+     "s1": "2026-10-18 Rams K Blake Grupe doubtful to return with a knee injury \u2014 Blake Grupe",
+     "new": "none of these stories; this is news of its own"
+    }
+   }
+  },
+  "response": {
+   "model": "jev-1.13.0",
+   "answers": {
+    "story": {
+     "type": "choice",
+     "choice": "s1",
+     "confidence": 0.86,
+     "probabilities": {
+      "s10": 0.0,
+      "s9": 0.0,
+      "s8": 0.0,
+      "s7": 0.0,
+      "s6": 0.0,
+      "s5": 0.0,
+      "s4": 0.01,
+      "s3": 0.0,
+      "s2": 0.0,
+      "s1": 0.87,
+      "new": 0.12
+     }
+    }
+   },
+   "usage": {
+    "input_tokens": 769,
+    "output_tokens": 106
+   }
+  }
+ }
+}
