@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import shutil
-import subprocess
+import shutil  # noqa: F401  (tests/test_outlook.py patches outlook.shutil / outlook.subprocess; the modules are claude_cli's too)
+import subprocess  # noqa: F401
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 
-from . import db, news
+from . import claude_cli, db, news
 from .config import DATA
+
+HOOKS_OFF = claude_cli.HOOKS_OFF  # moved to claude_cli; still importable from here
 
 OUTLOOK_DIR = DATA / "outlook"  # only the neutral cwd for `claude -p` (the outlooks live in the DB)
 MODEL = "opus"
@@ -234,50 +235,16 @@ def normalize(raw) -> list[dict]:
 
 
 def parse_envelope(stdout: str) -> list[dict]:
-    """The bullets out of `claude -p --output-format json`.
-
-    The envelope is one JSON object: `is_error` + `result` on failure ("Not logged in …"),
-    `structured_output` holding the schema'd object on success; older CLIs put that JSON in
-    `result` instead.
-    """
-    d = json.loads(stdout)
-    if d.get("is_error"):
-        raise RuntimeError(f"claude: {d.get('result')}")
-    out = d.get("structured_output")
-    if not isinstance(out, dict):
-        out = json.loads(d.get("result") or "{}")
-    return normalize(out)
-
-
-HOOKS_OFF = json.dumps({"disableAllHooks": True})
+    """The bullets out of `claude -p --output-format json` (the envelope is claude_cli's)."""
+    return normalize(claude_cli.parse_envelope(stdout))
 
 
 def run_claude(prompt: str) -> list[dict]:
     """One outlook through the Claude Code CLI: Opus with web search and fetch (allowed up front: there is
-    nobody to answer a permission prompt), structured output, the sheet on stdin."""
-    exe = shutil.which("claude")
-    if not exe:
-        raise RuntimeError("claude CLI not on PATH")
-    # A Claude Code session marks its children with CLAUDE* variables; drop them so the CLI does not
-    # treat this as a nested session. Harmless under launchd, where they never exist.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
-    # No --bare: it skips the keychain, and every call then answers "Not logged in". The CLI reads
-    # CLAUDE.md from its working directory, so run it from the outlook dir, not the repo — the sheet
-    # is the whole prompt. Hooks off: the user's global ones (moshi's phone notifications, plugin
-    # session hooks) would otherwise fire on every run.
-    OUTLOOK_DIR.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run([exe, "-p", "--model", MODEL, "--tools", TOOLS, "--allowedTools", TOOLS,
-                        "--no-session-persistence", "--settings", HOOKS_OFF, "--output-format", "json", "--json-schema", json.dumps(SCHEMA)],
-                       input=prompt, capture_output=True, text=True, timeout=TIMEOUT_S, env=env,
-                       cwd=str(OUTLOOK_DIR))
-    if r.returncode != 0:
-        # the CLI exits 1 with its reason in the JSON envelope ("Not logged in …"), not on stderr
-        try:
-            parse_envelope(r.stdout)
-        except ValueError:
-            pass
-        raise RuntimeError(f"claude exited {r.returncode}: {r.stderr.strip()[:200]}")
-    return parse_envelope(r.stdout)
+    nobody to answer a permission prompt), structured output, the sheet on stdin, run from the neutral
+    OUTLOOK_DIR so the CLI reads no CLAUDE.md (the sheet is the whole prompt)."""
+    return normalize(claude_cli.run(prompt, model=MODEL, schema=SCHEMA, tools=TOOLS, cwd=OUTLOOK_DIR,
+                                    timeout=TIMEOUT_S))
 
 
 def pending(cards: list[dict], entries: dict[int, dict], ctxs: dict[int, dict], today: date) -> list[dict]:
