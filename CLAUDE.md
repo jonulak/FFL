@@ -53,6 +53,7 @@ Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + dra
 ## Config
 `.env` (gitignored): `LEAGUE_ID`, `ESPN_S2`, `SWID`, `SEASON`, optional `MY_TEAM_ID` (auto-detected from SWID).
 Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing.
+News: `TYPESAFE_API_KEY` in `.env` is Jev's (TypeSafe AI), which tags and groups the newsdesk's items (`ffl/newsdesk/jev.py`); without it the tag stage stops and nothing new reaches the feed.
 `FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.
 Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
 real board and pick log untouched.
