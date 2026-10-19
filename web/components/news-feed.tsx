@@ -51,14 +51,14 @@ function Notices({ d }: { d: NewsPage }) {
   if (!d.owners_error && !d.index_error) return null;
   return (
     <div className="space-y-0.5 text-xs leading-5 text-muted-foreground">
-      {d.owners_error && <p>Owner tags are unavailable: ESPN&apos;s rosters didn&apos;t load, so no player shows as mine, a free agent or another team&apos;s, and the filters find nothing.</p>}
+      {d.owners_error && <p>Owner tags are unavailable: ESPN&apos;s rosters didn&apos;t load, so no player is tagged mine, a free agent or another team&apos;s. Until they do, My players and Other rosters find nothing and Free agents shows every story.</p>}
       {d.index_error && <p>Player names are unavailable: the player list didn&apos;t load, so some show as ids.</p>}
     </div>
   );
 }
 
-function List({ stories, focus, target, empty, next, loading, failed, older, pending = false }: {
-  stories: Story[]; focus?: number; target?: number | null; empty: string;
+function List({ stories, focus, target, tagged, empty, next, loading, failed, older, pending = false }: {
+  stories: Story[]; focus?: number; target?: number | null; tagged: boolean; empty: string;
   next: string | null; loading: boolean; failed: boolean; older: () => void; pending?: boolean;
 }) {
   return (
@@ -70,7 +70,7 @@ function List({ stories, focus, target, empty, next, loading, failed, older, pen
               ? <p className="px-4 py-6 text-center text-xs text-muted-foreground">{empty}</p>
               : (
                 <ul className="divide-y divide-foreground/10">
-                  {stories.map((s) => <NewsStory key={s.id} s={s} focus={focus} target={s.id === target} />)}
+                  {stories.map((s) => <NewsStory key={s.id} s={s} focus={focus} target={s.id === target} tagged={tagged} />)}
                 </ul>
               )}
           </CardContent>
@@ -110,7 +110,7 @@ export function NewsFeed({ data, filter, target }: { data: NewsPage; filter: New
     if (target == null) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     document.getElementById(`story-${target}`)?.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
-  }, [target]);
+  }, [target, found]); // `found`: a target Older brings in is scrolled to as it lands
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
@@ -136,7 +136,7 @@ export function NewsFeed({ data, filter, target }: { data: NewsPage; filter: New
           {next ? "The story from the notification is further back than this page; Older loads more." : "The story from the notification is no longer in the feed."}
         </p>
       )}
-      <List stories={stories} target={target} empty={EMPTY[filter]} next={next} loading={loading} failed={failed} older={older} pending={pending} />
+      <List stories={stories} target={target} tagged={!data.owners_error} empty={EMPTY[filter]} next={next} loading={loading} failed={failed} older={older} pending={pending} />
     </div>
   );
 }
@@ -168,7 +168,7 @@ export function PlayerNewsView({ data, days, bell }: { data: PlayerNews; days: n
         {stories.length}{next ? "+" : ""} {stories.length === 1 && !next ? "story" : "stories"} · last {days} days
       </p>
       <Notices d={data} />
-      <List stories={stories} focus={p.player_id} empty={`No news on him in the last ${days} days.`} next={next} loading={loading} failed={failed} older={older} />
+      <List stories={stories} focus={p.player_id} tagged={!data.owners_error} empty={`No news on him in the last ${days} days.`} next={next} loading={loading} failed={failed} older={older} />
     </div>
   );
 }

@@ -64,18 +64,19 @@ function Line({ r, dim, onPage = false }: { r: NewsRow; dim: boolean; onPage?: b
 
 const seedOf = (r: NewsRow) => ({ player_id: r.player_id, name: r.name, pos: r.pos ?? "", team: r.team ?? "" });
 
-// A player chip: the arrow, his short name and the owner tag; a tap opens his line over the feed.
-function Chip({ r, dim, enter = false }: { r: NewsRow; dim: boolean; enter?: boolean }) {
+// A player chip: the arrow, his short name and the owner tag; a tap opens his line over the feed. `tagged` is false
+// when the owners read failed: every row then comes as a free agent, so no tag is shown rather than a false FA.
+function Chip({ r, dim, tagged, enter = false }: { r: NewsRow; dim: boolean; tagged: boolean; enter?: boolean }) {
   return (
     <Popover>
       <PopoverTrigger
         className={`inline-flex min-h-8 items-center gap-1.5 rounded-sm border px-2 py-1 text-left outline-none transition-colors hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring/60 data-popup-open:bg-foreground/[0.08] sm:min-h-7 ${enter ? "fx-in" : ""} ${r.mine ? "border-foreground/30 bg-foreground/[0.04]" : "border-foreground/12"}`}
-        aria-label={`${r.name}, ${EFFECT_WORD[r.effect]}, ${ownerTag(r)}${r.flag ? ", Haiku doubts this arrow" : ""}: his line`}
+        aria-label={`${r.name}, ${EFFECT_WORD[r.effect]}${tagged ? `, ${ownerTag(r)}` : ""}${r.flag ? ", Haiku doubts this arrow" : ""}: his line`}
       >
         <Arrow effect={r.effect} dim={dim} />
         <span className={`font-display text-[0.9375rem] font-semibold leading-none tracking-tight ${dim ? "text-foreground/60" : ""}`}>{shortName(r.name)}</span>
         {r.flag && <Doubt />}
-        <OwnerTag r={r} />
+        {tagged && <OwnerTag r={r} />}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] gap-2 p-3">
         <div>
@@ -84,8 +85,7 @@ function Chip({ r, dim, enter = false }: { r: NewsRow; dim: boolean; enter?: boo
             {r.pos && <span className="font-semibold text-foreground/80">{r.pos}</span>}
             {r.pos && r.team && <span aria-hidden>·</span>}
             {r.team && <span>{r.team}</span>}
-            <span aria-hidden>·</span>
-            <span>{r.mine ? "on my roster" : r.owner ? (r.owner.name ?? ownerTag(r)) : "free agent"}</span>
+            {tagged && <><span aria-hidden>·</span><span>{r.mine ? "on my roster" : r.owner ? (r.owner.name ?? ownerTag(r)) : "free agent"}</span></>}
           </p>
         </div>
         <Line r={r} dim={dim} />
@@ -104,9 +104,9 @@ function OpenRow({ r, dim }: { r: NewsRow; dim: boolean }) {
 }
 
 // The ● rows (named by the source, not moved by it) join the strip only when "+k no change" is opened.
-function Chips({ rows, dim }: { rows: NewsRow[]; dim: boolean }) {
+function Chips({ rows, dim, tagged }: { rows: NewsRow[]; dim: boolean; tagged: boolean }) {
   if (!rows.length) return null;
-  return <div className="flex flex-wrap items-center gap-1.5">{rows.map((r) => <Chip key={r.player_id} r={r} dim={dim} enter={r.effect === "none"} />)}</div>;
+  return <div className="flex flex-wrap items-center gap-1.5">{rows.map((r) => <Chip key={r.player_id} r={r} dim={dim} tagged={tagged} enter={r.effect === "none"} />)}</div>;
 }
 
 const FOOT_LINK = "inline-flex min-h-8 items-center gap-1 rounded-sm text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60";
@@ -158,7 +158,8 @@ function Foot({ s, none, more, setMore }: { s: Story; none: number; more: boolea
 
 // `focus`: the player page's player, whose row (the only one the API sends there) opens out into his line.
 // `target`: the story a push opened, washed in ink and scrolled to by the feed.
-export function NewsStory({ s, focus, target = false }: { s: Story; focus?: number; target?: boolean }) {
+// `tagged`: the owners read succeeded, so the owner tags are true.
+export function NewsStory({ s, focus, target = false, tagged = true }: { s: Story; focus?: number; target?: boolean; tagged?: boolean }) {
   const label = statusLabel(s.status);
   const retracted = s.status === "retracted";
   const { moved, none } = splitRows(s.players);
@@ -179,7 +180,7 @@ export function NewsStory({ s, focus, target = false }: { s: Story; focus?: numb
       </div>
       {focus != null
         ? s.players.filter((r) => r.player_id === focus).map((r) => <OpenRow key={r.player_id} r={r} dim={retracted} />)
-        : <Chips rows={more ? [...moved, ...none] : moved} dim={retracted} />}
+        : <Chips rows={more ? [...moved, ...none] : moved} dim={retracted} tagged={tagged} />}
       <Foot s={s} none={focus != null ? 0 : none.length} more={more} setMore={setMore} />
     </li>
   );
