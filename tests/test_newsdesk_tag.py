@@ -104,7 +104,7 @@ def test_read_takes_argmax_and_prob():
                     [{"player_id": p} for p in pids])["story"] == 12
 
 
-@pytest.mark.parametrize("fresh,effect", [(0.2, "none"), (0.8, "down")])
+@pytest.mark.parametrize("fresh,effect", [(0.2, "none"), (0.65, "none"), (0.8, "down")])
 def test_passing_mention_forced_none(fresh, effect):
     i = item("a", "Panthers preview", text="With Kyren Williams out, the Rams lean on the pass")
     tag.run(INDEX, ask=fake(effect="down", fresh=fresh), now=NOW)

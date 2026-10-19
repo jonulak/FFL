@@ -28,7 +28,10 @@ WINDOW = timedelta(days=3)  # a story takes new items while it was updated this 
 ABOUT = 0.5
 RETRACT = 0.5
 CHANGED = 0.5
-FRESH = 0.5  # under this the item only mentions known news about him: his row is ● whatever `effect` said
+# under FRESH the item only mentions known news about him: his row is ● whatever `effect` said. Set from Hurts
+# week (2026-10-19): the IR and blood-clot reports read 0.73-0.93; previews, recaps and the inactives list
+# repeating them read 0.55-0.65
+FRESH = 0.7
 STORY_ATTACH_PROB = 0.6  # Jev's story pick is a proposal: below this the item starts its own story
 MAX_OPTIONS = 254  # Jev takes 255 options a choice; plus `new`
 MAX_TEXT = 60_000  # chars (~15k tokens): inside the 32k per-question context with room for the question
