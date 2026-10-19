@@ -1,6 +1,8 @@
 """ffl/notify.py: detectors are pure over parsed inputs; the outbox is the DB's notices table."""
 from types import SimpleNamespace
 
+import pytest
+
 from ffl import db, journal, notify
 
 AT = "2026-10-09T10:00:00-04:00"
@@ -106,3 +108,11 @@ def test_source_notices_after_a_day_failing():
     out = notify.source_notices(status, t, "now")
     assert [n["key"] for n in out] == [f"source:sharks:{status['sharks']['failing_since']}"]
     assert out[0]["kind"] == "source" and "sharks" in out[0]["title"] and out[0]["url"] == "/players"
+
+
+def test_put_prefs_accepts_news_bool():
+    assert notify.prefs()["news"] is True
+    assert notify.put_prefs({"news": False})["news"] is False and notify.prefs()["news"] is False
+    with pytest.raises(ValueError):
+        notify.put_prefs({"news": "yes"})
+    assert notify.prefs()["news"] is False

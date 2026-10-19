@@ -29,6 +29,7 @@ uv run python -m ffl.practice 4        # start a League Specific Practice Draft 
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results into the DB
+uv run python -m ffl.newsdesk run      # one news-desk run (collect, tag, write, queue pushes); seed / status (launchd POSTs /news/run every 10 min)
 uv run python -m ffl.decisions list --open   # decisions still needing a rationale or outcome; add / outcome / rationale / show / export
 uv run python -m ffl.calibrate         # in-season: score STRATEGY.md's K (usage-adjusted ROS) against the weekly snapshots in the DB (calibration_*)
 uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (sigma_fits) + Brier; launchd runs `calibrate wednesday` (winprob, then sources) Wed 07:00
@@ -188,6 +189,18 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   after the inactives are out; done ones in the `pregame_pulls` state) it expires every page and source cache and rebuilds
   on a thread. Refresh keeps a source entry fetched with a long TTL (FantasySharks' far weeks): re-scraping 14 weeks
   is what took the old nav button past 30 s.
+- **News desk** (`ffl/newsdesk/`, beads ffl-0gv): `pipeline.run` is seed (`seed.SOURCES`) → index (`players.fetch_index`) →
+  `collect.run_all` then `collect.recheck` (in that order: recheck's "still in the feed" is the poll just made) →
+  `media.run_all` (transcripts split per player) → `tag.run` (Jev: effect ▲/▼/●, kind, story) → `write.run` (Haiku through
+  `claude -p`: headline, overview, a line per player) → notices → `health.notices`, each stage tried alone (the index's
+  stages skipped without one), the stage dict in state `news_last_run`. `POST /news/run` (202; 409 while `_NEWS` is held)
+  runs it on a thread and flushes after if `_NOTIFY` is free; `launchd/com.jonulak.ffl-news` POSTs it every 10 min;
+  `GET /news/status` is the sources' health and the last run. A push (`notices.for_story`, kind `news`, the `news` pref)
+  is a written revision's ▼ on my roster or ▲ on a free agent at `NEWS_PUSH_PROB`, with a line, unflagged, not muted
+  (`news_mutes`), key `news:<id>:<rev>`; at most one per player and kind a day (`notices.recent`, off the notices table
+  and the stories' rows) unless an earlier rev of the story pushed (a material update). A correction or retraction pushes
+  once (`news:<id>:<status>`), only after the original did. Owners come from `pipeline.owners()` (also read at request
+  time); when it fails nothing is queued and the revisions wait in state `news_to_notify` for the next run.
 - **Transactions page** (`/transactions`, `GET /transactions`): `season.group_transactions` (pure) turns
   the `transactions` table's rows into moves. A waiver run stamps every claim with one timestamp across teams, so a
   move is (timestamp, team); a trade is every row of a timestamp holding a TRADE_* row, one side per team.

@@ -1832,3 +1832,42 @@ def test_player_presets_unknown_id_is_404(client):
     assert client.post("/players/presets/nope", json={"name": "x"}).status_code == 404
     assert client.post("/players/presets/nope/delete").status_code == 404
     assert client.post("/players/presets/default", json={"id": "nope"}).status_code == 404
+
+
+def test_news_run_409_when_running(client, monkeypatch):
+    ran = threading.Event()
+    monkeypatch.setattr(api.pipeline, "run", lambda: ran.set() or {"seed": 1})
+    flushes = []
+    monkeypatch.setattr(api.notify, "flush", lambda: flushes.append(1) or {"disabled": True})
+    assert api._NEWS.acquire(blocking=False)
+    try:
+        assert client.post("/news/run").status_code == 409
+    finally:
+        api._NEWS.release()
+    assert client.post("/news/run").status_code == 202
+    api._NEWS_THREAD[0].join(5)
+    assert ran.is_set() and flushes == [1] and not api._NEWS.locked()
+
+
+def test_news_run_skips_the_flush_while_a_tick_holds_it(client, monkeypatch):
+    monkeypatch.setattr(api.pipeline, "run", lambda: {})
+    flushes = []
+    monkeypatch.setattr(api.notify, "flush", lambda: flushes.append(1) or {})
+    assert api._NOTIFY.acquire(blocking=False)
+    try:
+        assert client.post("/news/run").status_code == 202
+        api._NEWS_THREAD[0].join(5)
+    finally:
+        api._NOTIFY.release()
+    assert flushes == [] and not api._NEWS.locked()
+
+
+def test_news_status(client):
+    db.put_news_sources([{"id": "pft", "kind": "pft", "name": "Pro Football Talk", "url": "https://x"},
+                         {"id": "site:DAL", "kind": "site", "club": "DAL", "name": "dallascowboys.com", "url": "https://y",
+                          "active": False}])
+    db.put_state("news_last_run", {"at": "2026-10-19T12:00:00-04:00", "stages": {"seed": 2}})
+    body = client.get("/news/status").json()
+    assert [s["id"] for s in body["sources"]] == ["pft", "site:DAL"]
+    assert set(body["sources"][0]) == {"id", "name", "kind", "active", "ok_at", "error", "failing_since"}
+    assert body["last_run"]["stages"] == {"seed": 2}

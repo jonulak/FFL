@@ -12,7 +12,8 @@ the one route that writes to ESPN (instant free-agent adds + waiver claims, thro
 POST /lineup writes to ESPN too (moves players between lineup slots, one transaction) and journals it.
 POST /decisions/{id} gives a decision its reason and outcome; POST /decisions/prefs sets the Settings switches.
 POST /notify/subscribe, /notify/unsubscribe and /notify/prefs write the DB's notify tables; POST /notify/tick syncs
-the log and sends push notifications; POST /notify/test sends one.
+the log and sends push notifications; POST /notify/test sends one. POST /news/run runs the news desk (ffl/newsdesk),
+which writes the news tables and queues its pushes.
 Every GET is read-only.
 """
 from __future__ import annotations
@@ -43,6 +44,7 @@ from . import plays as plays_mod
 from . import journal
 from .flight import Flight
 from .journal import sync_results, sync_transactions
+from .newsdesk import pipeline
 from .settings import load
 
 log = logging.getLogger(__name__)
@@ -1438,6 +1440,45 @@ def notify_tick():
     finally:
         _NOTIFY.release()
     return out
+
+
+# --- the news desk (ffl/newsdesk/pipeline.py): launchd/com.jonulak.ffl-news every 10 minutes ---
+
+_NEWS = threading.Lock()  # one run at a time: two would poll, tag and write the same items twice
+_NEWS_THREAD: list[threading.Thread] = []  # the last run's thread (tests join it)
+
+
+def _news_run() -> None:
+    try:
+        pipeline.run()
+    finally:
+        _NEWS.release()
+    # its pushes go now rather than at the next tick; a tick holding the lock flushes them itself
+    if _NOTIFY.acquire(blocking=False):
+        try:
+            notify.flush()
+        except db.DBError as e:
+            log.warning("news: flush failed: %s", e)
+        finally:
+            _NOTIFY.release()
+
+
+@app.post("/news/run", status_code=202)
+def news_run():
+    """Collect, tag and write the news, queue its pushes and flush them, on a thread: a run takes minutes."""
+    if not _NEWS.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="a news run is already running")
+    t = threading.Thread(target=_news_run, daemon=True, name="news-run")
+    _NEWS_THREAD[:] = [t]
+    t.start()
+    return {"started": True}
+
+
+@app.get("/news/status")
+def news_status():
+    cols = ("id", "name", "kind", "active", "ok_at", "error", "failing_since")
+    return {"sources": [{k: s[k] for k in cols} for s in db.news_sources(active_only=False)],
+            "last_run": db.get_state("news_last_run")}
 
 
 def correction_pass() -> dict:

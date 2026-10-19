@@ -1047,6 +1047,16 @@ def notice_keys(prefix: str, season: int = SEASON) -> list[str]:
         return list(c.execute(q).scalars())
 
 
+def notices_since(prefix: str, since: str, season: int = SEASON) -> list[dict]:
+    """{key, created_at, outcome} of the notices starting with `prefix` queued at or after `since`, any outcome (None
+    = still waiting). Compared as text, so the caller passes a margin and re-checks the times."""
+    t = notices
+    q = (sa.select(t.c.key, t.c.created_at, t.c.outcome)
+         .where(t.c.season == season, t.c.created_at >= since, t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
+
+
 def put_news_media(row: dict, season: int = SEASON) -> None:
     cols = ["source_id", "url", "title", "published_at", "segs", "fetched_at"]
     with _write() as c:
