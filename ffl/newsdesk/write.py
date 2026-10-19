@@ -90,16 +90,30 @@ def run(index: Index, run_cli=claude_cli.run) -> dict:
             break
         answered = {w["id"]: w for w in (got.get("stories") or []) if isinstance(w, dict) and "id" in w}
         for s in batch:
-            w = answered.get(s["id"])
-            if w is None:
-                out["missing"] += 1
-                continue
-            mine = {p["player_id"] for p in s["players"]}
-            lines = {int(x["player_id"]): (_trim(x["reason"], LINE), bool(x["disagree"]))
-                     for x in w.get("players") or [] if int(x["player_id"]) in mine}
-            if db.put_story_words(s["id"], s["rev"], _trim(w["headline"], HEADLINE), (w["overview"] or "").strip(), lines):
+            try:
+                ok = _put(s, answered.get(s["id"]))
+            # one story's odd answer or failed write costs only that story: it is left unwritten and retried
+            except (KeyError, TypeError, ValueError, AttributeError, db.DBError) as e:
+                print(f"news write: story {s['id']}: {type(e).__name__}: {e}")
+                ok = False
+            if ok:
                 out["written"] += 1
                 out["written_ids"].append((s["id"], s["rev"]))
             else:
                 out["missing"] += 1
     return out
+
+
+def _put(s: dict, w: dict | None) -> bool:
+    """Store Haiku's words for a story, unless they are incomplete: no headline or overview, or a ▲/▼ player left
+    without a line (his push needs one). Those, like a story Haiku skipped, stay unwritten for the next run."""
+    if w is None:
+        return False
+    mine = {p["player_id"] for p in s["players"]}
+    lines = {int(x["player_id"]): (_trim(x["reason"], LINE), bool(x["disagree"]))
+             for x in w.get("players") or [] if int(x["player_id"]) in mine}
+    headline, overview = _trim(w["headline"], HEADLINE), (w["overview"] or "").strip()
+    if not headline or not overview or any(p["effect"] != "none" and not (lines.get(p["player_id"]) or ("",))[0]
+                                           for p in s["players"]):
+        return False
+    return db.put_story_words(s["id"], s["rev"], headline, overview, lines)

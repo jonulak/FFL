@@ -95,3 +95,41 @@ def test_stale_rev_not_written():
     out = write.run(INDEX, run_cli=fake)
     assert (out["written"], out["missing"], out["written_ids"]) == (0, 1, [])
     assert db.story(sid)["written_rev"] == 0
+
+
+def test_bad_answer_or_db_error_costs_only_that_story(monkeypatch):
+    a, b, c = make(), make(), make()
+    real = db.put_story_words
+
+    def put(sid, *args, **kw):
+        if sid == b:
+            raise db.DBError("database is locked")
+        return real(sid, *args, **kw)
+
+    monkeypatch.setattr(write.db, "put_story_words", put)
+    bad = answer(a)["stories"][0]
+    del bad["headline"]
+    got = {"stories": [bad, *answer(b)["stories"], *answer(c)["stories"]]}
+    out = write.run(INDEX, run_cli=lambda prompt, **kw: got)
+    assert (out["written"], out["missing"], out["written_ids"]) == (1, 2, [(c, 1)])
+    assert sorted(s["id"] for s in db.unwritten_stories(10)) == [a, b]
+
+
+@pytest.mark.parametrize("change", [{"headline": "  "}, {"overview": ""},
+                                    {"players": [{"player_id": 2, "reason": "Only named.", "disagree": False}]},
+                                    {"players": [{"player_id": 1, "reason": " ", "disagree": False},
+                                                 {"player_id": 2, "reason": "Only named.", "disagree": False}]}])
+def test_blank_words_or_a_mover_without_a_line_left_unwritten(change):
+    sid = make()
+    got = answer(sid)
+    got["stories"][0].update(change)
+    out = write.run(INDEX, run_cli=lambda prompt, **kw: got)
+    assert (out["written"], out["missing"]) == (0, 1)
+    assert [s["id"] for s in db.unwritten_stories(10)] == [sid]  # retried next run
+
+
+def test_unmoved_player_without_a_line_still_written():
+    sid = make()
+    got = answer(sid)
+    got["stories"][0]["players"] = got["stories"][0]["players"][:1]  # Nacua (●) has no line
+    assert write.run(INDEX, run_cli=lambda prompt, **kw: got)["written"] == 1
