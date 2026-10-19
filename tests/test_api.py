@@ -1,6 +1,7 @@
 """API glue: caching, stale fallback, validation. espn_season is stubbed; no network."""
 import json
 import threading
+from datetime import datetime, timedelta, timezone
 import time
 from types import SimpleNamespace
 
@@ -1871,3 +1872,74 @@ def test_news_status(client):
     assert [s["id"] for s in body["sources"]] == ["pft", "site:DAL"]
     assert set(body["sources"][0]) == {"id", "name", "kind", "active", "ok_at", "error", "failing_since"}
     assert body["last_run"]["stages"] == {"seed": 2}
+
+
+def _news_story(player_ids, updated_at, headline="H"):
+    sid = db.add_story({"first_item_id": None, "first_at": updated_at, "updated_at": updated_at, "kind": "injury"})
+    db.put_story_players(sid, [{"player_id": p, "effect": "down", "kind": "injury", "prob": 0.9, "confidence": 0.5}
+                               for p in player_ids])
+    db.put_story_words(sid, 1, headline, "O.", {p: ("R.", False) for p in player_ids})
+    return sid
+
+
+@pytest.fixture
+def news_client(client, monkeypatch):
+    from ffl.newsdesk.players import Index
+    index = Index(by_id={1: {"name": "Jalen Hurts", "pos": "QB", "team": "PHI"},
+                         2: {"name": "Tank Bigsby", "pos": "RB", "team": "PHI"}})
+    monkeypatch.setattr(api.pipeline, "owners", lambda: ({1: {"team_id": 7, "name": "Me", "abbrev": "ME"}}, 7))
+    monkeypatch.setattr(api.news_players, "fetch_index", lambda: index)
+    return client
+
+
+def test_api_news_routes(news_client):
+    now = datetime.now(timezone.utc)
+
+    def t(h):
+        return (now - timedelta(hours=h)).isoformat(timespec="seconds")
+
+    _news_story([1], t(3), "mine")
+    _news_story([2], t(2), "free")
+    _news_story([2], t(1), "free again")
+    feed = news_client.get("/news").json()
+    assert [s["headline"] for s in feed["stories"]] == ["free again", "free", "mine"] and feed["next_before"] is None
+    assert feed["stories"][2]["players"][0]["mine"] is True and "owners_error" not in feed
+    assert [s["headline"] for s in news_client.get("/news?filter=mine").json()["stories"]] == ["mine"]
+    page = news_client.get("/news?filter=fa&limit=1").json()
+    assert [s["headline"] for s in page["stories"]] == ["free again"] and page["next_before"]
+    nxt = news_client.get("/news", params={"filter": "fa", "limit": 1, "before": page["next_before"]}).json()
+    assert [s["headline"] for s in nxt["stories"]] == ["free"]
+    assert news_client.get("/news?filter=bogus").status_code == 422
+
+    p = news_client.get("/news/player/2").json()
+    assert p["player"] == {"player_id": 2, "name": "Tank Bigsby", "pos": "RB", "team": "PHI", "owner": None, "mine": False}
+    assert p["muted"] is False and len(p["stories"]) == 2 and p["stories"][0]["players"][0]["player_id"] == 2
+    assert news_client.get("/news/player/1").json()["player"]["mine"] is True
+
+    assert [r["player_id"] for r in news_client.get("/news/search?q=tank").json()["players"]] == [2]
+    assert news_client.get("/news/search").json() == {"players": []}
+
+    assert news_client.post("/news/mute/2", json={"muted": True}).json() == {"muted": True}
+    assert db.get_state("news_mutes") == [2]
+    assert news_client.get("/news/player/2").json()["muted"] is True
+    assert news_client.post("/news/mute/2", json={"muted": False}).json() == {"muted": False}
+    assert db.get_state("news_mutes") == []
+
+
+def test_api_news_player_days_window(news_client):
+    now = datetime.now(timezone.utc)
+    _news_story([2], (now - timedelta(days=5)).isoformat(timespec="seconds"), "old")
+    _news_story([2], (now - timedelta(hours=1)).isoformat(timespec="seconds"), "new")
+    assert [s["headline"] for s in news_client.get("/news/player/2?days=1").json()["stories"]] == ["new"]
+    assert len(news_client.get("/news/player/2?days=30").json()["stories"]) == 2
+
+
+def test_api_news_serves_untagged_when_owners_fail(news_client, monkeypatch):
+    def down():
+        raise SystemExit("no LEAGUE_ID in .env")
+
+    monkeypatch.setattr(api.pipeline, "owners", down)
+    _news_story([1], datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    out = news_client.get("/news").json()
+    assert out["owners_error"] == "no LEAGUE_ID in .env"
+    assert out["stories"][0]["players"][0]["owner"] is None and out["stories"][0]["players"][0]["mine"] is False

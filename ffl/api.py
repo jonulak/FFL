@@ -27,7 +27,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Callable, Literal
 
@@ -44,7 +44,9 @@ from . import plays as plays_mod
 from . import journal
 from .flight import Flight
 from .journal import sync_results, sync_transactions
+from .newsdesk import feed as news_feed
 from .newsdesk import pipeline
+from .newsdesk import players as news_players
 from .settings import load
 
 log = logging.getLogger(__name__)
@@ -1472,6 +1474,77 @@ def news_run():
     _NEWS_THREAD[:] = [t]
     t.start()
     return {"started": True}
+
+
+def _news_context() -> dict:
+    """What the feed is dressed with: owners (read now, never stored; a failure serves the feed untagged with
+    `owners_error`), the player index (names; a failure leaves them as ids with `index_error`) and the sources."""
+    ctx: dict = {"owners": {}, "me": -1, "extra": {}, "index": news_players.Index()}
+    try:
+        ctx["owners"], ctx["me"] = pipeline.owners()
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — no league config exits; the feed still reads
+        ctx["extra"]["owners_error"] = str(e) or type(e).__name__
+    try:
+        ctx["index"] = news_players.fetch_index()
+    except (Exception, SystemExit) as e:  # noqa: BLE001
+        ctx["extra"]["index_error"] = str(e) or type(e).__name__
+    ctx["sources"] = {s["id"]: s for s in db.news_sources(active_only=False)}
+    return ctx
+
+
+def _news_page(ctx: dict, limit: int, before: str | None, *, filter: str = "all", player: int | None = None,
+               since: str | None = None) -> dict:
+    """Read pages until `limit` stories pass the filter or the table ends (next_before None)."""
+    kept: list[dict] = []
+    while True:
+        raw = db.news_feed(before, limit, player_id=player, since=since)
+        for s in news_feed.shape(raw, ctx["owners"], ctx["me"], ctx["index"], ctx["sources"], player):
+            if news_feed.keep(s, filter):
+                kept.append(s)
+                if len(kept) == limit:
+                    return {"stories": kept, "next_before": s["at"]}
+        if len(raw) < limit:
+            return {"stories": kept, "next_before": None}
+        before = raw[-1]["updated_at"]
+
+
+@app.get("/news")
+def news_get(filter: Literal["all", "mine", "fa", "others"] = "all", before: str | None = None,
+             limit: int = Query(30, ge=1, le=100)):
+    ctx = _news_context()
+    return {**_news_page(ctx, limit, before, filter=filter), **ctx["extra"]}
+
+
+@app.get("/news/player/{player_id}")
+def news_player(player_id: int, days: int = Query(30, ge=1, le=366), before: str | None = None,
+                limit: int = Query(30, ge=1, le=100)):
+    ctx = _news_context()
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    muted = player_id in {int(p) for p in db.get_state("news_mutes", []) or []}
+    return {"player": news_feed.player_head(player_id, ctx["owners"], ctx["me"], ctx["index"]), "muted": muted,
+            **_news_page(ctx, limit, before, player=player_id, since=since), **ctx["extra"]}
+
+
+@app.get("/news/search")
+def news_search(q: str = ""):
+    if not q.strip():
+        return {"players": []}
+    try:
+        index = news_players.fetch_index()
+    except (Exception, SystemExit) as e:  # noqa: BLE001
+        raise HTTPException(502, {"source": "espn", "error": f"player index: {str(e) or type(e).__name__}"}) from e
+    return {"players": news_feed.search(index, q)}
+
+
+class MuteIn(BaseModel):
+    muted: bool
+
+
+@app.post("/news/mute/{player_id}")
+def news_mute(player_id: int, body: MuteIn):
+    muted = {int(p) for p in db.get_state("news_mutes", []) or []}
+    db.put_state("news_mutes", sorted(muted | {player_id} if body.muted else muted - {player_id}))
+    return {"muted": body.muted}
 
 
 @app.get("/news/status")
