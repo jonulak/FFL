@@ -189,13 +189,13 @@ export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Loa
   // the section links into the Decisions page, so it goes when the page is turned off in Settings
   const logged = useDecisionPrefs().page && load.state === "ready" && decisions.length > 0;
   // his news under his moves, in the grow with them for the same reason
-  const recent = load.state === "ready" && news != null && recentFor(news).length > 0;
-  const grow = useGrow(`${load.state}${history ? "+moves" : ""}${recent ? "+news" : ""}${logged ? "+decisions" : ""}`);
+  const recent = load.state === "ready" ? recentFor(news) : [];
+  const grow = useGrow(`${load.state}${history ? "+moves" : ""}${recent.length ? "+news" : ""}${logged ? "+decisions" : ""}`);
   return (
     <div ref={grow} className="overflow-hidden">
       <LogBody load={load} retry={retry} className={className} />
       {history && <History moves={moves} />}
-      {recent && news && <RecentNews d={news} />}
+      {news && recent.length > 0 && <RecentNews d={news} recent={recent} />}
       {logged && <Decisions rows={decisions} />}
     </div>
   );

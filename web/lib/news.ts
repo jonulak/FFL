@@ -50,9 +50,10 @@ export function statusLabel(s: Story["status"]): string | null {
 // The player dialog's Recent news: his newest three stories off GET /news/player/{id}, each with his own row (the
 // only one that page sends). A failed read is no news.
 export const RECENT = 3;
-export function recentFor(d: PlayerNews | null): { story: Story; row: NewsRow }[] {
+export type Recent = { story: Story; row: NewsRow }[];
+export function recentFor(d: PlayerNews | null): Recent {
   if (!d) return [];
-  const out: { story: Story; row: NewsRow }[] = [];
+  const out: Recent = [];
   for (const story of d.stories) {
     const row = story.players.find((r) => r.player_id === d.player.player_id);
     if (row) out.push({ story, row });

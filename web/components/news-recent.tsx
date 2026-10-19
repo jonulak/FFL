@@ -5,19 +5,18 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { DialogClose } from "@/components/ui/dialog";
 import type { PlayerNews } from "@/lib/api";
-import { playerNewsHref, recentFor, statusLabel } from "@/lib/news";
+import { filterHref, playerNewsHref, statusLabel, type Recent } from "@/lib/news";
 import { NAME_LINK } from "@/lib/player-log";
 import { Ago } from "./local-time";
 import { NewsMute } from "./news-mute";
 import { Line } from "./news-story";
 import { Heading } from "./player-dialog";
 
-// The player dialog's News section: his newest three stories, each the source (linked) and its age over his line
-// (the arrow and Haiku's words, the feed's own Line), then the way on to all his news (which closes the modal) and
-// the push mute. No story in the window: no section.
-export function RecentNews({ d }: { d: PlayerNews }) {
-  const recent = recentFor(d);
-  if (!recent.length) return null;
+// The player dialog's News section: his newest three stories (`recent`, recentFor's), each the headline (two lines at
+// most, opening the story in the feed and closing the modal), the source (linked off-site) and its age, then his line
+// (the arrow and Haiku's words, the feed's own Line); last, the way on to all his news and the push mute. The overview
+// is left to the feed, one tap away. The caller leaves the section out when he has no story.
+export function RecentNews({ d, recent }: { d: PlayerNews; recent: Recent }) {
   const p = d.player;
   return (
     <section aria-labelledby="season-news" className="log-in space-y-1.5 px-4 pt-2 pb-5">
@@ -27,6 +26,10 @@ export function RecentNews({ d }: { d: PlayerNews }) {
           const label = statusLabel(s.status);
           return (
             <li key={s.id} className="space-y-1.5 py-2.5">
+              <DialogClose nativeButton={false} render={<Link href={filterHref("all", false, s.id)} />}
+                className={`line-clamp-2 rounded-sm text-[0.9375rem] font-medium leading-snug text-balance outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${s.status === "retracted" ? "text-foreground/60" : ""} ${NAME_LINK}`}>
+                {s.headline}
+              </DialogClose>
               <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-4 text-muted-foreground">
                 {s.first?.url
                   ? <a href={s.first.url} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-0.5 font-medium text-foreground/85 ${NAME_LINK}`}>
