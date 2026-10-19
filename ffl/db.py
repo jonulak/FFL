@@ -305,6 +305,105 @@ source_cache = sa.Table(
     sa.PrimaryKeyConstraint("season", "name", "key"),
 )
 
+# The news catalog (ffl/news_*): where items come from, what they said, the stories they were grouped into and which
+# players each story moves. Times are ISO strings, so they compare as text.
+news_sources_table = sa.Table(
+    "news_sources", metadata, _season(),
+    sa.Column("id", sa.String, nullable=False),          # site:LAR / espn:LAR / yt:LAR / pod:LAR / bsky:<handle> / pft / rotowire
+    sa.Column("kind", sa.String, nullable=False),        # site|espn|youtube|podcast|bluesky|pft|rotowire
+    sa.Column("club", sa.String),
+    sa.Column("name", sa.String, nullable=False),
+    sa.Column("url", sa.String, nullable=False),
+    sa.Column("active", sa.Boolean, nullable=False, default=True),
+    sa.Column("ok_at", sa.String),                       # last good fetch
+    sa.Column("error", sa.String),                       # last failure, None after a good fetch
+    sa.Column("failing_since", sa.String),               # first failure of the current run
+    sa.PrimaryKeyConstraint("season", "id"),
+)
+
+news_items_table = sa.Table(  # the _table suffix where a reader below takes the plain name
+    "news_items", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    _season(),
+    sa.Column("source_id", sa.String, nullable=False),
+    sa.Column("ext_id", sa.String, nullable=False),      # the source's id; `<media id>#<player_id>` for a split video or episode
+    sa.Column("url", sa.String, nullable=False),
+    sa.Column("published_at", sa.String, nullable=False),
+    sa.Column("fetched_at", sa.String, nullable=False),
+    sa.Column("title", sa.String, nullable=False),
+    sa.Column("text", sa.String, nullable=False),
+    sa.Column("club", sa.String),
+    sa.Column("at_s", sa.Float),                         # seconds into the video/audio
+    sa.Column("player_ids", sa.JSON, nullable=False, default=list),
+    sa.Column("jev", sa.JSON(none_as_null=True)),
+    sa.Column("tagged_at", sa.String),                   # NULL = waiting to be tagged (or re-tagged after an edit)
+    sa.Column("story_id", sa.Integer),
+    sa.Column("hash", sa.String, nullable=False),        # sha256 of title + text
+    sa.Column("withdrawn_at", sa.String),                # deleted, or 404/410 on a recheck
+    sa.UniqueConstraint("season", "source_id", "ext_id", name="uq_news_items_ext"),
+)
+sa.Index("ix_news_items_story", news_items_table.c.season, news_items_table.c.story_id)
+sa.Index("ix_news_items_published", news_items_table.c.season, news_items_table.c.published_at)
+
+# An edited item's earlier text (the item row holds the latest).
+news_item_versions = sa.Table(
+    "news_item_versions", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    _season(),
+    sa.Column("item_id", sa.Integer, nullable=False),
+    sa.Column("hash", sa.String, nullable=False),
+    sa.Column("title", sa.String, nullable=False),
+    sa.Column("text", sa.String, nullable=False),
+    sa.Column("seen_at", sa.String, nullable=False),
+)
+sa.Index("ix_news_item_versions_item", news_item_versions.c.season, news_item_versions.c.item_id)
+
+# A video or episode's whole transcript, kept so matching and tagging can be re-run without refetching.
+news_media_table = sa.Table(
+    "news_media", metadata, _season(),
+    sa.Column("id", sa.String, nullable=False),          # YouTube video id / podcast episode guid
+    sa.Column("source_id", sa.String, nullable=False),
+    sa.Column("url", sa.String, nullable=False),
+    sa.Column("title", sa.String, nullable=False),
+    sa.Column("published_at", sa.String, nullable=False),
+    sa.Column("segs", sa.JSON, nullable=False),          # [{start, text}, ...]
+    sa.Column("fetched_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("season", "id"),
+)
+
+news_stories = sa.Table(
+    "news_stories", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    _season(),
+    sa.Column("first_item_id", sa.Integer),
+    sa.Column("first_at", sa.String, nullable=False),
+    sa.Column("updated_at", sa.String, nullable=False),
+    sa.Column("rev", sa.Integer, nullable=False, default=1),
+    sa.Column("written_rev", sa.Integer, nullable=False, default=0),   # < rev = the words are stale or not yet written
+    sa.Column("headline", sa.String, nullable=False, default=""),
+    sa.Column("overview", sa.String, nullable=False, default=""),
+    sa.Column("kind", sa.String, nullable=False, default=""),
+    sa.Column("status", sa.String, nullable=False, default="live"),    # live|corrected|retracted
+    sa.Column("status_at", sa.String),
+    sa.Column("status_note", sa.String),                 # which source corrected or withdrew it
+)
+sa.Index("ix_news_stories_updated", news_stories.c.season, news_stories.c.updated_at)
+
+# Owners are read-time, so there is no ownership column here.
+news_story_players = sa.Table(
+    "news_story_players", metadata, _season(),
+    sa.Column("story_id", sa.Integer, nullable=False),
+    sa.Column("player_id", sa.Integer, nullable=False),
+    sa.Column("effect", sa.String, nullable=False),      # up|down|none
+    sa.Column("kind", sa.String, nullable=False),
+    sa.Column("prob", sa.Float, nullable=False),
+    sa.Column("confidence", sa.Float, nullable=False),
+    sa.Column("reason", sa.String),
+    sa.Column("flag", sa.Boolean, nullable=False, default=False),
+    sa.PrimaryKeyConstraint("season", "story_id", "player_id"),
+)
+sa.Index("ix_news_story_players_player", news_story_players.c.season, news_story_players.c.player_id)
+
 
 def url() -> str:
     return os.environ.get("FFL_DB_URL") or f"sqlite:///{DATA / 'ffl.db'}"
@@ -884,6 +983,258 @@ def source_rows(name: str, season: int = SEASON) -> list[dict]:
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(
             sa.select(t.c.key, t.c.data, t.c.fetched_at, t.c.ttl).where(t.c.season == season, t.c.name == name))]
+
+
+def put_news_sources(rows: list[dict], season: int = SEASON) -> None:
+    """Register the sources (key: season, id); a re-run refreshes kind/club/name/url/active and keeps the health columns."""
+    if not rows:
+        return
+    vals = [{"season": season, **{k: r.get(k) for k in ("id", "kind", "club", "name", "url")},
+             "active": bool(r.get("active", True))} for r in rows]
+    with _write() as c:
+        c.execute(_upsert(news_sources_table, vals, ["season", "id"], ["kind", "club", "name", "url", "active"]))
+
+
+def news_sources(active_only: bool = True, season: int = SEASON) -> list[dict]:
+    t = news_sources_table
+    q = sa.select(t).where(t.c.season == season).order_by(t.c.id)
+    if active_only:
+        q = q.where(t.c.active.is_(True))
+    with _read() as c:
+        return [{k: v for k, v in r._mapping.items() if k != "season"} for r in c.execute(q)]
+
+
+def mark_news_source(id: str, ok: bool, error: str | None, at: str, season: int = SEASON) -> None:
+    """A fetch's result: ok clears the error run; a failure keeps the run's first time."""
+    t = news_sources_table
+    with _write() as c:
+        where = (t.c.season == season, t.c.id == id)
+        if ok:
+            c.execute(sa.update(t).where(*where).values(ok_at=at, error=None, failing_since=None))
+        else:
+            c.execute(sa.update(t).where(*where).values(error=error, failing_since=sa.func.coalesce(t.c.failing_since, at)))
+
+
+_ITEM_COLS = ("source_id", "ext_id", "url", "published_at", "fetched_at", "title", "text", "club", "at_s", "hash")
+
+
+def add_news_items(rows: list[dict], season: int = SEASON) -> list[int]:
+    """Store the items not already known (key: season, source_id, ext_id). Returns the new ids only."""
+    if not rows:
+        return []
+    vals = [{"season": season, **{k: r.get(k) for k in _ITEM_COLS}, "player_ids": r.get("player_ids") or []} for r in rows]
+    with _write() as c:
+        stmt = _upsert(news_items_table, vals, ["season", "source_id", "ext_id"], None).returning(news_items_table.c.id)
+        return [r[0] for r in c.execute(stmt).all()]
+
+
+def news_item_hashes(source_id: str, ext_ids: list[str], season: int = SEASON) -> dict[str, tuple[int, str]]:
+    """ext_id -> (item id, hash) for the ones already stored: the collectors' edit check."""
+    if not ext_ids:
+        return {}
+    t = news_items_table
+    q = sa.select(t.c.ext_id, t.c.id, t.c.hash).where(t.c.season == season, t.c.source_id == source_id, t.c.ext_id.in_(ext_ids))
+    with _read() as c:
+        return {r.ext_id: (r.id, r.hash) for r in c.execute(q)}
+
+
+def notice_keys(prefix: str, season: int = SEASON) -> list[str]:
+    """Keys of the notices already pushed (sent_at set, outcome sent) that start with `prefix`."""
+    t = notices
+    q = (sa.select(t.c.key).where(t.c.season == season, t.c.sent_at.is_not(None), t.c.outcome == "sent",
+                                  t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
+    with _read() as c:
+        return list(c.execute(q).scalars())
+
+
+def put_news_media(row: dict, season: int = SEASON) -> None:
+    cols = ["source_id", "url", "title", "published_at", "segs", "fetched_at"]
+    with _write() as c:
+        c.execute(_upsert(news_media_table, [{"season": season, "id": row["id"], **{k: row[k] for k in cols}}],
+                          ["season", "id"], cols))
+
+
+def news_media(id: str, season: int = SEASON) -> dict | None:
+    t = news_media_table
+    with _read() as c:
+        r = c.execute(sa.select(t).where(t.c.season == season, t.c.id == id)).first()
+    return {k: v for k, v in r._mapping.items() if k != "season"} if r else None
+
+
+def _item_out(r) -> dict:
+    return {k: v for k, v in r._mapping.items() if k != "season"}
+
+
+def recheck_items(since: str, season: int = SEASON) -> list[dict]:
+    """Items published at or after `since` and not withdrawn: the window the collectors re-fetch for edits and deletions."""
+    t = news_items_table
+    q = (sa.select(t).where(t.c.season == season, t.c.published_at >= since, t.c.withdrawn_at.is_(None))
+         .order_by(t.c.published_at, t.c.id))
+    with _read() as c:
+        return [_item_out(r) for r in c.execute(q)]
+
+
+def update_item_text(item_id: int, title: str, text: str, hash: str, at: str, season: int = SEASON) -> None:
+    """An edit: the earlier text goes to news_item_versions, and tagged_at clears so the item is tagged again."""
+    t = news_items_table
+    with _write() as c:
+        old = c.execute(sa.select(t.c.hash, t.c.title, t.c.text).where(t.c.season == season, t.c.id == item_id)).first()
+        if old is None:
+            return
+        c.execute(sa.insert(news_item_versions).values(season=season, item_id=item_id, hash=old.hash, title=old.title,
+                                                       text=old.text, seen_at=at))
+        c.execute(sa.update(t).where(t.c.season == season, t.c.id == item_id)
+                  .values(title=title, text=text, hash=hash, tagged_at=None))
+
+
+def _bump_story(c, story_id: int, season: int, **values) -> None:
+    t = news_stories
+    c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id).values(rev=t.c.rev + 1, **values))
+
+
+def withdraw_item(item_id: int, at: str, season: int = SEASON) -> dict | None:
+    """Mark an item deleted or gone. When that leaves its story no live item, the story is retracted (rev+1) and
+    returned; otherwise None."""
+    t, s = news_items_table, news_stories
+    with _write() as c:
+        c.execute(sa.update(t).where(t.c.season == season, t.c.id == item_id).values(withdrawn_at=at))
+        sid = c.execute(sa.select(t.c.story_id).where(t.c.season == season, t.c.id == item_id)).scalar()
+        if sid is None:
+            return None
+        live = c.execute(sa.select(sa.func.count()).select_from(t)
+                         .where(t.c.season == season, t.c.story_id == sid, t.c.withdrawn_at.is_(None))).scalar()
+        cur = c.execute(sa.select(s.c.status).where(s.c.season == season, s.c.id == sid)).scalar()
+        if live or cur in (None, "retracted"):
+            return None
+        _bump_story(c, sid, season, status="retracted", status_at=at)
+        return dict(c.execute(sa.select(s).where(s.c.id == sid)).first()._mapping)
+
+
+def set_story_status(story_id: int, status: str, at: str, note: str | None, season: int = SEASON) -> None:
+    """A correction or retraction: the story re-surfaces (rev+1, updated_at) so it is written and pushed again."""
+    with _write() as c:
+        _bump_story(c, story_id, season, status=status, status_at=at, status_note=note, updated_at=at)
+
+
+def untagged_items(season: int = SEASON) -> list[dict]:
+    t = news_items_table
+    q = (sa.select(t).where(t.c.season == season, t.c.tagged_at.is_(None), t.c.withdrawn_at.is_(None))
+         .order_by(t.c.published_at, t.c.id))
+    with _read() as c:
+        return [_item_out(r) for r in c.execute(q)]
+
+
+def tag_item(item_id: int, player_ids: list[int], jev: dict | None, story_id: int | None, at: str,
+             season: int = SEASON) -> None:
+    t = news_items_table
+    with _write() as c:
+        c.execute(sa.update(t).where(t.c.season == season, t.c.id == item_id)
+                  .values(player_ids=player_ids, jev=jev, story_id=story_id, tagged_at=at))
+
+
+def add_story(row: dict, season: int = SEASON) -> int:
+    cols = ("first_item_id", "first_at", "updated_at", "headline", "overview", "kind")
+    vals = {k: row[k] for k in cols if k in row}
+    with _write() as c:
+        return c.execute(sa.insert(news_stories).values(season=season, **vals).returning(news_stories.c.id)).scalar()
+
+
+def update_story(story_id: int, fields: dict, season: int = SEASON) -> None:
+    if not fields:
+        return
+    with _write() as c:
+        c.execute(sa.update(news_stories).where(news_stories.c.season == season, news_stories.c.id == story_id)
+                  .values(**fields))
+
+
+def _stories_out(c, rows, season: int) -> list[dict]:
+    """Story rows dressed with their `players` (story_player rows) and `items` (item rows, oldest first)."""
+    out = [{k: v for k, v in r._mapping.items() if k != "season"} for r in rows]
+    ids = [s["id"] for s in out]
+    if not ids:
+        return out
+    p, i = news_story_players, news_items_table
+    players = c.execute(sa.select(p).where(p.c.season == season, p.c.story_id.in_(ids)).order_by(p.c.player_id))
+    items = c.execute(sa.select(i).where(i.c.season == season, i.c.story_id.in_(ids)).order_by(i.c.published_at, i.c.id))
+    by_p: dict[int, list] = {}
+    by_i: dict[int, list] = {}
+    for r in players:
+        by_p.setdefault(r.story_id, []).append({k: v for k, v in r._mapping.items() if k != "season"})
+    for r in items:
+        by_i.setdefault(r.story_id, []).append(_item_out(r))
+    for s in out:
+        s["players"], s["items"] = by_p.get(s["id"], []), by_i.get(s["id"], [])
+    return out
+
+
+def story(story_id: int, season: int = SEASON) -> dict | None:
+    t = news_stories
+    with _read() as c:
+        rows = c.execute(sa.select(t).where(t.c.season == season, t.c.id == story_id)).all()
+        return _stories_out(c, rows, season)[0] if rows else None
+
+
+def recent_stories(player_ids: list[int], since: str, season: int = SEASON) -> list[dict]:
+    """Stories naming any of these players and updated at or after `since`, newest first."""
+    if not player_ids:
+        return []
+    t, p = news_stories, news_story_players
+    named = sa.select(p.c.story_id).where(p.c.season == season, p.c.player_id.in_(player_ids))
+    q = (sa.select(t).where(t.c.season == season, t.c.updated_at >= since, t.c.id.in_(named))
+         .order_by(t.c.updated_at.desc(), t.c.id.desc()))
+    with _read() as c:
+        return _stories_out(c, c.execute(q).all(), season)
+
+
+def put_story_players(story_id: int, rows: list[dict], season: int = SEASON) -> None:
+    """The model's call per player (key: season, story, player); the written reason and flag are left alone."""
+    if not rows:
+        return
+    cols = ["effect", "kind", "prob", "confidence"]
+    vals = [{"season": season, "story_id": story_id, "player_id": r["player_id"], **{k: r[k] for k in cols}} for r in rows]
+    with _write() as c:
+        c.execute(_upsert(news_story_players, vals, ["season", "story_id", "player_id"], cols))
+
+
+def unwritten_stories(limit: int, season: int = SEASON) -> list[dict]:
+    t = news_stories
+    q = (sa.select(t).where(t.c.season == season, t.c.written_rev < t.c.rev)
+         .order_by(t.c.updated_at, t.c.id).limit(limit))
+    with _read() as c:
+        return _stories_out(c, c.execute(q).all(), season)
+
+
+def put_story_words(story_id: int, rev: int, headline: str, overview: str, lines: dict[int, tuple[str, bool]],
+                    season: int = SEASON) -> bool:
+    """Store the written story, but only for the rev it was written from: a story that moved on meanwhile is
+    written again, and this stale text is dropped (False)."""
+    t, p = news_stories, news_story_players
+    with _write() as c:
+        done = c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id, t.c.rev == rev)
+                         .values(headline=headline, overview=overview, written_rev=rev))
+        if not done.rowcount:
+            return False
+        for pid, (reason, flag) in lines.items():
+            c.execute(sa.update(p).where(p.c.season == season, p.c.story_id == story_id, p.c.player_id == pid)
+                      .values(reason=reason, flag=flag))
+        return True
+
+
+def news_feed(before: str | None, limit: int, player_id: int | None = None, since: str | None = None,
+              season: int = SEASON) -> list[dict]:
+    """Written stories (retracted and corrected ones too, with their status), newest update first, strictly
+    before `before`; optionally only those naming a player, or updated at or after `since`."""
+    t, p = news_stories, news_story_players
+    q = sa.select(t).where(t.c.season == season, t.c.written_rev >= 1)
+    if before is not None:
+        q = q.where(t.c.updated_at < before)
+    if since is not None:
+        q = q.where(t.c.updated_at >= since)
+    if player_id is not None:
+        q = q.where(t.c.id.in_(sa.select(p.c.story_id).where(p.c.season == season, p.c.player_id == player_id)))
+    q = q.order_by(t.c.updated_at.desc(), t.c.id.desc()).limit(limit)
+    with _read() as c:
+        return _stories_out(c, c.execute(q).all(), season)
 
 
 def _decision_out(r) -> dict:
