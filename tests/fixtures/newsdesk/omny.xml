@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xmlns:psc="http://podlove.org/simple-chapters" xmlns:omny="https://omny.fm/rss-extensions" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:acast="https://schema.acast.com/1.0/" xmlns:podcast="https://podcastindex.org/namespace/1.0" version="2.0">
+  <channel>
+    <omny:organizationId>e73c998e-6e60-432f-8610-ae210140c5b1</omny:organizationId>
+    <omny:networkId>df0b18cc-0bcb-4d3f-8376-aeac0132babe</omny:networkId>
+    <omny:programId>30a68660-be74-4c62-b35c-aeac015c4dbd</omny:programId>
+    <omny:playlistId>e4986ba2-5d75-41a1-a722-aeac015c4dcb</omny:playlistId>
+    <language>en-US</language>
+    <atom:link rel="self" type="application/rss+xml" href="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/podcast.rss" />
+    <atom:link rel="first" type="application/rss+xml" href="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/podcast.rss?page=1" />
+    <atom:link rel="last" type="application/rss+xml" href="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/podcast.rss?page=1" />
+    <itunes:new-feed-url>https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/podcast.rss</itunes:new-feed-url>
+    <title>Between the Horns</title>
+    <itunes:subtitle>Welcome to Between the Horns, a weekly podcast on…</itunes:subtitle>
+    <link>https://www.iheart.com/podcast/1324-between-the-horns-31016841/</link>
+    <description><![CDATA[Welcome to Between the Horns, a weekly podcast on the Los Angeles Rams brought to you by the Rams Broadcasting Network.]]></description>
+    <itunes:type>episodic</itunes:type>
+    <itunes:summary>Welcome to Between the Horns, a weekly podcast on the Los Angeles Rams brought to you by the Rams Broadcasting Network.</itunes:summary>
+    <itunes:owner>
+      <itunes:name>Between the Horns</itunes:name>
+      <itunes:email>msimmons@rams.nfl.com</itunes:email>
+    </itunes:owner>
+    <itunes:author>Los Angeles Rams</itunes:author>
+    <copyright>2026 iHeartMedia, Inc. © Any use of this intellectual property for text and data mining or computational analysis including as training material for artificial intelligence systems is strictly prohibited without express written consent from iHeartMedia</copyright>
+    <itunes:explicit>no</itunes:explicit>
+    <itunes:category text="Sports"></itunes:category>
+    <itunes:image href="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/image.jpg?t=1654549725&amp;size=Large" />
+    <image>
+      <url>https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/image.jpg?t=1654549725&amp;size=Large</url>
+      <title>Between the Horns</title>
+      <link>https://www.iheart.com/podcast/1324-between-the-horns-31016841/</link>
+    </image>
+    <item>
+      <title>Ep. 251: Takeaways from the Rams-Bills battle on MNF, Matthew Stafford's performance, previewing Week 6 vs. the Cardinals &amp; more</title>
+      <itunes:title>Ep. 251: Takeaways from the Rams-Bills battle on MNF, Matthew Stafford's performance, previewing Week 6 vs. the Cardinals &amp; more</itunes:title>
+      <description><![CDATA[On this episode of Between the Horns, J.B. Long, D’Marco Farr, and Maurice Jones-Drew reflect on the Los Angeles Rams' Week 5 matchup against the Buffalo Bills. Watch them discuss key lessons from the loss, break down pivotal plays, scout the Arizona Cardinals ahead of Week 6 matchup, and more.<p>See <a href="https://omnystudio.com/listener">omnystudio.com/listener</a> for privacy information.</p>]]></description>
+      <content:encoded><![CDATA[On this episode of Between the Horns, J.B. Long, D’Marco Farr, and Maurice Jones-Drew reflect on the Los Angeles Rams' Week 5 matchup against the Buffalo Bills. Watch them discuss key lessons from the loss, break down pivotal plays, scout the Arizona Cardinals ahead of Week 6 matchup, and more.<p>See <a href="https://omnystudio.com/listener">omnystudio.com/listener</a> for privacy information.</p>]]></content:encoded>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:author>Los Angeles Rams</itunes:author>
+      <itunes:image href="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/image.jpg?t=1654549725&amp;size=Large" />
+      <media:content url="https://podtrac.com/pts/redirect.mp3/traffic.omny.fm/d/clips/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/ec1c4921-2928-401c-a8e3-b4e401756f85/audio.mp3?utm_source=Podcast&amp;in_playlist=e4986ba2-5d75-41a1-a722-aeac015c4dcb" type="audio/mpeg">
+        <media:player url="https://omny.fm/shows/between-the-horns/audio-261015-bth-wk-06-v04-m4a/embed?media=Audio" />
+      </media:content>
+      <media:content url="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/image.jpg?t=1654549725&amp;size=Large" type="image/jpeg" />
+      <guid isPermaLink="false">ec1c4921-2928-401c-a8e3-b4e401756f85</guid>
+      <omny:clipId>ec1c4921-2928-401c-a8e3-b4e401756f85</omny:clipId>
+      <pubDate>Thu, 15 Oct 2026 22:59:00 +0000</pubDate>
+      <itunes:duration>2643</itunes:duration>
+      <enclosure url="https://podtrac.com/pts/redirect.mp3/traffic.omny.fm/d/clips/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/ec1c4921-2928-401c-a8e3-b4e401756f85/audio.mp3?utm_source=Podcast&amp;in_playlist=e4986ba2-5d75-41a1-a722-aeac015c4dcb" length="42331416" type="audio/mpeg" />
+      <link>https://omny.fm/shows/between-the-horns/audio-261015-bth-wk-06-v04-m4a</link>
+      <podcast:transcript url="https://api.omny.fm/orgs/e73c998e-6e60-432f-8610-ae210140c5b1/clips/ec1c4921-2928-401c-a8e3-b4e401756f85/transcript?format=SubRip&amp;t=1792104198" type="application/srt" language="en" />
+      <podcast:transcript url="https://api.omny.fm/orgs/e73c998e-6e60-432f-8610-ae210140c5b1/clips/ec1c4921-2928-401c-a8e3-b4e401756f85/transcript?format=WebVTT&amp;t=1792104198" type="text/vtt" language="en" />
+      <podcast:transcript url="https://api.omny.fm/orgs/e73c998e-6e60-432f-8610-ae210140c5b1/clips/ec1c4921-2928-401c-a8e3-b4e401756f85/transcript?format=TextWithTimestamps&amp;t=1792104198" type="text/plain" language="en" />
+    </item>
+    <item>
+      <title>Ep. 250: Breaking down the comeback win in Philly, keys to winning in Week 5, historic Rams-Bills matchups &amp; more</title>
+      <itunes:title>Ep. 250: Breaking down the comeback win in Philly, keys to winning in Week 5, historic Rams-Bills matchups &amp; more</itunes:title>
+      <description><![CDATA[On this episode of Between the Horns, J.B. Long, D’Marco Farr, and Maurice Jones-Drew reflect on the Los Angeles Rams' comeback win in Philadelphia, break down quarterback Matthew Stafford's performance, preview a talent-filled matchup in Week 5 vs. the Buffalo Bills, and more.<p>See <a href="https://omnystudio.com/listener">omnystudio.com/listener</a> for privacy information.</p>]]></description>
+      <content:encoded><![CDATA[On this episode of Between the Horns, J.B. Long, D’Marco Farr, and Maurice Jones-Drew reflect on the Los Angeles Rams' comeback win in Philadelphia, break down quarterback Matthew Stafford's performance, preview a talent-filled matchup in Week 5 vs. the Buffalo Bills, and more.<p>See <a href="https://omnystudio.com/listener">omnystudio.com/listener</a> for privacy information.</p>]]></content:encoded>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:author>Los Angeles Rams</itunes:author>
+      <itunes:image href="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/image.jpg?t=1654549725&amp;size=Large" />
+      <media:content url="https://podtrac.com/pts/redirect.mp3/traffic.omny.fm/d/clips/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/4068b230-b0ba-4561-aa3f-b4dd01680b60/audio.mp3?utm_source=Podcast&amp;in_playlist=e4986ba2-5d75-41a1-a722-aeac015c4dcb" type="audio/mpeg">
+        <media:player url="https://omny.fm/shows/between-the-horns/261008-bth-wk-05-v02-audio-mp3/embed?media=Audio" />
+      </media:content>
+      <media:content url="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/e4986ba2-5d75-41a1-a722-aeac015c4dcb/image.jpg?t=1654549725&amp;size=Large" type="image/jpeg" />
+      <guid isPermaLink="false">4068b230-b0ba-4561-aa3f-b4dd01680b60</guid>
+      <omny:clipId>4068b230-b0ba-4561-aa3f-b4dd01680b60</omny:clipId>
+      <pubDate>Thu, 08 Oct 2026 21:59:00 +0000</pubDate>
+      <itunes:duration>3167</itunes:duration>
+      <enclosure url="https://podtrac.com/pts/redirect.mp3/traffic.omny.fm/d/clips/e73c998e-6e60-432f-8610-ae210140c5b1/30a68660-be74-4c62-b35c-aeac015c4dbd/4068b230-b0ba-4561-aa3f-b4dd01680b60/audio.mp3?utm_source=Podcast&amp;in_playlist=e4986ba2-5d75-41a1-a722-aeac015c4dcb" length="50705228" type="audio/mpeg" />
+      <link>https://omny.fm/shows/between-the-horns/261008-bth-wk-05-v02-audio-mp3</link>
+      <podcast:transcript url="https://api.omny.fm/orgs/e73c998e-6e60-432f-8610-ae210140c5b1/clips/4068b230-b0ba-4561-aa3f-b4dd01680b60/transcript?format=SubRip&amp;t=1791496634" type="application/srt" language="en" />
+      <podcast:transcript url="https://api.omny.fm/orgs/e73c998e-6e60-432f-8610-ae210140c5b1/clips/4068b230-b0ba-4561-aa3f-b4dd01680b60/transcript?format=WebVTT&amp;t=1791496634" type="text/vtt" language="en" />
+      <podcast:transcript url="https://api.omny.fm/orgs/e73c998e-6e60-432f-8610-ae210140c5b1/clips/4068b230-b0ba-4561-aa3f-b4dd01680b60/transcript?format=TextWithTimestamps&amp;t=1791496634" type="text/plain" language="en" />
+    </item>
+  </channel>
+</rss>

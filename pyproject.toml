@@ -18,6 +18,7 @@ dependencies = [
     "tabulate>=0.10.0",
     "uvicorn>=0.52.4",
     "websockets>=17.1",
+    "youtube-transcript-api>=1.2.4",
 ]
 
 [dependency-groups]
