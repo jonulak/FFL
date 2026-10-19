@@ -170,7 +170,39 @@ def test_second_run_inserts_nothing(monkeypatch):
     monkeypatch.setattr(media, "captions", lambda vid: pytest.fail("refetched captions"))
     assert media.run_all(INDEX, now=NOW + timedelta(minutes=15))["new"] == 0
     assert len(items_of("yt:SF")) == 2
-    assert db.get_state("news_caption_lag") and len(db.get_state("news_caption_lag")) == 1
+
+
+def test_lag_recorded_only_after_pending(monkeypatch):
+    db.put_news_sources([YT])
+    serve(monkeypatch, {YT["url"]: channel()})
+    monkeypatch.setattr(media, "captions", lambda vid: SEGS)
+    media.run_all(INDEX, now=NOW)  # captions on the first read: the video may just have been seen late
+    assert db.get_state("news_caption_lag", []) == []
+
+    other = channel().replace(PRESSER_ID.encode(), b"later000000")
+    serve(monkeypatch, {YT["url"]: other})
+    answers = [None, SEGS]
+    monkeypatch.setattr(media, "captions", lambda vid: answers.pop(0))
+    media.run_all(INDEX, now=NOW)
+    media.run_all(INDEX, now=NOW + timedelta(hours=1))
+    assert len(db.get_state("news_caption_lag")) == 1
+
+
+def test_pending_never_starves_new_videos(monkeypatch):
+    db.put_news_sources([YT])
+    entry = channel().split(b" <entry>")[3].split(b"</feed>")[0]
+    ids = [f"pend{n:07d}" for n in range(12)] + ["fresh000000"]
+    feed = channel().split(b" <entry>")[0] + b"".join(
+        b" <entry>" + entry.replace(PRESSER_ID.encode(), vid.encode()) for vid in ids) + b"</feed>\n"
+    serve(monkeypatch, {YT["url"]: feed})
+    db.put_state("news_pending_media", {vid: (NOW - timedelta(hours=2)).isoformat() for vid in ids[:12]})
+    calls = []
+    monkeypatch.setattr(media, "captions", lambda vid: calls.append(vid))
+    media.run_all(INDEX, now=NOW)
+    assert calls[0] == "fresh000000" and len(calls) == media.CAPTIONS_PER_RUN
+    calls.clear()
+    media.run_all(INDEX, now=NOW + timedelta(minutes=15))  # the ones just tried wait an hour
+    assert sorted(calls) == ids[9:12]
 
 
 def test_captions_capped_per_run(monkeypatch):
@@ -214,6 +246,18 @@ def test_one_unavailable_video_does_not_stop_the_rest(monkeypatch):
     got = media.run_all(INDEX, now=NOW)
     assert got["new"] == 2 and got["failed"] == ["yt:SF"]
     assert db.news_media("good0000000") is not None
+
+
+def test_unexpected_caption_error_fails_the_source_and_saves_state(monkeypatch):
+    db.put_news_sources([YT])
+    serve(monkeypatch, {YT["url"]: channel()})
+
+    def boom(vid):
+        raise KeyError("player response changed shape")
+    monkeypatch.setattr(media, "captions", boom)
+    assert media.run_all(INDEX, now=NOW)["failed"] == ["yt:SF"]
+    assert db.get_state("news_pending_media") == {}
+    assert db.news_sources()[0]["error"].startswith("KeyError")
 
 
 def test_podcast_feed_polled_hourly(monkeypatch):

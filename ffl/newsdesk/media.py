@@ -8,11 +8,14 @@ fetched again.
 YouTube: the channel's RSS lists its newest 15 videos; a title `is_presser` is fetched through
 youtube-transcript-api (English, manual or automatic). Captions come some time after the upload: a
 presser without them yet waits in state `news_pending_media` `{video_id: first_seen}` and is retried
-each run for PENDING. Expired entries are kept, not deleted, since they are how often captions never
-came; whenever captions arrive their lag (published to fetched, minutes) is appended to state
-`news_caption_lag`. YouTube rate-limits caption reads (one HTTP 429 in testing), so they are GAP_S apart,
-at most CAPTIONS_PER_RUN a run with the pending ones first, and a blocked read stops the run's captions
-and fails its source, never reading as "no captions yet".
+for PENDING, at most once per RETRY_EVERY (its last try in state `news_pending_tried`). Expired entries
+are kept, not deleted, since they are how often captions never came; when a pending video's captions
+arrive their lag (published to fetched, minutes) is appended to state `news_caption_lag` (captions there
+on the first read are no lag: the video may simply have been seen late). YouTube rate-limits caption reads
+(one HTTP 429 in testing), so they are GAP_S apart and at most CAPTIONS_PER_RUN a run: new videos first,
+newest first, then pending ones in the slots left, so a pile of never-captioned live-stream pages cannot
+starve a new presser. A blocked read stops the run's captions and fails its source, never reading as
+"no captions yet".
 
 Podcasts: Omny feeds carry `<podcast:transcript>` in SubRip, WebVTT and plain text; SubRip is taken.
 A feed lists every episode ever published (NE's is 0.9 MB gzipped), so each is polled at most once per
@@ -30,8 +33,8 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 import requests
-from youtube_transcript_api import (CouldNotRetrieveTranscript, NoTranscriptFound, RequestBlocked, TranscriptsDisabled,
-                                    VideoUnplayable, YouTubeRequestFailed, YouTubeTranscriptApi)
+from youtube_transcript_api import (NoTranscriptFound, RequestBlocked, TranscriptsDisabled, VideoUnplayable,
+                                    YouTubeRequestFailed, YouTubeTranscriptApi)
 
 from .. import db
 from . import collect, split
@@ -49,6 +52,7 @@ LANGS = ("en", "en-US", "en-GB")
 GAP_S = 2.0
 CAPTIONS_PER_RUN = 10
 PENDING = timedelta(hours=24)
+RETRY_EVERY = timedelta(hours=1)
 TRANSCRIPT_TYPES = ("application/srt", "application/x-subrip", "text/vtt", "text/plain")  # preference order
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _YT = "{http://www.youtube.com/xml/schemas/2015}"
@@ -218,16 +222,21 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
     db.put_state("news_podcast_polled", last_poll)
 
     pending: dict[str, str] = db.get_state("news_pending_media", {}) or {}
+    tried: dict[str, str] = db.get_state("news_pending_tried", {}) or {}
     lag: list[float] = db.get_state("news_caption_lag", []) or []
 
     def waiting(vid: str) -> bool:
         return now - datetime.fromisoformat(pending[vid]) <= PENDING
 
+    def retry_due(vid: str) -> bool:
+        return waiting(vid) and (vid not in tried or now - datetime.fromisoformat(tried[vid]) >= RETRY_EVERY)
+
     videos = [(source, v) for source in sources if source["kind"] == "youtube" and source["id"] not in errors
               for v in fresh(polled[source["id"]], "video_id") if is_presser(v["title"])]
-    videos = [(s, v) for s, v in videos if v["video_id"] not in pending or waiting(v["video_id"])]
     videos.sort(key=lambda sv: sv[1]["published_at"], reverse=True)
-    videos.sort(key=lambda sv: sv[1]["video_id"] not in pending)  # pending first, then newest first
+    # new videos first; pending ones fill what is left of the budget, each at most once per RETRY_EVERY
+    videos = ([sv for sv in videos if sv[1]["video_id"] not in pending]
+              + [sv for sv in videos if sv[1]["video_id"] in pending and retry_due(sv[1]["video_id"])])
     for source, v in videos[:CAPTIONS_PER_RUN]:
         vid = v["video_id"]
         try:
@@ -235,11 +244,12 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
         except (RequestBlocked, YouTubeRequestFailed, requests.RequestException) as e:  # 429, a blocked IP, no network
             errors[source["id"]] = _err(e)
             break
-        except CouldNotRetrieveTranscript as e:  # this video's own problem (unlisted, age-gated): the rest still run
+        except Exception as e:  # noqa: BLE001 — this video's own problem (unlisted, age-gated…): the rest still run
             errors[source["id"]] = _err(e)
             continue
         if segs is None:
             pending.setdefault(vid, at)
+            tried[vid] = at
             continue
         row = {"id": vid, "source_id": source["id"], "url": YT_WATCH.format(id=vid), "title": v["title"],
                "published_at": v["published_at"]}
@@ -249,10 +259,12 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
             errors[source["id"]] = _err(e)
             continue
         stored += 1
-        pending.pop(vid, None)
-        lag.append(round((now - datetime.fromisoformat(v["published_at"])).total_seconds() / 60, 1))
+        tried.pop(vid, None)
+        if pending.pop(vid, None) is not None:  # captions on a first read say nothing of how long they took
+            lag.append(round((now - datetime.fromisoformat(v["published_at"])).total_seconds() / 60, 1))
 
     db.put_state("news_pending_media", pending)
+    db.put_state("news_pending_tried", {vid: t for vid, t in tried.items() if vid in pending and waiting(vid)})
     db.put_state("news_caption_lag", lag)
     for source in sources:
         try:
