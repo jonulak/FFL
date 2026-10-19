@@ -389,6 +389,21 @@ tr[data-fold="shut"] > td > .fold {
 }
 @keyframes landed { 0%, 35% { opacity: 1; } 100% { opacity: 0; } }
 
+/* The story a push opened (/news?story=, news-feed.tsx): it keeps a faint ink wash for as long as the page is
+   open, so it can be found again after a scroll, and arrives under the lineup move's landing wash. Ink: news is
+   not a verdict. */
+.news-story { position: relative; isolation: isolate; }
+.news-story[data-target] { background-color: color-mix(in oklab, var(--foreground) 4%, transparent); }
+.news-story[data-target]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to right, color-mix(in oklab, var(--foreground) 11%, transparent), transparent 70%);
+  animation: landed 1.8s ease-out 300ms both;
+}
+
 /* A claim group dragged among the groups (claims-panel.tsx): every card folds to its title while
    it moves, and once the lifted one has landed their bodies come back, settling down a few pixels
    as they fade in, so the unfold reads as the list opening rather than a jump. */

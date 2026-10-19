@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDecisionPrefs } from "./decision-prefs";
 
-const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], ["/nfl", "NFL"], ["/transactions", "Transactions"], ["/players", "Players"], ["/decisions", "Decisions"]] as const;
+const LINKS = [["/", "Matchup"], ["/roster", "Roster"], ["/league", "League"], ["/nfl", "NFL"], ["/transactions", "Transactions"], ["/players", "Players"], ["/news", "News"], ["/decisions", "Decisions"]] as const;
 
 // A modified or middle click opens the page in a new tab and leaves this one where it is, so it lights nothing.
 // Keyboard activation arrives as a plain click (button 0) and still lights the tab at once.

@@ -298,6 +298,29 @@ export type PlayerTx = {
   round?: number; pick?: number; overall?: number;
 };
 
+// The news desk's feed (GET /news, ffl/newsdesk/feed.py). A row is one player a story moves: Jev's effect and kind,
+// Haiku's line (`reason`, null until written) and `flag` when Haiku doubts the arrow; `owner` is who holds him now
+// (read at request time, null for a free agent and when the owners read failed). Rows come ▲/▼ first, then ●.
+export type NewsEffect = "up" | "down" | "none";
+export type NewsRow = {
+  player_id: number; name: string; pos: string | null; team: string | null;
+  effect: NewsEffect; kind: string; reason: string | null; flag: boolean;
+  owner: Owner | null; mine: boolean;
+};
+export type NewsCite = { source: string; url: string | null; at: string };
+// `first` is the earliest live source, `sources` the rest by time; `at` the last update. A corrected story's
+// status_note names the source that corrected it.
+export type Story = {
+  id: number; headline: string; overview: string; status: "live" | "corrected" | "retracted"; status_note: string | null;
+  updated: boolean; at: string; first: NewsCite | null; sources: NewsCite[]; players: NewsRow[];
+};
+// next_before: the cursor for Older, null at the end. owners_error / index_error: the read that failed, the feed
+// served without owner tags / names.
+export type NewsPage = { stories: Story[]; next_before: string | null; owners_error?: string; index_error?: string };
+export type NewsPlayer = { player_id: number; name: string; pos: string | null; team: string | null; owner: Owner | null; mine: boolean };
+export type PlayerNews = NewsPage & { player: NewsPlayer; muted: boolean };
+export type NewsHit = { player_id: number; name: string; pos: string | null; team: string | null };
+
 async function handle<T>(r: Response): Promise<T> {
   if (r.ok) return (await r.json()) as T;
   let detail: { source?: string; error?: string } = {};
