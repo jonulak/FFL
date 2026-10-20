@@ -7,4 +7,7 @@ Jev tags each item (what happened, how much it matters); items about the same ev
 a story; Haiku writes the story's one-line summary; and the stories that touch my roster or a
 waiver target go out as notices. Each stage keeps its own table, so a stage reruns without the
 ones before it.
+
+A grouping or prompt change is tried on the bench (`bench.py`, `python -m ffl.newsdesk bench`): a frozen slice of
+collected news replayed in time order with Jev's and Haiku's answers saved, checked against `bench_cases.py`.
 """

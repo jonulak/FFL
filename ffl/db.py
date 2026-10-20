@@ -1204,6 +1204,13 @@ def story(story_id: int, season: int = SEASON) -> dict | None:
         return _stories_out(c, rows, season)[0] if rows else None
 
 
+def all_stories(season: int = SEASON) -> list[dict]:
+    """Every story, dressed, in id order: the news bench's view of a replay (`newsdesk.bench`)."""
+    t = news_stories
+    with _read() as c:
+        return _stories_out(c, c.execute(sa.select(t).where(t.c.season == season).order_by(t.c.id)).all(), season)
+
+
 def recent_stories(player_ids: list[int], since: str, season: int = SEASON) -> list[dict]:
     """Stories naming any of these players and updated at or after `since`, newest first: what a new item may join,
     so never a retracted one (news after a withdrawn report is a story of its own)."""

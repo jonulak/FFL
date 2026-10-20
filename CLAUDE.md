@@ -30,6 +30,7 @@ uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice ru
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results into the DB
 uv run python -m ffl.newsdesk run      # one news-desk run (collect, tag, write, queue pushes); seed / status (launchd POSTs /news/run every 10 min)
+uv run python -m ffl.newsdesk bench    # replay frozen news (`bench freeze` first) through tagging with saved Jev answers, against ffl/newsdesk/bench_cases.py; --player grupe, --write (Haiku too), --refresh
 uv run python -m ffl.decisions list --open   # decisions still needing a rationale or outcome; add / outcome / rationale / show / export
 uv run python -m ffl.calibrate         # in-season: score STRATEGY.md's K (usage-adjusted ROS) against the weekly snapshots in the DB (calibration_*)
 uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (sigma_fits) + Brier; launchd runs `calibrate wednesday` (winprob, then sources) Wed 07:00

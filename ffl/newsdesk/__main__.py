@@ -1,7 +1,8 @@
-"""uv run python -m ffl.newsdesk run|seed|status
+"""uv run python -m ffl.newsdesk run|seed|status|bench
 
 run: one pipeline run here, printing each stage (its pushes are queued; the next notify tick sends them).
 seed: register the sources. status: each source's health and the last run's stages.
+bench: replay frozen news through tagging against the expected cases (`bench --help`; ffl/newsdesk/bench.py).
 """
 from __future__ import annotations
 
@@ -18,13 +19,16 @@ def main(argv: list[str]) -> int:
         print(json.dumps(pipeline.run(), indent=2, default=str))
     elif cmd == "seed":
         print(f"{seed.ensure()} sources registered")
+    elif cmd == "bench":
+        from . import bench
+        return bench.main(argv[1:])
     elif cmd == "status":
         for s in db.news_sources(active_only=False):
             state = "off" if not s["active"] else f"failing since {s['failing_since']}: {s['error']}" if s["error"] else f"ok {s['ok_at']}"
             print(f"{s['id']:<40} {state}")
         print(json.dumps(db.get_state("news_last_run"), indent=2, default=str))
     else:
-        print("usage: python -m ffl.newsdesk run|seed|status")
+        print("usage: python -m ffl.newsdesk run|seed|status|bench")
         return 2
     return 0
 

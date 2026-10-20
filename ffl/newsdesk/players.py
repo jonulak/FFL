@@ -104,6 +104,17 @@ def fetch_index() -> Index:
     return idx
 
 
+def _near(m: SequenceMatcher, a: str) -> bool:
+    """ratio() >= FUZZY of `a` against the matcher's full name, behind its cheap upper bounds (length, then letters):
+    the full ratio of every token pair against every player in scope was nearly all of a tagging run's time. The
+    matcher is built once a name, so the name's index is too."""
+    la, lb = len(a), len(m.b)
+    if not la or 2 * min(la, lb) / (la + lb) < FUZZY:
+        return False
+    m.set_seq1(a)
+    return m.quick_ratio() >= FUZZY and m.ratio() >= FUZZY
+
+
 _OPENERS = " \t\r\n\"\u201c\u2018'([“"
 
 
@@ -144,6 +155,7 @@ def match(text: str, index: Index, clubs: tuple[str, ...] = ()) -> list[int]:
     scope = [p for c in clubs for p in index.by_club.get(c, [])]
     if scope:
         full_of = {p: norm_name(index.by_id[p]["name"]) for p in scope}
+        fuzzy = {p: SequenceMatcher(None, "", full) for p, full in full_of.items()}
         surname: dict[str, list[int]] = {}
         for p, full in full_of.items():
             surname.setdefault(full.split()[-1], []).append(p)
@@ -154,8 +166,7 @@ def match(text: str, index: Index, clubs: tuple[str, ...] = ()) -> list[int]:
                 continue
             pair = " ".join(toks[i:i + 2])
             if i + 1 < len(toks) and not taken[i + 1]:
-                near = [p for p, full in full_of.items()
-                        if SequenceMatcher(None, pair, full).ratio() >= FUZZY]
+                near = [p for p, m in fuzzy.items() if _near(m, pair)]
                 if near:
                     if len(near) == 1:
                         found.append((i, near[0]))
