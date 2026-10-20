@@ -317,7 +317,7 @@ def test_run_claude_invokes_the_cli_without_tools(monkeypatch):
     monkeypatch.setattr(outlook.subprocess, "run", fake_run)
     monkeypatch.setenv("CLAUDECODE", "1")
     assert outlook.run_claude("the sheet") == [TAKE]
-    assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--model", "opus",
+    assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--model", "sonnet",
                              "--tools", "", "--no-session-persistence", "--settings", '{"disableAllHooks": true}',
                              "--output-format", "json",
                              "--json-schema", json.dumps(outlook.SCHEMA)]

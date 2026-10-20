@@ -23,7 +23,9 @@ from .config import DATA
 HOOKS_OFF = claude_cli.HOOKS_OFF  # moved to claude_cli; still importable from here
 
 OUTLOOK_DIR = DATA / "outlook"  # only the neutral cwd for `claude -p` (the outlooks live in the DB)
-MODEL = "opus"
+# Sonnet over Opus (2026-10-20, the whole Week 7 roster through both): the same facts read right, ~11.6 s a card
+# against ~15.4 s, and Sonnet the clearer where sources disagreed
+MODEL = "sonnet"
 # no web search: the news desk has already collected and tagged the news (news.fetch_desk), so a call only writes
 TIMEOUT_S = 180
 TOOLS = ""
@@ -250,8 +252,7 @@ def parse_envelope(stdout: str) -> list[dict]:
 
 
 def run_claude(prompt: str) -> list[dict]:
-    """One outlook through the Claude Code CLI: Opus with web search and fetch (allowed up front: there is
-    nobody to answer a permission prompt), structured output, the sheet on stdin, run from the neutral
+    """One outlook through the Claude Code CLI: MODEL with no tools, structured output, the sheet on stdin, run from the neutral
     OUTLOOK_DIR so the CLI reads no CLAUDE.md (the sheet is the whole prompt)."""
     return normalize(claude_cli.run(prompt, model=MODEL, schema=SCHEMA, tools=TOOLS, cwd=OUTLOOK_DIR,
                                     timeout=TIMEOUT_S))
@@ -314,7 +315,7 @@ def running() -> bool:
 def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
     """Run generate() on a daemon thread under LOCK; Busy when one is already running.
 
-    POST /outlook/refresh cannot wait: a week rollover is a dozen Opus calls with web search, WORKERS at a time and the
+    POST /outlook/refresh cannot wait: a week rollover is a roster of ~12 s calls, WORKERS at a time, and the
     page's fetch gives up at twenty seconds. LAST carries the finished run's counts to the page.
     """
     if not LOCK.acquire(blocking=False):

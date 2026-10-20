@@ -278,7 +278,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   carries `call_slot`, the slot `optimal_lineup` places him in (`_place_by_kickoff`: same starters, latest kickoffs in
   flex, a started game kept in place), and the chip names it;
   `ffl/outlook.py` writes labelled bullets under each card (Injury, Usage, Depth, Team, Take; each cites
-  dated, linked sources; never projections) by running `claude -p` (Opus, no tools: ~15 s a card) from a
+  dated, linked sources; never projections) by running `claude -p` (Sonnet, no tools: ~12 s a card) from a
   fact sheet alone: the card's non-projection facts, per-game usage rows (`form["rows"]`) and `ffl/news.py`'s
   context — the news desk's stories naming him from the last ten days, its only news (`news.fetch_desk` over
   `db.player_stories`: the desk's write-up, his ▲/▼/● line, each live source's site, date and link; the desk
