@@ -7,7 +7,7 @@ already known; under FRESH his effect is forced to ●, so a preview naming an o
 and `kind:<pid>`; with stories in the window, `story` (which one this
 item reports, or `new`) and `retract` (does it say an earlier report was wrong). The story pick is a
 proposal: the item joins only at STORY_ATTACH_PROB, through a shared player with the same kind of news
-(`_joins`). Failing that, a player the item moves (▲/▼) threads it into his newest story of the same kind
+(`_joins`; role and depth count as one, `_same_kind`). Failing that, a player the item moves (▲/▼) threads it into his newest story of the same kind
 updated within THREAD_HOURS, one he leads (`_lead`: its founding item's surest mover) and is ▲/▼ on (`_thread`):
 doubtful, out and IR are steps of one situation, not three stories. Otherwise it starts its own story. An attached item that
 adds a material fact (`changed`, a second call) bumps the story's rev, so it is written and pushed
@@ -182,12 +182,21 @@ def _kind(kept: list[dict]) -> str:
     return next((p["kind"] for p in kept if p["effect"] != "none"), kept[0]["kind"])
 
 
+# Kinds that are one kind of news for grouping: a signing or a release is "role" to one source and "depth" to the
+# next (Jev split Dalton's move to Atlanta 71% role / 48% depth, 2026-10-19, and it became five stories).
+KIND_FAMILY = {"depth": "role"}
+
+
+def _same_kind(a: str | None, b: str | None) -> bool:
+    return a is not None and KIND_FAMILY.get(a, a) == KIND_FAMILY.get(b, b)
+
+
 def _joins(story: dict, kept: list[dict], prob: float | None) -> bool:
     """Jev's story pick is a proposal; it stands only when Jev is sure enough and the story shares a player
     the item is about, with the same kind of news for him. An injury report never sinks into a game recap:
     a merged story hides the news, a duplicate does not."""
     on = {p["player_id"]: p["kind"] for p in story["players"]}
-    return (prob or 0) >= STORY_ATTACH_PROB and any(on.get(p["player_id"]) == p["kind"] for p in kept)
+    return (prob or 0) >= STORY_ATTACH_PROB and any(_same_kind(on.get(p["player_id"]), p["kind"]) for p in kept)
 
 
 def _lead(story: dict) -> int | None:
@@ -214,7 +223,7 @@ def _thread(cands: list[dict], kept: list[dict], now: datetime) -> tuple[dict, l
 
     def his(c: dict, p: dict) -> bool:
         return (c["updated_at"] >= since and _lead(c) == p["player_id"]
-                and any(r["player_id"] == p["player_id"] and r["effect"] != "none" and r["kind"] == p["kind"]
+                and any(r["player_id"] == p["player_id"] and r["effect"] != "none" and _same_kind(r["kind"], p["kind"])
                         for r in c["players"]))
 
     for p in sorted((p for p in kept if p["effect"] != "none"), key=lambda p: p["prob"], reverse=True):

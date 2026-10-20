@@ -14,7 +14,7 @@ import { Heading } from "./player-dialog";
 
 // The player dialog's News section: his newest three stories (`recent`, recentFor's), each the headline (two lines at
 // most, opening the story in the feed and closing the modal), the stamp (storyStamp: the source, linked off-site, or
-// Updated) and its age, then his line (the arrow and Haiku's words, the feed's own Line); last, the way on to all his
+// Updated) and its age, then his line (the effect's colour and Haiku's words, the feed's own Line); last, the way on to all his
 // news and the push mute. The overview is left to the feed, one tap away. The caller leaves the section out when he
 // has no story.
 export function RecentNews({ d, recent }: { d: PlayerNews; recent: Recent }) {
@@ -28,7 +28,7 @@ export function RecentNews({ d, recent }: { d: PlayerNews; recent: Recent }) {
           const stamp = storyStamp(s);
           return (
             <li key={s.id} className="space-y-1.5 py-2.5">
-              <DialogClose nativeButton={false} render={<Link href={filterHref("all", false, s.id)} />}
+              <DialogClose nativeButton={false} render={<Link href={filterHref("all", s.id)} />}
                 className={`line-clamp-2 rounded-sm text-[0.9375rem] font-medium leading-snug text-balance outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${s.status === "retracted" ? "text-foreground/60" : ""} ${NAME_LINK}`}>
                 {s.headline}
               </DialogClose>

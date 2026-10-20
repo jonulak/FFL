@@ -160,6 +160,19 @@ def test_attach_needs_same_kind():
     assert got["new"] == 1 and got["attached"] == 0 and db.story(recap)["items"] == []
 
 
+def test_role_and_depth_are_one_kind_of_news():
+    """A signing is called role by one source and depth by the next (Dalton to Atlanta, 2026-10-19: five stories).
+    Both count as the same news for joining, through Jev's pick and through his thread."""
+    picked = story(kind="role", at=OLD)  # past THREAD_HOURS: only Jev's pick can join it
+    item("a", "Kyren Williams moves up the depth chart")
+    got = tag.run(INDEX, ask=fake(story=f"s{picked}", kind="depth"), now=NOW)
+    assert got["attached"] == 1 and len(db.story(picked)["items"]) == 1
+    threaded = story(players=(2,), kind="depth", effect="up")
+    item("b", "Puka Nacua's role grows")
+    got = tag.run(INDEX, ask=fake(story="new", kind="role", effect="up"), now=NOW)
+    assert got["attached"] == 1 and got["new"] == 0 and len(db.story(threaded)["items"]) == 1
+
+
 def test_attach_needs_prob():
     sid = story(at=OLD)  # a candidate, but past THREAD_HOURS: only Jev's pick can join it
     item("a", "Kyren Williams limited again")

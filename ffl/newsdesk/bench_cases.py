@@ -78,6 +78,15 @@ def no_mixed_threads(s: Slice) -> tuple[bool, str]:
     return not mixed, detail
 
 
+def dalton_signing(s: Slice) -> tuple[bool, str]:
+    """The Falcons signing Andy Dalton (and releasing Cooper Rush) is one ▲ story: sources called it role and depth by
+    turns, and the exact-kind rule made it five (2026-10-19). The signing's stories are the ones he is ▲ on that he or
+    Cooper Rush leads; his ▲ on another's story (the Eagles' depth on Hurts's IR) is another development."""
+    dalton, rush = s.pid("Andy Dalton"), s.pid("Cooper Rush")
+    signing = [st for st in s.arrows(dalton, "up") if s.lead(st) in (dalton, rush)]
+    return len(signing) == 1, f"{len(signing)} ▲ signing stories {_ids(signing)}".rstrip()
+
+
 # (the namesake in the text, the player it must not move, the word only the player's own mention has)
 COACHES = (("Ben Johnson", "Roschon Johnson", "roschon"), ("Lavonte David", "David Sills", "sills"))
 
@@ -103,6 +112,8 @@ CASES = [
     Case("adams-hamstring", "Davante Adams's hamstring is one ▼ injury story", adams_hamstring, ("Davante Adams",)),
     Case("hurts-season", "Jalen Hurts's blood clots are at most 3 ▼ stories, none made of passing mentions",
          hurts_season, (HURTS,)),
+    Case("dalton-signing", "Andy Dalton's signing in Atlanta (Cooper Rush released) is one ▲ story, role or depth",
+         dalton_signing, ("Andy Dalton",)),
     Case("no-mixed-threads", "no story threads in another player's news", no_mixed_threads),
     Case("coach-not-player", "coach Ben Johnson never moves Roschon Johnson; Lavonte David never moves David Sills",
          coach_not_player, ("Roschon Johnson", "David Sills")),

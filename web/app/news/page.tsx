@@ -7,23 +7,22 @@ import { parseId, parseNewsFilter } from "@/lib/news";
 export const dynamic = "force-dynamic";
 
 // The news desk's wire: every written story that moves somebody, newest update first, its players tagged with who
-// holds them now. `?filter=` narrows it to mine, free agents or other rosters; `?quiet=1` adds the stories that move
-// nobody; `?story=` is a push's target, read on its own so it shows whatever the feed leaves out.
-export default async function Page({ searchParams }: { searchParams: Promise<{ filter?: string | string[]; story?: string | string[]; quiet?: string | string[] }> }) {
+// holds them now. `?filter=` narrows it to mine, free agents or other rosters; `?story=` is a push's target, read on
+// its own so it shows whatever the feed leaves out.
+export default async function Page({ searchParams }: { searchParams: Promise<{ filter?: string | string[]; story?: string | string[] }> }) {
   const sp = await searchParams;
   const filter = parseNewsFilter(sp.filter);
-  const quiet = sp.quiet === "1";
   const target = parseId(sp.story);
   let d: NewsPage;
   let pinned: Story | null = null;
   try {
     // a story gone (404) or unreadable is no pin: the page says the story is no longer in the feed
     [d, pinned] = await Promise.all([
-      apiGet<NewsPage>(`/news?filter=${filter}${quiet ? "&quiet=1" : ""}`),
+      apiGet<NewsPage>(`/news?filter=${filter}`),
       target == null ? null : apiGet<Story>(`/news/story/${target}`).catch(() => null),
     ]);
   } catch (e) {
     return <ErrorCard {...errorFields(e)} />;
   }
-  return <NewsFeed data={d} filter={filter} target={target} pinned={pinned} quiet={quiet} />;
+  return <NewsFeed data={d} filter={filter} target={target} pinned={pinned} />;
 }

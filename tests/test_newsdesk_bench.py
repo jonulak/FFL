@@ -108,7 +108,7 @@ def test_cases_over_a_small_db():
     # restricted to Grupe: the cases watching nobody he is are skipped, the league-wide ones still run
     only = {r["id"]: r["status"] for r in bench.evaluate(bench_cases.CASES, db.all_stories(), INDEX,
                                                           selected={GRUPE})}
-    assert only == {"grupe-knee": "FAIL", "adams-hamstring": "SKIP", "hurts-season": "SKIP",
+    assert only == {"grupe-knee": "FAIL", "adams-hamstring": "SKIP", "hurts-season": "SKIP", "dalton-signing": "SKIP",
                     "no-mixed-threads": "FAIL", "coach-not-player": "SKIP"}
 
 

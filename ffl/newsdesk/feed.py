@@ -58,8 +58,9 @@ def shape(stories: list[dict], owners: dict[int, dict], me: int, index: Index, s
 
 
 def keep(story: dict, filter: str) -> bool:
-    """Whether a shaped story shows under the filter: some row is mine / a free agent / on another team."""
-    rows = story["players"]
+    """Whether a shaped story shows under the filter: some row is mine / a free agent / on another team. Only the
+    rows it moves count, since the page draws no chip for a player it merely names."""
+    rows = [p for p in story["players"] if p["effect"] != "none"]
     if filter == "mine":
         return any(p["mine"] for p in rows)
     if filter == "fa":
@@ -70,7 +71,7 @@ def keep(story: dict, filter: str) -> bool:
 
 
 def moves(story: dict) -> bool:
-    """A shaped story moves somebody: some row is ▲ or ▼. The /news feed hides the rest unless asked (`quiet`)."""
+    """A shaped story moves somebody: some row is ▲ or ▼. The /news feed hides the rest."""
     return any(p["effect"] != "none" for p in story["players"])
 
 

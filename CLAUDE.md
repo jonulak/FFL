@@ -194,7 +194,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
 - **News desk** (`ffl/newsdesk/`, beads ffl-0gv): `pipeline.run` is seed (`seed.SOURCES`) → index (`players.fetch_index`) →
   `collect.run_all` then `collect.recheck` (in that order: recheck's "still in the feed" is the poll just made) →
   `media.run_all` (transcripts split per player) → `tag.run` (Jev: effect ▲/▼/●, kind, story) → `write.run` (Haiku through
-  `claude -p`: headline, overview, a line per player) → notices → `health.notices`, each stage tried alone (the index's
+  `claude -p`: headline, overview, a line per player it moves ▲/▼; one it only names gets no line and no place on his news page) → notices → `health.notices`, each stage tried alone (the index's
   stages skipped without one), the stage dict in state `news_last_run`. `POST /news/run` (202; 409 while `_NEWS` is held)
   runs it on a thread and flushes after if `_NOTIFY` is free; `launchd/com.jonulak.ffl-news` POSTs it every 10 min;
   `GET /news/status` is the sources' health and the last run. A push (`notices.for_story`, kind `news`, the `news` pref)

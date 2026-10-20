@@ -1956,7 +1956,7 @@ def test_api_news_routes(news_client):
     assert db.get_state("news_mutes") == []
 
 
-def test_news_quiet_param(news_client):
+def test_news_hides_stories_that_move_nobody(news_client):
     now = datetime.now(timezone.utc)
 
     def t(h):
@@ -1974,10 +1974,10 @@ def test_news_quiet_param(news_client):
     assert [s["headline"] for s in page["stories"]] == ["mover 1", "mover 2"] and page["next_before"]
     nxt = news_client.get("/news", params={"limit": 2, "before": page["next_before"]}).json()
     assert [s["headline"] for s in nxt["stories"]] == ["mover 3"] and nxt["next_before"] is None
-    every = news_client.get("/news?quiet=1").json()["stories"]
-    assert [s["headline"] for s in every] == ["quiet 1", "quiet 2", "mover 1", "quiet 3", "mover 2", "mover 3"]
-    # a player's page keeps everything
-    assert len(news_client.get("/news/player/1").json()["stories"]) == 3
+    # no switch brings them back: an old ?quiet=1 is ignored
+    assert [s["headline"] for s in news_client.get("/news?quiet=1").json()["stories"]] == ["mover 1", "mover 2", "mover 3"]
+    # a player's page keeps only the stories he is a subject of (his row ▲/▼), never one that just names him
+    assert [s["headline"] for s in news_client.get("/news/player/1").json()["stories"]] == ["mover 2"]
 
 
 def test_news_story_route(news_client):

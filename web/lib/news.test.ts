@@ -1,18 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { NewsRow, PlayerNews, Story } from "./api";
-import { arrow, filterHref, ownerTag, parseId, parseNewsFilter, playerNewsHref, recentFor, splitRows, statusLabel, storyStamp } from "./news";
+import { filterHref, ownerTag, parseId, parseNewsFilter, playerNewsHref, recentFor, chipRows, statusLabel, storyStamp } from "./news";
 
 const row = (over: Partial<NewsRow> = {}): NewsRow => ({
   player_id: 1, name: "Blake Corum", pos: "RB", team: "LAR", effect: "up", kind: "role", reason: null, flag: false,
   owner: null, mine: false, ...over,
-});
-
-describe("arrow", () => {
-  it("draws the effect", () => {
-    expect(arrow("up")).toBe("▲");
-    expect(arrow("down")).toBe("▼");
-    expect(arrow("none")).toBe("●");
-  });
 });
 
 describe("filterHref", () => {
@@ -21,10 +13,9 @@ describe("filterHref", () => {
     expect(filterHref("mine")).toBe("/news?filter=mine");
     expect(filterHref("all")).toBe("/news");
   });
-  it("carries the no-change switch and a story target", () => {
-    expect(filterHref("all", true)).toBe("/news?quiet=1");
-    expect(filterHref("fa", true)).toBe("/news?filter=fa&quiet=1");
-    expect(filterHref("all", false, 7)).toBe("/news?story=7");
+  it("carries a story target", () => {
+    expect(filterHref("all", 7)).toBe("/news?story=7");
+    expect(filterHref("fa", 7)).toBe("/news?filter=fa&story=7");
   });
 });
 
@@ -47,21 +38,24 @@ describe("ownerTag", () => {
   });
 });
 
-describe("splitRows", () => {
-  it("parts the arrows from the no-change rows, order kept", () => {
+describe("chipRows", () => {
+  it("keeps the players the story moves, order kept, and drops the no-change ones", () => {
     const rows = [row({ player_id: 1 }), row({ player_id: 2, effect: "none" }), row({ player_id: 3, effect: "down" })];
-    const { moved, none } = splitRows(rows);
-    expect(moved.map((r) => r.player_id)).toEqual([1, 3]);
-    expect(none.map((r) => r.player_id)).toEqual([2]);
+    expect(chipRows(rows).map((r) => r.player_id)).toEqual([1, 3]);
   });
 
-  it("shows only my rows, all of them, under My players", () => {
+  it("keeps only my moved rows under My players", () => {
     const rows = [row({ player_id: 1 }), row({ player_id: 2, effect: "none", mine: true }), row({ player_id: 3, effect: "none" }),
                   row({ player_id: 4, effect: "down", mine: true })];
-    expect(splitRows(rows).none.map((r) => r.player_id)).toEqual([2, 3]);
-    const { moved, none } = splitRows(rows, true);
-    expect(moved.map((r) => r.player_id)).toEqual([2, 4]);
-    expect(none).toEqual([]);
+    expect(chipRows(rows, "mine").map((r) => r.player_id)).toEqual([4]);
+  });
+
+  it("keeps only the free agents under Free agents", () => {
+    const team = { team_id: 3, name: "Other", abbrev: "OTH" };
+    const rows = [row({ player_id: 1 }), row({ player_id: 2, owner: team }), row({ player_id: 3, effect: "down", mine: true, owner: { ...team, team_id: 7 } }),
+                  row({ player_id: 4, effect: "none" })];
+    expect(chipRows(rows, "fa").map((r) => r.player_id)).toEqual([1]);
+    expect(chipRows(rows, "all").map((r) => r.player_id)).toEqual([1, 2, 3]);
   });
 });
 

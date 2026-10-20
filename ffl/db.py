@@ -1274,7 +1274,8 @@ def news_feed(before: str | None, limit: int, player_id: int | None = None, sinc
     """Written stories (retracted and corrected ones too, with their status), newest news first (latest_at: an
     update is its newest source, so it re-surfaces the story), strictly after the cursor `before` ("<latest_at>|<id>"
     in the (latest_at, id) order, or a bare timestamp, which is everything older); optionally only those naming a
-    player, or with news at or after `since`."""
+    player as a subject (his row ▲ or ▼: a story that only names him, ●, is not his news), or with news at or after
+    `since`."""
     t, p = news_stories, news_story_players
     q = sa.select(t).where(t.c.season == season, t.c.written_rev >= 1)
     if before:
@@ -1284,7 +1285,8 @@ def news_feed(before: str | None, limit: int, player_id: int | None = None, sinc
     if since is not None:
         q = q.where(t.c.latest_at >= since)
     if player_id is not None:
-        q = q.where(t.c.id.in_(sa.select(p.c.story_id).where(p.c.season == season, p.c.player_id == player_id)))
+        q = q.where(t.c.id.in_(sa.select(p.c.story_id).where(p.c.season == season, p.c.player_id == player_id,
+                                                             p.c.effect != "none")))
     q = q.order_by(t.c.latest_at.desc(), t.c.id.desc()).limit(limit)
     with _read() as c:
         return _stories_out(c, c.execute(q).all(), season)

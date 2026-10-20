@@ -156,6 +156,16 @@ def test_news_feed_hides_unwritten_and_pages():
     assert [s["id"] for s in db.news_feed(None, 10, since="2026-10-16T00:00:00")] == [s3, s2]
 
 
+def test_news_feed_player_only_where_he_is_a_subject():
+    moved = story("2026-10-15T10:00:00", players=[1])
+    named = story("2026-10-16T10:00:00", players=[2])
+    db.put_story_players(named, [{"player_id": 1, "effect": "none", "kind": "role", "prob": 0.5, "confidence": 0.5}])
+    for s in (moved, named):
+        db.put_story_words(s, 1, "H", "O", {})
+    assert [s["id"] for s in db.news_feed(None, 10, player_id=1)] == [moved]
+    assert [s["id"] for s in db.news_feed(None, 10, player_id=2)] == [named]
+
+
 def test_feed_pages_through_equal_timestamps():
     ids = [story("2026-10-17T10:00:00") for _ in range(5)]
     for sid in ids:

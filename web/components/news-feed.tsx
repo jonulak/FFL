@@ -5,7 +5,6 @@ import { useEffect, useOptimistic, useState, useTransition, ViewTransition } fro
 import { clientGet } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { NewsPage, PlayerNews, Story } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
@@ -58,8 +57,8 @@ function Notices({ d }: { d: NewsPage }) {
   );
 }
 
-function List({ stories, focus, target, tagged, onlyMine = false, empty, next, loading, failed, older, pending = false }: {
-  stories: Story[]; focus?: number; target?: number | null; tagged: boolean; onlyMine?: boolean; empty: string;
+function List({ stories, focus, target, tagged, filter = "all", empty, next, loading, failed, older, pending = false }: {
+  stories: Story[]; focus?: number; target?: number | null; tagged: boolean; filter?: NewsFilter; empty: string;
   next: string | null; loading: boolean; failed: boolean; older: () => void; pending?: boolean;
 }) {
   return (
@@ -71,7 +70,7 @@ function List({ stories, focus, target, tagged, onlyMine = false, empty, next, l
               ? <p className="px-4 py-6 text-center text-xs text-muted-foreground">{empty}</p>
               : (
                 <ul className="divide-y divide-foreground/10">
-                  {stories.map((s) => <NewsStory key={s.id} s={s} focus={focus} target={s.id === target} tagged={tagged} onlyMine={onlyMine} />)}
+                  {stories.map((s) => <NewsStory key={s.id} s={s} focus={focus} target={s.id === target} tagged={tagged} filter={filter} />)}
                 </ul>
               )}
           </CardContent>
@@ -98,25 +97,23 @@ const EMPTY: Record<NewsFilter, string> = {
 };
 
 // /news: the search, the four filters (URL state, ?filter=) and the feed. Stories that move nobody (every row ●) are
-// left out by the API unless the switch is on (?quiet=1), so each page fills with stories that move someone.
+// left out by the API, so each page fills with stories that move someone.
 // `target` is ?story=, the story a push opened: scrolled to and washed in ink. `pinned` is that story read on its own
 // (GET /news/story/{id}); when the first page does not hold it (the feed hides it, the filter excludes it, or it is
 // further back) it stands first, so a push always lands on its story.
-export function NewsFeed({ data, filter, target, pinned, quiet }: {
-  data: NewsPage; filter: NewsFilter; target: number | null; pinned: Story | null; quiet: boolean;
+export function NewsFeed({ data, filter, target, pinned }: {
+  data: NewsPage; filter: NewsFilter; target: number | null; pinned: Story | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  // the chip pressed and the switch take at once; the page's own values take over when it lands
+  // the tab pressed takes at once; the page's own value takes over when it lands
   const [shown, setShown] = useOptimistic(filter);
-  const [quietShown, setQuietShown] = useOptimistic(quiet);
-  const { stories, next, loading, failed, older } = useOlder(data, `/news?filter=${filter}${quiet ? "&quiet=1" : ""}`);
+  const { stories, next, loading, failed, older } = useOlder(data, `/news?filter=${filter}`);
   const pinOn = pinned != null && !data.stories.some((s) => s.id === pinned.id);
   const list = pinOn ? [pinned, ...stories.filter((s) => s.id !== pinned.id)] : stories;
-  const go = (f: NewsFilter, q: boolean) => start(() => {
+  const go = (f: NewsFilter) => start(() => {
     setShown(f);
-    setQuietShown(q);
-    router.replace(filterHref(f, q, target), { scroll: false });
+    router.replace(filterHref(f, target), { scroll: false });
   });
   useEffect(() => {
     if (target == null) return;
@@ -134,27 +131,23 @@ export function NewsFeed({ data, filter, target, pinned, quiet }: {
           in full ink over a bar that slides to it; it scrolls on a phone too narrow for the four */}
       <Tabs value={shown} onValueChange={(v) => {
         const f = v as NewsFilter;
-        if (f !== filter) go(f, quiet);
+        if (f !== filter) go(f);
       }} aria-label="Whose news">
         <TabsList variant="line" indicatorInset="0.625rem" className="h-10 w-full justify-start gap-0 overflow-x-auto overflow-y-hidden border-b border-foreground/12 p-0 [scrollbar-width:none]">
           {NEWS_FILTERS.map(([f, label]) => (
             <TabsTrigger key={f} value={f}
-              className="h-full flex-none rounded-none px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground">
+              className="h-full flex-none rounded-none px-1.5 font-display text-[0.875rem] font-semibold uppercase tracking-[0.08em] sm:px-2.5 sm:text-[0.9375rem] sm:tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground">
               {label}
             </TabsTrigger>
           ))}
         </TabsList>
       </Tabs>
-      <label className="flex w-fit cursor-pointer items-center gap-2.5 text-xs text-muted-foreground">
-        <Switch className="data-unchecked:bg-foreground/20 dark:data-unchecked:bg-foreground/25" checked={quietShown} onCheckedChange={(on) => go(filter, on)} />
-        Show no-change stories
-      </label>
       <Notices d={data} />
       {target != null && !pinned && !stories.some((s) => s.id === target) && (
         <p className="text-xs text-muted-foreground">The story from the notification is no longer in the feed.</p>
       )}
-      <List stories={list} target={target} tagged={!data.owners_error} onlyMine={filter === "mine"} next={next} loading={loading} failed={failed} older={older} pending={pending}
-        empty={quiet ? EMPTY[filter] : `${EMPTY[filter]} Stories that move nobody are hidden.`} />
+      <List stories={list} target={target} tagged={!data.owners_error} filter={filter} next={next} loading={loading} failed={failed} older={older} pending={pending}
+        empty={EMPTY[filter]} />
     </div>
   );
 }

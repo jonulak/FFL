@@ -56,6 +56,12 @@ def test_keep_filters():
     assert feed.keep(only_fa, "all")
 
 
+def test_keep_counts_only_moved_players():
+    # mine is only named (no change), a free agent moves: the page draws no chip for mine, so My players skips it
+    named_mine = shape(story(prow(1, effect="none"), prow(3)))[0]
+    assert not feed.keep(named_mine, "mine") and feed.keep(named_mine, "fa")
+
+
 def test_player_view_only_his_row():
     out = shape(story(prow(1), prow(2)), player=2)[0]
     assert [r["player_id"] for r in out["players"]] == [2]

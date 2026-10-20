@@ -33,8 +33,14 @@ def answer(sid, disagree=False):
 def test_prompt_carries_jev_effects():
     sid = make()
     text = write.prompt(db.unwritten_stories(10), INDEX)
-    assert "Kyren Williams" in text and "up" in text and "Puka Nacua" in text and "none" in text
+    assert "Kyren Williams" in text and "up (▲)" in text
     assert "Body text %d-0" % sid in text and "Body text %d-1" % sid in text
+
+
+def test_prompt_asks_no_line_for_an_unmoved_player():
+    make()
+    text = write.prompt(db.unwritten_stories(10), INDEX)
+    assert "Puka Nacua" not in text and "none (●)" not in text  # Nacua is only named: no line is asked for him
 
 
 def steps(texts, sources=None):
@@ -124,12 +130,10 @@ def test_reword_writes_without_a_written_id():
     assert (s["headline"], s["rev"], s["written_rev"], s["reword"]) == ("Williams placed on IR", 1, 1, 0)
 
 
-def test_prompt_says_corrected_and_passing_mention():
-    sid = make(jev={"fresh:2": {"type": "noul", "noul": 0.55}})
+def test_prompt_says_corrected():
+    sid = make()
     db.set_story_status(sid, "corrected", AT, "PFT")
-    text = write.prompt(db.unwritten_stories(10), INDEX)
-    assert "status: corrected; note: PFT" in text and "passing mention" in text
-    assert text.count("the model judged this a passing mention") == 1  # Nacua only; Williams is up
+    assert "status: corrected; note: PFT" in write.prompt(db.unwritten_stories(10), INDEX)
 
 
 def test_run_writes_and_flags():
@@ -222,3 +226,12 @@ def test_unmoved_player_without_a_line_still_written():
     got = answer(sid)
     got["stories"][0]["players"] = got["stories"][0]["players"][:1]  # Nacua (●) has no line
     assert write.run(INDEX, run_cli=lambda prompt, **kw: got)["written"] == 1
+
+
+def test_a_line_for_an_unmoved_player_is_not_stored():
+    sid = make()
+    write.run(INDEX, run_cli=lambda prompt, **kw: answer(sid))  # Haiku sent Nacua (●) a line anyway
+    with db._read() as c:
+        rows = dict(c.execute(db.sa.select(db.news_story_players.c.player_id, db.news_story_players.c.reason)
+                              .where(db.news_story_players.c.story_id == sid)).all())
+    assert rows == {1: "Out with a knee.", 2: None}

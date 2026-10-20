@@ -1,4 +1,5 @@
-"""Haiku writes each story's headline, overview and a line per player explaining Jev's arrow.
+"""Haiku writes each story's headline, overview and a line per player it moves (▲/▼) explaining Jev's arrow;
+a player it only names (●) gets no line.
 
 Jev decides the effect (▲ up / ▼ down / ● none); Haiku only words it, from the sources, and says when
 the sources do not support the arrow (`disagree`, stored as the player's flag). A story is a situation that
@@ -14,7 +15,7 @@ from datetime import datetime, timezone
 
 from .. import claude_cli, db
 from ..config import DATA
-from . import tag, usage
+from . import usage
 from .players import Index
 
 BATCH = 8
@@ -40,22 +41,19 @@ For each story below, give:
 - headline: at most {HEADLINE} characters, plain: where things stand now, from the newest source. Never an earlier
   step the newer sources have moved past.
 - overview: at most two sentences, carrying how it got there.
-- players: for every listed player, including those marked none (●), one line of at most {LINE} characters
-  explaining why the model's effect on that player's fantasy value is what it is, as things stand now. The effect
-  is the model's call; explain it, from the sources only. Do not invent facts, dates or numbers that the sources lack.
-  `disagree: true` when the sources do not support that effect (say why in the line); otherwise false.
-An effect of none (●) is often a player merely named: in a recap or preview of news already known, or as a
-side mention. When the model marked it a passing mention of known news, say so ("only mentioned in a recap
-of his known injury"); do not make news of it.
+- players: for every listed player, one line of at most {LINE} characters explaining why the model's effect on
+  that player's fantasy value is what it is, as things stand now. The effect is the model's call; explain it, from
+  the sources only. Do not invent facts, dates or numbers that the sources lack. `disagree: true` when the sources
+  do not support that effect (say why in the line); otherwise false. A story with no players listed takes an
+  empty list.
 A story whose status is corrected or retracted must say so plainly in both the headline and the overview
 (for example "Correction: ..." or "Report withdrawn: ..."), naming the status note's source when given.
 Answer for every story id given."""
 
 
-def _passing(story: dict, pid: int) -> bool:
-    """Did Jev judge an item of the story a passing mention of known news for this player?"""
-    key = f"fresh:{pid}"
-    return any(((i.get("jev") or {}).get(key) or {}).get("noul", 1.0) < tag.FRESH for i in story["items"])
+def _moved(s: dict) -> list[dict]:
+    """The players the story moves (▲/▼), the only ones given a line: one it merely names (●) is not its subject."""
+    return [p for p in s["players"] if p["effect"] != "none"]
 
 
 def _when(at: str) -> str:
@@ -88,13 +86,10 @@ def _story(s: dict, index: Index, sources: dict[str, dict]) -> str:
     note = f"; note: {s['status_note']}" if s.get("status_note") else ""
     out = [f"## Story {s['id']} (status: {s['status']}{note})", *_sources(s, sources)]
     out.append("Players:")
-    for p in s["players"]:
+    for p in _moved(s):
         info = index.by_id.get(p["player_id"]) or {}
-        line = (f"- player_id {p['player_id']}: {info.get('name', '?')}, {info.get('pos', '?')}, {info.get('team', '?')}; "
-                f"effect {ARROW.get(p['effect'], p['effect'])}, kind {p['kind']}")
-        if p["effect"] == "none" and _passing(s, p["player_id"]):
-            line += "; the model judged this a passing mention of news already known"
-        out.append(line)
+        out.append(f"- player_id {p['player_id']}: {info.get('name', '?')}, {info.get('pos', '?')}, {info.get('team', '?')}; "
+                   f"effect {ARROW.get(p['effect'], p['effect'])}, kind {p['kind']}")
     return "\n".join(out)
 
 
@@ -113,12 +108,11 @@ def _put(s: dict, w: dict | None) -> bool:
     without a line (his push needs one). Those, like a story Haiku skipped, stay unwritten for the next run."""
     if w is None:
         return False
-    mine = {p["player_id"] for p in s["players"]}
+    moved = {p["player_id"] for p in _moved(s)}
     lines = {int(x["player_id"]): (_trim(x["reason"], LINE), bool(x["disagree"]))
-             for x in w.get("players") or [] if int(x["player_id"]) in mine}
+             for x in w.get("players") or [] if int(x["player_id"]) in moved}
     headline, overview = _trim(w["headline"], HEADLINE), (w["overview"] or "").strip()
-    if not headline or not overview or any(p["effect"] != "none" and not (lines.get(p["player_id"]) or ("",))[0]
-                                           for p in s["players"]):
+    if not headline or not overview or any(not (lines.get(pid) or ("",))[0] for pid in moved):
         return False
     return db.put_story_words(s["id"], s["rev"], headline, overview, lines, reword=s.get("reword") or 0)
 

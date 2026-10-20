@@ -14,11 +14,10 @@ export function parseId(raw: string | string[] | undefined): number | null {
   return typeof raw === "string" && raw !== "" && Number.isInteger(n) && n > 0 ? n : null;
 }
 
-// The page's URL: the filter and, when no-change stories are shown, `quiet=1` (the feed hides them by default).
-export function filterHref(f: NewsFilter, quiet = false, story: number | null = null): string {
+// The page's URL: the filter and a push's story.
+export function filterHref(f: NewsFilter, story: number | null = null): string {
   const q = new URLSearchParams();
   if (f !== "all") q.set("filter", f);
-  if (quiet) q.set("quiet", "1");
   if (story != null) q.set("story", String(story));
   const s = q.toString();
   return s ? `/news?${s}` : "/news";
@@ -26,9 +25,7 @@ export function filterHref(f: NewsFilter, quiet = false, story: number | null = 
 
 export const playerNewsHref = (id: number) => `/news/player/${id}`;
 
-// The push's glyphs (ffl/newsdesk/notices.py): the arrow is the effect, never a colour (the Three Verdicts Rule).
-const ARROW: Record<NewsEffect, string> = { up: "▲", down: "▼", none: "●" };
-export const arrow = (e: NewsEffect) => ARROW[e];
+// The effect in words: the page says it in colour (news-story.tsx), the push in glyphs (ffl/newsdesk/notices.py).
 export const EFFECT_WORD: Record<NewsEffect, string> = { up: "up", down: "down", none: "no change" };
 
 // Who holds him: mine, a free agent, or the other team by its abbreviation.
@@ -38,11 +35,11 @@ export function ownerTag(r: Pick<NewsRow, "owner" | "mine">): string {
   return r.owner.abbrev || r.owner.name || `Team ${r.owner.team_id}`;
 }
 
-// The arrows show; the ● rows wait behind "+k no change".
-// `onlyMine` (the My players filter): only my own rows, every one out in the open, none behind "+k no change".
-export function splitRows(rows: NewsRow[], onlyMine = false): { moved: NewsRow[]; none: NewsRow[] } {
-  if (onlyMine) return { moved: rows.filter((r) => r.mine), none: [] };
-  return { moved: rows.filter((r) => r.effect !== "none"), none: rows.filter((r) => r.effect === "none") };
+// A story's chips: only the players it moves; one it merely names is left off. Under My players only my own of
+// those, under Free agents only the free agents; All and Other rosters show every one.
+export function chipRows(rows: NewsRow[], filter: NewsFilter = "all"): NewsRow[] {
+  return rows.filter((r) => r.effect !== "none"
+    && (filter === "mine" ? r.mine : filter === "fa" ? !r.mine && !r.owner : true));
 }
 
 // The card's stamp, the same in the feed and the player dialog: always the newest source and its age, since the feed
