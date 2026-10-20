@@ -28,13 +28,13 @@ const SLOT = "font-display text-[0.75rem] font-semibold uppercase tracking-[0.06
 const idle = (c: Card) => c.call === "BYE" || c.call === "OUT" || c.call === "IR" || c.call === "SIT";
 
 // The sit toggle's state, owned by RosterLive: who is saving and the last refusal.
-export type SitControl = { pending: number | null; error: { id: number; text: string } | null; set: (c: Card, sat: boolean) => void };
+export type SitControl = { pending: number[]; errors: { id: number; text: string }[]; set: (c: Card, sat: boolean) => void };
 
 // Sit him for the week: out of the lineup call (the chip reads SIT, the rest of the roster is called without him) until
 // ESPN's week turns. Nothing is sent to ESPN; where he stands there is the slot's business.
 function SitToggle({ c, week, sit, disabled }: { c: Card; week: number; sit: SitControl; disabled: boolean }) {
-  const busy = sit.pending === c.player_id;
-  const error = sit.error?.id === c.player_id ? sit.error.text : null;
+  const busy = sit.pending.includes(c.player_id);
+  const error = sit.errors.find((e) => e.id === c.player_id)?.text ?? null;
   const id = `sit-${c.player_id}`;
   return (
     <div className="border-y border-foreground/10 py-1">

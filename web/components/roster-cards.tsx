@@ -36,12 +36,12 @@ const GROUPS: { key: Card["group"]; title: string }[] = [
 // A word on the last move, shown under the row of the player who moved.
 export type Notice = { id: number; text: string };
 
-// The swap control's state, owned by RosterLive: who is picked (his sheet is open), which players' move is saving,
-// the last refusal; `pick` opens a player's sheet, `fill` an empty slot's.
+// The swap control's state, owned by RosterLive: who is picked (his sheet is open), which players' move or sit is
+// saving (only they are held), the refusals since the last tap; `pick` opens a player's sheet, `fill` an empty slot's.
 export type SwapControl = {
   picked: Card | null;
   pending: number[];
-  error: ({ id: number } & LineupFailure) | null;
+  errors: ({ id: number } & LineupFailure)[];
   pick: (c: Card) => void;
   fill: (slot: string) => void;
   reload: () => void;
@@ -290,9 +290,8 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
   const big = live ? c.actual : c.proj;
   const picked = swap.picked?.player_id === c.player_id;
   const busy = swap.pending.includes(c.player_id);
-  const anyBusy = swap.pending.length > 0;
   // while his sheet is open the sheet says it
-  const error = swap.error?.id === c.player_id && !picked ? swap.error : null;
+  const error = picked ? null : swap.errors.find((e) => e.id === c.player_id) ?? null;
   const slot = slotLabel(c.slot);
   const now = useNow();
   return (
@@ -300,7 +299,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
       className={`transition-[background-color] duration-300 ${picked ? "bg-foreground/[0.045]" : isMismatch(c) ? "bg-close/[0.08] dark:bg-close/[0.06]" : ""}`}>
       <Collapsible open={open} onOpenChange={onOpen}>
         <div className={GRID}>
-          <SlotControl c={c} picked={picked} busy={busy} disabled={anyBusy} onPick={() => swap.pick(c)} />
+          <SlotControl c={c} picked={picked} busy={busy} disabled={busy} onPick={() => swap.pick(c)} />
           <div className="[grid-area:shot]"><Headshot c={c} idle={idle} /></div>
           <div className="flex min-w-0 flex-col gap-y-0.5 [grid-area:body] md:contents">
             {/* line 1: who, and the number flush right */}
@@ -384,7 +383,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
 function EmptyRow({ slot, flip, swap }: { slot: string; flip: string; swap: SwapControl }) {
   return (
     <li data-flip={`e${flip}`} data-slot={slot}>
-      <button type="button" onClick={() => swap.fill(slot)} disabled={swap.pending.length > 0} aria-haspopup="dialog"
+      <button type="button" onClick={() => swap.fill(slot)} aria-haspopup="dialog"
         aria-label={`Fill the empty ${slotLabel(slot)} slot`}
         className={`${GRID} group/empty w-full text-left outline-none transition-colors hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-foreground/[0.07] disabled:pointer-events-none`}>
         {/* the slot in the move control's shape, dashed like the empty tile: the whole row is the Fill button */}
@@ -439,7 +438,7 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
       <p aria-live="polite" className="sr-only">{notice?.text}</p>
       {/* folds open above the lineup when ESPN starts blocking moves, and away once he is off IR */}
       <Presence show={bad != null} fold>
-        <div>{(bad ?? lastBad) && <IrBlocked c={(bad ?? lastBad)!} onFix={() => bad && swap.pick(bad)} disabled={!bad || swap.pending.length > 0} />}</div>
+        <div>{(bad ?? lastBad) && <IrBlocked c={(bad ?? lastBad)!} onFix={() => bad && swap.pick(bad)} disabled={!bad || swap.pending.includes(bad.player_id)} />}</div>
       </Presence>
       {GROUPS.map(({ key, title }) => {
         const rows = items(cards, key, empty);

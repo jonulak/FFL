@@ -205,10 +205,37 @@ export function applyMoves<T extends { cards: Card[]; empty_slots: string[] }>(r
   return { ...r, cards, empty_slots: empty };
 }
 
-// The page after a refused move: back as it was, unless ESPN probably took it (`moved`: only the answer or the
-// read-back failed), when the optimistic rows are the better guess and the notice asks for a reload to confirm.
-export function afterFailure<T>(f: Pick<LineupFailure, "moved">, before: T, optimistic: T): T {
-  return f.moved ? optimistic : before;
+// A tap still saving, a lineup move or a sit. RosterLive posts them one at a time in tap order (a later move may
+// fill the slot an earlier one emptied) and holds only their own players meanwhile.
+export type Op = { key: number; kind: "move"; moves: Move[] } | { key: number; kind: "sit"; id: number; sat: boolean };
+export const opIds = (o: Op): number[] => (o.kind === "move" ? o.moves.map((m) => m.player_id) : [o.id]);
+
+// His card once a sit lands, drawn at the tap: a START or BENCH reads SIT; stood back up, he gets the call he would
+// have had.
+export function sitCard(c: Card, sat: boolean): Card {
+  const call = sat ? (c.call === "START" || c.call === "BENCH" ? "SIT" : c.call) : (c.call === "SIT" ? c.model_call : c.call);
+  return { ...c, sat, call };
+}
+
+// The page with every op still saving laid over the last answer: a read-back or a live refetch replaces the answer
+// and the ops still out lay over it again. An op is a no-op on a page that already has it.
+export function applyOps<T extends { cards: Card[]; empty_slots: string[] }>(r: T, ops: Op[]): T {
+  return ops.reduce((acc, o) => (o.kind === "move" ? applyMoves(acc, o.moves)
+    : { ...acc, cards: acc.cards.map((c) => (c.player_id === o.id && c.sat !== o.sat ? sitCard(c, o.sat) : c)) }), r);
+}
+
+// A sheet's options without the players whose own move or sit is still saving.
+export function withoutBusy<T extends SwapOption | FillOption>(options: T[], busy: Set<number>): T[] {
+  return options.filter((o) => {
+    const id = o.kind === "fill" ? o.who.player_id : o.kind === "swap" || o.kind === "locked" ? o.with.player_id : null;
+    return id == null || !busy.has(id);
+  });
+}
+
+// The page after a refused move: as the last answer has it, unless ESPN probably took the move (`moved`: only the
+// answer or the read-back failed), when the moved rows are the better guess and the notice asks for a reload.
+export function afterFailure<T extends { cards: Card[]; empty_slots: string[] }>(f: Pick<LineupFailure, "moved">, r: T, moves: Move[]): T {
+  return f.moved ? applyMoves(r, moves) : r;
 }
 
 // A target's change to the starting lineup's projection: "+2.00", "−1.00" (a true minus), "±0" for no change.

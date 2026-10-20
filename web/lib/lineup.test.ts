@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, afterFailure, applyMoves, fillOptions, gainText, irEligible, irIllegal, isLocked, isMismatch, lineupFailure, movesFor, recommendedTarget, slotLabel, swapOptions, targets, wantedSlot } from "./lineup";
+import { accepts, afterFailure, applyMoves, applyOps, fillOptions, gainText, irEligible, irIllegal, isLocked, isMismatch, lineupFailure, movesFor, type Op, opIds, recommendedTarget, slotLabel, swapOptions, targets, wantedSlot, withoutBusy } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
@@ -199,13 +199,39 @@ describe("applyMoves", () => {
 
 describe("afterFailure", () => {
   const before = { cards: all, empty_slots: [] as string[] };
-  const optimistic = applyMoves(before, [{ player_id: 3, to_slot: "BE" }]);
-  it("a move ESPN probably took keeps the optimistic rows", () =>
-    expect(afterFailure(lineupFailure(502, { detail: { source: "espn", error: "x", moved: true } }, "x"), before, optimistic)).toBe(optimistic));
-  it("every other failure puts the page back", () => {
-    expect(afterFailure(lineupFailure(409, { detail: { errors: ["A is locked"] } }, "x"), before, optimistic)).toBe(before);
-    expect(afterFailure(lineupFailure(502, { detail: { source: "espn", error: "HTTP 500" } }, "x"), before, optimistic)).toBe(before);
-    expect(afterFailure(lineupFailure(null, null, "timed out"), before, optimistic)).toBe(before);
+  const moves = [{ player_id: 3, to_slot: "BE" }];
+  it("a move ESPN probably took keeps its rows", () =>
+    expect(afterFailure(lineupFailure(502, { detail: { source: "espn", error: "x", moved: true } }, "x"), before, moves)).toEqual(applyMoves(before, moves)));
+  it("every other failure leaves the page as the last answer has it", () => {
+    expect(afterFailure(lineupFailure(409, { detail: { errors: ["A is locked"] } }, "x"), before, moves)).toBe(before);
+    expect(afterFailure(lineupFailure(502, { detail: { source: "espn", error: "HTTP 500" } }, "x"), before, moves)).toBe(before);
+    expect(afterFailure(lineupFailure(null, null, "timed out"), before, moves)).toBe(before);
+  });
+});
+
+describe("ops in flight", () => {
+  const page = () => ({ cards: [qb, flex, rb, benchRb, benchQb], empty_slots: [] as string[] });
+  const swap: Op = { key: 1, kind: "move", moves: movesFor(benchRb, { kind: "swap", with: flex, gain: 2 }) };
+  const bench: Op = { key: 2, kind: "move", moves: [{ player_id: 3, to_slot: "BE" }] };
+  const sit: Op = { key: 3, kind: "sit", id: 1, sat: true };
+  it("lay over the last answer in tap order", () => {
+    const r = applyOps(page(), [swap, bench, sit]);
+    expect(Object.fromEntries(r.cards.map((x) => [x.player_id, x.slot]))).toEqual({ 1: "QB", 2: "BE", 3: "BE", 4: "RB/WR/TE", 5: "BE" });
+    expect(r.empty_slots).toEqual(["RB"]);
+    expect(r.cards.find((x) => x.player_id === 1)).toMatchObject({ sat: true, call: "SIT" });
+  });
+  it("an answer that already has an op is left as it is (a read-back while later ops are out)", () => {
+    const answered = applyOps(page(), [swap]);
+    const both = applyOps(answered, [swap, bench, sit]);
+    expect(both).toEqual(applyOps(page(), [swap, bench, sit]));
+    expect(applyOps(both, [swap, bench, sit])).toEqual(both);
+  });
+  it("hold only their own players", () => expect([swap, bench, sit].flatMap(opIds).sort()).toEqual([1, 2, 3, 4]));
+  it("their players are left out of other sheets", () => {
+    const busy = new Set([2]);
+    expect(withoutBusy(swapOptions(page().cards, benchRb, []), busy).some((o) => o.kind === "swap" && o.with.player_id === 2)).toBe(false);
+    expect(withoutBusy(fillOptions(page().cards, "RB/WR/TE"), new Set([4])).some((o) => o.kind === "fill" && o.who.player_id === 4)).toBe(false);
+    expect(withoutBusy(swapOptions(page().cards, benchRb, []), new Set()).some((o) => o.kind === "swap" && o.with.player_id === 2)).toBe(true);
   });
 });
 

@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ClientError, clientPost } from "@/app/api-client";
 import { toast } from "sonner";
 import type { Card, DecisionRef, Roster } from "@/lib/api";
 import { deferred, followedLineup, followedSit } from "@/lib/decisions";
-import { afterFailure, applyMoves, fillOptions, irIllegal, lineupFailure, type LineupFailure, type Move, movesFor, swapOptions } from "@/lib/lineup";
+import { afterFailure, applyOps, fillOptions, irIllegal, lineupFailure, type LineupFailure, type Move, movesFor, type Op, opIds, swapOptions, withoutBusy } from "@/lib/lineup";
 import { useDecisionPrefs } from "./decision-prefs";
 import { RationaleDialog } from "./rationale-dialog";
 import { usePresets } from "./rationale-form";
@@ -23,24 +23,31 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Only the rows go live: the page header (outlook run, stale badge) is server state. The swap lives here: tap a
 // player's swap button (or an empty starting slot) and the sheet lists the moves; a tap on one closes the sheet and
-// re-slots the rows at once, before ESPN answers. ESPN's read-back then replaces them; a refusal puts the page back
-// as it was and says why under the row, except one ESPN probably took (`moved`), which keeps the new rows and asks
-// for a reload to confirm (lineup.afterFailure).
+// re-slots the rows at once, before ESPN answers. Each move or sit is an op: the ops are posted one at a time in tap
+// order (the API holds one lineup write at a time, and a later move may fill a slot an earlier one emptied), and
+// while one saves only its own players are held: the rest of the roster can be moved or sat meanwhile. The rows
+// shown are the ops still out laid over the last answer (lineup.applyOps), so ESPN's read-back or a live refetch
+// replaces the answer and the ops still out lay over it again. A refusal drops its op, which puts its rows back,
+// and says why under the row, except one ESPN probably took (`moved`), which keeps its rows and asks for a reload
+// to confirm (lineup.afterFailure).
 export function RosterLive({ initial }: { initial: Roster }) {
   const router = useRouter();
   const { data, replace } = useLive(initial, "/roster");
   const [open, setOpen] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [fill, setFill] = useState<string | null>(null);
-  const [pending, setPending] = useState<number[]>([]);
-  // the page as the move will leave it, shown while it saves: a live refetch in that window reads the server's
-  // pre-move page and must not snap the rows back
-  const [optimistic, setOptimistic] = useState<Roster | null>(null);
-  const [error, setError] = useState<({ id: number } & LineupFailure) | null>(null);
+  const [ops, setOps] = useState<Op[]>([]);
+  const [errors, setErrors] = useState<({ id: number } & LineupFailure)[]>([]);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [sitPending, setSitPending] = useState<number | null>(null);
-  const [sitError, setSitError] = useState<{ id: number; text: string } | null>(null);
-  const shown = optimistic ?? data;
+  const [sitErrors, setSitErrors] = useState<{ id: number; text: string }[]>([]);
+  const shown = useMemo(() => applyOps(data, ops), [data, ops]);
+  const busy = useMemo(() => new Set(ops.flatMap(opIds)), [ops]);
+  // the last answer, for a `moved` refusal to lay its moves over (it lands after other ops may have answered)
+  const latest = useRef(data);
+  useEffect(() => { latest.current = data; }, [data]);
+  // the ops' posts, one after another
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const keys = useRef(0);
   const presets = usePresets();
   const prefs = useDecisionPrefs();
   const [asking, setAsking] = useState<{ kind: string; title: string; targets: Promise<number[]>; rationale?: string[] } | null>(null);
@@ -49,14 +56,14 @@ export function RosterLive({ initial }: { initial: Roster }) {
 
   const pickedCard = useMemo(() => (picked == null ? null : shown.cards.find((c) => c.player_id === picked) ?? null), [shown.cards, picked]);
   const subject = useMemo((): SheetSubject | null => {
-    if (pickedCard) return { kind: "card", card: pickedCard, options: swapOptions(shown.cards, pickedCard, shown.empty_slots) };
-    if (fill) return { kind: "slot", slot: fill, options: fillOptions(shown.cards, fill) };
+    if (pickedCard) return { kind: "card", card: pickedCard, options: withoutBusy(swapOptions(shown.cards, pickedCard, shown.empty_slots), busy) };
+    if (fill) return { kind: "slot", slot: fill, options: withoutBusy(fillOptions(shown.cards, fill), busy) };
     return null;
-  }, [pickedCard, fill, shown.cards, shown.empty_slots]);
+  }, [pickedCard, fill, shown.cards, shown.empty_slots, busy]);
 
-  const clear = () => { setError(null); setNotice(null); setSitError(null); };
-  const pick = (c: Card) => { if (pending.length) return; clear(); setFill(null); setPicked(c.player_id); };
-  const openFill = (slot: string) => { if (pending.length) return; clear(); setPicked(null); setFill(slot); };
+  const clear = () => { setErrors([]); setNotice(null); setSitErrors([]); };
+  const pick = (c: Card) => { if (busy.has(c.player_id)) return; clear(); setFill(null); setPicked(c.player_id); };
+  const openFill = (slot: string) => { clear(); setPicked(null); setFill(slot); };
   const close = () => { setPicked(null); setFill(null); };
 
   const names = (ids: number[]) => ids.map((i) => shown.cards.find((c) => c.player_id === i)?.name).join(", ");
@@ -88,8 +95,15 @@ export function RosterLive({ initial }: { initial: Roster }) {
     };
   };
 
-  const move = async (p: SheetPick) => {
-    if (pending.length || sitPending != null) return;
+  // Show the op at once and queue its post behind the ones still out; `send` posts it and settles it.
+  const run = (op: Op, send: () => Promise<void>) => {
+    capture();
+    setOps((o) => [...o, op]);
+    const done = () => setOps((o) => o.filter((x) => x.key !== op.key));
+    chain.current = chain.current.then(send).finally(done);
+  };
+
+  const move = (p: SheetPick) => {
     let moves: Move[], id: number;
     if (p.kind === "fill" && fill) {
       moves = [{ player_id: p.who.player_id, to_slot: fill }];
@@ -98,76 +112,62 @@ export function RosterLive({ initial }: { initial: Roster }) {
       moves = movesFor(pickedCard, p);
       id = pickedCard.player_id;
     } else return;
-    const before = shown;
-    const next = applyMoves(before, moves);
-    capture();
-    // replace() also bumps the refetch generation: an answer to a GET sent before this tap is dropped
-    replace(next);
-    setOptimistic(next);
-    setPending(moves.map((m) => m.player_id));
+    if (moves.some((m) => busy.has(m.player_id))) return;
     close();
     clear();
     const who = names(moves.map((m) => m.player_id));
-    const prompt = ask("lineup", followedLineup(moves, before.cards), `Why move ${who}?`, who);
-    try {
-      const back = await clientPost<Roster>("/lineup", { moves }, MOVE_MS);
-      capture();
-      replace(back);
-      prompt.settle(back.decision);
-      // a dev API with FFL_WRITES=0 answers as if ESPN had taken it; never let that read as ESPN
-      setNotice(back.writes ? null : { id, text: "fake write (FFL_WRITES=0)" });
-    } catch (e) {
-      prompt.fail(e);
-      const f = e instanceof ClientError ? lineupFailure(e.status, e.body, e.message) : lineupFailure(null, null, message(e));
-      capture();
-      replace(afterFailure(f, before, next));
-      setError({ id, ...f });
-    } finally {
-      setOptimistic(null);
-      setPending([]);
-    }
+    const prompt = ask("lineup", followedLineup(moves, shown.cards), `Why move ${who}?`, who);
+    run({ key: ++keys.current, kind: "move", moves }, async () => {
+      try {
+        const back = await clientPost<Roster>("/lineup", { moves }, MOVE_MS);
+        capture();
+        replace(back);
+        prompt.settle(back.decision);
+        // a dev API with FFL_WRITES=0 answers as if ESPN had taken it; never let that read as ESPN
+        setNotice(back.writes ? null : { id, text: "fake write (FFL_WRITES=0)" });
+      } catch (e) {
+        prompt.fail(e);
+        const f = e instanceof ClientError ? lineupFailure(e.status, e.body, e.message) : lineupFailure(null, null, message(e));
+        capture();
+        if (f.moved) replace(afterFailure(f, latest.current, moves));
+        setErrors((es) => [...es.filter((x) => x.id !== id), { id, ...f }]);
+      }
+    });
   };
 
   // Sit him for the week (or stand him back up): the switch and his chip flip at once; the API re-makes every call
   // without him and its answer replaces the rows. A refusal puts him back and says why under the switch.
-  const setSat = async (c: Card, sat: boolean) => {
-    if (sitPending != null || pending.length) return;
-    setSitError(null);
-    const before = shown;
-    const call = sat ? (c.call === "START" || c.call === "BENCH" ? "SIT" : c.call) : (c.call === "SIT" ? c.model_call : c.call);
-    capture();
-    const next = { ...before, cards: before.cards.map((x) => (x.player_id === c.player_id ? { ...x, sat, call } : x)) };
-    replace(next);
-    setOptimistic(next);
-    setSitPending(c.player_id);
+  const setSat = (c: Card, sat: boolean) => {
+    if (busy.has(c.player_id)) return;
+    setSitErrors((es) => es.filter((x) => x.id !== c.player_id));
     const title = `${sat ? "Sit" : "Unsit"} ${c.name}`;
     const prompt = ask(sat ? "sit" : "unsit", followedSit(c, sat), title, title);
-    try {
-      const back = await clientPost<Roster>(`/roster/sit/${c.player_id}`, { sat });
-      capture();
-      replace(back);
-      prompt.settle(back.decision);
-    } catch (e) {
-      prompt.fail(e);
-      capture();
-      replace(before);
-      setSitError({ id: c.player_id, text: `Not saved: ${message(e)}` });
-    } finally {
-      setOptimistic(null);
-      setSitPending(null);
-    }
+    run({ key: ++keys.current, kind: "sit", id: c.player_id, sat }, async () => {
+      try {
+        const back = await clientPost<Roster>(`/roster/sit/${c.player_id}`, { sat });
+        capture();
+        replace(back);
+        prompt.settle(back.decision);
+      } catch (e) {
+        prompt.fail(e);
+        capture();
+        setSitErrors((es) => [...es.filter((x) => x.id !== c.player_id), { id: c.player_id, text: `Not saved: ${message(e)}` }]);
+      }
+    });
   };
 
-  const reload = () => { setError(null); router.refresh(); };
-  const swap: SwapControl = { picked: pickedCard, pending, error, pick, fill: openFill, reload };
-  const sit: SitControl = { pending: sitPending, error: sitError, set: setSat };
+  const reload = () => { setErrors([]); router.refresh(); };
+  const sitting = ops.flatMap((o) => (o.kind === "sit" ? [o.id] : []));
+  const swap: SwapControl = { picked: pickedCard, pending: [...busy], errors, pick, fill: openFill, reload };
+  const sit: SitControl = { pending: sitting, errors: sitErrors, set: setSat };
+  const held = pickedCard != null && busy.has(pickedCard.player_id);
 
   return (
     <>
       <RosterRows cards={shown.cards} empty={shown.empty_slots} week={shown.week} runBusy={shown.outlook_run.running}
         open={open} setOpen={setOpen} swap={swap} notice={notice} rootRef={root} />
       <SwapSheet subject={subject} move={move} onClose={close} blocked={irIllegal(shown.cards)} onFix={pick}
-        week={shown.week} sit={sit} busy={pending.length > 0 || sitPending != null} />
+        week={shown.week} sit={sit} busy={held} />
       <RationaleDialog decision={asking} presets={presets} onClose={() => setAsking(null)} />
     </>
   );
