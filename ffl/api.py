@@ -497,8 +497,10 @@ def _claims_roster(data):
 
 
 # The Claims page's GET and save take ESPN's pending read when it is younger than this (any write drops it): a save
-# changes nothing on ESPN, and each request paid two serial reads (1.5-2.3 s) before. Submit and fresh=1 read anew.
+# changes nothing on ESPN, and each request paid two serial reads (1.5-2.3 s) before. Submit and fresh=1 read anew,
+# once: the plan's retire check reads ESPN and the pending list takes that same read (JUST_READ_S).
 CLAIMS_REUSE_S = 60
+JUST_READ_S = 5
 
 
 def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S):
@@ -536,8 +538,9 @@ def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S):
 def claims_get(fresh: bool = False):
     # fresh=1 (the Submit dialog on open): statuses re-read from ESPN, so "Add now" is what Submit will run
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-    age = 0 if fresh else CLAIMS_REUSE_S
-    return _claims_payload(_load_plan(data["week"], age), data, _fresh_status(data) if fresh else None, age)
+    if not fresh:
+        return _claims_payload(_load_plan(data["week"], CLAIMS_REUSE_S), data)
+    return _claims_payload(_load_plan(data["week"]), data, _fresh_status(data), JUST_READ_S)
 
 
 @app.post("/claims")
@@ -602,7 +605,7 @@ def _claims_submit(body: SubmitIn):
         if errs:
             raise HTTPException(422, {"errors": errs})
         try:
-            pending, period = espn_write.pending_state()
+            pending, period = espn_write.pending_state(JUST_READ_S)
         except espn_write.WriteError as e:
             raise _espn_error(e)
         # ESPN's current scoring period, which is what its write bodies want; the plan's week is the cached pool's

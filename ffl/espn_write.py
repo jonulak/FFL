@@ -14,6 +14,7 @@ from __future__ import annotations
 import itertools
 import os
 import re
+import threading
 import time
 from datetime import datetime
 
@@ -35,6 +36,7 @@ _FAKE_LAST_RUN: str | None = None  # dev/tests under FFL_WRITES=0: the last waiv
 _IDS = itertools.count(1)
 _READ: tuple[float, dict] | None = None  # the last pending document and when it was read (monotonic)
 _GEN = 0  # bumped by every write, so a read in flight across one is not kept
+_GEN_LOCK = threading.Lock()  # a claim save and a lineup move can write at once
 
 
 EXPIRED = "ESPN login expired, refresh .env"
@@ -152,7 +154,8 @@ def move_lineup(items: list[tuple[int, str, str]], week: int) -> None:
 
 def _post(body: dict | list, url: str = WRITE_URL) -> dict | list:
     global _READ, _GEN
-    _READ, _GEN = None, _GEN + 1  # before and whatever the answer: a write that errored may still have landed
+    with _GEN_LOCK:  # before and whatever the answer: a write that errored may still have landed
+        _READ, _GEN = None, _GEN + 1
     r = requests.post(url, json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
     if r.status_code >= 400:
         raise WriteError(r.status_code, r.text[:500])
@@ -190,8 +193,9 @@ def _pending_doc(max_age: float) -> dict:
         doc = config.raw_league_get(["mPendingTransactions", "mTeam"])
     except Exception as e:  # noqa: BLE001 — every read failure is a WriteError, sorted by _read_error
         raise _read_error(e) from e
-    if gen == _GEN:
-        _READ = (time.monotonic(), doc)
+    with _GEN_LOCK:
+        if gen == _GEN:
+            _READ = (time.monotonic(), doc)
     return doc
 
 

@@ -793,7 +793,7 @@ def test_submit_rejects_undroppable(claims_env, monkeypatch):
 def test_submit_expired_login(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
 
-    def boom():
+    def boom(max_age=0):
         raise api.espn_write.WriteError(401, "expired")
 
     monkeypatch.setattr(api.espn_write, "pending_state", boom)
@@ -815,15 +815,21 @@ def test_unreachable_espn_is_not_a_login_expired(claims_env, monkeypatch):
     assert claims_env.get("/claims").json()["pending_error"] == api.espn_write.EXPIRED
 
 
-def test_claims_page_reuses_the_pending_read_but_fresh_and_submit_do_not(claims_env, monkeypatch):
-    ages = []
-    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: ages.append(max_age) or ([], None))
+def test_claims_page_reuses_the_pending_read_but_fresh_and_submit_read_once(claims_env, monkeypatch):
+    calls = []
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: calls.append(("pending", max_age)) or ([], None))
+    monkeypatch.setattr(api.espn_write, "last_waiver_run", lambda max_age=0: calls.append(("run", max_age)))
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    calls.clear()  # the first save had no plan to retire
     claims_env.get("/claims")
-    assert ages == [api.CLAIMS_REUSE_S, api.CLAIMS_REUSE_S]
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    reuse = api.CLAIMS_REUSE_S
+    assert calls == [("run", reuse), ("pending", reuse)] * 2
+    calls.clear()
     claims_env.get("/claims?fresh=1")
     claims_env.post("/claims/submit", json={"replace_outside": False})
-    assert ages[2:4] == [0, 0]
+    # the retire check reads ESPN anew; the pending list takes that read
+    assert calls[:4] == [("run", 0), ("pending", api.JUST_READ_S)] * 2
 
 
 def test_new_week_starts_empty(claims_env, monkeypatch):
