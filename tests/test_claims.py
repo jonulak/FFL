@@ -366,3 +366,47 @@ def test_retire_keeps_a_plan_saved_after_the_run_or_never_sent():
     assert C.retire({"week": 5, "groups": g, "submits": []}, "2026-10-07T03:31:23")["groups"] == g, "never sent: not spent"
     assert C.retire({"week": 5, "groups": g, "submits": sub}, None)["groups"] == g, "unknown run: keep"
     assert C.retire({"week": 5, "groups": g, "submits": sub}, "2026-10-07T03:31:23")["groups"] == [], "legacy file: last submit"
+
+
+# Position caps (settings position_limits): R1-R3 are TEs on a cap of 3, R4 a WR; 101/102 TE targets, 103 a WR.
+CAP_POS = {1: "TE", 2: "TE", 3: "TE", 4: "WR", 101: "TE", 102: "TE", 103: "WR"}
+CAP_ROSTER = [{**r, "pos": CAP_POS.get(r["player_id"], "RB")} for r in ROSTER]
+
+
+def cap_errs(gs, limits={"TE": 3}):
+    return [e["reason"] for e in C.validate(gs, CAP_ROSTER, {101, 102, 103}, 17, {}, pos=CAP_POS, limits=limits)]
+
+
+def test_at_a_cap_a_target_needs_a_cut_of_his_position():
+    assert cap_errs([{"targets": [101], "cuts": [4], "open": 0}]) == [C.cap_reason("TE", 3, 3)]
+    assert cap_errs([{"targets": [101], "cuts": [4, 1], "open": 0}]) == []   # a TE cut lets him land
+    assert cap_errs([{"targets": [103], "cuts": [4], "open": 0}]) == []      # WR: no cap
+    assert cap_errs([{"targets": [101], "cuts": [4], "open": 0}], limits={}) == []   # settings without the key
+
+
+def test_cap_warnings_count_the_worst_case_in_room_order():
+    held2 = [r for r in CAP_ROSTER if r["player_id"] != 3]   # two TEs on a cap of 3
+    lim = {"TE": 3}
+    one = [{"targets": [101, 102], "cuts": [4, 5], "open": 0}]            # both TEs could land on WR/RB cuts
+    assert [w["group"] for w in C.cap_warnings(one, held2, CAP_POS, lim)] == [0]
+    swap = [{"targets": [101, 102], "cuts": [1, 4], "open": 0}]           # the first room is a TE: net +1 at worst
+    assert C.cap_warnings(swap, held2, CAP_POS, lim) == []
+    two = [{"targets": [101], "cuts": [4], "open": 0}, {"targets": [102], "cuts": [5], "open": 0}]
+    w = C.cap_warnings(two, held2, CAP_POS, lim)
+    assert [x["group"] for x in w] == [1] and "groups above" in w[0]["reason"]
+    # at the cap with no TE cut it is validate's error, not a warning too
+    assert C.cap_warnings([{"targets": [101], "cuts": [4], "open": 0}], CAP_ROSTER, CAP_POS, lim) == []
+
+
+def test_position_caps_count_ir_and_skip_missing_settings():
+    from ffl import season as S
+    roster = [{"pos": "TE", "slot": "BE"}, {"pos": "TE", "slot": "IR"}, {"pos": "QB", "slot": "QB"}]
+    assert S.position_caps(roster, {"QB": 4, "TE": 3}) == [
+        {"pos": "QB", "n": 1, "limit": 4}, {"pos": "TE", "n": 2, "limit": 3}]
+    assert S.position_caps(roster, {}) == []
+
+
+def test_settings_position_limits_map_position_ids_not_slot_ids():
+    from ffl.settings import position_limits
+    raw = {"0": 0, "1": 4, "2": 8, "3": 8, "4": 3, "5": 3, "6": -1, "16": 3, "17": -1}
+    assert position_limits(raw) == {"QB": 4, "RB": 8, "WR": 8, "TE": 3, "K": 3, "D/ST": 3}

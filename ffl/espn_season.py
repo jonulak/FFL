@@ -1723,7 +1723,8 @@ def roster_state(week: int | None = None, sources: dict | None = None, season: d
             flags = {}
     players = with_sits(with_espn_slots(players, flags, fake, db.seat_map()), db.sat_ids(week))
     return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week),
-            "empty_slots": S.empty_slots(players, settings), "writes": espn_write.writes()}
+            "empty_slots": S.empty_slots(players, settings), "position_caps": S.position_caps(players, settings.get("position_limits", {})),
+            "writes": espn_write.writes()}
 
 
 def _club(t) -> dict:

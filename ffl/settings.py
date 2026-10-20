@@ -22,6 +22,15 @@ def starters_by_position(slot_counts: dict[int, int]) -> dict[str, int]:
     return {POSITION_MAP.get(s, str(s)): n for s, n in slot_counts.items() if n and s not in NON_STARTER_SLOTS}
 
 
+# rosterSettings.positionLimits is keyed by a player's defaultPositionId, not by the lineup slot ids above.
+LIMIT_POS = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
+
+
+def position_limits(limits: dict) -> dict[str, int]:
+    """ESPN's cap on how many of a position one team may roster; -1 (no cap) is left out."""
+    return {LIMIT_POS[int(k)]: v for k, v in limits.items() if int(k) in LIMIT_POS and v >= 0}
+
+
 def collect() -> dict:
     lg = league()
     raw = raw_league_get(["mSettings", "mTeam"])
@@ -62,6 +71,7 @@ def collect() -> dict:
         "roster_size": sum(v for k, v in slot_counts.items() if k != 21),
         "bench_size": slot_counts.get(20, 0),
         "ir_size": slot_counts.get(21, 0),
+        "position_limits": position_limits(s["rosterSettings"].get("positionLimits", {})),
         "draft": {
             "type": draft.get("type"),
             "order_type": draft.get("orderType"),
@@ -107,7 +117,8 @@ def to_markdown(d: dict) -> str:
          f"- Week 1 starts: {d['week1_start']}",
          "", "## Roster", "| Slot | Count |", "|---|---|"]
     L += [f"| {k} | {v} |" for k, v in d["roster_slots"].items()]
-    L += ["", f"Starters: {d['starters']}  |  Bench: {d['bench_size']}  |  IR: {d['ir_size']}", "",
+    L += ["", f"Starters: {d['starters']}  |  Bench: {d['bench_size']}  |  IR: {d['ir_size']}",
+          f"Position limits: {d.get('position_limits') or 'none'}", "",
           "## Scoring (non-zero)", "| Stat | Points |", "|---|---|"]
     L += [f"| {x['label']} ({x['abbr']}) | {x['points']} |" for x in d["scoring"]]
     order = dr.get("pick_order") or []

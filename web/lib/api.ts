@@ -125,7 +125,8 @@ export type OutlookRun = {
   at: string | null; generated: number; skipped: number; failed: number; running: boolean;
   error: string | null; last_failure: string | null; pending: number | null;
 };
-export type Roster = { week: number; live: boolean; cards: Card[]; empty_slots: string[]; writes: boolean;
+// position_caps is absent on a page payload cached before it was added
+export type Roster = { week: number; live: boolean; cards: Card[]; empty_slots: string[]; position_caps?: PositionCap[]; writes: boolean;
   outlook_run: OutlookRun; stale_since: string | null; decision?: DecisionRef | null };
 export type OutlookStarted = { started: boolean; pending: number | null };
 export type LineupEntry = { slot: string; player_id: number | null; name: string; proj: number };
@@ -243,8 +244,12 @@ export type ClaimPlayer = {
   name: string; pos: string; team: string; add: number | null; ros_adj: number | null; slot: string | null;
   status: PoolStatus | null; waiver_date: number | null; droppable: boolean | null; locked: boolean | null;
 };
+// ESPN's cap on one position (settings position_limits) and how many I hold, IR included.
+export type PositionCap = { pos: string; n: number; limit: number };
+// warnings: a group whose wins could pass a position cap (ESPN refuses the claim that would); they do not block a send.
 export type Claims = {
-  week: number; groups: ClaimGroup[]; now: Claim[]; claims: Claim[]; errors: ClaimErr[]; open_spots: number;
+  week: number; groups: ClaimGroup[]; now: Claim[]; claims: Claim[]; errors: ClaimErr[]; warnings: ClaimErr[]; open_spots: number;
+  position_caps: PositionCap[];
   status: Record<string, PoolStatus>; pending: PendingClaim[]; pending_error: string | null; last_submit: ClaimSubmit | null;
   // on_espn: ESPN's pending list, less the claims filed there directly, is this plan's claims in order (false unsent)
   edited_since_submit: boolean; on_espn: boolean;

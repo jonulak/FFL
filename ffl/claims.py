@@ -10,6 +10,8 @@ in several groups: claims sharing a drop exclude each other anyway, so it reads 
 2"; once a free-agent add has dropped him he is gone from every group's rows."""
 from __future__ import annotations
 
+from collections import Counter
+
 from . import decisions
 from .season import ir_illegal
 
@@ -81,13 +83,21 @@ INSTANT_OFF = "instant adds are switched off (FFL_INSTANT_ADDS=0)"
 IR_BLOCK = "on IR without an injury designation: ESPN allows no add or claim until he is off IR"
 
 
-def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True, owners=None):
+def cap_reason(p, held, cap):
+    return f"you hold {held} {p} of ESPN's cap of {cap}: he can't land without a {p} cut"
+
+
+def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True, owners=None, pos=None, limits=None):
     """Check the plan for errors. Returns list of dicts: {"group": int, "player_id": int|None, "reason": str}.
 
     instant_adds False (FFL_INSTANT_ADDS off): every free-agent target is an error, since Submit would add him.
     An IR player with no injury designation (season.ir_illegal) is a roster error (group None): ESPN refuses every
-    add and claim until he is off IR. An empty plan carries none, so the claims it sent can still be withdrawn."""
+    add and claim until he is off IR. An empty plan carries none, so the claims it sent can still be withdrawn.
+    pos (player_id -> position) and limits (settings `position_limits`): a target at a capped position I already
+    hold the cap of can land only by dropping one of his position, so a group with no such cut never gets him."""
     errs = []
+    pos, limits = pos or {}, limits or {}
+    held = Counter(p.get("pos") for p in roster)
 
     def err(gi, pid, reason):
         errs.append({"group": gi, "player_id": pid, "reason": reason})
@@ -132,6 +142,9 @@ def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True, o
                 err(gi, t, "not in the free-agent pool")
             if not instant_adds and status.get(t) == FREE:
                 err(gi, t, INSTANT_OFF)
+            p, cap = pos.get(t), limits.get(pos.get(t))
+            if cap is not None and held[p] + 1 > cap and (held[p] > cap or not any(pos.get(c) == p for c in g["cuts"])):
+                err(gi, t, cap_reason(p, held[p], cap))
 
         # Cut validation.
         for i, c in enumerate(g["cuts"]):
@@ -158,6 +171,34 @@ def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True, o
         err(open_groups[1], None, "only one group can use the open spots")
 
     return errs
+
+
+def cap_warnings(groups, roster, pos, limits):
+    """Groups whose wins could run past a position cap: same shape as validate's errors, but not blocking, since ESPN
+    refuses only the claim that would go over and the group's next target takes its row. A group's wins use its rooms
+    in order (open spots, then cuts), so n wins net at most min(n, its targets there) minus the cuts there in its
+    first n rooms; earlier groups' worst cases are counted in (a cut two groups share, once per group)."""
+    held = Counter(p.get("pos") for p in roster)
+    run, out = Counter(), []
+    for gi, g in enumerate(groups):
+        r, k = rooms(g), min(capacity(g), len(g["targets"]))
+        for p, cap in limits.items():
+            tp = sum(1 for t in g["targets"] if pos.get(t) == p)
+            if not tp or k == 0:
+                continue
+            worst = max(min(n, tp) - sum(1 for d in r[:n] if d is not None and pos.get(d) == p) for n in range(1, k + 1))
+            run[p] += max(0, worst)
+            if held[p] + 1 > cap and (held[p] > cap or not any(pos.get(c) == p for c in g["cuts"])):
+                continue  # validate's error: none of his can land at all
+            if held[p] + worst > cap:
+                out.append({"group": gi, "player_id": None, "reason":
+                            f"{p}: you hold {held[p]} of ESPN's cap of {cap} and this group could land {worst} more; "
+                            f"ESPN refuses the claim that goes over and the next target takes its row"})
+            elif held[p] + run[p] > cap:
+                out.append({"group": gi, "player_id": None, "reason":
+                            f"{p}: with the groups above, up to {held[p] + run[p]} against ESPN's cap of {cap}; "
+                            f"ESPN refuses the claim that goes over"})
+    return out
 
 
 def decision_row(groups, names, status, week, submits, gen=0):

@@ -132,6 +132,11 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   30-min cache, last-good on failure). `ffl.settings` writes `week1_start`, which `season.week_of` needs to turn a
   return date into a week — re-run `uv run python -m ffl.settings` on the main checkout after deploying this, or the
   feed degrades to notes only and the OUT/IR constants keep pricing.
+- **Position caps**: `settings["position_limits"]` (ESPN's `rosterSettings.positionLimits`, keyed by *position* id, not slot
+  id: QB 4, RB 8, WR 8, TE 3, K 3, D/ST 3; IR counts). `claims.validate` errors on a target at a full position whose group
+  has no cut of his; `claims.cap_warnings` (non-blocking, `warnings` in `/claims`) on a group whose wins could pass a cap.
+  Both pages show `position_caps` (`season.position_caps`). A settings.json without the key shows and checks nothing:
+  re-run `uv run python -m ffl.settings` on the main checkout after deploying it.
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
   is primary; `adp_1qb` is kept for comparison.
 - **Persistence** (`ffl/db.py`, SQLAlchemy Core + Alembic, no ORM; the only SQLAlchemy importer): SQLite in WAL mode at

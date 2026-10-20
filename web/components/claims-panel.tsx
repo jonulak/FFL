@@ -1,5 +1,6 @@
 "use client";
 
+import { PositionCaps } from "@/components/position-caps";
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import {
   DndContext, DragOverlay, KeyboardSensor, MeasuringStrategy, MouseSensor, TouchSensor, closestCenter, pointerWithin, useDroppable, useSensor,
@@ -261,9 +262,9 @@ function LiftedGroup({ g, gi }: { g: ClaimGroup; gi: number }) {
 // folds every card to its title and its targets' names (`[data-folded]` in globals.css), so all of
 // them are in view and alike in height; the body stays mounted, and `reveal` fades it back in once
 // the dragged one has landed (its grip waits for that: a pickup measures the fold from open cards).
-function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, cutId, errors }: {
+function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, cutId, errors, warnings }: {
   g: ClaimGroup; gi: number; gkey: number; roster: [number, ClaimPlayer][]; dragging: Kind | null; landing: boolean;
-  reveal: boolean; settling: boolean; cutId: (c: number) => string; errors: ClaimErr[];
+  reveal: boolean; settling: boolean; cutId: (c: number) => string; errors: ClaimErr[]; warnings: ClaimErr[];
 }) {
   const { groups, setGroups, status, player, data, submitting } = useClaims();
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: `g${gkey}`, disabled: submitting || settling });
@@ -343,6 +344,12 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
         {errors.length > 0 && (
           <ul data-fx={`e${gkey}|${errors.map((e) => `${e.player_id}:${e.reason}`).join(";")}`} className="mt-2 space-y-0.5 text-xs text-destructive" aria-live="polite">
             {errors.map((e, i) => <li key={i}>{e.player_id != null && <span className="font-medium">{name(e.player_id)}: </span>}{e.reason}</li>)}
+          </ul>
+        )}
+        {/* a position cap the group's wins could pass: ESPN refuses that claim, so it does not block a send */}
+        {warnings.length > 0 && (
+          <ul data-fx={`w${gkey}|${warnings.map((e) => e.reason).join(";")}`} className="mt-2 space-y-0.5 text-xs text-close-foreground dark:text-close" aria-live="polite">
+            {warnings.map((e, i) => <li key={i}>{e.reason}</li>)}
           </ul>
         )}
         </div>
@@ -501,10 +508,9 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     if (j >= 0) used.add(j);
     return j;
   });
-  const errorsOf = matched.map((j, i) => {
-    if (j < 0 && dirty && shown.length === data.groups.length && !used.has(i)) j = i;
-    return j < 0 ? [] : data.errors.filter((e) => e.group === j);
-  });
+  const savedAt = matched.map((j, i) => (j < 0 && dirty && shown.length === data.groups.length && !used.has(i) ? i : j));
+  const errorsOf = savedAt.map((j) => (j < 0 ? [] : data.errors.filter((e) => e.group === j)));
+  const warningsOf = savedAt.map((j) => (j < 0 ? [] : data.warnings.filter((e) => e.group === j)));
 
   const cardTop = (key: number) => listRef.current?.querySelector(`[data-group="${key}"]`)?.getBoundingClientRect().top ?? null;
   // remember where a card stands before the cards fold or open, to put it back there after
@@ -643,6 +649,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
       </div>
       {!data.writes && <TestModeAlert />}
       <RosterBlock />
+      <PositionCaps caps={data.position_caps} />
       {/* both fold out of the way when they go, so the groups below rise rather than jump */}
       <Presence show={error != null} fold>
         <p className={`text-xs ${(error ?? lastError ?? "").startsWith("saving") ? "text-muted-foreground" : "text-destructive"}`} aria-live="polite">{error ?? lastError}</p>
@@ -662,7 +669,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
         <SortableContext items={keys.map((k) => `g${k}`)} strategy={verticalListSortingStrategy}>
           <ol ref={listRef} data-folded={folded || undefined} className="space-y-2.5" style={hold ? { minHeight: hold.h, paddingTop: hold.pad } : undefined}>
             {shown.map((g, i) => (
-              <GroupCard key={keys[i]} g={g} gi={i} gkey={keys[i]} roster={roster} dragging={rowKind} reveal={reveal} settling={settling} errors={errorsOf[i]}
+              <GroupCard key={keys[i]} g={g} gi={i} gkey={keys[i]} roster={roster} dragging={rowKind} reveal={reveal} settling={settling} errors={errorsOf[i]} warnings={warningsOf[i]}
                 landing={drag?.at === i && drag.home !== i} cutId={cutId(i)} />
             ))}
           </ol>

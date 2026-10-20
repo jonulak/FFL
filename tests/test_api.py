@@ -491,6 +491,7 @@ def claims_env(client, monkeypatch):
     # reads the current pool dict on every call, so a test can flip a status between load and Submit
     monkeypatch.setattr(api.espn_season, "pool_status", lambda: {r["player_id"]: {"status": r["status"], "waiver_date": None} for rows in pool.values() for r in rows})
     monkeypatch.setattr(api, "_roster_size", lambda: 17)
+    monkeypatch.setattr(api, "_limits", lambda: {})
     api.espn_write._FAKE.clear()
     api.espn_write._FAKE_ADDS.clear()
     api.espn_write._FAIL_ADDS.clear()
@@ -618,6 +619,7 @@ def test_a_lineup_move_rebuilds_the_claims_roster(lineup_env, monkeypatch):
 
     monkeypatch.setattr(api.espn_season, "free_agent_pool", pool)
     monkeypatch.setattr(api, "_roster_size", lambda: 17)
+    monkeypatch.setattr(api, "_limits", lambda: {})
     lineup_env.get("/claims")
     lineup_env.get("/claims")
     assert builds["n"] == 1

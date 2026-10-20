@@ -424,6 +424,21 @@ def _roster_size() -> int:
     return int(load()["roster_size"])
 
 
+def _limits() -> dict:
+    return load().get("position_limits", {})
+
+
+def _positions(data) -> dict:
+    """player_id -> position over my roster, the pool and the other rosters: what the position caps are counted on."""
+    rows = list(_rostered_rows(data).values()) + list(_pool_rows(data).values()) + data.get("roster", [])
+    return {r["player_id"]: r.get("pos") for r in rows}
+
+
+def _validate(plan, roster, data, status):
+    return claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status, _instant_adds(),
+                               _owners(data), _positions(data), _limits())
+
+
 def _load_plan(week):
     # a plan the waiver run already processed reads as retired (an empty week); the next save writes that down
     plan = db.claim_plan(week)
@@ -497,9 +512,10 @@ def _claims_payload(plan, data, status=None):
     on_espn = (bool(last) and perr is None and all(c.get("priority", 0) is not None for c in pending)
                and claims_mod.matches(expansion, [c for c in pending if c["id"] in ids]))
     return {"week": plan["week"], "groups": plan["groups"], "now": now, "claims": expansion,
-            "errors": claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status,
-                                          _instant_adds(), _owners(data)),
+            "errors": _validate(plan, roster, data, status),
+            "warnings": claims_mod.cap_warnings(plan["groups"], roster, _positions(data), _limits()),
             "open_spots": claims_mod.open_spots(roster, _roster_size()),
+            "position_caps": season.position_caps(roster, _limits()),
             "status": {str(i): s for i, s in status.items()},
             "pending": [{**c, "from_app": c["id"] in ids} for c in pending], "pending_error": perr,
             "last_submit": last,
@@ -576,8 +592,7 @@ def _claims_submit(body: SubmitIn):
         now = claims_mod.plan_now(plan["groups"], status)
         if now != [m.model_dump() for m in body.expect_now]:
             raise HTTPException(409, {"error": "statuses changed — review again", "now": now})
-        errs = claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status, _instant_adds(),
-                                   _owners(data))
+        errs = _validate(plan, roster, data, status)
         if errs:
             raise HTTPException(422, {"errors": errs})
         try:

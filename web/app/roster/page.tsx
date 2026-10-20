@@ -1,5 +1,6 @@
 import { ErrorCard } from "@/components/error-card";
 import { OutlookButton } from "@/components/outlook-button";
+import { PositionCaps } from "@/components/position-caps";
 import { RosterLive } from "@/components/roster-live";
 import { StaleBadge } from "@/components/stale-badge";
 import { apiGet, type Roster } from "@/lib/api";
@@ -24,6 +25,7 @@ export default async function Page() {
         </h1>
         <StaleBadge since={data.stale_since} />
         <div className="ml-auto"><OutlookButton running={run.running} /></div>
+        <PositionCaps caps={data.position_caps} className="basis-full" />
       </div>
       <RosterLive initial={data} />
     </div>

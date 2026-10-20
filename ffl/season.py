@@ -247,6 +247,13 @@ def ir_illegal(roster: list[dict]) -> list[dict]:
     return [p for p in roster if p.get("slot") == "IR" and p.get("injury") in NO_DESIGNATION]
 
 
+def position_caps(roster: list[dict], limits: dict) -> list[dict]:
+    """ESPN's per-position roster caps (settings `position_limits`) with how many of each I hold, IR included: an
+    add over a cap is refused. Empty when settings.json predates the key (re-run `ffl.settings`)."""
+    held = Counter(p.get("pos") for p in roster)
+    return [{"pos": pos, "n": held.get(pos, 0), "limit": cap} for pos, cap in limits.items()]
+
+
 def empty_slots(roster: list[dict], settings: dict) -> list[str]:
     """One entry per starter spot ESPN has nobody in, in slot order, then one per open IR spot."""
     filled = Counter(p.get("slot") for p in roster)

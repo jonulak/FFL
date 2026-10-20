@@ -240,7 +240,7 @@ def test_position_ranks_io(monkeypatch):
 
 
 # web/lib/api.ts: type Claims (GET/POST /claims; the web type lands with the claims UI)
-CLAIMS = {"week", "groups", "now", "claims", "errors", "open_spots", "status", "pending", "pending_error",
+CLAIMS = {"week", "groups", "now", "claims", "errors", "warnings", "open_spots", "position_caps", "status", "pending", "pending_error",
           "last_submit", "edited_since_submit", "on_espn", "writes", "players"}
 
 
@@ -253,6 +253,7 @@ def test_claims_keys(monkeypatch):
     pool = {"WR": [{"player_id": 101, "name": "Addison", "status": "WAIVERS"}]}
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
     monkeypatch.setattr(api, "_roster_size", lambda: 17)
+    monkeypatch.setattr(api, "_limits", lambda: {})
     api.cache.clear()
     assert set(TestClient(api.app).get("/claims").json()) == CLAIMS
 
