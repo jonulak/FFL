@@ -330,7 +330,8 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   command each with literal IDs. Then: `git rebase main` in the worktree; check the tab is at its prompt
   (`herdr pane read <pane> --lines 3`); `herdr pane run <pane> "scripts/land.sh <branch>"`;
   `herdr pane wait-output <pane> --regex "land: done|error|fatal|rejected|Not possible" --timeout 600000`; read
-  the pane (the deploy prints `deployed <sha>`). On any failure stop and report; never fix it in his tab.
+  the pane (the deploy prints `deployed <sha>`, then `land: stopping pid …` for each of the branch's test servers: every
+  listener whose cwd is inside its worktree, with its `tailscale serve` entry). On any failure stop and report; never fix it in his tab.
   Without his go-ahead, or outside Herdr, hand him `cd ~/Developer/FFL && scripts/land.sh <branch>`.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
 - Weekly results go to the `results` table (`journal sync` / the hourly `/transactions/sync`); `journal/results/` is no longer written. Standings are read live from ESPN.
