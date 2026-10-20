@@ -32,7 +32,7 @@ def client(monkeypatch, tmp_path):
                              "proj": 12.0, "spread": 1.0, "game_played": 0, "opponent": "GB", "kickoff": None,
                              "return_week": None, "injury_note": None, "call": "START", "close_call": False,
                              "reason": "starts at RB: no bench alternative", "group": "starter", "gap": None}]})
-    monkeypatch.setattr(api.outlook.news, "gather", lambda cards, week: {c["player_id"]: {"depth": None, "teammates": [], "rotowire": [], "last_news": None} for c in cards})
+    monkeypatch.setattr(api.outlook.news, "gather", lambda cards, week: {c["player_id"]: {"depth": None, "teammates": [], "stories": []} for c in cards})
     monkeypatch.setattr(api.outlook, "OUTLOOK_DIR", tmp_path / "outlook")
     # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
     monkeypatch.setattr(api.outlook, "LAST",

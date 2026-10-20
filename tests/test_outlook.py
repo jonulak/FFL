@@ -18,10 +18,8 @@ STORY = {"id": 7, "rev": 1, "status": "live", "published": "2026-10-01T18:00:00"
 def ctx(**kw):
     base = {"depth": {"slot": "RB", "order": 1, "rank": 1, "of": 3},
             "teammates": [{"name": "Jared Goff", "pos": "QB", "rank": 1, "status": "Out",
-                           "note": "Goff (thumb) won't play.", "last_news": 1790000000000}],
-            "rotowire": [{"id": "64002028", "headline": "Gibbs logged a full practice.", "story": "He is fine.",
-                          "published": "2026-09-30T21:10:56Z", "url": "https://www.espn.com/nfl/player/_/id/4362628"}],
-            "last_news": 1790000001000, "stories": [STORY]}
+                           "note": "Goff (thumb) won't play."}],
+            "stories": [STORY]}
     base.update(kw)
     return base
 
@@ -53,27 +51,28 @@ def test_fact_sheet_has_the_news_and_no_projections():
     sheet = outlook.fact_sheet(card(injury="QUESTIONABLE", injury_note="ankle"), 5, ctx(), TODAY)
     for s in ("Week 5", "Friday 10/2/2026", "Jahmyr Gibbs, RB, DET", "3 years in the league", "GB",
               "QUESTIONABLE", "ankle", "Week 3: 74% snaps", "17 carries", "18.4 pts",
-              "1 of 3", "QB1 Jared Goff: Out", "Goff (thumb) won't play.", "9/30 Gibbs logged a full practice.",
-              "espn.com/nfl/player/_/id/4362628", "background only", "START", "Injury, Usage, Depth, Team and Take",
+              "1 of 3", "QB1 Jared Goff: Out", "Goff (thumb) won't play.", "10/1 ▼ Gibbs hurts ankle.",
+              "https://bsky.app/x/1", "background only", "START", "Injury, Usage, Depth, Team and Take",
               "ten days", "https://www.espn.com/nfl/player/gamelog/_/id/1"):
         assert s in sheet, s
     for s in ("20.2", "21.4", "19.0", "320.5", "projection:", "starts at RB"):
         assert s not in sheet, f"{s}: projections and the reason line are already on the card"
+    assert "Rotowire" not in sheet, "the news desk is the only news on the sheet"
 
 
 def test_fact_sheet_with_nothing_to_report_says_none():
-    sheet = outlook.fact_sheet(card(form=None, exp=0), 5, ctx(depth=None, teammates=[], rotowire=[], last_news=None), TODAY)
+    sheet = outlook.fact_sheet(card(form=None, exp=0), 5, ctx(depth=None, teammates=[], stories=[]), TODAY)
     assert "rookie" in sheet and "not on Sleeper's chart" in sheet
-    assert sheet.count("none") >= 3, "games, teammates and Rotowire each say none"
+    assert sheet.count("none") >= 3, "games, teammates and the news desk each say none"
 
 
 def test_fact_sheet_gives_a_hurt_teammates_news_and_asks_for_his_return():
-    ferg = {"name": "Terrance Ferguson", "pos": "TE", "rank": 4, "status": "IR", "note": None, "last_news": None,
-            "rotowire": [{"id": "5", "headline": "Ferguson (ankle) is expected back after his IR stint.",
-                          "story": "He is eligible to return in Week 8.", "published": "2026-10-07T17:52:53Z",
-                          "url": "https://www.espn.com/nfl/player/_/id/4570037"}]}
+    back = {**STORY, "published": "2026-10-07T17:52:53", "headline": "Ferguson (ankle) is expected back after his IR stint.",
+            "overview": "He is eligible to return in Week 8.", "line": None,
+            "sources": [{"site": "Rotowire", "published": "2026-10-07T17:52:53", "url": "https://www.espn.com/nfl/player/_/id/4570037"}]}
+    ferg = {"name": "Terrance Ferguson", "pos": "TE", "rank": 4, "status": "IR", "note": None, "stories": [back]}
     sheet = outlook.fact_sheet(card(), 7, ctx(teammates=[ferg]), TODAY)
-    for s in ("TE4 Terrance Ferguson: IR", "10/7 Ferguson (ankle) is expected back", "eligible to return in Week 8",
+    for s in ("TE4 Terrance Ferguson: IR", "10/7 ▼ Ferguson (ankle) is expected back", "eligible to return in Week 8",
               "espn.com/nfl/player/_/id/4570037", "expected return week"):
         assert s in sheet, s
 
@@ -93,12 +92,8 @@ def test_card_hash_moves_with_card_facts_not_projections():
 def test_fact_hash_moves_with_news_and_the_day():
     base = outlook.fact_hash(card(), ctx(), TODAY)
     assert outlook.fact_hash(card(), ctx(), date(2026, 10, 3)) != base, "rewritten at least daily"
-    assert outlook.fact_hash(card(), ctx(last_news=1790000009000), TODAY) != base
-    mate = {**ctx()["teammates"][0], "last_news": 1790000009000}
-    assert outlook.fact_hash(card(), ctx(teammates=[mate]), TODAY) != base, "a teammate's news rewrites him"
-    assert outlook.fact_hash(card(), ctx(rotowire=[]), TODAY) != base
-    told = {**ctx()["teammates"][0], "rotowire": [{"id": "77"}]}
-    assert outlook.fact_hash(card(), ctx(teammates=[told]), TODAY) != base, "a hurt teammate's blurb rewrites him"
+    mate = {**ctx()["teammates"][0], "note": "Goff (thumb) is doubtful."}
+    assert outlook.fact_hash(card(), ctx(teammates=[mate]), TODAY) != base, "a teammate's injury note rewrites him"
     assert outlook.fact_hash(card(), ctx(depth={"slot": "RB", "order": 2, "rank": 2, "of": 3}), TODAY) != base
     assert outlook.fact_hash(card(proj=30.0), ctx(), TODAY) == base
     for moved in ([], [{**STORY, "rev": 2}], [{**STORY, "status": "corrected"}],
@@ -174,7 +169,7 @@ def test_pending_writes_ir_and_out_skips_played_and_quiet_byes():
     cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, call="IR", group="ir"),
              card(player_id=4, call="OUT", injury="OUT"), card(player_id=5, call="BYE", bye=True),
              card(player_id=6, call="BYE", bye=True)]
-    quiet = ctx(teammates=[], rotowire=[], stories=[])
+    quiet = ctx(teammates=[], stories=[])
     ctxs = {1: ctx(), 2: ctx(), 3: ctx(), 4: ctx(), 5: quiet, 6: ctx()}
     assert [c["player_id"] for c in outlook.pending(cards, {}, ctxs, TODAY)] == [1, 3, 4, 6]
     same = {1: {"hash": outlook.fact_hash(cards[0], ctxs[1], TODAY)}}

@@ -278,14 +278,15 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   carries `call_slot`, the slot `optimal_lineup` places him in (`_place_by_kickoff`: same starters, latest kickoffs in
   flex, a started game kept in place), and the chip names it;
   `ffl/outlook.py` writes labelled bullets under each card (Injury, Usage, Depth, Team, Take; each cites
-  dated, linked sources; never projections) by running `claude -p` (Opus, no tools: ~20 s a card) from a
+  dated, linked sources; never projections) by running `claude -p` (Opus, no tools: ~15 s a card) from a
   fact sheet alone: the card's non-projection facts, per-game usage rows (`form["rows"]`) and `ffl/news.py`'s
-  context — the news desk's stories naming him from the last ten days (`news.fetch_desk` over `db.player_stories`:
-  the desk's write-up, his ▲/▼/● line, each live source's site, date and link; a hurt teammate's newest two too), Rotowire blurbs (ESPN's public fantasy news feed, per player), Sleeper's depth order (one bulk
-  dump), the teammates in scope by position with their injury status, plus every hurt teammate at his own position
-  wherever the chart puts him (ESPN's injury feed drops IR players) with that teammate's Rotowire items, where return dates are written, and ESPN's per-player news stamps
-  (one `kona_player_info` call). Four calls at a time, each card saved as it lands, cached in
-  the `outlooks` table (kind `week`) under a hash of the facts, the news stamps and the day (so at least daily).
+  context — the news desk's stories naming him from the last ten days, its only news (`news.fetch_desk` over
+  `db.player_stories`: the desk's write-up, his ▲/▼/● line, each live source's site, date and link; the desk
+  polls Rotowire itself), Sleeper's depth order (one bulk dump), the teammates in scope by position with their
+  injury status, plus every hurt teammate at his own position wherever the chart puts him (ESPN's injury feed
+  drops IR players) with that teammate's newest three stories, where return dates are written (ids off one
+  `kona_player_info` call). Twenty calls at a time (`WORKERS`, the whole roster), each card saved as it lands, cached in
+  the `outlooks` table (kind `week`) under a hash of the facts, the stories (id, rev, status, sources) and the day (so at least daily).
   GETs never generate. `POST /outlook/refresh` starts a locked background run; `launchd/com.jonulak.ffl-outlook`
   curls it at five past every hour. One card is rewritten on a click (the card footer's Rewrite):
   `POST /outlook/{id}` → `outlook.start_one(kind=ROSTER)`, stored with the fact hash so the hourly run skips

@@ -2,7 +2,7 @@
 
 The call and its reason are code (season.roster_cards). This module writes the bullets under them —
 injury, usage, depth, team news and a take: what the card's numbers cannot say. The fact sheet holds
-the card's non-projection facts plus news.gather's context (the news desk's stories, Rotowire, depth); the CLI
+the card's non-projection facts plus news.gather's context (the news desk's stories, depth, injuries); the CLI
 has no tools, so it writes from the sheet alone, and every bullet cites the sources the sheet names beside each
 fact. Nothing here runs on a GET: generate() is started by
 POST /outlook/refresh in a background thread, and the page reads the week's entries from the DB.
@@ -59,9 +59,9 @@ LOCK = threading.Lock()
 # the last generation run, shown on the Roster page beside the button
 LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None, "last_failure": None,
               "pending": None}
-# calls in flight at once: a full rewrite is ~15 cards of one to two minutes each. Lower it if the
-# Claude plan starts refusing calls (they show as failures with the CLI's message in last_failure).
-WORKERS = 4
+# calls in flight at once: a full rewrite is ~15 cards of ~15 s each, so the whole roster goes at once. Lower it if
+# the Claude plan starts refusing calls (they show as failures with the CLI's message in last_failure).
+WORKERS = 20
 
 
 class Busy(RuntimeError):
@@ -85,13 +85,11 @@ def card_hash(card: dict) -> str:
 
 
 def fact_hash(card: dict, ctx: dict, today: date) -> str:
-    """card_hash plus the news (his depth, the teammates' status and news stamps, his own stamp, his
-    Rotowire items), the day, so every outlook is rewritten at least once a day, and the voice rule, so a
-    changed prompt reaches the cards written under the old one."""
-    mates = [[m.get("name"), m.get("status"), m.get("last_news"), [i.get("id") for i in m.get("rotowire") or []],
-              _story_keys(m)] for m in ctx.get("teammates") or []]
-    return _sha([card_hash(card), ctx.get("depth"), mates, ctx.get("last_news"),
-                 [i.get("id") for i in ctx.get("rotowire") or []], _story_keys(ctx), today.isoformat(), VOICE])
+    """card_hash plus the news (his depth, the teammates' status and stories, his own stories), the day, so every
+    outlook is rewritten at least once a day, and the voice rule, so a changed prompt reaches the cards written
+    under the old one."""
+    mates = [[m.get("name"), m.get("status"), m.get("note"), _story_keys(m)] for m in ctx.get("teammates") or []]
+    return _sha([card_hash(card), ctx.get("depth"), mates, _story_keys(ctx), today.isoformat(), VOICE])
 
 
 def _story_keys(holder: dict) -> list:
@@ -104,10 +102,6 @@ def _md(published: str | None) -> str:
         return datetime.fromisoformat(published.replace("Z", "+00:00")).astimezone().strftime("%-m/%-d")
     except (AttributeError, ValueError):
         return "undated"
-
-
-def _stamp(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000).strftime("%-m/%-d")
 
 
 def _exp_text(card: dict) -> str:
@@ -135,17 +129,9 @@ def _mate_text(m: dict) -> str:
     s = f"  {m['pos']}{m['rank']} {m['name']}: {m['status']}"
     if m.get("note"):
         s += f" — {m['note']}"
-    if m.get("last_news"):
-        s += f" (latest news {_stamp(m['last_news'])})"
-    for i in m.get("rotowire") or []:
-        s += f"\n    {_rotowire_text(i)}"
     for st in m.get("stories") or []:
         s += f"\n    {_story_text(st)}"
     return s
-
-
-def _rotowire_text(i: dict) -> str:
-    return f"{_md(i.get('published'))} {i.get('headline')} {i.get('story')} ({i.get('url') or 'no link'})"
 
 
 EFFECT = {"up": "▲", "down": "▼", "none": "●"}
@@ -195,14 +181,12 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date, free_agent: bool =
         f"Recent games (source: ESPN game log, {GAMELOG.format(pid=card['player_id'])}):",
         *([_row_text(r) for r in _rows(card)] or ["  none yet"]),
         f"Depth (source: Sleeper depth chart, {SLEEPER}): {_depth_text(ctx.get('depth'))}",
-        f"Teammates whose news matters to him, and every hurt teammate at his position with his Rotowire and news desk news "
+        f"Teammates whose news matters to him, and every hurt teammate at his position with his news desk news "
         f"(source: ESPN injury report, {INJURY_REPORT}):",
         *([_mate_text(m) for m in ctx.get("teammates") or []] or ["  none in scope"]),
         "News desk stories naming him, newest first (▲ helps him, ▼ hurts him, ● only names him; each cites its "
         "own sources):",
         *([f"  {_story_text(s)}" for s in ctx.get("stories") or []] or ["  none"]),
-        "Rotowire news (source: Rotowire via ESPN, each linked):",
-        *([f"  {_rotowire_text(i)}" for i in ctx.get("rotowire") or []] or ["  none"]),
         "",
         VOICE.replace(TAKE, FA_TAKE) if free_agent else VOICE,
     ]

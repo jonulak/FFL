@@ -12,8 +12,8 @@ that fell off its feed (404/410 withdraws it). Items still in the feed are never
 Rotowire (ESPN's fantasy news feed): it answers only per player (no playerId is a 500, playerId=0 an
 empty feed; checked 2026-10-19), so the one `rotowire` source polls every rostered player and the
 best ROTOWIRE_FA free agents (by the pool's `add`, else ESPN's percent owned), ids off the Players
-page's stored pool (page_cache "waivers"), else `espn_season.free_agent_pool`. It keeps its own 30-min cache of the raw document, since
-`news.fetch_rotowire` keeps only the three newest blurbs, already reshaped for the outlook's sheet.
+page's stored pool (page_cache "waivers"), else `espn_season.free_agent_pool`, with a 30-min cache of the raw
+document. This is the outlook's only Rotowire: its sheet reads the desk's stories.
 
 ESPN team news lists league-wide pieces (betting lines, highlights) under every club; an article is kept
 by a club's source only when it is categorized under that club and at most one other, and its body
