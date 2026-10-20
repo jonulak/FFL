@@ -100,7 +100,8 @@ export function RosterLive({ initial }: { initial: Roster }) {
     capture();
     setOps((o) => [...o, op]);
     const done = () => setOps((o) => o.filter((x) => x.key !== op.key));
-    chain.current = chain.current.then(send).finally(done);
+    // a send that throws must not stall the ops behind it, their players held for good
+    chain.current = chain.current.then(send).catch(() => {}).finally(done);
   };
 
   const move = (p: SheetPick) => {
