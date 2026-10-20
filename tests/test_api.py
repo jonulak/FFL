@@ -877,6 +877,30 @@ def test_save_during_submit_is_409(claims_env):
     assert claims_env.post("/claims", json={"groups": []}).status_code == 200   # released
 
 
+def test_a_submits_answer_is_kept_under_its_token(claims_env):
+    # the phone lost the POST (left the app mid-send): the dialog collects the answer the server finished with
+    api._SUBMITS.clear()
+    assert claims_env.get("/claims/submit/t1").status_code == 404, "never arrived"
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    r = claims_env.post("/claims/submit", json={"replace_outside": False, "token": "t1"}).json()
+    got = claims_env.get("/claims/submit/t1").json()
+    assert got == {"state": "done", "status": 200, "body": r} and r["match"]
+    # a refusal is kept with its status and detail, as the POST answered it
+    claims_env.pool["WR"][0]["status"] = "FREEAGENT"
+    assert claims_env.post("/claims/submit", json={"replace_outside": False, "token": "t2"}).status_code == 409
+    got = claims_env.get("/claims/submit/t2").json()
+    assert got["status"] == 409 and got["body"]["detail"]["error"] == "statuses changed — review again"
+
+
+def test_a_running_submit_reads_as_running(claims_env):
+    api._SUBMITS.clear()
+    api._keep_submit("t", None)
+    assert claims_env.get("/claims/submit/t").json() == {"state": "running"}
+    for i in range(api._SUBMITS_KEPT):
+        api._keep_submit(f"x{i}", {"status": 200, "body": {}})
+    assert claims_env.get("/claims/submit/t").status_code == 404, "only the latest few are kept"
+
+
 def test_instant_add_is_consumed_from_the_plan(claims_env, monkeypatch):
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})

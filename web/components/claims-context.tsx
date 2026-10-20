@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ClientError, clientGet, clientPost } from "@/app/api-client";
 import type { Claim, ClaimGroup, ClaimPlayer, Claims, PoolStatus, SubmitResult, FreeAgentRow } from "@/lib/api";
-import { SUBMIT_FLOOR_MS, submitFailure, type SubmitFailure } from "@/lib/claims";
+import { recoverSubmit, SUBMIT_FLOOR_MS, submitFailure, type SubmitAnswer, type SubmitFailure } from "@/lib/claims";
 
 export type { SubmitFailure };
 
@@ -21,6 +21,9 @@ type Ctx = {
   saving: boolean;
   error: string | null;
   submitting: boolean;
+  // the send's request dropped (iOS cuts a fetch when the app leaves the screen) and the dialog is waiting for
+  // the server's answer by the send's token
+  recovering: boolean;
   // expectNow: the "Add now" list the dialog showed; the server refuses (409) when its fresh read differs.
   // timeoutMs: how long to wait, from the plan's size (submitTimeoutMs); a minute when not given
   submit: (replaceOutside: boolean, expectNow: Claim[], timeoutMs?: number) => Promise<SubmitResult>;
@@ -55,6 +58,7 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const seq = useRef(0); // the newest save; an older answer is not applied over newer edits
   const latest = useRef(initial.groups);
@@ -141,14 +145,22 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
       throw new SubmitError(deferred.current ? { kind: "running" } : { kind: "other", error: "the latest edits aren't saved, so nothing was sent" });
     submittingRef.current = true;
     setSubmitting(true);
+    const token = crypto.randomUUID();
     try {
       const expect_now = expectNow.map(({ group, add, drop }) => ({ group, add, drop }));
-      return await clientPost<SubmitResult>("/claims/submit", { replace_outside: replaceOutside, expect_now }, timeoutMs);
-    } catch (e) {
-      throw new SubmitError(failure(e));
+      try {
+        return await clientPost<SubmitResult>("/claims/submit", { replace_outside: replaceOutside, expect_now, token }, timeoutMs);
+      } catch (e) {
+        if (e instanceof ClientError) throw new SubmitError(failure(e));
+        setRecovering(true);
+        const got = await recoverSubmit((p) => clientGet<SubmitAnswer>(p), token, message(e));
+        if ("failure" in got) throw new SubmitError(got.failure);
+        return got.result;
+      }
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
+      setRecovering(false);
       if (deferred.current) await save(latest.current);
       else await refresh();
     }
@@ -156,7 +168,7 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  const value = { data, groups, dirty, pos, status, player, setGroups, saving, error, submitting, submit, refresh };
+  const value = { data, groups, dirty, pos, status, player, setGroups, saving, error, submitting, recovering, submit, refresh };
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

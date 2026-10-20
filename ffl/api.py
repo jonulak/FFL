@@ -385,6 +385,10 @@ def health():
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
 
 _SUBMIT = threading.Lock()  # one submit at a time: it cancels and reposts ESPN's whole claim list
+# token -> None while that submit runs, then its answer {status, body}. A phone that leaves the app mid-send loses
+# the request ("Load failed") while the server finishes it; the dialog asks GET /claims/submit/{token} for the answer.
+_SUBMITS: dict[str, dict | None] = {}
+_SUBMITS_KEPT = 20
 
 
 class GroupIn(BaseModel):
@@ -407,6 +411,8 @@ class SubmitIn(BaseModel):
     replace_outside: bool = False
     # the "Add now" list the dialog showed: Submit refuses (409) when the fresh statuses would add anything else
     expect_now: list[MoveIn] = []
+    # the dialog's id for this send, so it can collect the answer if its own request drops
+    token: str | None = None
 
 
 def _instant_adds() -> bool:
@@ -526,8 +532,40 @@ def claims_save(body: PlanIn):
         _SUBMIT.release()
 
 
+def _keep_submit(token, answer):
+    _SUBMITS.pop(token, None)
+    _SUBMITS[token] = answer
+    while len(_SUBMITS) > _SUBMITS_KEPT:
+        _SUBMITS.pop(next(iter(_SUBMITS)))
+
+
 @app.post("/claims/submit")
 def claims_submit(body: SubmitIn):
+    if not body.token:
+        return _claims_submit(body)
+    _keep_submit(body.token, None)
+    try:
+        res = _claims_submit(body)
+    except HTTPException as e:
+        _keep_submit(body.token, {"status": e.status_code, "body": {"detail": e.detail}})
+        raise
+    except Exception as e:
+        _keep_submit(body.token, {"status": 500, "body": {"detail": str(e)}})
+        raise
+    _keep_submit(body.token, {"status": 200, "body": res})
+    return res
+
+
+@app.get("/claims/submit/{token}")
+def claims_submit_answer(token: str):
+    """A send's answer by the dialog's token: running, or the status and body the POST answered (404: never arrived)."""
+    if token not in _SUBMITS:
+        raise HTTPException(404, "no submit with that token")
+    answer = _SUBMITS[token]
+    return {"state": "running"} if answer is None else {"state": "done", **answer}
+
+
+def _claims_submit(body: SubmitIn):
     if not _SUBMIT.acquire(blocking=False):
         raise HTTPException(409, "a submit is already running")
     try:

@@ -3,6 +3,7 @@ import {
   addTarget, atMost, capacity, cutBlock, displayTargets, groupHasFA, groupPos, move, moveGroup, removeFrom, reorderTargets,
   addCut, holder, newGroup, place, processDay, prune, regroupKeys, removeGroup, rowTag, setOpen, statusTag, submitFailure, submitSummary,
   SUBMIT_CEILING_MS, SUBMIT_FLOOR_MS, SUBMIT_MARGIN_MS, SUBMIT_PER_WRITE_MS, errorWhere, submitTimeoutMs,
+  recoverSubmit, type SubmitAnswer,
 } from "./claims";
 import type { ClaimGroup, ClaimPlayer } from "./api";
 
@@ -233,5 +234,31 @@ describe("submitFailure", () => {
     expect(submitFailure(422, { detail: { errors } }, "x")).toEqual({ kind: "invalid", errors });
     expect(submitFailure(502, { detail: { source: "espn", error: "ESPN login expired" } }, "x")).toEqual({ kind: "espn", error: "ESPN login expired" });
     expect(submitFailure(null, null, "timed out")).toEqual({ kind: "other", error: "timed out" });
+  });
+});
+
+describe("recoverSubmit", () => {
+  const fast = { pollMs: 0, ceilingMs: 1_000 };
+  it("waits out a running send and an offline ask, then returns the answer the POST gave", async () => {
+    const answers: (() => Promise<SubmitAnswer>)[] = [
+      () => Promise.reject(new Error("Load failed")),
+      () => Promise.resolve({ state: "running" }),
+      () => Promise.resolve({ state: "done", status: 200, body: { match: true, sent: [] } }),
+    ];
+    const paths: string[] = [];
+    const got = await recoverSubmit((p) => { paths.push(p); return answers.shift()!(); }, "t1", "Load failed", fast);
+    expect(got).toEqual({ result: { match: true, sent: [] } });
+    expect(paths).toEqual(["/claims/submit/t1", "/claims/submit/t1", "/claims/submit/t1"]);
+  });
+  it("reads a refusal as the POST would have", async () => {
+    const body = { detail: { error: "statuses changed — review again" } };
+    const got = await recoverSubmit(() => Promise.resolve({ state: "done", status: 409, body }), "t", "Load failed", fast);
+    expect(got).toEqual({ failure: { kind: "changed", error: "statuses changed — review again" } });
+  });
+  it("says so when the server never saw the send, or never answered", async () => {
+    const none = await recoverSubmit(() => Promise.reject(new Error("404 Not Found")), "t", "Load failed", fast);
+    expect(none).toMatchObject({ failure: { kind: "other", error: expect.stringContaining("no record of this send") } });
+    const slow = await recoverSubmit(() => Promise.resolve({ state: "running" }), "t", "Load failed", { pollMs: 0, ceilingMs: 0 });
+    expect(slow).toMatchObject({ failure: { kind: "other", error: expect.stringContaining("never came") } });
   });
 });

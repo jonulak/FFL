@@ -257,3 +257,34 @@ export function submitFailure(status: number | null, body: unknown, message: str
   if (status === 502) return { kind: "espn", error: (typeof detail === "object" && detail?.error) || message };
   return { kind: "other", error: message };
 }
+
+// GET /claims/submit/{token}: the send still running, or what its POST answered
+export type SubmitAnswer = { state: "running" } | { state: "done"; status: number; body: unknown };
+export const RECOVER_POLL_MS = 3_000;
+
+// A send whose request dropped with no answer ("Load failed": the phone left the app mid-send; or the dialog's own
+// timeout) while the server, which never noticed, may still be sending. Ask for its answer by the send's token until
+// it is in; a failed ask (still offline) asks again; a 404 means the server never saw the send. Up to
+// SUBMIT_CEILING_MS, the longest a send may run. `get` throws "<status> <text>" on a refusal, as clientGet does.
+export async function recoverSubmit(
+  get: (path: string) => Promise<SubmitAnswer>, token: string, lost: string,
+  { pollMs = RECOVER_POLL_MS, ceilingMs = SUBMIT_CEILING_MS }: { pollMs?: number; ceilingMs?: number } = {},
+): Promise<{ result: SubmitResult } | { failure: SubmitFailure }> {
+  const until = Date.now() + ceilingMs;
+  for (;;) {
+    let a: SubmitAnswer | null = null;
+    try {
+      a = await get(`/claims/submit/${encodeURIComponent(token)}`);
+    } catch (e) {
+      if (/^404\b/.test(e instanceof Error ? e.message : String(e)))
+        return { failure: { kind: "other", error: `${lost}, and the server has no record of this send: check the claims panel` } };
+    }
+    if (a?.state === "done") {
+      if (a.status === 200) return { result: a.body as SubmitResult };
+      const detail = (a.body as { detail?: unknown } | null)?.detail;
+      return { failure: submitFailure(a.status, a.body, typeof detail === "string" ? detail : `${a.status}`) };
+    }
+    if (Date.now() >= until) return { failure: { kind: "other", error: `${lost}, and the server's answer never came: check the claims panel` } };
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+}

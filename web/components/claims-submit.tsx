@@ -146,7 +146,7 @@ type Frozen = { title: string; planned: number; outside: Set<string>; withdrawn:
 // phone's claims sheet as its second step (`phone`: Back to the claims, the phone's footer at
 // every width below lg). `titled` is false while the sheet fades it out, so one title labels the sheet.
 export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { onClose: () => void; onBack?: () => void; phone?: boolean; titled?: boolean }) {
-  const { data, groups, player, status, submit, submitting, refresh } = useClaims();
+  const { data, groups, player, status, submit, submitting, recovering, refresh } = useClaims();
   const router = useRouter();
   const presets = usePresets();
   const { log } = useDecisionPrefs();
@@ -314,6 +314,11 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
           <p className="text-muted-foreground">Nothing to withdraw: no claim sent from here is pending.</p>
         )}
         {why && <div className="log-in" style={{ "--i": 1 } as CSSProperties}><ClaimsWhy targets={why.rows.promise} presets={presets} /></div>}
+        {recovering && (
+          <p className="log-in text-sm leading-relaxed text-muted-foreground">
+            The connection dropped, but the send carries on without it. Waiting for {writes ? "ESPN" : "the fake"}&apos;s answer…
+          </p>
+        )}
         {fault && <div className="log-in"><Failure f={fault} name={name} writes={writes} /></div>}
       </div>
       {/* PHONE_INSET, written out: Tailwind only generates a variant it can read in the source */}
