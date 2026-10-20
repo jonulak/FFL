@@ -10,6 +10,9 @@ from ffl import outlook
 
 TODAY = date(2026, 10, 2)
 TAKE = {"label": "Take", "text": "Lead back.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test/1"}]}
+STORY = {"id": 7, "rev": 1, "status": "live", "published": "2026-10-01T18:00:00", "headline": "Gibbs hurts ankle.",
+         "overview": "He left in the third.", "text": "", "effect": "down", "line": "Week 5 in doubt.",
+         "sources": [{"site": "Beat Writer", "published": "2026-10-01T18:00:00", "url": "https://bsky.app/x/1"}]}
 
 
 def ctx(**kw):
@@ -18,7 +21,7 @@ def ctx(**kw):
                            "note": "Goff (thumb) won't play.", "last_news": 1790000000000}],
             "rotowire": [{"id": "64002028", "headline": "Gibbs logged a full practice.", "story": "He is fine.",
                           "published": "2026-09-30T21:10:56Z", "url": "https://www.espn.com/nfl/player/_/id/4362628"}],
-            "last_news": 1790000001000}
+            "last_news": 1790000001000, "stories": [STORY]}
     base.update(kw)
     return base
 
@@ -98,6 +101,25 @@ def test_fact_hash_moves_with_news_and_the_day():
     assert outlook.fact_hash(card(), ctx(teammates=[told]), TODAY) != base, "a hurt teammate's blurb rewrites him"
     assert outlook.fact_hash(card(), ctx(depth={"slot": "RB", "order": 2, "rank": 2, "of": 3}), TODAY) != base
     assert outlook.fact_hash(card(proj=30.0), ctx(), TODAY) == base
+    for moved in ([], [{**STORY, "rev": 2}], [{**STORY, "status": "corrected"}],
+                  [{**STORY, "sources": STORY["sources"] * 2}]):
+        assert outlook.fact_hash(card(), ctx(stories=moved), TODAY) != base, moved
+    told = {**ctx()["teammates"][0], "stories": [STORY]}
+    assert outlook.fact_hash(card(), ctx(teammates=[told]), TODAY) != base, "a hurt teammate's story rewrites him"
+
+
+def test_fact_sheet_has_the_news_desk_and_the_cli_no_tools():
+    unwritten = {**STORY, "id": 8, "headline": "Lions practice notes", "overview": "", "text": "Gibbs was limited.",
+                 "effect": "none", "line": None, "status": "corrected"}
+    sheet = outlook.fact_sheet(card(), 5, ctx(stories=[STORY, unwritten]), TODAY)
+    for s in ("10/1 ▼ Gibbs hurts ankle. He left in the third. For him: Week 5 in doubt.",
+              "(sources: Beat Writer 10/1 https://bsky.app/x/1)",
+              "● Lions practice notes Gibbs was limited. (since corrected)", "▲ helps him",
+              "facts above alone"):
+        assert s in sheet, s
+    assert "web search" not in sheet
+    assert "none" in outlook.fact_sheet(card(), 5, ctx(stories=[]), TODAY).split("News desk")[1].split("\n")[1]
+    assert outlook.TOOLS == ""
 
 
 def test_fact_hash_moves_with_the_prompt(monkeypatch):
@@ -152,7 +174,7 @@ def test_pending_writes_ir_and_out_skips_played_and_quiet_byes():
     cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, call="IR", group="ir"),
              card(player_id=4, call="OUT", injury="OUT"), card(player_id=5, call="BYE", bye=True),
              card(player_id=6, call="BYE", bye=True)]
-    quiet = ctx(teammates=[], rotowire=[])
+    quiet = ctx(teammates=[], rotowire=[], stories=[])
     ctxs = {1: ctx(), 2: ctx(), 3: ctx(), 4: ctx(), 5: quiet, 6: ctx()}
     assert [c["player_id"] for c in outlook.pending(cards, {}, ctxs, TODAY)] == [1, 3, 4, 6]
     same = {1: {"hash": outlook.fact_hash(cards[0], ctxs[1], TODAY)}}
@@ -287,7 +309,7 @@ def test_run_claude_without_the_cli_raises(monkeypatch):
         outlook.run_claude("x")
 
 
-def test_run_claude_invokes_the_cli_with_web_tools(monkeypatch):
+def test_run_claude_invokes_the_cli_without_tools(monkeypatch):
     calls = {}
     class R:
         returncode = 0
@@ -301,12 +323,11 @@ def test_run_claude_invokes_the_cli_with_web_tools(monkeypatch):
     monkeypatch.setenv("CLAUDECODE", "1")
     assert outlook.run_claude("the sheet") == [TAKE]
     assert calls["args"] == ["/Users/x/.local/bin/claude", "-p", "--model", "opus",
-                             "--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch",
-                             "--no-session-persistence", "--settings", '{"disableAllHooks": true}',
+                             "--tools", "", "--no-session-persistence", "--settings", '{"disableAllHooks": true}',
                              "--output-format", "json",
                              "--json-schema", json.dumps(outlook.SCHEMA)]
     assert "--bare" not in calls["args"]
-    assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 300
+    assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 180
     assert "CLAUDECODE" not in calls["kw"]["env"]
     assert calls["kw"]["cwd"] == str(outlook.OUTLOOK_DIR)
 

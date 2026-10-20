@@ -278,9 +278,10 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   carries `call_slot`, the slot `optimal_lineup` places him in (`_place_by_kickoff`: same starters, latest kickoffs in
   flex, a started game kept in place), and the chip names it;
   `ffl/outlook.py` writes labelled bullets under each card (Injury, Usage, Depth, Team, Take; each cites
-  dated, linked sources; never projections) by running `claude -p` (Opus, WebSearch + WebFetch) from a
-  fact sheet: the card's non-projection facts, per-game usage rows (`form["rows"]`) and `ffl/news.py`'s
-  context — Rotowire blurbs (ESPN's public fantasy news feed, per player), Sleeper's depth order (one bulk
+  dated, linked sources; never projections) by running `claude -p` (Opus, no tools: ~20 s a card) from a
+  fact sheet alone: the card's non-projection facts, per-game usage rows (`form["rows"]`) and `ffl/news.py`'s
+  context — the news desk's stories naming him from the last ten days (`news.fetch_desk` over `db.player_stories`:
+  the desk's write-up, his ▲/▼/● line, each live source's site, date and link; a hurt teammate's newest two too), Rotowire blurbs (ESPN's public fantasy news feed, per player), Sleeper's depth order (one bulk
   dump), the teammates in scope by position with their injury status, plus every hurt teammate at his own position
   wherever the chart puts him (ESPN's injury feed drops IR players) with that teammate's Rotowire items, where return dates are written, and ESPN's per-player news stamps
   (one `kona_player_info` call). Four calls at a time, each card saved as it lands, cached in

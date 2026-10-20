@@ -115,6 +115,20 @@ def test_recent_stories_leave_out_retracted():
     assert db.recent_stories([1], "2026-10-16T00:00:00") == []  # a new item never joins a retracted story
 
 
+def test_player_stories_groups_by_player_newest_first_without_retracted_or_old():
+    old = story("2026-10-01T00:00:00", players=[1])
+    a = story("2026-10-15T00:00:00", players=[1, 2])
+    b = story("2026-10-17T00:00:00", players=[1])
+    gone = story("2026-10-18T00:00:00", players=[1])
+    db.set_story_status(gone, "retracted", "2026-10-18T01:00:00", None)
+    story("2026-10-18T00:00:00", players=[3])
+    got = db.player_stories([1, 2], "2026-10-10T00:00:00")
+    assert [s["id"] for s in got[1]] == [b, a] and [s["id"] for s in got[2]] == [a]
+    assert 3 not in got and old not in [s["id"] for s in got[1]]
+    assert {r["player_id"] for r in got[2][0]["players"]} == {1, 2}
+    assert db.player_stories([], "2026-10-10") == {}
+
+
 def test_put_story_words_rejects_stale_rev():
     sid = story("2026-10-18T10:00:00", headline="old", players=[1, 2])
     db.update_story(sid, {"rev": 2})

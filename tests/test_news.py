@@ -146,11 +146,17 @@ def test_gather_fetches_rotowire_for_hurt_teammates_only(monkeypatch):
     monkeypatch.setattr(es, "fetch_injuries", lambda: {})
     asked = []
     monkeypatch.setattr(news, "fetch_rotowire", lambda pid: asked.append(pid) or [{"id": f"r{pid}"}])
+    desk = {}
+    monkeypatch.setattr(news, "fetch_desk", lambda pids, today: desk.update(pids=pids) or
+                        {1: [{"id": 9}], 77: [{"id": 1}, {"id": 2}, {"id": 3}]})
     got = news.gather([c("Tyler Higbee", "TE", team="LAR", pid=1)], 7)
     mates = {m["name"]: m for m in got[1]["teammates"]}
     assert mates["Terrance Ferguson"]["rotowire"] == [{"id": "r77"}]
     assert "rotowire" not in mates["Matthew Stafford"], "a healthy teammate's blurbs are not fetched"
     assert sorted(asked) == [1, 77]
+    assert desk["pids"] == [1, 77] and got[1]["stories"] == [{"id": 9}]
+    assert mates["Terrance Ferguson"]["stories"] == [{"id": 1}, {"id": 2}], "a hurt teammate's newest two"
+    assert "stories" not in mates["Matthew Stafford"]
 
 def test_has_news():
     today = date(2026, 10, 2)
@@ -160,6 +166,40 @@ def test_has_news():
     assert news.has_news(c("X", "WR"), {**quiet, "teammates": [{"status": "Out"}]}, today)
     assert news.has_news(c("X", "WR"), {**quiet, "rotowire": [{"published": "2026-09-25T10:00:00Z"}]}, today)
     assert not news.has_news(c("X", "WR"), {**quiet, "rotowire": [{"published": None}]}, today)
+    assert news.has_news(c("X", "WR"), {**quiet, "stories": [{"published": "2026-09-30T10:00:00+00:00"}]}, today)
+    assert not news.has_news(c("X", "WR"), {**quiet, "stories": [{"published": "2026-09-01T10:00:00+00:00"}]}, today)
+
+def desk_item(i, at, withdrawn=None, text="body"):
+    return {"id": i, "source_id": "bsky:x", "url": f"https://x/{i}", "published_at": at, "title": f"title {i}",
+            "text": text, "withdrawn_at": withdrawn}
+
+def desk_story(sid, items, headline="", overview="", players=({"player_id": 1, "effect": "down", "reason": "line"},)):
+    return {"id": sid, "rev": 1, "status": "live", "latest_at": items[-1]["published_at"] if items else "",
+            "headline": headline, "overview": overview, "players": list(players), "items": items}
+
+def test_shape_stories_cites_live_sources_and_quotes_an_unwritten_story():
+    sources = {"bsky:x": {"name": "Beat Writer"}}
+    written = desk_story(1, [desk_item(1, "2026-10-18T10:00:00"), {**desk_item(5, "2026-10-18T11:00:00"), "url": "https://x/1"},
+                             desk_item(2, "2026-10-19T10:00:00", "gone")], headline="H", overview="O")
+    raw = desk_story(2, [desk_item(3, "2026-10-17T10:00:00", text="a  long\n" + "x" * 900)])
+    dead = desk_story(3, [desk_item(4, "2026-10-17T10:00:00", "gone")])
+    w, r = news.shape_stories([written, raw, dead], 1, sources)
+    assert (w["headline"], w["overview"], w["text"], w["effect"], w["line"]) == ("H", "O", "", "down", "line")
+    assert w["sources"] == [{"site": "Beat Writer", "published": "2026-10-18T11:00:00", "url": "https://x/1"}], \
+        "a withdrawn source is gone and one link is cited once, at its newest"
+    assert r["headline"] == "title 3" and r["text"].startswith("a long x") and len(r["text"]) == news.DESK_TEXT
+
+def test_fetch_desk_reads_the_window_and_degrades_to_empty(monkeypatch):
+    asked = {}
+    monkeypatch.setattr(news.db, "player_stories", lambda pids, since: asked.update(since=since) or
+                        {1: [desk_story(1, [desk_item(1, "2026-10-18T10:00:00")])]})
+    monkeypatch.setattr(news.db, "news_sources", lambda active_only=True: [{"id": "bsky:x", "name": "Beat Writer"}])
+    got = news.fetch_desk([1], date(2026, 10, 20))
+    assert asked["since"] == "2026-10-10" and got[1][0]["sources"][0]["site"] == "Beat Writer"
+    def boom(pids, since):
+        raise news.db.DBError("locked")
+    monkeypatch.setattr(news.db, "player_stories", boom)
+    assert news.fetch_desk([1], date(2026, 10, 20)) == {}
 
 def test_gather_builds_every_card_and_survives_dead_sources(monkeypatch):
     import ffl.espn_season as es
@@ -168,6 +208,8 @@ def test_gather_builds_every_card_and_survives_dead_sources(monkeypatch):
     monkeypatch.setattr(es, "fetch_injuries", lambda: {})
     asked = []
     monkeypatch.setattr(news, "fetch_rotowire", lambda pid: asked.append(pid) or [])
+    monkeypatch.setattr(news, "fetch_desk", lambda pids, today: {})
     got = news.gather([c("A", "WR", pid=1), c("Bengals D/ST", "D/ST", pid=-16004)], 5)
-    assert set(got) == {1, -16004} and got[1] == {"depth": None, "teammates": [], "rotowire": [], "last_news": None}
+    assert set(got) == {1, -16004} and got[1] == {"depth": None, "teammates": [], "rotowire": [], "last_news": None,
+                                                  "stories": []}
     assert asked == [1], "a D/ST has no Rotowire page"

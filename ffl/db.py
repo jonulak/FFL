@@ -1225,6 +1225,26 @@ def recent_stories(player_ids: list[int], since: str, season: int = SEASON) -> l
         return _stories_out(c, c.execute(q).all(), season)
 
 
+def player_stories(player_ids: list[int], since: str, season: int = SEASON) -> dict[int, list[dict]]:
+    """Each player's stories with news at or after `since` (latest_at), newest first, ● ones too, never a retracted one:
+    the outlook's fact sheet. A player with none is absent."""
+    if not player_ids:
+        return {}
+    t, p = news_stories, news_story_players
+    named = sa.select(p.c.story_id).where(p.c.season == season, p.c.player_id.in_(player_ids))
+    q = (sa.select(t).where(t.c.season == season, t.c.latest_at >= since, t.c.id.in_(named), t.c.status != "retracted")
+         .order_by(t.c.latest_at.desc(), t.c.id.desc()))
+    with _read() as c:
+        stories = _stories_out(c, c.execute(q).all(), season)
+    out: dict[int, list[dict]] = {}
+    want = set(player_ids)
+    for s in stories:
+        for r in s["players"]:
+            if r["player_id"] in want:
+                out.setdefault(r["player_id"], []).append(s)
+    return out
+
+
 def put_story_players(story_id: int, rows: list[dict], season: int = SEASON) -> None:
     """The model's call per player (key: season, story, player); the written reason and flag are left alone."""
     if not rows:

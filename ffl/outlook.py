@@ -2,8 +2,9 @@
 
 The call and its reason are code (season.roster_cards). This module writes the bullets under them —
 injury, usage, depth, team news and a take: what the card's numbers cannot say. The fact sheet holds
-the card's non-projection facts plus news.gather's context; the CLI may search the web to check and
-extend it, and every bullet cites its sources. Nothing here runs on a GET: generate() is started by
+the card's non-projection facts plus news.gather's context (the news desk's stories, Rotowire, depth); the CLI
+has no tools, so it writes from the sheet alone, and every bullet cites the sources the sheet names beside each
+fact. Nothing here runs on a GET: generate() is started by
 POST /outlook/refresh in a background thread, and the page reads the week's entries from the DB.
 """
 from __future__ import annotations
@@ -23,9 +24,9 @@ HOOKS_OFF = claude_cli.HOOKS_OFF  # moved to claude_cli; still importable from h
 
 OUTLOOK_DIR = DATA / "outlook"  # only the neutral cwd for `claude -p` (the outlooks live in the DB)
 MODEL = "opus"
-# each call searches the web: one to two minutes, sometimes more
-TIMEOUT_S = 300
-TOOLS = "WebSearch,WebFetch"
+# no web search: the news desk has already collected and tagged the news (news.fetch_desk), so a call only writes
+TIMEOUT_S = 180
+TOOLS = ""
 LABELS = ("Injury", "Usage", "Depth", "Team", "Take")
 _SOURCE = {"type": "object", "properties": {"site": {"type": "string"}, "date": {"type": "string"},
                                              "url": {"type": "string"}}, "required": ["site", "date", "url"]}
@@ -48,8 +49,8 @@ VOICE = ("Write this player's outlook as bullets labelled Injury, Usage, Depth, 
          "with each hurt teammate's expected return week and its source, or that none has been reported. "
          "Team: teammate or scheme news that changes his week, such as his quarterback out, a coordinator "
          "fired or a receiver traded. " + TAKE + "Leave out any other label with nothing to report: never a bullet that only says there is no news. One or two sentences, at most thirty words, per "
-         "bullet. Check the facts above with web search and add what they miss; say so when sources "
-         "disagree. Use nothing older than ten days unless it is the latest word on an injury that is still "
+         "bullet. Write from the facts above alone and add nothing they do not say; say so when sources "
+         "disagree, and prefer the newest. Use nothing older than ten days unless it is the latest word on an injury that is still "
          "active, and give the date of any injury news. Never quote projected or expected fantasy points and "
          "do not restate the start or bench call. Every bullet cites at least one source with its site, date "
          "(M/D) and URL; a fact from this sheet cites the source named beside it. Third person, written to "
@@ -87,10 +88,15 @@ def fact_hash(card: dict, ctx: dict, today: date) -> str:
     """card_hash plus the news (his depth, the teammates' status and news stamps, his own stamp, his
     Rotowire items), the day, so every outlook is rewritten at least once a day, and the voice rule, so a
     changed prompt reaches the cards written under the old one."""
-    mates = [[m.get("name"), m.get("status"), m.get("last_news"), [i.get("id") for i in m.get("rotowire") or []]]
-             for m in ctx.get("teammates") or []]
+    mates = [[m.get("name"), m.get("status"), m.get("last_news"), [i.get("id") for i in m.get("rotowire") or []],
+              _story_keys(m)] for m in ctx.get("teammates") or []]
     return _sha([card_hash(card), ctx.get("depth"), mates, ctx.get("last_news"),
-                 [i.get("id") for i in ctx.get("rotowire") or []], today.isoformat(), VOICE])
+                 [i.get("id") for i in ctx.get("rotowire") or []], _story_keys(ctx), today.isoformat(), VOICE])
+
+
+def _story_keys(holder: dict) -> list:
+    """A news desk story moves the hash when it is new, gains a source or is rewritten (rev), or is corrected."""
+    return [[s.get("id"), s.get("rev"), s.get("status"), len(s.get("sources") or [])] for s in holder.get("stories") or []]
 
 
 def _md(published: str | None) -> str:
@@ -133,11 +139,28 @@ def _mate_text(m: dict) -> str:
         s += f" (latest news {_stamp(m['last_news'])})"
     for i in m.get("rotowire") or []:
         s += f"\n    {_rotowire_text(i)}"
+    for st in m.get("stories") or []:
+        s += f"\n    {_story_text(st)}"
     return s
 
 
 def _rotowire_text(i: dict) -> str:
     return f"{_md(i.get('published'))} {i.get('headline')} {i.get('story')} ({i.get('url') or 'no link'})"
+
+
+EFFECT = {"up": "▲", "down": "▼", "none": "●"}
+
+
+def _story_text(s: dict) -> str:
+    """One news desk story: date, effect on him, the desk's write-up (or the start of its first source), his line,
+    and every live source with its own date and link."""
+    body = " ".join(x for x in (s.get("headline"), s.get("overview") or s.get("text")) if x)
+    if s.get("line"):
+        body += f" For him: {s['line']}"
+    if s.get("status") == "corrected":
+        body += " (since corrected)"
+    cites = "; ".join(f"{c['site']} {_md(c.get('published'))} {c['url']}" for c in s.get("sources") or [])
+    return f"{_md(s.get('published'))} {EFFECT.get(s.get('effect'), '●')} {body} (sources: {cites})"
 
 
 def _kickoff_text(card: dict) -> str:
@@ -172,9 +195,12 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date, free_agent: bool =
         f"Recent games (source: ESPN game log, {GAMELOG.format(pid=card['player_id'])}):",
         *([_row_text(r) for r in _rows(card)] or ["  none yet"]),
         f"Depth (source: Sleeper depth chart, {SLEEPER}): {_depth_text(ctx.get('depth'))}",
-        f"Teammates whose news matters to him, and every hurt teammate at his position with his Rotowire news "
+        f"Teammates whose news matters to him, and every hurt teammate at his position with his Rotowire and news desk news "
         f"(source: ESPN injury report, {INJURY_REPORT}):",
         *([_mate_text(m) for m in ctx.get("teammates") or []] or ["  none in scope"]),
+        "News desk stories naming him, newest first (▲ helps him, ▼ hurts him, ● only names him; each cites its "
+        "own sources):",
+        *([f"  {_story_text(s)}" for s in ctx.get("stories") or []] or ["  none"]),
         "Rotowire news (source: Rotowire via ESPN, each linked):",
         *([f"  {_rotowire_text(i)}" for i in ctx.get("rotowire") or []] or ["  none"]),
         "",

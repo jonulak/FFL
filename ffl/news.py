@@ -1,4 +1,5 @@
-"""Per-player news for the Roster outlook: Rotowire blurbs, Sleeper's depth order, ESPN's news stamps.
+"""Per-player news for the Roster outlook: the news desk's stories, Rotowire blurbs, Sleeper's depth order, ESPN's
+news stamps.
 
 The parsers are pure and tested; the fetchers cache and serve the last good data on failure, like
 espn_season.fetch_injuries, and an empty value when they have never succeeded. Nothing here decides
@@ -9,11 +10,12 @@ from __future__ import annotations
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, timedelta
 
 import requests
 from espn_api.football.constant import PRO_TEAM_MAP
 
+from . import db
 from .adp import norm_name
 from .config import raw_league_get
 
@@ -32,6 +34,11 @@ OFFENSE = {"QB", "RB", "WR", "TE", "K"}
 _ROTO: dict[int, tuple[float, list]] = {}  # espn id -> (expires_at, items)
 _DEPTH: list = []  # [expires_at, chart]
 _INDEX: list = []  # [expires_at, index]
+# the news desk's stories naming him, newest first, and a hurt teammate's (where his return is written)
+DESK_KEEP = 6
+DESK_MATE_KEEP = 2
+DESK_SOURCES = 4  # a story's newest sources cited
+DESK_TEXT = 600  # characters of its first item when the desk has not written the story up yet
 
 
 def parse_rotowire(payload: dict) -> list[dict]:
@@ -189,14 +196,46 @@ def _recent(published: str | None, today: date) -> bool:
         return False
 
 
+def shape_stories(stories: list[dict], pid: int, sources: dict[str, dict]) -> list[dict]:
+    """db.player_stories' rows as the fact sheet reads them: the desk's headline and overview, his line and effect
+    (up, down, or none when the story only names him), the live sources (site, date, link), and, for a story not yet
+    written up, the start of its first item. A story whose every source was withdrawn is dropped."""
+    out = []
+    for s in stories:
+        items = [i for i in s["items"] if not i.get("withdrawn_at")]
+        if not items:
+            continue
+        urls: set[str] = set()  # two clubs' ESPN pages carry the same article
+        cited = [i for i in reversed(items) if i["url"] not in urls and not urls.add(i["url"])][:DESK_SOURCES][::-1]
+        row = next((r for r in s["players"] if r["player_id"] == pid), {})
+        out.append({"id": s["id"], "rev": s["rev"], "status": s["status"], "published": s["latest_at"],
+                    "headline": s["headline"] or items[0]["title"], "overview": s["overview"],
+                    "text": "" if s["overview"] else " ".join(items[0]["text"].split())[:DESK_TEXT],
+                    "effect": row.get("effect"), "line": row.get("reason"),
+                    "sources": [{"site": (sources.get(i["source_id"]) or {}).get("name") or i["source_id"],
+                                 "published": i["published_at"], "url": i["url"]} for i in cited]})
+    return out
+
+
+def fetch_desk(pids: list[int], today: date) -> dict[int, list[dict]]:
+    """Each player's news desk stories from the last RECENT_DAYS, shaped; empty when the DB cannot be read."""
+    since = (today - timedelta(days=RECENT_DAYS)).isoformat()
+    try:
+        stories = db.player_stories(pids, since)
+        sources = {s["id"]: s for s in db.news_sources(active_only=False)} if stories else {}
+    except db.DBError:
+        return {}
+    return {pid: shape_stories(ss, pid, sources)[:DESK_KEEP] for pid, ss in stories.items()}
+
+
 def has_news(card: dict, ctx: dict, today: date) -> bool:
-    """Whether a bye-week card is worth an outlook: he is hurt, a teammate in scope is, or Rotowire
-    has written about him in the last RECENT_DAYS."""
+    """Whether a bye-week card is worth an outlook: he is hurt, a teammate in scope is, or the news desk or
+    Rotowire has news of him in the last RECENT_DAYS."""
     if (card.get("injury") or "ACTIVE") != "ACTIVE":
         return True
     if any(_hurt(m.get("status")) for m in ctx["teammates"]):
         return True
-    return any(_recent(i.get("published"), today) for i in ctx["rotowire"])
+    return any(_recent(i.get("published"), today) for i in (ctx.get("stories") or []) + ctx["rotowire"])
 
 
 def gather(cards: list[dict], week: int) -> dict[int, dict]:
@@ -215,4 +254,9 @@ def gather(cards: list[dict], week: int) -> dict[int, dict]:
         roto.update(zip(want, pool.map(fetch_rotowire, want)))
     for m in hurt:
         m["rotowire"] = roto.get(m["player_id"], [])
+    desk = fetch_desk(sorted({c["player_id"] for c in cards} | {m["player_id"] for m in hurt}), date.today())
+    for pid, ctx in out.items():
+        ctx["stories"] = desk.get(pid, [])
+    for m in hurt:
+        m["stories"] = desk.get(m["player_id"], [])[:DESK_MATE_KEEP]
     return out
