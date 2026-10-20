@@ -33,14 +33,15 @@ export function RecentNews({ d, recent }: { d: PlayerNews; recent: Recent }) {
                 {s.headline}
               </DialogClose>
               <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-4 text-muted-foreground">
-                {stamp.updated
-                  ? <span className="font-medium text-foreground/85">Updated</span>
-                  : stamp.cite?.url
+                {stamp.updated && <><span className="font-medium text-foreground/85">Updated</span><span aria-hidden>·</span></>}
+                {stamp.cite && <>
+                  {stamp.cite.url
                     ? <a href={stamp.cite.url} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-0.5 font-medium text-foreground/85 ${NAME_LINK}`}>
                         {stamp.cite.source}<ArrowUpRight aria-hidden className="size-3" />
                       </a>
-                    : stamp.cite && <span className="font-medium text-foreground/85">{stamp.cite.source}</span>}
-                {(stamp.updated || stamp.cite) && <span aria-hidden>·</span>}
+                    : <span className="font-medium text-foreground/85">{stamp.cite.source}</span>}
+                  <span aria-hidden>·</span>
+                </>}
                 <Ago iso={stamp.at} />
                 {label && <Badge variant="muted" shape="chip" className="ml-1">{label}</Badge>}
               </p>

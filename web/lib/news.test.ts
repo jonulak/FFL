@@ -100,8 +100,9 @@ describe("storyStamp", () => {
   it("dates a real update by its newest source", () => {
     expect(storyStamp(s({ updated: true }))).toEqual({ updated: true, cite: latest, at: latest.at });
   });
-  it("dates a story with no update, however many outlets repeated it, by its first source", () => {
-    expect(storyStamp(s({}))).toEqual({ updated: false, cite: first, at: first.at });
+  it("dates a story with no update by its newest source too, the feed's order", () => {
+    expect(storyStamp(s({}))).toEqual({ updated: false, cite: latest, at: latest.at });
+    expect(storyStamp(s({ latest: null }))).toEqual({ updated: false, cite: first, at: first.at });
   });
   it("falls back to the story's time without a source", () => {
     expect(storyStamp(s({ first: null, latest: null, at: "2026-10-18T00:00:00+00:00" })))

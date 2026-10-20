@@ -45,11 +45,12 @@ export function splitRows(rows: NewsRow[], onlyMine = false): { moved: NewsRow[]
   return { moved: rows.filter((r) => r.effect !== "none"), none: rows.filter((r) => r.effect === "none") };
 }
 
-// The card's stamp, the same in the feed and the player dialog: a story that had a real update (rev > 1; another
-// outlet repeating the news is none) reads "Updated" and the age of its newest source; any other, its first source
-// and that one's age. The feed is ordered by the newest source, so an updated story's age is its place in the order.
+// The card's stamp, the same in the feed and the player dialog: always the newest source and its age, since the feed
+// is ordered by it (a first source's age on a story another outlet just added to reads out of order). A story that had
+// a real update (rev > 1; another outlet repeating the news is none) also says "Updated". The first source, the
+// scoop, stays among the story's sources.
 export function storyStamp(s: Pick<Story, "updated" | "first" | "latest" | "at">): { updated: boolean; cite: NewsCite | null; at: string } {
-  const cite = s.updated ? s.latest : s.first;
+  const cite = s.latest ?? s.first;
   return { updated: s.updated, cite, at: cite?.at ?? s.at };
 }
 
