@@ -804,15 +804,26 @@ def test_submit_expired_login(claims_env, monkeypatch):
 def test_unreachable_espn_is_not_a_login_expired(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
 
-    def boom():
+    def boom(max_age=0):
         raise api.espn_write.WriteError(0, "ReadTimeout: read timed out")
 
     monkeypatch.setattr(api.espn_write, "pending_state", boom)
     r = claims_env.post("/claims/submit", json={"replace_outside": False})
     assert r.status_code == 502 and r.json()["detail"]["error"] == api.espn_write.UNREACHABLE
     assert claims_env.get("/claims").json()["pending_error"] == api.espn_write.UNREACHABLE
-    monkeypatch.setattr(api.espn_write, "pending_state", lambda: (_ for _ in ()).throw(api.espn_write.WriteError(403, "x")))
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: (_ for _ in ()).throw(api.espn_write.WriteError(403, "x")))
     assert claims_env.get("/claims").json()["pending_error"] == api.espn_write.EXPIRED
+
+
+def test_claims_page_reuses_the_pending_read_but_fresh_and_submit_do_not(claims_env, monkeypatch):
+    ages = []
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: ages.append(max_age) or ([], None))
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    claims_env.get("/claims")
+    assert ages == [api.CLAIMS_REUSE_S, api.CLAIMS_REUSE_S]
+    claims_env.get("/claims?fresh=1")
+    claims_env.post("/claims/submit", json={"replace_outside": False})
+    assert ages[2:4] == [0, 0]
 
 
 def test_new_week_starts_empty(claims_env, monkeypatch):
@@ -1026,7 +1037,7 @@ def lineup_env(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "roster_flags", roster_flags)
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)  # these model real writes (move_lineup is stubbed)
     monkeypatch.setattr(api.espn_season, "load", lambda: {"starters": {"RB/WR/TE": 1}})
-    monkeypatch.setattr(api.espn_write, "pending_state", lambda: ([], state["period"]))
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: ([], state["period"]))
     sent = []
     monkeypatch.setattr(api.espn_write, "move_lineup",
                         lambda items, week: sent.append((items, week)) or state["slots"].update({p: t for p, _, t in items}))

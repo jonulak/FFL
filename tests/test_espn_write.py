@@ -1,5 +1,6 @@
 import copy
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -337,3 +338,61 @@ def test_move_lineup_raises_unless_espn_says_executed(monkeypatch):
     monkeypatch.setattr(W, "_post", lambda body, url=W.WRITE_URL: {"status": "PENDING"})
     with pytest.raises(W.WriteError):
         W.move_lineup([(1, "BE", "RB")], 5)
+
+
+PENDING_DOC = {"scoringPeriodId": 7, "status": {"waiverLastExecutionDate": 1792652400000},
+               "pendingTransactions": [{"id": "c1", "teamId": 7, "type": "WAIVER", "status": "PENDING", "subOrder": 1,
+                                        "items": [{"playerId": 101, "type": "ADD"}]}]}
+
+
+def _counted_reads(monkeypatch):
+    _live_add(monkeypatch, {"id": "c2"})
+    monkeypatch.setattr(W, "_READ", None)
+    reads = []
+    monkeypatch.setattr(W.config, "raw_league_get", lambda view: reads.append(view) or PENDING_DOC)
+    return reads
+
+
+def test_one_pending_read_serves_the_claims_and_the_last_run_inside_max_age(monkeypatch):
+    reads = _counted_reads(monkeypatch)
+    assert [c["id"] for c in W.pending_state(max_age=60)[0]] == ["c1"]
+    assert W.last_waiver_run(max_age=60) == datetime.fromtimestamp(1792652400).isoformat(timespec="seconds")
+    assert W.pending_state(max_age=60)[1] == 7
+    assert len(reads) == 1
+
+
+def test_without_max_age_every_call_reads_espn(monkeypatch):
+    reads = _counted_reads(monkeypatch)
+    W.pending_state(max_age=60)
+    W.pending_claims()
+    W.last_waiver_run()
+    assert len(reads) == 3
+
+
+def test_a_write_drops_the_reused_read(monkeypatch):
+    reads = _counted_reads(monkeypatch)
+    W.pending_state(max_age=60)
+    W.submit_claim(102, None, 7)
+    W.pending_state(max_age=60)
+    assert len(reads) == 2
+
+
+def test_a_read_that_spans_a_write_is_not_reused(monkeypatch):
+    reads = _counted_reads(monkeypatch)
+
+    def read_during_a_write(view):
+        reads.append(view)
+        W.submit_claim(102, None, 7)  # lands while this read is in flight: its answer may predate the claim
+        return PENDING_DOC
+
+    monkeypatch.setattr(W.config, "raw_league_get", read_during_a_write)
+    W.pending_state(max_age=60)
+    monkeypatch.setattr(W.config, "raw_league_get", lambda view: reads.append(view) or PENDING_DOC)
+    W.pending_state(max_age=60)
+    assert len(reads) == 2
+
+
+def test_last_waiver_run_is_none_when_the_read_fails(monkeypatch):
+    _counted_reads(monkeypatch)
+    monkeypatch.setattr(W.config, "raw_league_get", lambda view: (_ for _ in ()).throw(RuntimeError("down")))
+    assert W.last_waiver_run(max_age=60) is None

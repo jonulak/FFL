@@ -439,12 +439,12 @@ def _validate(plan, roster, data, status):
                                _owners(data), _positions(data), _limits())
 
 
-def _load_plan(week):
+def _load_plan(week, max_age=0):
     # a plan the waiver run already processed reads as retired (an empty week); the next save writes that down
     plan = db.claim_plan(week)
     if plan is None:
         return {"week": week, "groups": [], "submits": []}
-    return claims_mod.retire(plan, espn_write.last_waiver_run())
+    return claims_mod.retire(plan, espn_write.last_waiver_run(max_age))
 
 
 def _save_plan(plan):
@@ -496,13 +496,18 @@ def _claims_roster(data):
     return [{**p, "slot": fake.get(p["player_id"], p.get("slot"))} for p in data.get("roster", [])]
 
 
-def _claims_payload(plan, data, status=None):
+# The Claims page's GET and save take ESPN's pending read when it is younger than this (any write drops it): a save
+# changes nothing on ESPN, and each request paid two serial reads (1.5-2.3 s) before. Submit and fresh=1 read anew.
+CLAIMS_REUSE_S = 60
+
+
+def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S):
     roster, status = _claims_roster(data), _status(data) if status is None else status
     last = plan["submits"][-1] if plan["submits"] else None
     ids = set(last["ids"]) if last else set()
     now, expansion = claims_mod.plan_now(plan["groups"], status), claims_mod.expand(plan["groups"], status)
     try:
-        pending, perr = espn_write.pending_claims(), None
+        pending, perr = espn_write.pending_state(max_age)[0], None
     except espn_write.WriteError as e:
         log.warning("pending claims not read: %s", e)  # the page shows only e.message; the cause is here
         pending, perr = [], e.message
@@ -531,7 +536,8 @@ def _claims_payload(plan, data, status=None):
 def claims_get(fresh: bool = False):
     # fresh=1 (the Submit dialog on open): statuses re-read from ESPN, so "Add now" is what Submit will run
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-    return _claims_payload(_load_plan(data["week"]), data, _fresh_status(data) if fresh else None)
+    age = 0 if fresh else CLAIMS_REUSE_S
+    return _claims_payload(_load_plan(data["week"], age), data, _fresh_status(data) if fresh else None, age)
 
 
 @app.post("/claims")
@@ -541,7 +547,7 @@ def claims_save(body: PlanIn):
         raise HTTPException(409, "a submit is running")
     try:
         data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-        plan = {**_load_plan(data["week"]), "groups": [g.model_dump() for g in body.groups]}
+        plan = {**_load_plan(data["week"], CLAIMS_REUSE_S), "groups": [g.model_dump() for g in body.groups]}
         _save_plan(plan)
         return _claims_payload(plan, data)
     finally:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import itertools
 import os
 import re
+import time
 from datetime import datetime
 
 import requests
@@ -32,6 +33,8 @@ _FAIL_ADDS: set[int] = set()  # dev/tests under FFL_WRITES=0: ids whose instant 
 _FAKE_PERIOD: int | None = None  # dev/tests under FFL_WRITES=0: ESPN's scoring period; None means "the plan week"
 _FAKE_LAST_RUN: str | None = None  # dev/tests under FFL_WRITES=0: the last waiver run, local ISO
 _IDS = itertools.count(1)
+_READ: tuple[float, dict] | None = None  # the last pending document and when it was read (monotonic)
+_GEN = 0  # bumped by every write, so a read in flight across one is not kept
 
 
 EXPIRED = "ESPN login expired, refresh .env"
@@ -148,6 +151,8 @@ def move_lineup(items: list[tuple[int, str, str]], week: int) -> None:
 
 
 def _post(body: dict | list, url: str = WRITE_URL) -> dict | list:
+    global _READ, _GEN
+    _READ, _GEN = None, _GEN + 1  # before and whatever the answer: a write that errored may still have landed
     r = requests.post(url, json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
     if r.status_code >= 400:
         raise WriteError(r.status_code, r.text[:500])
@@ -172,16 +177,30 @@ def _read_error(e: Exception) -> WriteError:
     return WriteError(0, f"{type(e).__name__}: {e}"[:300])
 
 
-def pending_state() -> tuple[list[dict], int | None]:
-    """My pending waiver claims in ESPN's processing order, and ESPN's current scoring period (the week its write
-    bodies want), from one mPendingTransactions read. The period is None when the document has none."""
-    if not _writes():
-        return [{**c, "priority": n} for n, c in enumerate(_FAKE, 1)], _FAKE_PERIOD
+def _pending_doc(max_age: float) -> dict:
+    """The mPendingTransactions + mTeam document, which also carries mStatus's waiverLastExecutionDate. A caller
+    passing max_age takes the last read when it is younger than that (the Claims page: each GET and save paid two
+    ESPN reads, 1.5-2.3 s); any write drops it, and a read that spans a write is not kept."""
+    global _READ
+    if max_age and _READ and time.monotonic() - _READ[0] < max_age:
+        return _READ[1]
+    gen = _GEN
     try:
         # mTeam is what makes ESPN include subOrder (the priority) on each pending claim
         doc = config.raw_league_get(["mPendingTransactions", "mTeam"])
     except Exception as e:  # noqa: BLE001 — every read failure is a WriteError, sorted by _read_error
         raise _read_error(e) from e
+    if gen == _GEN:
+        _READ = (time.monotonic(), doc)
+    return doc
+
+
+def pending_state(max_age: float = 0) -> tuple[list[dict], int | None]:
+    """My pending waiver claims in ESPN's processing order, and ESPN's current scoring period (the week its write
+    bodies want), from one mPendingTransactions read. The period is None when the document has none."""
+    if not _writes():
+        return [{**c, "priority": n} for n, c in enumerate(_FAKE, 1)], _FAKE_PERIOD
+    doc = _pending_doc(max_age)
     team = _team_id()
     try:
         period = doc.get("scoringPeriodId")
@@ -190,13 +209,13 @@ def pending_state() -> tuple[list[dict], int | None]:
         raise WriteError(0, f"unreadable pending claims ({type(e).__name__}: {e})"[:300]) from e
 
 
-def last_waiver_run() -> str | None:
-    """When ESPN last ran waivers (mStatus waiverLastExecutionDate), local ISO to the second; None when the read
-    fails or carries no date, so a plan is never retired on a guess."""
+def last_waiver_run(max_age: float = 0) -> str | None:
+    """When ESPN last ran waivers (waiverLastExecutionDate, off the pending read), local ISO to the second; None
+    when the read fails or carries no date, so a plan is never retired on a guess."""
     if not _writes():
         return _FAKE_LAST_RUN
     try:
-        ms = config.raw_league_get("mStatus").get("status", {}).get("waiverLastExecutionDate")
+        ms = _pending_doc(max_age).get("status", {}).get("waiverLastExecutionDate")
     except Exception:  # noqa: BLE001
         return None
     return None if ms is None else datetime.fromtimestamp(ms / 1000).isoformat(timespec="seconds")
