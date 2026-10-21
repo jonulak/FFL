@@ -119,7 +119,7 @@ def test_only_the_resolved_claim_is_reported(monkeypatch, lg):
     db.add_transactions(_adds((1791000000000, 7, 11, "2026-10-08T03:12")))
     assert notify.check_waivers() == 1
     (w,) = [n for n in db.unsent_notices() if n["kind"] == "waivers"]
-    assert w["title"] == "Waivers: 1 of 1 claims won" and w["body"] == "Won Ray Davis."
+    assert w["title"] == "Waivers: 1 of 1 players won" and w["body"] == "Won Ray Davis."
     assert db.get_state("pending_claims") == _claims(12)
 
 

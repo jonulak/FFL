@@ -84,10 +84,12 @@ def waiver_notices(run: str | None, prev_run: str | None, pending: list[dict], m
     def name(pid: int) -> str:
         return names.get(pid) or f"player {pid}"
 
-    won = [c["add"] for c in pending if c["add"] in my_adds]
-    lost = [c["add"] for c in pending if c["add"] not in my_adds]
+    # A player claimed with several drops (one drop per claim) is several claims: name and count him once.
+    targets = list(dict.fromkeys(c["add"] for c in pending))
+    won = [pid for pid in targets if pid in my_adds]
+    lost = [pid for pid in targets if pid not in my_adds]
     parts = ([f"Won {', '.join(map(name, won))}."] if won else []) + ([f"Lost {', '.join(map(name, lost))}."] if lost else [])
-    return [{"key": f"waivers:{run}", "kind": "waivers", "title": f"Waivers: {len(won)} of {len(pending)} claims won",
+    return [{"key": f"waivers:{run}", "kind": "waivers", "title": f"Waivers: {len(won)} of {len(targets)} players won",
              "body": " ".join(parts), "url": "/transactions", "created_at": at}]
 
 

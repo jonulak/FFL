@@ -76,7 +76,7 @@ NAMES = {11: "Ray Davis", 12: "Tyler Allgeier"}
 
 def test_waiver_run_reports_won_and_lost():
     out = notify.waiver_notices("2026-10-08T03:12:00", "2026-10-01T03:10:00", PENDING, {11}, NAMES, AT)
-    assert out == [{"key": "waivers:2026-10-08T03:12:00", "kind": "waivers", "title": "Waivers: 1 of 2 claims won",
+    assert out == [{"key": "waivers:2026-10-08T03:12:00", "kind": "waivers", "title": "Waivers: 1 of 2 players won",
                     "body": "Won Ray Davis. Lost Tyler Allgeier.", "url": "/transactions", "created_at": AT}]
 
 
@@ -90,13 +90,20 @@ def test_waiver_first_sight_or_same_run_or_no_claims_is_silent():
 def test_waiver_claim_still_pending_is_neither_won_nor_lost():
     run = ("2026-10-08T03:12:00", "2026-10-01T03:10:00")
     out = notify.waiver_notices(*run, PENDING, {11}, NAMES, AT, still_pending={"b"})
-    assert out[0]["title"] == "Waivers: 1 of 1 claims won" and out[0]["body"] == "Won Ray Davis."
+    assert out[0]["title"] == "Waivers: 1 of 1 players won" and out[0]["body"] == "Won Ray Davis."
     assert notify.waiver_notices(*run, PENDING, set(), NAMES, AT, still_pending={"a", "b"}) == []
+
+
+def test_waiver_player_claimed_with_several_drops_is_named_and_counted_once():
+    pending = [{"id": "a", "add": 11, "drop": 21, "priority": 1}, {"id": "b", "add": 11, "drop": 22, "priority": 2},
+               {"id": "c", "add": 12, "drop": 21, "priority": 3}, {"id": "d", "add": 12, "drop": 22, "priority": 4}]
+    out = notify.waiver_notices("2026-10-08T03:12:00", "2026-10-01T03:10:00", pending, {11}, NAMES, AT)
+    assert out[0]["title"] == "Waivers: 1 of 2 players won" and out[0]["body"] == "Won Ray Davis. Lost Tyler Allgeier."
 
 
 def test_waiver_unknown_name_falls_back_to_the_id():
     out = notify.waiver_notices("r2", "r1", [{"id": "a", "add": 99, "drop": None, "priority": 1}], set(), {}, AT)
-    assert out[0]["body"] == "Lost player 99." and out[0]["title"] == "Waivers: 0 of 1 claims won"
+    assert out[0]["body"] == "Lost player 99." and out[0]["title"] == "Waivers: 0 of 1 players won"
 
 
 def test_source_notices_after_a_day_failing():
