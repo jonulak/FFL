@@ -18,7 +18,7 @@ def owner_tag(pid: int, owners: dict[int, dict], me: int) -> tuple[dict | None, 
 
 
 def player_head(pid: int, owners: dict[int, dict], me: int, index: Index) -> dict:
-    info = index.by_id.get(pid) or {}
+    info = index.info(pid)
     owner, mine = owner_tag(pid, owners, me)
     return {"player_id": pid, "name": info.get("name") or f"Player {pid}", "pos": info.get("pos"),
             "team": info.get("team"), "owner": owner, "mine": mine}

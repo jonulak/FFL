@@ -154,7 +154,7 @@ def save_index(index: Index, path: Path = INDEX) -> None:
 def load_index(path: Path = INDEX) -> Index:
     d = json.loads(path.read_text())
     return Index(by_id={int(k): v for k, v in d["by_id"].items()}, by_club=d["by_club"], by_full=d["by_full"],
-                 owned={int(k): v for k, v in d["owned"].items()})
+                 owned={int(k): v for k, v in d["owned"].items()}, names={int(k): v for k, v in d.get("names", {}).items()})
 
 
 def freeze(src: Path, since: str | None = None, until: str | None = None, index: Index | None = None) -> dict:

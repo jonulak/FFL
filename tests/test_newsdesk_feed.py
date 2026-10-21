@@ -39,6 +39,16 @@ def test_shape_owner_tags():
     assert (by[1]["name"], by[1]["pos"], by[1]["team"]) == ("Jalen Hurts", "QB", "PHI")
 
 
+def test_a_player_cut_since_the_tag_keeps_his_name():
+    """Story 148's chip read "Player 2972515": Cooper Rush was cut after the tag, and the matcher's index keeps only
+    players on a club."""
+    index = Index(by_id=dict(INDEX.by_id), names={9: {"name": "Cooper Rush", "pos": "QB", "team": None}})
+    rows = feed.shape([story(prow(9), prow(8))], OWNERS, ME, index, SOURCES)[0]["players"]
+    by = {r["player_id"]: r for r in rows}
+    assert (by[9]["name"], by[9]["pos"], by[9]["team"]) == ("Cooper Rush", "QB", None)
+    assert by[8]["name"] == "Player 8"  # in no list at all
+
+
 def test_owner_read_at_request_time():
     s = story(prow(3))
     assert shape(s, owners={})[0]["players"][0]["owner"] is None

@@ -63,33 +63,50 @@ def _when(at: str) -> str:
         return at
 
 
-def _sources(s: dict, sources: dict[str, dict]) -> list[str]:
+def _sources(s: dict, sources: dict[str, dict]) -> tuple[list[str], dict[int, list[int]]]:
     """The live sources (every one, for a retracted story), newest first, each text cut at SOURCE_CHARS, until the
-    story's STORY_CHARS are spent; the older rest by title only, in time order."""
-    items = [i for i in s["items"] if not i.get("withdrawn_at")] or s["items"]
-    left, out, rest = STORY_CHARS, [], []
-    for n, i in enumerate(sorted(items, key=lambda i: (i["published_at"], i["id"]), reverse=True), 1):
+    story's STORY_CHARS are spent; the older rest by title only, in time order. A player the story moves whom none of
+    those texts names has the newest source naming him in full anyway, past the budget: by title only, Haiku says no
+    source mentions him and doubts the arrow. Also, per moved player, the numbers of the sources given in full that
+    name him."""
+    items = sorted([i for i in s["items"] if not i.get("withdrawn_at")] or s["items"],
+                   key=lambda i: (i["published_at"], i["id"]), reverse=True)
+    left, full = STORY_CHARS, {}
+    for i in items:
         if left <= 0:
+            break
+        full[i["id"]] = (i["text"] or "")[:min(SOURCE_CHARS, left)]
+        left -= len(full[i["id"]])
+    for p in _moved(s):
+        named = [i for i in items if p["player_id"] in (i.get("player_ids") or [])]
+        if named and not any(i["id"] in full for i in named):
+            full[named[0]["id"]] = (named[0]["text"] or "")[:SOURCE_CHARS]
+    out, rest, number = [], [], {}
+    for n, i in enumerate(items, 1):
+        if i["id"] not in full:
             rest.append(i)
             continue
-        text = (i["text"] or "")[:min(SOURCE_CHARS, left)]
-        left -= len(text)
+        number[i["id"]] = n
         name = (sources.get(i["source_id"]) or {}).get("name") or i["source_id"]
-        out += [f"Source {n}{' (newest)' if n == 1 else ''}: {name}, {_when(i['published_at'])}: {i['title']}", text]
+        out += [f"Source {n}{' (newest)' if n == 1 else ''}: {name}, {_when(i['published_at'])}: {i['title']}", full[i["id"]]]
     if rest:
         out.append("Earlier sources, by title only (oldest first):")
         out += [f"- {_when(i['published_at'])}: {i['title']}" for i in reversed(rest)]
-    return out
+    naming = {p["player_id"]: sorted(number[i["id"]] for i in items if i["id"] in number
+                                     and p["player_id"] in (i.get("player_ids") or [])) for p in _moved(s)}
+    return out, naming
 
 
 def _story(s: dict, index: Index, sources: dict[str, dict]) -> str:
     note = f"; note: {s['status_note']}" if s.get("status_note") else ""
-    out = [f"## Story {s['id']} (status: {s['status']}{note})", *_sources(s, sources)]
+    lines, naming = _sources(s, sources)
+    out = [f"## Story {s['id']} (status: {s['status']}{note})", *lines]
     out.append("Players:")
     for p in _moved(s):
-        info = index.by_id.get(p["player_id"]) or {}
-        out.append(f"- player_id {p['player_id']}: {info.get('name', '?')}, {info.get('pos', '?')}, {info.get('team', '?')}; "
-                   f"effect {ARROW.get(p['effect'], p['effect'])}, kind {p['kind']}")
+        info = index.info(p["player_id"])
+        where = f"; named in source {', '.join(map(str, naming[p['player_id']]))}" if naming.get(p["player_id"]) else ""
+        out.append(f"- player_id {p['player_id']}: {info.get('name', '?')}, {info.get('pos', '?')}, {info.get('team') or 'no club'}; "
+                   f"effect {ARROW.get(p['effect'], p['effect'])}, kind {p['kind']}{where}")
     return "\n".join(out)
 
 

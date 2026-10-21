@@ -92,6 +92,31 @@ def test_prompt_caps_story_chars_older_by_title():
     assert "e" * 6000 in text and "a" * 3000 in text and "a" * 3001 not in text
 
 
+def test_prompt_gives_a_moved_player_the_source_naming_him_past_the_budget():
+    """Story 148: a podcast segment, the eighth source back, was the only one naming two players Jev moved; by title
+    only, Haiku wrote that no source mentions them and doubted both arrows. The newest source naming a moved player
+    goes in full, in its place in time, and his line says which sources name him."""
+    sid = steps([f"<{k}>" + "x" * 7000 for k in range(6)])
+    db.put_story_players(sid, [{"player_id": 1, "effect": "down", "kind": "injury", "prob": 0.9, "confidence": 0.5},
+                               {"player_id": 2, "effect": "up", "kind": "role", "prob": 0.6, "confidence": 0.4}])
+    oldest = db.story(sid)["items"][0]["id"]
+    db.tag_item(oldest, [1, 2], None, sid, AT)
+    text = write.prompt(db.unwritten_stories(), INDEX)
+    assert [k for k in range(6) if f"<{k}>" in text] == [0, 2, 3, 4, 5]
+    assert text.index("<2>") < text.index("Source 6: rotowire, 2026-10-19 10:00 UTC: Title 0") < text.index("<0>")
+    older = text[text.index("Earlier sources"):]
+    assert "Title 1" in older and "Title 0" not in older
+    assert "- player_id 2: Puka Nacua, WR, LAR; effect up (▲), kind role; named in source 6" in text
+    assert "- player_id 1: Kyren Williams, RB, LAR; effect down (▼), kind injury; named in source 1, 2, 3, 4, 6" in text
+
+
+def test_prompt_names_a_player_cut_since_the_tag():
+    """A moved player who has left his club drops out of the matcher's index but keeps his name in the prompt."""
+    steps(["Rush released."])
+    index = Index(by_id={}, names={1: {"name": "Cooper Rush", "pos": "QB", "team": None}})
+    assert "- player_id 1: Cooper Rush, QB, no club; effect down (▼)" in write.prompt(db.unwritten_stories(), index)
+
+
 def test_usage_recorded():
     """The CLI's usage (input with the cache's tokens, output) is added up per run and into the day's total."""
     a, b = make(), make()

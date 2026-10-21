@@ -40,6 +40,12 @@ class Index:
     by_club: dict[str, list[int]] = field(default_factory=dict)
     by_full: dict[str, list[int]] = field(default_factory=dict)  # normalized full name -> ids
     owned: dict[int, float] = field(default_factory=dict)  # espn id -> ESPN's percent owned
+    # every named QB/RB/WR/TE/K the list carries, on a club or not: for display only, never matched, so a player
+    # tagged on a story and cut since (proTeamId 0) keeps his name on it
+    names: dict[int, dict] = field(default_factory=dict)  # espn id -> {name, pos, team (None without a club)}
+
+    def info(self, pid: int) -> dict:
+        return self.by_id.get(pid) or self.names.get(pid) or {}
 
 
 def build_index(players: list[dict]) -> Index:
@@ -51,6 +57,8 @@ def build_index(players: list[dict]) -> Index:
         pos = news.DEFAULT_POS.get(p.get("defaultPositionId"))
         team = PRO_TEAM_MAP.get(p.get("proTeamId"))
         name = p.get("fullName") or ""
+        if pos is not None and p.get("id") is not None and name:
+            idx.names[int(p["id"])] = {"name": name, "pos": pos, "team": team if team and team != "None" else None}
         if pos is None or p.get("id") is None or not team or team == "None" or not name:
             continue
         if p.get("active") is False or not (p.get("ownership") or p.get("active")):

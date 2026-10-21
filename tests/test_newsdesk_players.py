@@ -63,6 +63,11 @@ def test_build_index_filters(index):
     names = {v["name"] for v in index.by_id.values()}
     # no club / no ownership (stale record) / a defender
     assert not names & {"Tavon Austin", "Sony Michel", "DJ Davidson"}
+    # but a clubless player keeps his name for display: a story tagged him before he was cut
+    tavon = next(p for p, v in index.names.items() if v["name"] == "Tavon Austin")
+    assert index.info(tavon) == {"name": "Tavon Austin", "pos": "WR", "team": None}
+    assert index.info(MARIOTA) == index.by_id[MARIOTA] and index.info(1) == {}
+    assert not {v["name"] for v in index.names.values()} & {"DJ Davidson"}
 
 
 def test_fetch_index_serves_last_good_on_failure(monkeypatch):
