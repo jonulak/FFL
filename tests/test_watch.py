@@ -50,6 +50,14 @@ def test_ahead_status_from_feed_and_name_fallbacks():
     assert sigs[0]["text"] == "gone back Out"
 
 
+def test_ahead_feed_wins_over_chart():
+    me = p(name="Wright", pos="RB")
+    rows = chart(("Lead", "RB", 1, "Out"), ("Wright", "RB", 2, None))
+    assert watch.ahead_signals(me, rows, {"lead": "Questionable"}, set(), AT)[0] == []
+    sigs, _ = watch.ahead_signals(me, chart(("Lead", "RB", 1, "IR"), ("Wright", "RB", 2, None)), {}, set(), AT)
+    assert [s["text"] for s in sigs] == ["Lead IR"]
+
+
 def test_ahead_ignores_teammate_below():
     me = p(name="Pitts")
     rows = chart(("Kyle Pitts", "TE", 1, None), ("Wr Six", "WR", 6, "Out"), ("Te Two", "TE", 2, "Out"))

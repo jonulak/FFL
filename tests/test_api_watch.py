@@ -17,7 +17,7 @@ def _row(pid, name, pos="RB", team="DET", owner=None, delta=1.0, add=5.0):
 @pytest.fixture
 def pool(monkeypatch):
     """What `free_agent_pool`, Sleeper's chart and ESPN's injury feed answer; a test edits it before the build."""
-    state = {"watched": [], "builds": 0, "chart": {}, "injuries": {}}
+    state = {"watched": [], "builds": 0, "chart": {}, "injuries": {}, "owners": None}
 
     def fake_pool(week=None):
         state["builds"] += 1
@@ -28,6 +28,16 @@ def pool(monkeypatch):
     monkeypatch.setattr(api.espn_season, "free_agent_pool", fake_pool)
     monkeypatch.setattr(api.news, "fetch_depth", lambda: state["chart"])
     monkeypatch.setattr(api.espn_season, "fetch_injuries", lambda: state["injuries"])
+
+    def fake_owners():
+        """The fresh owners read: the pool rows' owners unless a test sets its own (or an exception to raise)."""
+        if isinstance(state["owners"], BaseException):
+            raise state["owners"]
+        if state["owners"] is not None:
+            return state["owners"], ME
+        return {r["player_id"]: r["owner"] for r in state["watched"] if r["owner"]}, ME
+
+    monkeypatch.setattr(api.pipeline, "owners", fake_owners)
     api.cache.clear()
     yield state
     api.cache.clear()
@@ -153,3 +163,66 @@ def test_notify_tick_reports_a_failed_pass(pool, monkeypatch):
     monkeypatch.setattr(api, "pregame_pull", lambda: [])
     monkeypatch.setattr(api, "watch_pass", lambda: (_ for _ in ()).throw(RuntimeError("pool down")))
     assert TestClient(api.app).post("/notify/tick").json()["watch"] == {"error": "pool down"}
+
+
+def test_unwatch_clears_state_no_false_available_on_rewatch(client, pool):
+    db.put_watch(5, True)
+    db.put_state("watch_state", {"owner": {"5": THEM}, "bench": {"5": 1.0}, "above": {"5": ["lead back"]}})
+    client.post("/watch/5", json={"watched": False})
+    st = db.get_state("watch_state")
+    assert "5" not in st["owner"] and "5" not in st["bench"] and "5" not in st["above"]
+    assert _rerun() == {"skipped": "none watched"}
+    client.post("/watch/5", json={"watched": True})
+    pool["watched"] = [_row(5, "Back again")]
+    assert _rerun() == {"signals": 0, "queued": 0}
+    assert not [s for s in db.watch_signals("") if s["kind"] == "available"]
+    assert not [n for n in db.unsent_notices() if n["kind"] == "watch"]
+
+
+def test_pass_prunes_state_to_watched_ids_not_priced_rows(pool):
+    for pid in (5, 6):
+        db.put_watch(pid, True)
+    db.put_watch(9, False)
+    db.put_state("watch_state", {"owner": {"5": THEM, "6": THEM, "9": THEM}, "bench": {"9": 1.0}, "above": {"9": []}})
+    pool["watched"] = [_row(5, "Priced", owner=THEM)]  # 6 is watched but this pool has no row for him
+    api.watch_pass()
+    st = db.get_state("watch_state")
+    assert st["owner"] == {"5": THEM, "6": THEM}  # 6's baseline survives a read that missed him; 9's is gone
+    assert st["bench"] == {"5": 1.0} and st["above"] == {"5": []}
+
+
+def test_pass_gates_push_on_fresh_owners(pool):
+    _ahead_setup(pool)
+    pool["owners"] = {5: {"team_id": THEM, "name": "T3", "abbrev": "T3"}}  # added since the pool was built
+    assert api.watch_pass() == {"signals": 1, "queued": 0}
+    assert [s["kind"] for s in db.watch_signals("")] == ["ahead"]
+    assert not [n for n in db.unsent_notices() if n["kind"] == "watch"]
+
+
+def test_pass_fresh_owners_mine_unwatches(pool):
+    _ahead_setup(pool)
+    pool["owners"] = {5: {"team_id": ME, "name": "T7", "abbrev": "T7"}}
+    assert api.watch_pass()["queued"] == 0
+    assert db.watched_ids() == []
+    assert not [n for n in db.unsent_notices() if n["kind"] == "watch"]
+
+
+@pytest.mark.parametrize("err", [RuntimeError("espn down"), SystemExit("no league")])
+def test_pass_queues_nothing_when_owners_read_fails(pool, err):
+    _ahead_setup(pool)
+    pool["owners"] = err
+    assert api.watch_pass() == {"signals": 1, "queued": 0, "owners": "espn down" if isinstance(err, RuntimeError) else "no league"}
+    assert [s["kind"] for s in db.watch_signals("")] == ["ahead"]
+    assert not [n for n in db.unsent_notices() if n["kind"] == "watch"]
+
+
+def test_pass_skips_build_when_none_watched(pool):
+    assert api.watch_pass() == {"skipped": "none watched"}
+    assert pool["builds"] == 0
+
+
+def test_watch_get_returns_ids_after_unwatching_mine(client, pool):
+    for pid in (5, 8):
+        db.put_watch(pid, True)
+    pool["watched"] = [_row(5, "Free"), _row(8, "Now mine", owner=ME)]
+    assert client.get("/watch").json()["ids"] == [5]

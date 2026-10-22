@@ -42,8 +42,9 @@ def above(player: dict, chart_rows: list[dict]) -> set[str]:
 
 def ahead_signals(player: dict, chart_rows: list[dict], statuses: dict[str, str | None], seen_above: set[str],
                   at: str, names: dict[str, str] | None = None) -> tuple[list[dict], set[str]]:
-    """A hurt player ahead of him. `statuses` is norm name → status (the caller lays ESPN's feed over Sleeper's);
-    a name it lacks reads the chart's own `injury`. `seen_above` is everyone who has stood ahead of him: Sleeper
+    """A hurt player ahead of him. `statuses` is norm name → status, ESPN's feed, and it wins: a name it has is read
+    there alone (its Questionable over the chart's Out is no signal); only a name it lacks reads the chart's own
+    `injury`. `seen_above` is everyone who has stood ahead of him: Sleeper
     moves a hurt starter down its order, and he is still the one whose absence matters. The chip names the
     teammate by his chart name, else `names` (norm name → display, the feed's), else the normalized name.
     Returns the signals and the new seen set."""
@@ -53,7 +54,7 @@ def ahead_signals(player: dict, chart_rows: list[dict], statuses: dict[str, str 
     out = []
     for n in sorted(seen):
         row = on_chart.get(n)
-        status = hurt_status(statuses.get(n)) or hurt_status(row and row.get("injury"))
+        status = hurt_status(statuses[n]) if n in statuses else hurt_status(row and row.get("injury"))
         if status:
             display = (row and row["name"]) or (names or {}).get(n) or n
             out.append({"key": f"ahead:{player['player_id']}:{n}:{status}", "player_id": player["player_id"],

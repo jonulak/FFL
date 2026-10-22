@@ -849,6 +849,21 @@ def _watched(data: dict) -> list[dict]:
     return rows
 
 
+WATCH_BASELINES = ("above", "bench", "owner")
+
+
+def _prune_watch_state(ids: set[int], st: dict | None = None) -> dict:
+    """The pass's baselines kept only for the watched ids, written back and returned: an unwatched player's old
+    owner would read as a drop when he is watched again. By the watchlist, never by the rows a pass priced: a read
+    that missed a watched player keeps his baselines."""
+    st = dict(st if st is not None else (db.get_state("watch_state", {}) or {}))
+    keep = {str(i) for i in ids}
+    for f in WATCH_BASELINES:
+        st[f] = {k: v for k, v in (st.get(f) or {}).items() if k in keep}
+    db.put_state("watch_state", st)
+    return st
+
+
 @app.get("/watch/ids")
 def watch_ids():
     return {"ids": db.watched_ids()}
@@ -860,6 +875,8 @@ def watch_set(player_id: int, body: WatchIn):
     has no row for (a free agent deeper than its lists) rebuilds it behind the next request."""
     was = player_id in db.watched_ids()
     db.put_watch(player_id, body.watched)
+    if not body.watched:
+        _prune_watch_state(set(db.watched_ids()))
     if body.watched and not was:
         cached = cache.peek("waivers")
         if cached is not None and player_id not in {r["player_id"] for r in cached.get("watched", [])}:
@@ -872,7 +889,7 @@ def watch_page():
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
     groups = watch.page(_watched(data), db.watch_signals(WATCH_SINCE), datetime.now().astimezone())
     return {"week": data["week"], "ros_week": data.get("ros_week", data["week"]), "groups": groups,
-            "stale_since": data["stale_since"]}
+            "ids": db.watched_ids(), "stale_since": data["stale_since"]}
 
 
 def _live_for(week: int | None) -> bool:
@@ -1813,12 +1830,16 @@ def watch_pass() -> dict:
     """The tick's watchlist step, at most once an hour: every detector over every watched player (whoever holds
     him), the new signals stored, and one push a day for a free agent with something new (`available` included:
     it fires only once he is free). A player on another roster is never pushed. `watch_state` holds what the
-    detectors compare against: who has stood ahead of him, his last worth to my roster, his last owner."""
+    detectors compare against: who has stood ahead of him, his last worth to my roster, his last owner; it is kept
+    only for the watched ids. Prices and signals come off the cached pool (up to an hour old); the pushes are gated
+    on a fresh owners read, and a failed one queues nothing. Nobody watched: no pool build at all."""
     st = db.get_state("watch_state", {}) or {}
     at = notify.now()
     t = datetime.fromisoformat(at)
     if st.get("last_pass") and t - datetime.fromisoformat(st["last_pass"]) < WATCH_EVERY:
         return {"skipped": "hourly"}
+    if not db.watched_ids():
+        return {"skipped": "none watched"}
     day = at[:10]
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
     chart = news.fetch_depth()
@@ -1849,11 +1870,24 @@ def watch_pass() -> dict:
     by_player: dict[int, list[dict]] = {}
     for s in new:
         by_player.setdefault(s["player_id"], []).append(s)
-    notices = [watch.notice_for(rows[pid], sigs, day, at) for pid, sigs in by_player.items()
-               if rows[pid].get("owner") is None]
-    queued = db.add_notices(notices)
-    db.put_state("watch_state", {"last_pass": at, "above": seen, "bench": bench, "owner": owner})
-    return {"signals": len(new), "queued": queued}
+    out: dict = {"signals": len(new)}
+    notices = []
+    if by_player:
+        try:
+            fresh, me = pipeline.owners()  # the pool's owners can be an hour old: one just added must not be pushed
+        except (Exception, SystemExit) as e:  # noqa: BLE001 — never fall back to the stale owner; the signals stand
+            log.warning("watch pass: owners read failed, nothing queued: %s", e)
+            out["owners"] = str(e)
+            fresh = None
+        for pid, sigs in by_player.items() if fresh is not None else ():
+            holder = (fresh.get(pid) or {}).get("team_id")
+            if holder is not None and holder == me:
+                db.put_watch(pid, False)  # mine now, like `_watched`
+            elif pid not in fresh and rows[pid].get("owner") is None:
+                notices.append(watch.notice_for(rows[pid], sigs, day, at))
+    out["queued"] = db.add_notices(notices)
+    _prune_watch_state(set(db.watched_ids()), {"last_pass": at, "above": seen, "bench": bench, "owner": owner})
+    return out
 
 
 @app.post("/refresh")
