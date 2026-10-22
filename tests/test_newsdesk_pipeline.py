@@ -389,3 +389,28 @@ def test_unwatched_up_story_no_signal(stages):
     written.append((sid, 1))
     pipeline.run()
     assert _signals() == [] and db.unsent_notices() == []
+
+
+def test_watch_db_errors_leave_the_news_push(stages, monkeypatch):
+    _, written = stages
+    sid = _up(3, 0.9)
+    written.append((sid, 1))
+
+    def boom(*a, **kw):
+        raise db.DBError("locked")
+
+    monkeypatch.setattr(db, "watched_ids", boom)
+    monkeypatch.setattr(db, "add_watch_signals", boom)
+    assert pipeline.run()["notices"]["queued"] == 1
+    assert keys() == [f"news:{sid}:1"]
+
+
+def test_watch_signal_wants_news_still_new(stages):
+    _, written = stages
+    sid = _up(3, 0.6)
+    old = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat(timespec="seconds")
+    with db._write() as c:
+        c.execute(db.news_items_table.update().values(published_at=old))
+    written.append((sid, 1))
+    assert pipeline.run()["notices"]["watch"] == 0
+    assert _signals() == [] and db.unsent_notices() == []

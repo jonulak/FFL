@@ -62,7 +62,11 @@ def notify_written(written: list, index: players.Index) -> dict:
     sources = {s["id"]: s for s in db.news_sources(active_only=False)}
     added: set[tuple[int, str]] = set()  # rows pushed by this run
     out, superseded = [], []
-    watched = set(db.watched_ids())
+    try:
+        watched = set(db.watched_ids())
+    except db.DBError as e:  # the watch part is extra: the news pushes go out without it
+        print(f"news: watched ids unreadable, no watch signals: {e}")
+        watched = set()
     day = at[:10]  # the watch pass's day key, so its push and a news push the same day are one
     found: list[dict] = []
     carried: set[int] = set()  # players a news push of this run already names
@@ -91,13 +95,19 @@ def notify_written(written: list, index: players.Index) -> dict:
                 rows = notices.rows(s, who, me, muted, skip)
                 added |= set(rows)
                 carried |= {pid for pid, _ in rows}
-        found += [sig for p in s["players"] if s["status"] != "retracted" and p["player_id"] in watched
+        # news still new, like the regular push: a catch-up run's old stories stay in the feed
+        fresh = notices._new(max((i["published_at"] for i in s.get("items") or []), default=None), at)
+        found += [sig for p in s["players"] if fresh and s["status"] != "retracted" and p["player_id"] in watched
                   and (sig := watch.news_signal(s, p, at))]
         if n:
             out.append(n)
         superseded += [k for k in stale if not n or k != n["key"]]
     db.mark_notices(superseded, "superseded", at)
-    new = db.add_watch_signals(found)
+    try:
+        new = db.add_watch_signals(found)
+    except db.DBError as e:
+        print(f"news: watch signals not saved: {e}")
+        new = []
     by_player: dict[int, list[dict]] = {}
     for sig in new:
         by_player.setdefault(sig["player_id"], []).append(sig)
