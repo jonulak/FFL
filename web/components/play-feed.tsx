@@ -104,8 +104,8 @@ const tagOf = (p: Play) => (p.match ? TAGS[p.match] : undefined) ?? (p.called_ba
 
 // The row's numeral and the line under it: the points it moved and his total after, or for a play called
 // back what it would have scored him, struck through. A row a call-back was folded into keeps its own
-// numeral, with what the play would have scored struck in place of his total when he kept some of it (yards to
-// the spot): beside the numeral it widened the column enough to wrap the name and the text.
+// numeral and total, with what the play would have scored struck on a line under them when he kept some of it
+// (yards to the spot): beside the numeral it widened the column enough to wrap the name and the text.
 function Points({ p, size, align }: { p: Play; size: string; align: string }) {
   const called = p.match === "called_back";
   const value = called ? signed(p.would_be ?? 0) : signed(p.delta);
@@ -118,9 +118,12 @@ function Points({ p, size, align }: { p: Play; size: string; align: string }) {
         <span className={`font-display ${size} font-bold leading-none tracking-tight ${dim}`}>{value}</span>
         <span className={UNIT}>pts</span>
       </span>
-      <span className="mt-0.5 text-xs leading-4 text-muted-foreground">
-        {was != null ? <><span className="sr-only">would have been </span><s className="decoration-2">{signed(was)}</s></> : under}
-      </span>
+      <span className="mt-0.5 text-xs leading-4 text-muted-foreground">{under}</span>
+      {was != null && (
+        <span className="text-xs leading-4 text-muted-foreground">
+          <span className="sr-only">would have been </span><s className="decoration-2">{signed(was)}</s>
+        </span>
+      )}
     </span>
   );
 }
