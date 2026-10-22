@@ -120,12 +120,13 @@ REVISIONS = ("reversed", "adjusted", "called_back")
 
 
 def wording(play: dict, row: dict) -> str | None:
-    """The text a feed row on `play` shows: a revision row (`REVISIONS`) the newest wording, any other the
+    """The text a feed row on `play` shows: a revision row (`REVISIONS`, or one a called-back row was folded
+    into: plays.fold_called_back) the newest wording, any other the
     wording in force when the row happened, so a catch credited at 55 yards still reads 55 above the stat
     fix that made it 54. A row older than every stored wording (weeks before plays were stored) keeps the
     text it was written with."""
     texts = play.get("texts") or [{"at": play.get("at") or "", "text": play.get("text") or ""}]
-    if row.get("match") in REVISIONS:
+    if row.get("match") in REVISIONS or row.get("called_back"):
         return texts[-1]["text"] or row.get("text")
     then = [t for t in texts if t["at"] <= (row.get("at") or "")]
     return (then[-1]["text"] if then else row.get("text") or texts[0]["text"]) or None

@@ -93,11 +93,10 @@ def test_store_records_plays_and_keeps_called_back_rows_current():
     store.add([{"at": "2026-09-27T19:06:31", "week": 3, "player_id": 1, "team_id": 7, "delta": 3.5, "total": 26.58,
                 "text": "B.Purdy scrambles left end for 45 yards, TOUCHDOWN.", "play_id": "p1", "match": "player"}])
     store.record([{**SCRAMBLE, "source": "live"}], ROSTER, TABLE)
-    assert [(r["match"], r.get("would_be")) for r in store.latest()] == [("player", None), ("called_back", 10.5)], \
-        "merged by time: the play ran at :30, its yards landed at :31"
-    gain, back = store.latest()
-    assert gain["text"] == "B.Purdy scrambles left end for 45 yards, TOUCHDOWN.", "older than any stored wording: its own"
-    assert back["text"] == SCRAMBLE["text"], "a called-back row reads the newest wording"
+    [row] = store.latest()
+    assert row["delta"] == 3.5 and row["called_back"] == {"would_be": 10.5, "kept": 3.5}, \
+        "one row: the 3.5 he kept, of the 10.5 called back"
+    assert row["text"] == SCRAMBLE["text"], "a row carrying a call-back reads the newest wording"
     reloaded = plays.Store(3)
     assert reloaded.called == store.called and reloaded.book["p1"]["text"] == SCRAMBLE["text"]
     store.record([{**SCRAMBLE, "text": "B.Purdy scrambles left end for 45 yards, TOUCHDOWN."}], ROSTER, TABLE)
@@ -136,6 +135,16 @@ def test_a_row_reads_the_wording_of_its_time_and_a_stat_fix_the_newest():
     assert [(r["delta"], r["text"]) for r in store.latest()] == [(-0.04, respot), (2.2, catch)]
     assert all(r["text"] is None for r in db.plays_rows(6)), "a row on a stored play keeps no text of its own"
     assert [t["text"] for t in plays.Store(6).book["460"]["texts"]] == [catch, respot]
+
+
+def test_a_called_back_row_folds_into_his_newest_row_on_the_play_or_stands_alone():
+    rows = [{"at": "t3", "player_id": 1, "play_id": "p", "delta": -0.7}, {"at": "t2", "player_id": 1, "play_id": "p", "delta": 0.7},
+            {"at": "t1", "player_id": 2, "play_id": "p", "delta": 1.0}]
+    called = {("p", 1): {"at": "t0", "player_id": 1, "play_id": "p", "would_be": 0.7, "kept": 0.0},
+              ("q", 1): {"at": "t0", "player_id": 1, "play_id": "q", "would_be": 3.3, "kept": 0.0}}
+    out = plays.fold_called_back(rows, called)
+    assert [(r["at"], "called_back" in r) for r in out] == [("t3", True), ("t2", False), ("t1", False), ("t0", False)]
+    assert out[-1]["play_id"] == "q", "a play that scored him nothing keeps its own row"
 
 
 def test_versions_add_a_wording_only_when_it_reads_differently():

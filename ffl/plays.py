@@ -239,6 +239,21 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
     return rows
 
 
+def fold_called_back(rows: list[dict], called: dict[tuple[str, int], dict]) -> list[dict]:
+    """The feed rows (newest first) with each called-back row folded into the newest row of his on that
+    play, as `called_back: {would_be, kept}` (Purdy's scramble: one row, +3.5 kept of +10.5, not a +3.5 and
+    a struck +10.5 the strip could not tell apart); a called-back row with no row of his on its play stands
+    alone. A row carrying one is a revision: it reads the play's newest wording."""
+    out, folded = [], set()
+    for r in rows:
+        key = (str(r.get("play_id")), r.get("player_id"))
+        if r.get("play_id") and key in called and key not in folded:
+            folded.add(key)
+            r = {**r, "called_back": {"would_be": called[key]["would_be"], "kept": called[key]["kept"]}}
+        out.append(r)
+    return out + [r for k, r in called.items() if k not in folded]
+
+
 class Store:
     """The week's events, newest last in memory (the live path reads it every few seconds),
     written through to the DB as they happen and reloaded from it at boot. Beside them the week's
@@ -266,7 +281,8 @@ class Store:
         """Newest first; with `teams`, only the rows scored for those fantasy teams (one board). A row
         on a stored play shows its wording as it read when the row happened (`playbook.wording`)."""
         with self._lock:
-            rows, book = self.rows[::-1] + list(self.called.values()), self.book
+            rows, book, called = self.rows[::-1], self.book, dict(self.called)
+        rows = fold_called_back(rows, called)
         rows.sort(key=lambda r: r.get("at") or "", reverse=True)  # stable: rows of one second stay newest first
         if teams is not None:
             rows = [r for r in rows if r.get("team_id") in teams]

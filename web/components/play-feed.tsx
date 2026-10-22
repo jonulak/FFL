@@ -100,22 +100,27 @@ const UNIT = "font-display text-xs font-semibold uppercase tracking-[0.12em] tex
 const TAGS: Partial<Record<NonNullable<Play["match"]>, string>> = {
   reversed: "Taken back", adjusted: "Stat fix", correction: "Correction", called_back: "Called back",
 };
-const tagOf = (p: Play) => (p.match ? TAGS[p.match] : undefined);
+const tagOf = (p: Play) => (p.match ? TAGS[p.match] : undefined) ?? (p.called_back ? TAGS.called_back : undefined);
 
 // The row's numeral and the line under it: the points it moved and his total after, or for a play called
-// back what it would have scored him, struck through, and what it kept him if anything (yards to the spot).
+// back what it would have scored him, struck through. A row a call-back was folded into keeps its own
+// numeral, with what the play would have scored struck in place of his total when he kept some of it (yards to
+// the spot): beside the numeral it widened the column enough to wrap the name and the text.
 function Points({ p, size, align }: { p: Play; size: string; align: string }) {
   const called = p.match === "called_back";
   const value = called ? signed(p.would_be ?? 0) : signed(p.delta);
   const dim = called ? "text-foreground/45 line-through decoration-2" : p.delta < 0 ? "text-foreground/70" : "";
-  const under = called ? (p.kept ? `kept ${signed(p.kept)}` : "would have been") : `now ${pts(p.total ?? 0)}`;
+  const under = called ? "would have been" : `now ${pts(p.total ?? 0)}`;
+  const was = !called && p.called_back && p.delta > 0 ? p.called_back.would_be : null;
   return (
     <span className={`flex flex-col ${align}`}>
       <span className="flex items-baseline gap-1.5">
         <span className={`font-display ${size} font-bold leading-none tracking-tight ${dim}`}>{value}</span>
         <span className={UNIT}>pts</span>
       </span>
-      <span className="mt-0.5 text-xs leading-4 text-muted-foreground">{under}</span>
+      <span className="mt-0.5 text-xs leading-4 text-muted-foreground">
+        {was != null ? <><span className="sr-only">would have been </span><s className="decoration-2">{signed(was)}</s></> : under}
+      </span>
     </span>
   );
 }
@@ -147,7 +152,7 @@ function PlayRow({ p }: { p: Play; pick?: Pick }) {
           </ItemTitle>
           {(p.text || tag) && (
             <ItemDescription className={`mt-1 line-clamp-none text-[0.8125rem] leading-snug text-foreground/85 ${mine ? "" : "text-right"}`}>
-              {tag && <span className={`${UNIT} ${p.text ? "mr-1.5" : ""}`}>{tag}</span>}{p.text}
+              {tag && <span className={`${UNIT} whitespace-nowrap ${p.text ? "mr-1.5" : ""}`}>{tag}</span>}{p.text}
             </ItemDescription>
           )}
           <ItemDescription className={`mt-0.5 line-clamp-none text-xs leading-4 tabular-nums ${mine ? "" : "text-right"}`}>
