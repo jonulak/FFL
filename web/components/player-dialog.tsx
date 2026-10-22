@@ -587,7 +587,9 @@ const SHOWN = 3; // past seasons shown before the "more" row
 
 // The past seasons in one table, newest first, so a season's totals read against the others.
 // The newest SHOWN stand open; the rest fold out of a "more" row beneath them, in the same table
-// so their columns line up with the ones above.
+// so their columns line up with the ones above. The row is half the button's height and the button
+// rides up by the other half, so it sits centred on the rule under the last season shown, on the
+// dialog's own surface so the rule stops either side of it.
 function PastSeasons({ seasons }: { seasons: SeasonLog[] }) {
   const [more, setMore] = useState(false);
   const cols = columns(seasons[0]);
@@ -597,13 +599,12 @@ function PastSeasons({ seasons }: { seasons: SeasonLog[] }) {
     <SeasonTable cols={cols} first="Yr">
       {seasons.slice(0, SHOWN).map((s) => <PastSeason key={s.season} s={s} totals={s.totals!} span={span} />)}
       {rest.length > 0 && (
-        <TableRow className={`${ROW} cursor-pointer hover:bg-transparent`} onClick={() => setMore((m) => !m)}>
-          <TableCell colSpan={span} className="py-1 pr-0 pl-0">
-            <Button variant="ghost" size="xs" aria-expanded={more}
-              aria-label={`${rest.length} more ${rest.length === 1 ? "season" : "seasons"}, ${rest.at(-1)!.season} to ${rest[0].season}`}
-              className="px-0 font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent dark:hover:bg-transparent">
+        <TableRow className="border-0 hover:bg-transparent has-aria-expanded:bg-transparent">
+          <TableCell colSpan={span} className="h-3 p-0 text-center">
+            <Button variant="ghost" size="xs" aria-expanded={more} onClick={() => setMore((m) => !m)}
+              aria-label={`${rest.length} more ${rest.length === 1 ? "season" : "seasons"}`}
+              className="relative -translate-y-1/2 bg-popover px-2.5 font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:bg-popover hover:text-foreground aria-expanded:bg-popover dark:hover:bg-popover">
               {more ? "Fewer" : `+${rest.length} more`}
-              <span className="font-sans font-normal normal-case tracking-normal text-foreground/45">{rest.at(-1)!.season}–{rest[0].season}</span>
               <ChevronDown aria-hidden className={`stroke-[2.5] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${more ? "rotate-180" : ""}`} />
             </Button>
           </TableCell>
