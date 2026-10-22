@@ -205,7 +205,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   runs it on a thread and flushes after if `_NOTIFY` is free; `launchd/com.jonulak.ffl-news` POSTs it every 10 min;
   `GET /news/status` is the sources' health and the last run. A push (`notices.for_story`, kind `news`, the `news` pref)
   is a written revision's ▼ on my roster or ▲ on a free agent at `NEWS_PUSH_PROB`, with a line, unflagged, not muted
-  (`news_mutes`; a K or D/ST only as an injury ▼ on mine, `QUIET_POS`), key `news:<id>:<rev>`; at most one per player and kind a day (`notices.recent`, off the notices table
+  (`news_mutes`; a K or D/ST only as a ▼ on mine for an injury or a release read off the line, `QUIET_POS`/`RELEASED`), key `news:<id>:<rev>`; at most one per player and kind a day (`notices.recent`, off the notices table
   and the stories' rows) unless an earlier rev of the story pushed (a material update). A correction or retraction pushes
   once (`news:<id>:<status>`), only after the original did. Owners come from `pipeline.owners()` (also read at request
   time); when it fails nothing is queued and the revisions wait in state `news_to_notify` for the next run.

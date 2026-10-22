@@ -46,11 +46,15 @@ def test_for_story_gates():
                  "url": "/news?story=5", "created_at": AT}
 
 
-def test_kicker_and_defense_push_only_as_my_injury():
+def test_kicker_and_defense_push_only_as_my_injury_or_release():
     assert push(row(3, "up", pos="K")) is None                            # free-agent kicker out
     assert push(row(3, "up", pos="D/ST")) is None                         # free-agent defense out
     assert push(row(1, "down", pos="K")) is not None                      # my kicker's injury in
     assert push(row(1, "down", pos="K", kind="role")) is None             # my kicker's other news out
+    assert push(row(1, "down", pos="K", kind="role", reason="The Bears released him.")) is not None
+    assert push(row(1, "down", pos="K", kind="other", reason="Waived after two misses.")) is not None
+    assert push(row(1, "down", pos="K", kind="role", reason="Cut on Tuesday.")) is not None
+    assert push(row(3, "down", pos="K", kind="role", reason="Released.")) is None   # not mine
     assert push(row(1, "down", pos=None)) is not None                     # no position: the usual rules
 
 
