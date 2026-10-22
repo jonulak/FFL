@@ -37,7 +37,7 @@ uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per p
 uv run python -m ffl.pace              # in-season: who is beating his projection, every roster + the wire (write-up rules: .claude/skills/pace-report)
 uv run python -m ffl.sources compare   # old (ESPN+Sleeper) vs consensus projection for every rostered player; status: source health
 uv run python -m ffl.calibrate sources   # fit per-source weights (stored inactive); --activate <fitted_at> applies them
-uv run python -m ffl.props score       # props trial (weeks 4-6): ESPN+Sleeper vs +props MAE and the verdict (launchd pulls Thu/Sun)
+uv run python -m ffl.props score       # props trial (weeks 4-6, ended 2026-10-21: failed): ESPN+Sleeper vs +props MAE and the verdict
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
 curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (launchd does this hourly)
 curl -X POST 127.0.0.1:8300/notify/tick   # sync + injury/waiver checks + push flush + pre-game pull (launchd every 15 min)
