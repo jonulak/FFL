@@ -5,7 +5,9 @@ then `split.by_player` cuts it into one item per player named, linking to that m
 or the episode page with the seconds in `at_s`. A transcript stored is done: one naming nobody is not
 fetched again.
 
-YouTube: the channel's RSS lists its newest 15 videos; a title `is_presser` is fetched through
+YouTube: the channel's RSS lists its newest 15 videos (with YOUTUBE_API_KEY in `.env`, the Data API's
+uploads playlist does, 1 of the day's 10,000 quota units a call, RSS kept as the fallback: the RSS server
+answered 404 for every channel for hours on 2026-10-21); a title `is_presser` is fetched through
 youtube-transcript-api (English, manual or automatic). Captions come some time after the upload: a
 presser without them yet waits in state `news_pending_media` `{video_id: first_seen}` and is retried
 for PENDING, at most once per RETRY_EVERY (its last try in state `news_pending_tried`). Expired entries
@@ -26,6 +28,7 @@ read: after a failed transcript fetch the next poll takes the whole feed again.
 """
 from __future__ import annotations
 
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -42,6 +45,7 @@ from . import collect, split
 from .players import Index
 
 YT_FEED = "https://www.youtube.com/feeds/videos.xml?channel_id={id}"
+YT_API = "https://www.googleapis.com/youtube/v3/playlistItems"
 YT_WATCH = "https://www.youtube.com/watch?v={id}"
 PRESSER = re.compile(r"press conference|presser|postgame|media availability|podium|availability|speaks to"
                      r"|talks to the media|meets with the media|address(?:es)? the media|\bpreviews\b|\btalks\b", re.I)
@@ -157,7 +161,42 @@ def _store(media: dict, segs: list[dict], index: Index, club: str | None, at: st
                                   for i in items]))
 
 
+def parse_uploads(page: dict) -> list[dict]:
+    """The Data API's playlistItems page as parse_channel_feed's rows; a private or deleted video has no date."""
+    out = []
+    for it in page.get("items", []):
+        vid, when = it.get("contentDetails", {}).get("videoId"), it.get("contentDetails", {}).get("videoPublishedAt")
+        if vid and when:
+            out.append({"video_id": vid, "title": (it.get("snippet", {}).get("title") or "").strip(),
+                        "published_at": collect._iso(when)})
+    return out
+
+
+def _uploads(source: dict, key: str) -> list[dict]:
+    """The channel's uploads playlist (UC… → UU…), 1 quota unit. The key rides in a header, never the URL,
+    so it cannot reach an error message."""
+    channel = source["url"].split("channel_id=", 1)[1]
+    r = _get(YT_API, headers={"X-goog-api-key": key},
+             params={"part": "snippet,contentDetails", "maxResults": 15, "playlistId": "UU" + channel[2:],
+                     "fields": "items(snippet(title),contentDetails(videoId,videoPublishedAt))"})
+    r.raise_for_status()
+    return parse_uploads(r.json())
+
+
 def _poll(source: dict, last: dict | None = None) -> tuple[list[dict], dict | None] | Exception:
+    """A YouTube channel off the Data API when YOUTUBE_API_KEY is set, its RSS when the API fails (the API's
+    error reported if both do); anything else, and a channel without the key, off its feed."""
+    key = os.environ.get("YOUTUBE_API_KEY") if source["kind"] == "youtube" else None
+    if not key:
+        return _feed(source, last)
+    try:
+        return _uploads(source, key), None
+    except (requests.RequestException, ValueError) as e:
+        got = _feed(source, last)
+        return e if isinstance(got, Exception) else got
+
+
+def _feed(source: dict, last: dict | None = None) -> tuple[list[dict], dict | None] | Exception:
     """(rows, validators) off the feed; a 304 against `last`'s validators is no rows and `last`'s kept."""
     headers = {}
     if last and last.get("etag"):

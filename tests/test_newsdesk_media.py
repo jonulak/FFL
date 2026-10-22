@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +32,9 @@ class Resp:
         self.text = body.decode()
         self.headers = headers or {}
 
+    def json(self):
+        return json.loads(self.content)
+
     def raise_for_status(self):
         if self.status_code >= 400:
             raise collect.requests.HTTPError(f"{self.status_code}")
@@ -40,6 +44,7 @@ class Resp:
 def _offline(monkeypatch):
     monkeypatch.setattr(media, "_get", lambda url, **kw: pytest.fail(f"unexpected fetch {url}"))
     monkeypatch.setattr(media, "captions", lambda vid: pytest.fail(f"unexpected captions {vid}"))
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
 
 
 def fix(name):
@@ -171,6 +176,50 @@ def test_second_run_inserts_nothing(monkeypatch):
     monkeypatch.setattr(media, "captions", lambda vid: pytest.fail("refetched captions"))
     assert media.run_all(INDEX, now=NOW + timedelta(minutes=15))["new"] == 0
     assert len(items_of("yt:SF")) == 2
+
+
+API_PAGE = {"items": [
+    {"snippet": {"title": "Kyle Shanahan Postgame Press Conference"},
+     "contentDetails": {"videoId": PRESSER_ID, "videoPublishedAt": "2026-10-17T21:55:06Z"}},
+    {"snippet": {"title": "Private video"}, "contentDetails": {"videoId": "gone"}},
+]}
+
+
+def test_api_key_lists_uploads_from_the_data_api(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_API_KEY", "k")
+    db.put_news_sources([YT])
+    calls = []
+
+    def get(url, **kw):
+        calls.append((url, kw))
+        return Resp(json.dumps(API_PAGE).encode())
+    monkeypatch.setattr(media, "_get", get)
+    monkeypatch.setattr(media, "captions", lambda vid: SEGS if vid == PRESSER_ID else pytest.fail(vid))
+    assert media.run_all(INDEX, now=NOW)["new"] == 2
+    (url, kw), = calls
+    assert url == media.YT_API and kw["params"]["playlistId"] == "UUeIOarQkwmGhimim9cDUTng"
+    assert kw["headers"] == {"X-goog-api-key": "k"} and "k" not in kw["params"].values()
+    assert db.news_media(PRESSER_ID)["published_at"] == "2026-10-17T21:55:06+00:00"
+
+
+def test_api_failure_falls_back_to_the_feed(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_API_KEY", "k")
+    db.put_news_sources([YT])
+    pages = {media.YT_API: Resp(b'{"error": {"code": 403}}', status=403), YT["url"]: Resp(channel())}
+    monkeypatch.setattr(media, "_get", lambda url, **kw: pages[url])
+    monkeypatch.setattr(media, "captions", lambda vid: SEGS)
+    assert media.run_all(INDEX, now=NOW)["new"] == 2
+    assert db.news_sources()[0]["error"] is None
+
+
+def test_both_failing_reports_the_api_error(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_API_KEY", "k")
+    db.put_news_sources([YT])
+    pages = {media.YT_API: Resp(b"{}", status=403), YT["url"]: Resp(b"", status=404)}
+    monkeypatch.setattr(media, "_get", lambda url, **kw: pages[url])
+    got = media.run_all(INDEX, now=NOW)
+    assert got["failed"] == ["yt:SF"]
+    assert "403" in db.news_sources()[0]["error"]
 
 
 def test_lag_recorded_only_after_pending(monkeypatch):
