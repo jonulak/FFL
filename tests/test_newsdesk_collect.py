@@ -132,6 +132,13 @@ def test_rotowire_ids_rostered_plus_top_free_agents(monkeypatch):
     assert collect._rotowire_ids(Index(owned={2: 10.0, 4: 60.0})) == [1, 3, 4, 7, 8]
 
 
+def test_rotowire_ids_include_watched(monkeypatch):
+    monkeypatch.setattr(collect, "ROTOWIRE_FA", 1)
+    db.put_page("waivers", {"positions": {"RB": [{"player_id": 3, "pos": "RB", "add": 5.0}]}, "rostered": {}}, 0.0)
+    db.put_watch(99, True)
+    assert collect._rotowire_ids(Index()) == [3, 99]  # a watched id outside the top is polled too
+
+
 def test_article_text_extracts_paragraphs():
     body = collect.article_text(text("article.html"))
     paras = body.split("\n\n")

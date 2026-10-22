@@ -174,7 +174,7 @@ def parse_rotowire(doc: dict, source: dict, index: Index | None = None) -> list[
 
 
 def _rotowire_ids(index: Index | None = None) -> list[int]:
-    """Every rostered player and the top ROTOWIRE_FA free agents, off the Players page's stored pool, else built."""
+    """Every rostered player, the top ROTOWIRE_FA free agents and every watched player, off the Players page's stored pool, else built."""
     pool = next((p["payload"] for p in db.pages() if p["key"] == "waivers"), None)
     if pool is None:
         from ..espn_season import free_agent_pool  # espn_season imports a lot; keep the collectors importable alone
@@ -187,7 +187,12 @@ def _rotowire_ids(index: Index | None = None) -> list[int]:
     frees = sorted((r for rs in (pool.get("positions") or {}).values() for r in rs),
                    key=lambda r: (r.get("add") is None, -(r.get("add") or 0), -owned.get(r.get("player_id"), 0)))
     top = [pid for pid in dict.fromkeys(ids(frees)) if pid not in rostered][:ROTOWIRE_FA]
-    return sorted(rostered | set(top))
+    try:
+        watched = {pid for pid in db.watched_ids() if pid > 0}  # a watched D/ST has no Rotowire feed
+    except db.DBError as e:
+        print(f"news: watched ids unreadable, polling without them: {e}")
+        watched = set()
+    return sorted(rostered | set(top) | watched)
 
 
 def _rotowire_doc(pid: int) -> dict | None:

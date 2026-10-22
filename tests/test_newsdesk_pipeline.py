@@ -68,7 +68,7 @@ def test_pipeline_stage_failure_reported_rest_run(stages, monkeypatch):
     out = pipeline.run()
     assert out["collect"] == {"error": "RuntimeError: feeds down"}
     assert calls == ["seed", "index", "recheck", "media", "tag", "write"]
-    assert out["tag"] == {"tagged": 0} and out["notices"] == {"stories": 0, "queued": 0, "superseded": 0} and out["health"] == 0
+    assert out["tag"] == {"tagged": 0} and out["notices"] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0} and out["health"] == 0
     assert db.get_state("news_last_run")["stages"]["collect"] == {"error": "RuntimeError: feeds down"}
 
 
@@ -90,12 +90,12 @@ def test_written_story_pushes_once(stages):
     sid = make([(1, "down", "injury")])
     written.append((sid, 1))
     out = pipeline.run()
-    assert out["notices"] == {"stories": 1, "queued": 1, "superseded": 0}
+    assert out["notices"] == {"stories": 1, "queued": 1, "superseded": 0, "watch": 0}
     [n] = db.unsent_notices()
     assert (n["key"], n["title"], n["body"], n["url"]) == (f"news:{sid}:1", "Hurts hurt", "▼ Jalen Hurts: A reason.",
                                                           f"/news?story={sid}")
     written.clear()
-    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0, "superseded": 0}
+    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
 
 
 def test_dedupe_one_push_per_player_kind_per_day(stages):
@@ -169,7 +169,7 @@ def test_newer_rev_supersedes_unsent(stages):
         db._bump_story(conn, sid, db.SEASON)
     db.put_story_words(sid, 2, "Hurts out longer", "Overview.", {1: ("Out four weeks now.", False)})
     written[:] = [(sid, 2)]
-    assert pipeline.run()["notices"] == {"stories": 1, "queued": 1, "superseded": 1}
+    assert pipeline.run()["notices"] == {"stories": 1, "queued": 1, "superseded": 1, "watch": 0}
     assert keys() == [f"news:{sid}:2"]
     assert outcomes()[f"news:{sid}:1"] == "superseded"
 
@@ -334,5 +334,58 @@ def test_stale_headline_rewrites_without_push(stages):
     assert (out["written"], out["refreshed"], out["written_ids"]) == (2, 2, [])
     assert db.story(sent)["headline"] == f"New headline {sent}" and db.story(sent)["rev"] == 1
     written[:] = out["written_ids"]
-    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0, "superseded": 0}
+    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
     assert keys() == [f"news:{waiting}:1"] and outcomes()[f"news:{sent}:1"] == "sent"
+
+
+def _up(pid, prob, owned=False, watched=True):
+    sid = make([(pid, "up", "role")])
+    db.put_story_players(sid, [{"player_id": pid, "effect": "up", "kind": "role", "prob": prob, "confidence": 0.5}])
+    if watched:
+        db.put_watch(pid, True)
+    return sid
+
+
+def test_watched_up_story_signals_and_pushes(stages):
+    _, written = stages
+    sid = _up(3, 0.6)
+    written.append((sid, 1))
+    out = pipeline.run()
+    assert out["notices"]["watch"] == 1
+    [s] = _signals()
+    assert s["key"] == f"news:3:{sid}:1"
+    [n] = db.unsent_notices()
+    assert n["key"] == f"watch:3:{notify.now()[:10]}" and n["kind"] == "watch" and n["title"] == "Tank Bigsby"
+    written.clear()
+    written.append((sid, 1))
+    assert pipeline.run()["notices"]["watch"] == 0  # the same revision again: no second push
+    assert len(db.unsent_notices()) == 1
+
+
+def _signals():
+    return db.watch_signals("1970-01-01")
+
+
+def test_watched_rostered_elsewhere_no_push(stages, monkeypatch):
+    _, written = stages
+    monkeypatch.setattr(pipeline, "owners", lambda: ({3: {"team_id": 2}}, ME))
+    sid = _up(3, 0.6)
+    written.append((sid, 1))
+    assert pipeline.run()["notices"]["watch"] == 1
+    assert len(_signals()) == 1 and db.unsent_notices() == []
+
+
+def test_watched_already_in_news_push_no_second(stages):
+    _, written = stages
+    sid = _up(3, 0.9)
+    written.append((sid, 1))
+    pipeline.run()
+    assert keys() == [f"news:{sid}:1"] and len(_signals()) == 1
+
+
+def test_unwatched_up_story_no_signal(stages):
+    _, written = stages
+    sid = _up(3, 0.6, watched=False)
+    written.append((sid, 1))
+    pipeline.run()
+    assert _signals() == [] and db.unsent_notices() == []

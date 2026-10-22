@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from .. import db, notify
+from .. import db, notify, watch
 from . import collect, health, media, notices, players, seed, tag, write
 
 PENDING = "news_to_notify"
@@ -52,7 +52,7 @@ def notify_written(written: list, index: players.Index) -> dict:
     no longer pushes means the news no longer warrants one, so its outdated predecessor must not go out either."""
     pending = _queue(written)
     if not pending:
-        return {"stories": 0, "queued": 0, "superseded": 0}
+        return {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
     who, me = owners()
     muted = {int(p) for p in db.get_state("news_mutes", []) or []}
     pushed = db.notice_keys("news:")
@@ -62,6 +62,10 @@ def notify_written(written: list, index: players.Index) -> dict:
     sources = {s["id"]: s for s in db.news_sources(active_only=False)}
     added: set[tuple[int, str]] = set()  # rows pushed by this run
     out, superseded = [], []
+    watched = set(db.watched_ids())
+    day = at[:10]  # the watch pass's day key, so its push and a news push the same day are one
+    found: list[dict] = []
+    carried: set[int] = set()  # players a news push of this run already names
     for sid, rev, _ in pending:
         s = db.story(sid)
         if s is None or s["rev"] != rev or s["written_rev"] != rev:
@@ -84,14 +88,24 @@ def notify_written(written: list, index: players.Index) -> dict:
                 skip = added | notices.recent([n for n in queued if not n["key"].startswith(own)], stories, t)
             n = notices.for_story(s, who, me, muted, at, skip)
             if n:
-                added |= set(notices.rows(s, who, me, muted, skip))
+                rows = notices.rows(s, who, me, muted, skip)
+                added |= set(rows)
+                carried |= {pid for pid, _ in rows}
+        found += [sig for p in s["players"] if s["status"] != "retracted" and p["player_id"] in watched
+                  and (sig := watch.news_signal(s, p, at))]
         if n:
             out.append(n)
         superseded += [k for k in stale if not n or k != n["key"]]
     db.mark_notices(superseded, "superseded", at)
+    new = db.add_watch_signals(found)
+    by_player: dict[int, list[dict]] = {}
+    for sig in new:
+        by_player.setdefault(sig["player_id"], []).append(sig)
+    out += [watch.notice_for({"player_id": pid, "name": (index.by_id.get(pid) or {}).get("name") or f"Player {pid}"},
+                             sigs, day, at) for pid, sigs in by_player.items() if pid not in carried and pid not in who and pid not in muted]
     n_queued = db.add_notices(out)
     db.put_state(PENDING, [])
-    return {"stories": len(pending), "queued": n_queued, "superseded": len(superseded)}
+    return {"stories": len(pending), "queued": n_queued, "superseded": len(superseded), "watch": len(new)}
 
 
 def _health() -> int:
