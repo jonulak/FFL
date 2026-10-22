@@ -212,7 +212,8 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
 - **Watchlist** (beads ffl-x0h; `ffl/watch.py`, pure): players I do not have, watched for the moment one gets his chance.
   Tables `watchlist` (a row is a watch; unwatching deletes it) and `watch_signals` (one row per `key`, kind
   ahead/usage/news/bench/available, kept on unwatch). Detectors: `ahead_signals` (a teammate who has stood above him at his
-  position on Sleeper's chart is Doubtful, Out or IR, ESPN's feed over the chart's own status; Questionable never),
+  position on Sleeper's chart is Doubtful, Out or IR; a teammate ESPN's feed lists is read there alone, the chart's own
+  status only for one it lacks; Questionable never),
   `usage_signal` (newest game vs the mean of his form window's earlier games: snaps +`SNAP_JUMP` 15, targets +3 for
   RB/WR/TE, red-zone looks +2), `bench_signal` (`delta_roster` crossing from ≤0 to >0, naming my weakest at the position),
   `available_signal` (owned at the last pass, free now), `news_signal` (a ▲ row at prob ≥ `NEWS_PROB` 0.5 with a
@@ -221,15 +222,20 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   each with a chip per detector kind lit within the window, plus an `available` chip once one has fired. The pool (`free_agent_pool`) carries `watched`: every watched player
   as a Players row, one deeper than the lists read by id (`_watched_rows`, `kona_player_info` + `_gap_games`), never added
   to `positions`. `api.watch_pass` runs inside `/notify/tick` at most hourly (`watch_state`: `last_pass`, `above`,
-  `bench`, `owner`; a player's first pass only baselines bench and owner): every detector over every watched player,
-  signals all stored, a push queued only for one with no owner. The news hook (`newsdesk/pipeline.py`): Rotowire's ids
+  `bench`, `owner`; a player's first pass only baselines bench and owner; the baselines are pruned to `db.watched_ids()`
+  on every pass and every unwatch, never to the rows a pass priced): every detector over every watched player, signals
+  all stored. It reads the previous pool build (`_serve`, up to an hour old) for prices and signals, but a fresh
+  `pipeline.owners()` read gates its pushes: a push is queued only for one with no owner in both, one the fresh read
+  makes mine is unwatched, and a failed read queues nothing (never the stale owner). Nobody watched: it skips the build. The news hook (`newsdesk/pipeline.py`): Rotowire's ids
   include the watched (`collect._rotowire_ids`); a watched player's ▲ on a story within `NEWS_PUSH_MAX_AGE` is a news
   signal; its watch push is skipped when that run's news push already carries him, he is rostered, or muted. Routes: `GET /watch` (the page, off the
   cached pool; a player now mine is unwatched there), `GET /watch/ids`, `POST /watch/{id}` `{watched}` (a new id the
   cached pool lacks expires it, so `/watch` lists him once it rebuilds). Pref `watch` (default on). Nothing reaches ESPN
   or `decisions`. UI: `WatchProvider`/`useWatch` (`watch-context.tsx`, seeded by the layout from `/watch/ids`) behind every
   `WatchStar` (Players rows, the player dialog's band); `/watch` (`watch-list.tsx`) follows the provider's ids, so an
-  unwatch folds the row away with an undo, and a starred id `/watch` lacks stands under JUST ADDED until a refetch.
+  unwatch folds the row away with an undo, and an id starred in this browser session that `/watch` lacks stands under
+  JUST ADDED while the page polls (8 s, 15 asks, none while hidden). `/watch` answers `ids` (after its unwatch of
+  mine) and the page hands them to the provider's `sync`, so a server-side unwatch leaves the page.
 - **Transactions page** (`/transactions`, `GET /transactions`): `season.group_transactions` (pure) turns
   the `transactions` table's rows into moves. A waiver run stamps every claim with one timestamp across teams, so a
   move is (timestamp, team); a trade is every row of a timestamp holding a TRADE_* row, one side per team.

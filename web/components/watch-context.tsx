@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { clientPost } from "@/app/api-client";
 import type { WatchSet } from "@/lib/api";
@@ -9,7 +9,12 @@ import type { WatchSet } from "@/lib/api";
 // takes at once and the API's answer settles that one id only, so two quick taps on two players never undo each
 // other; a failed save puts it back and says so. Nothing here reaches ESPN or the decisions record.
 // `names`: the name each star was tapped with, so the Watch page can name a player /watch has not priced yet.
-type Watch = { ids: Set<number>; names: ReadonlyMap<number, string>; toggle: (id: number, name?: string) => Promise<void> };
+// `sync`: a server answer's list (GET /watch, which unwatches a player now on my roster) replaces the ids, except any
+// whose save is still in flight, so a tap made while the answer was on its way stands.
+type Watch = {
+  ids: Set<number>; names: ReadonlyMap<number, string>;
+  toggle: (id: number, name?: string) => Promise<void>; sync: (ids: number[]) => void;
+};
 
 const Ctx = createContext<Watch | null>(null);
 
@@ -28,18 +33,28 @@ export function WatchProvider({ ids: initial, children }: { ids: number[]; child
     if (on) next.add(id); else next.delete(id);
     return next;
   }), []);
+  const saving = useRef(new Map<number, number>());
   const toggle = useCallback(async (id: number, name = "him") => {
     const on = !ids.has(id);
     if (on && name !== "him") setNames((cur) => new Map(cur).set(id, name));
     set(id, on);
+    saving.current.set(id, (saving.current.get(id) ?? 0) + 1);
     try {
       set(id, (await clientPost<WatchSet>(`/watch/${id}`, { watched: on })).watched);
     } catch {
       set(id, !on);
       toast(`The watch on ${name} didn't save. Try again.`);
+    } finally {
+      const n = (saving.current.get(id) ?? 1) - 1;
+      if (n > 0) saving.current.set(id, n); else saving.current.delete(id);
     }
   }, [ids, set]);
-  const value = useMemo(() => ({ ids, names, toggle }), [ids, names, toggle]);
+  const sync = useCallback((server: number[]) => setIds((cur) => {
+    const next = new Set(server.filter((id) => !saving.current.has(id)));
+    for (const id of saving.current.keys()) if (cur.has(id)) next.add(id);
+    return next.size === cur.size && [...next].every((id) => cur.has(id)) ? cur : next;
+  }), []);
+  const value = useMemo(() => ({ ids, names, toggle, sync }), [ids, names, toggle, sync]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

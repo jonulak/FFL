@@ -397,8 +397,9 @@ export type WatchSet = { watched: boolean; ids: number[] };
 export type WatchChip = { kind: "ahead" | "usage" | "news" | "bench" | "available"; text: string | null; at: string | null; lit: boolean };
 export type WatchRow = PlayerRow & { chips: WatchChip[] };
 // GET /watch: the watched players grouped (moving: a signal in the last 3 days; quiet; elsewhere: on another roster).
+// `ids`: the watchlist after the answer's own unwatch of anyone now on my roster; the page settles the stars from it.
 export type WatchPage = {
-  week: number; ros_week: number; stale_since: string | null;
+  week: number; ros_week: number; stale_since: string | null; ids: number[];
   groups: { moving: WatchRow[]; quiet: WatchRow[]; elsewhere: WatchRow[] };
 };
 

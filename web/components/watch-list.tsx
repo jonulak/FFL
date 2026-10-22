@@ -30,7 +30,8 @@ import { WatchStar } from "./watch-star";
 // amber chip with what it saw; the rest stand dim with the kind's name, so the row says what was checked as well as
 // what fired. The rows follow the stars (useWatch), not this payload: a star tapped elsewhere shows here at once, and
 // unwatching a row folds it away with an undo. A player just starred that /watch has not priced yet (the pool is
-// rebuilt behind the answer) stands under JUST ADDED until a refetch brings him.
+// rebuilt behind the answer) stands under JUST ADDED until a refetch brings him; each answer's `ids` settles the
+// stars, so one /watch unwatched (he is mine now) leaves the page rather than wait there.
 
 const KIND: Record<WatchChip["kind"], string> = { ahead: "Depth", usage: "Usage", news: "News", bench: "Bench", available: "Available" };
 
@@ -42,6 +43,7 @@ const GROUPS = [
 
 // how soon /watch is asked again while a starred player is still missing from it
 const PENDING_POLL_MS = 8_000;
+const PENDING_POLL_MAX = 15; // two minutes: a pool build that has not brought him by then waits for a reload
 
 function Chip({ c }: { c: WatchChip }) {
   const now = useNow();
@@ -148,30 +150,41 @@ export function WatchList({ initial }: { initial: WatchPage }) {
   // outside the provider (a test render) the payload's own rows stand
   const ids = watch?.ids ?? new Set(all.map((p) => p.player_id));
   const listed = new Set(all.map((p) => p.player_id));
-  const pending = [...ids].filter((id) => !listed.has(id));
+  // only a star tapped in this browser session waits under JUST ADDED: any other id /watch lacks it has no row for
+  const pending = [...ids].filter((id) => !listed.has(id) && watch?.names.has(id));
   const waiting = pending.join();
 
   // the undo runs after the tap's state has landed, so it reads the provider as it is then
   const latest = useRef(watch);
   useEffect(() => { latest.current = watch; }, [watch]);
+  // each answer's list settles the stars: a player /watch unwatched (now on my roster) leaves the page
+  useEffect(() => { if (data.ids) latest.current?.sync(data.ids); }, [data]);
   const toggled = (id: number, name: string) => (on: boolean) => {
     if (on) return;
     toast(`Stopped watching ${name}`, { action: { label: "Undo", onClick: () => void latest.current?.toggle(id, name) } });
   };
 
-  // each answer, or failure, schedules the next ask while anyone is still pending
-  const [polls, setPolls] = useState(0);
+  // each answer, or failure, schedules the next ask while anyone is still pending, PENDING_POLL_MAX asks per pending
+  // set; a hidden tab asks nothing and picks up again when it is shown
+  const [polls, setPolls] = useState({ key: "", n: 0 });
+  const asked = polls.key === waiting ? polls.n : 0;
+  const [wake, setWake] = useState(0);
   useEffect(() => {
-    if (!waiting) return;
+    if (!waiting || asked >= PENDING_POLL_MAX) return;
     let current = true;
+    const onShow = () => { if (!document.hidden) setWake((n) => n + 1); };
     const t = setTimeout(() => {
+      if (document.hidden) {
+        document.addEventListener("visibilitychange", onShow);
+        return;
+      }
       clientGet<WatchPage>("/watch")
         .then((d) => { if (current) setData(d); })
         .catch(() => {})
-        .finally(() => { if (current) setPolls((n) => n + 1); });
+        .finally(() => { if (current) setPolls((p) => ({ key: waiting, n: (p.key === waiting ? p.n : 0) + 1 })); });
     }, PENDING_POLL_MS);
-    return () => { current = false; clearTimeout(t); };
-  }, [waiting, polls]);
+    return () => { current = false; clearTimeout(t); document.removeEventListener("visibilitychange", onShow); };
+  }, [waiting, asked, wake]);
 
   if (ids.size === 0) {
     return (
