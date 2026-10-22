@@ -392,8 +392,9 @@ export type DecisionRef = { id: number; needs_rationale: boolean };
 // The watchlist (ffl/watch.py): GET /watch/ids, and POST /watch/{id} {watched}'s answer.
 export type WatchIds = { ids: number[] };
 export type WatchSet = { watched: boolean; ids: number[] };
-// One of the Watch page's signal chips: lit while the signal is recent (`at`, its newest).
-export type WatchChip = { kind: "ahead" | "usage" | "news" | "bench"; text: string | null; at: string | null; lit: boolean };
+// One of the Watch page's signal chips: lit while the signal is recent (`at`, its newest). `available` (the drop that freed
+// him) comes only once it has fired; the four detectors' chips are on every row.
+export type WatchChip = { kind: "ahead" | "usage" | "news" | "bench" | "available"; text: string | null; at: string | null; lit: boolean };
 export type WatchRow = PlayerRow & { chips: WatchChip[] };
 // GET /watch: the watched players grouped (moving: a signal in the last 3 days; quiet; elsewhere: on another roster).
 export type WatchPage = {

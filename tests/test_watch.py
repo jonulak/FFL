@@ -142,3 +142,12 @@ def test_page_groups():
     stale = out["quiet"][1]["chips"][2]
     assert not stale["lit"] and stale["text"] == "t"
     assert out["quiet"][0]["chips"][0] == {"kind": "ahead", "text": None, "at": None, "lit": False}
+    assert all(len(r["chips"]) == len(watch.KINDS) for r in (*out["quiet"], fresh))  # no available chip unfired
+
+
+def test_page_available_alone_moves_with_a_lit_chip():
+    drop = sig(5, "available", 1, "available: dropped")
+    row = watch.page([p(5, "Dropped")], [drop], NOW)["moving"][0]
+    assert [c["kind"] for c in row["chips"]] == [*watch.KINDS, "available"]
+    assert row["chips"][-1] == {"kind": "available", "text": "available: dropped", "at": drop["at"], "lit": True}
+    assert not any(c["lit"] for c in row["chips"][:-1])

@@ -1,7 +1,8 @@
 """The watchlist, pure: what moved for a player I am watching, what the push says, and how the Watch page groups them.
 
-A signal is `{key, player_id, kind, text, at}`, one of KINDS (or `available`, which has no chip: it moves a player
-to the top of the page and pushes once, when the drop frees him). `key` is the dedupe: the same event found on the
+A signal is `{key, player_id, kind, text, at}`, one of KINDS (the four detectors, a chip each on every row) or
+`available` (the drop that frees him: it moves a player to the top of the page, pushes once, and adds its chip only
+once it has fired). `key` is the dedupe: the same event found on the
 next run is the same key. Thresholds are the spec's: usage compares the newest game with the mean of the earlier
 games in his form window; a depth-chart teammate counts when Sleeper's chart or ESPN's feed says Doubtful, Out or IR
 (Questionable never). Nothing here reads the db or the network; the caller hands in the pool rows, the chart, the
@@ -137,8 +138,8 @@ def notice_for(player: dict, signals: list[dict], day: str, at: str) -> dict:
 
 
 def page(rows: list[dict], signals: list[dict], now: datetime) -> dict:
-    """The Watch page: each row with a chip per KINDS (his newest signal of that kind, lit within MOVING_DAYS),
-    grouped. Elsewhere is whoever is rostered; Moving has a lit chip or an `available` signal inside the window,
+    """The Watch page: each row with a chip per KINDS (his newest signal of that kind, lit within MOVING_DAYS), and an
+    `available` chip after them once that has fired, so a row Moving on a drop alone says why; grouped. Elsewhere is whoever is rostered; Moving has a lit chip or an `available` signal inside the window,
     newest first; Quiet is the rest by `add`."""
     cutoff = now - timedelta(days=MOVING_DAYS)
     by_player: dict[int, list[dict]] = {}
@@ -148,8 +149,10 @@ def page(rows: list[dict], signals: list[dict], now: datetime) -> dict:
     for row in rows:
         mine = by_player.get(row["player_id"], [])
         chips = []
-        for kind in KINDS:
+        for kind in (*KINDS, "available"):
             s = max((s for s in mine if s["kind"] == kind), key=lambda s: s["at"], default=None)
+            if kind == "available" and s is None:
+                continue
             chips.append({"kind": kind, "text": s and s["text"], "at": s and s["at"],
                           "lit": bool(s) and datetime.fromisoformat(s["at"]) >= cutoff})
         fresh = [t for t in (datetime.fromisoformat(s["at"]) for s in mine) if t >= cutoff]

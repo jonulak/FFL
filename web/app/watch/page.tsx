@@ -24,7 +24,7 @@ export default async function Page() {
         <div className="basis-full max-md:hidden">
           <p className="max-w-[68ch] text-xs leading-4 text-muted-foreground">
             Checked every hour: a hurt teammate ahead of him (Depth), a jump in snaps, targets or red-zone looks (Usage),
-            good news (News), his worth to your roster turning positive (Bench). Moving: one lit in the last 3 days, or just dropped.
+            good news (News), his worth to your roster turning positive (Bench). Moving: one lit in the last 3 days, or just dropped (Available).
           </p>
         </div>
       </div>

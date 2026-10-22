@@ -32,7 +32,7 @@ import { WatchStar } from "./watch-star";
 // unwatching a row folds it away with an undo. A player just starred that /watch has not priced yet (the pool is
 // rebuilt behind the answer) stands under JUST ADDED until a refetch brings him.
 
-const KIND: Record<WatchChip["kind"], string> = { ahead: "Depth", usage: "Usage", news: "News", bench: "Bench" };
+const KIND: Record<WatchChip["kind"], string> = { ahead: "Depth", usage: "Usage", news: "News", bench: "Bench", available: "Available" };
 
 const GROUPS = [
   ["moving", "Moving", null],
@@ -53,7 +53,7 @@ function Chip({ c }: { c: WatchChip }) {
     <Badge variant="close" shape="chip" title={c.at ? new Date(c.at).toLocaleString() : undefined}
       className="h-auto min-h-5 max-w-full items-baseline gap-x-1.5 py-0.5 whitespace-normal">
       <span>{KIND[c.kind]}</span>
-      <span className="font-sans text-xs font-medium normal-case tracking-normal">{c.text}</span>
+      <span className="font-sans text-xs font-medium normal-case tracking-normal">{c.kind === "available" ? c.text?.replace(/^available:\s*/, "") : c.text}</span>
       {c.at && <span suppressHydrationWarning className="font-sans text-xs font-medium normal-case tracking-normal tabular-nums opacity-70">{shortAge(minutesSince(c.at, now))}</span>}
     </Badge>
   );

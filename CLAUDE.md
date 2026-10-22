@@ -218,7 +218,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `available_signal` (owned at the last pass, free now), `news_signal` (a ▲ row at prob ≥ `NEWS_PROB` 0.5 with a
   reason, unflagged). `notice_for` is a player's one push a day (key `watch:<id>:<day>`, kind `watch`, URL `/watch`);
   `page` groups rows into moving (a signal in `MOVING_DAYS` 3, newest first), quiet (by add) and elsewhere (rostered),
-  each with a chip per kind lit within the window. The pool (`free_agent_pool`) carries `watched`: every watched player
+  each with a chip per detector kind lit within the window, plus an `available` chip once one has fired. The pool (`free_agent_pool`) carries `watched`: every watched player
   as a Players row, one deeper than the lists read by id (`_watched_rows`, `kona_player_info` + `_gap_games`), never added
   to `positions`. `api.watch_pass` runs inside `/notify/tick` at most hourly (`watch_state`: `last_pass`, `above`,
   `bench`, `owner`; a player's first pass only baselines bench and owner): every detector over every watched player,
