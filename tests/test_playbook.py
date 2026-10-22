@@ -1,0 +1,109 @@
+"""Every NFL play stored once, and the plays called back that cost a starter points (texts from 2026's feed)."""
+from datetime import datetime
+
+from ffl import db, playbook, plays
+
+# the league's table for the stats a called-back play is read for (settings.json)
+TABLE = {3: 0.04, 4: 4.0, 24: 0.1, 25: 6.0, 42: 0.1, 43: 6.0, 53: 1.0, 80: 3.0, 77: 4.0, 198: 5.0, 201: 6.0, 86: 1.0,
+         95: 2.0, 99: 1.0, 103: 6.0, 20: -2.0}
+ROSTER = {1: {"name": "Brock Purdy", "pos": "QB", "team": "SF", "team_id": 7},
+          2: {"name": "Mike Evans", "pos": "WR", "team": "SF", "team_id": 3},
+          3: {"name": "Bryce Young", "pos": "QB", "team": "CAR", "team_id": 3},
+          4: {"name": "Brandon Aubrey", "pos": "K", "team": "DAL", "team_id": 5},
+          -16026: {"name": "Seahawks D/ST", "pos": "D/ST", "team": "SEA", "team_id": 5}}
+
+
+def play(text, roles, pid="p1", source="espn", offence="SF", defence="ARI", **kw):
+    return {"play_id": pid, "game_id": "g", "week": 3, "quarter": 4, "clock": "5:00", "text": text,
+            "offence": offence, "defence": defence, "roles": [{"id": i, "type": t} for i, t in roles],
+            "at": "2026-09-27T19:06:30", "source": source, **kw}
+
+
+SCRAMBLE = play("B.Purdy scrambles left end for 45 yards, TOUCHDOWN NULLIFIED by Penalty. PENALTY on SF-G.Kittle, "
+                "Offensive Holding, 10 yards, enforced at ARZ 10.", [(1, "rusher")])
+NO_PLAY_CATCH = play("B.Young pass deep left to M.Evans to PHI 17 for 23 yards (Q.Mitchell).PENALTY on CAR-R.Hunt, "
+                     "Ineligible Downfield Pass, 5 yards, enforced at PHI 40 - No Play.", [(3, "passer"), (2, "receiver")])
+
+
+def test_called_back_reads_nullified_and_no_play_not_declined_or_reversed():
+    assert playbook.called_back(SCRAMBLE["text"]) and playbook.called_back(NO_PLAY_CATCH["text"])
+    assert not playbook.called_back("K.Williams up the middle for 9 yards. Penalty on BUF, Holding, declined.")
+    assert not playbook.called_back("The play was REVERSED. B.Young pass short left to J.Coker for 5 yards.")
+
+
+def test_would_be_reads_the_play_before_the_flag():
+    assert playbook.would_be(SCRAMBLE, 1, "QB", "SF", TABLE) == 10.5   # 45 yards and the rushing TD
+    assert playbook.would_be(NO_PLAY_CATCH, 2, "WR", "SF", TABLE) == 3.3  # the catch and 23 yards
+    assert playbook.would_be(NO_PLAY_CATCH, 3, "QB", "CAR", TABLE) == 0.92
+    incomplete = play("B.Young pass incomplete short right [Z.Baun].PENALTY on PHI-C.DeJean, Illegal Contact - No Play.",
+                      [(3, "passer")])
+    assert playbook.would_be(incomplete, 3, "QB", "CAR", TABLE) == 0
+
+
+def test_a_kick_and_a_defence_are_read_too():
+    fg = play("B.Aubrey 51 yard field goal is GOOD, Center-T.Sieg.PENALTY on DAL-T.Guyton, Holding - No Play.",
+              [(4, "kicker")])
+    assert playbook.would_be(fg, 4, "K", "DAL", TABLE) == 5.0
+    sack = play("J.Herbert sacked at LAC 20 for -9 yards (U.Nwosu).PENALTY on SEA-D.Hall, Defensive Holding - No Play.",
+                [], offence="LAC", defence="SEA")
+    assert playbook.would_be(sack, -16026, "D/ST", "SEA", TABLE) == 1.0
+    assert playbook.would_be(sack, -16026, "D/ST", "LAC", TABLE) == 0, "the offence's D/ST gets nothing"
+
+
+def test_callbacks_take_off_what_the_play_kept_him():
+    rows = playbook.callbacks(SCRAMBLE, ROSTER, {1: 3.5}, TABLE)  # the 35 yards to the foul spot counted
+    assert [(r["player_id"], r["would_be"], r["kept"], r["match"]) for r in rows] == [(1, 10.5, 3.5, "called_back")]
+    assert rows[0]["team_id"] == 7 and rows[0]["delta"] == 0.0 and rows[0]["total"] is None
+    assert playbook.callbacks(SCRAMBLE, ROSTER, {1: 10.5}, TABLE) == []
+
+
+def test_callbacks_skip_a_play_that_names_no_starter_or_still_counts():
+    false_start = play("PENALTY on PHI-D.Goedert, False Start, 5 yards, enforced at PHI 47 - No Play.", [(99, "penalized")])
+    assert playbook.callbacks(false_start, ROSTER, {}, TABLE) == []
+    upheld = {**SCRAMBLE, "text": "B.Purdy scrambles left end for 45 yards, TOUCHDOWN."}
+    assert playbook.callbacks(upheld, ROSTER, {}, TABLE) == []
+
+
+def test_espn_read_wins_over_the_live_feed():
+    live = {**SCRAMBLE, "source": "live"}
+    assert playbook.changes(None, live) and playbook.changes(live, SCRAMBLE)
+    assert not playbook.changes(SCRAMBLE, {**live, "text": "older wording"})
+    assert not playbook.changes(SCRAMBLE, dict(SCRAMBLE)) and playbook.changes(SCRAMBLE, {**SCRAMBLE, "text": "x"})
+
+
+def test_from_fastcast_takes_each_play_once_with_its_clubs():
+    doc = {"events": [{"id": "g", "competitors": [{"id": "25", "abbreviation": "SF"}, {"id": "22", "abbreviation": "ARI"}],
+                       "lastPlay": {"playId": "9", "text": " B.Purdy kneels. ", "period": 4, "clock": 40.0,
+                                    "start": {"team": {"id": "25"}}, "players": [{"playerId": "1", "type": "rusher"}]},
+                       "drive": {"plays": [{"playId": "9", "text": "B.Purdy kneels.", "period": 4, "clock": 40.0,
+                                            "start": {"team": {"id": "25"}}, "players": []}]}}]}
+    [p] = playbook.from_fastcast(doc, 3, datetime(2026, 9, 27, 19, 0))
+    assert (p["play_id"], p["offence"], p["defence"], p["clock"], p["source"]) == ("9", "SF", "ARI", "0:40", "live")
+
+
+def test_from_drives_turns_washington_into_one_spelling():
+    drives = [{"plays": [{"id": 5, "quarter": 1, "clock": "9:00", "team": "WAS", "text": "x", "roles": [],
+                          "wallclock": "2026-10-18T17:00:00Z"}]}]
+    [p] = playbook.from_drives(drives, "g", 6, ("SF", "WSH"))
+    assert (p["offence"], p["defence"], p["source"]) == ("WSH", "SF", "espn") and p["at"].startswith("2026-10-18")
+
+
+def test_store_records_plays_and_keeps_called_back_rows_current():
+    store = plays.Store(3)
+    store.add([{"at": "2026-09-27T19:06:31", "week": 3, "player_id": 1, "team_id": 7, "delta": 3.5, "total": 26.58,
+                "text": "B.Purdy scrambles left end for 45 yards, TOUCHDOWN.", "play_id": "p1", "match": "player"}])
+    store.record([{**SCRAMBLE, "source": "live"}], ROSTER, TABLE)
+    assert [(r["match"], r.get("would_be")) for r in store.latest()] == [("player", None), ("called_back", 10.5)], \
+        "merged by time: the play ran at :30, its yards landed at :31"
+    assert all(r["text"] == SCRAMBLE["text"] for r in store.latest()), "the feed row shows the play's text as it stands"
+    reloaded = plays.Store(3)
+    assert reloaded.called == store.called and reloaded.book["p1"]["text"] == SCRAMBLE["text"]
+    store.record([{**SCRAMBLE, "text": "B.Purdy scrambles left end for 45 yards, TOUCHDOWN."}], ROSTER, TABLE)
+    assert store.called == {} and db.called_back_rows(3) == [], "upheld on review: the row goes"
+
+
+def test_store_never_drops_rows_without_a_roster():
+    store = plays.Store(3)
+    store.record([SCRAMBLE], ROSTER, TABLE)
+    store.record([{**SCRAMBLE, "text": "upheld"}], {}, TABLE)
+    assert len(store.called) == 1

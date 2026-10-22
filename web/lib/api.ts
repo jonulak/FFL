@@ -139,9 +139,12 @@ export type Side = {
 // One row of the play feed (ffl/plays.py): a starter's points moved by `delta` to `total`.
 export type Play = {
   at: string; week: number; player_id: number; name: string; pos: string; team: string;
-  side: "me" | "opp"; team_id: number; delta: number; total: number; text: string | null;
+  side: "me" | "opp"; team_id: number; delta: number; total: number | null; text: string | null;
   play_id: string | null; quarter: number | null; clock: string | null; game_id: string | null;
-  match?: "player" | "defence" | "last" | "correction" | "reversed"; // "reversed": points taken back in the game (a penalty, a review, a live stat fix), text the play called back or null; "correction": a stat correction after the week, text says old → new, no quarter/clock; "player": a play naming him; "defence": a D/ST's play, read off its moved stats; "last": the game's last play, possibly the next one
+  // "called_back" (ffl/playbook.py): a play called back that cost him points, never a points change (delta 0,
+  // total null): `would_be` what it would have scored him, `kept` what it scored anyway (yards to a foul's spot)
+  would_be?: number; kept?: number;
+  match?: "player" | "defence" | "last" | "correction" | "reversed" | "called_back"; // "reversed": points taken back in the game (a penalty, a review, a live stat fix), text the play called back or null; "correction": a stat correction after the week, text says old → new, no quarter/clock; "player": a play naming him; "defence": a D/ST's play, read off its moved stats; "last": the game's last play, possibly the next one
 };
 // One game's whole week (GET /plays, `?team=` for any game but mine); `me`/`opp` as on its board.
 // `live` keeps the page on the feed all game window; `game_on` is the badge: a starter in this game is playing.

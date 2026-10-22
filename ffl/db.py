@@ -91,6 +91,34 @@ plays = sa.Table(
 )
 sa.Index("ix_plays_week_team", plays.c.season, plays.c.week, plays.c.team_id)
 
+# Every NFL play, once (ffl/playbook.py): FastCast's as the live feed sees them, ESPN's core drives' (source "espn")
+# over them once read. A feed row links to its play by play_id and shows this text, so a play's later rewording
+# ("No Play", a review) reaches every row on it.
+nfl_plays = sa.Table(
+    "nfl_plays", metadata,
+    _season(),
+    sa.Column("play_id", sa.String, nullable=False),
+    sa.Column("week", sa.Integer, nullable=False),
+    sa.Column("game_id", sa.String, nullable=False),
+    sa.Column("source", sa.String, nullable=False),     # live | espn
+    sa.Column("body", sa.JSON, nullable=False),         # the play as playbook.from_fastcast / from_drives made it
+    sa.PrimaryKeyConstraint("season", "play_id"),
+)
+sa.Index("ix_nfl_plays_week", nfl_plays.c.season, nfl_plays.c.week)
+
+# A play called back that cost a starter points (playbook.callbacks): one row per (play, player), rewritten whenever
+# the play or his feed rows on it change, gone when it no longer reads called back.
+called_back = sa.Table(
+    "called_back", metadata,
+    _season(),
+    sa.Column("play_id", sa.String, nullable=False),
+    sa.Column("player_id", sa.Integer, nullable=False),
+    sa.Column("week", sa.Integer, nullable=False),
+    sa.Column("body", sa.JSON, nullable=False),         # a play-feed row, match "called_back"
+    sa.PrimaryKeyConstraint("season", "play_id", "player_id"),
+)
+sa.Index("ix_called_back_week", called_back.c.season, called_back.c.week)
+
 # Every week's box scores as ESPN answered them (espn_season.box_scores): the matchup schedule and the two maps
 # BoxScore takes, so a cold process parses them back without ESPN. fetched_at (epoch s) moves on every read; doc and
 # hash only when ESPN's answer changed. settled: the correction pass's last read (ffl-7sq); never fetched after it.
@@ -524,6 +552,51 @@ def add_plays(rows: list[dict], season: int = SEASON) -> int:
 def plays_rows(week: int, season: int = SEASON) -> list[dict]:
     """One week's play-feed rows, oldest first."""
     q = sa.select(plays.c.body).where(plays.c.season == season, plays.c.week == week).order_by(plays.c.id)
+    with _read() as c:
+        return list(c.execute(q).scalars())
+
+
+CHUNK = 400  # rows per multi-row statement: SQLite caps a statement's bound variables
+
+
+def put_nfl_plays(rows: list[dict], season: int = SEASON) -> None:
+    """Insert or replace plays (playbook entries) by play id."""
+    vals = [{"season": season, "play_id": r["play_id"], "week": r["week"], "game_id": r["game_id"],
+             "source": r["source"], "body": r} for r in rows]
+    with _write() as c:
+        for i in range(0, len(vals), CHUNK):
+            c.execute(_upsert(nfl_plays, vals[i:i + CHUNK], ["season", "play_id"], ["week", "game_id", "source", "body"]))
+
+
+def nfl_plays_rows(week: int, season: int = SEASON) -> list[dict]:
+    """One week's stored plays (playbook entries)."""
+    q = sa.select(nfl_plays.c.body).where(nfl_plays.c.season == season, nfl_plays.c.week == week)
+    with _read() as c:
+        return list(c.execute(q).scalars())
+
+
+def nfl_games_read(week: int, season: int = SEASON) -> set[str]:
+    """The games of a week whose plays ESPN's drives have written (source "espn")."""
+    q = (sa.select(nfl_plays.c.game_id).distinct()
+         .where(nfl_plays.c.season == season, nfl_plays.c.week == week, nfl_plays.c.source == "espn"))
+    with _read() as c:
+        return set(c.execute(q).scalars())
+
+
+def put_called_back(put: list[dict], drop: list[tuple[str, int]], season: int = SEASON) -> None:
+    """Write called-back rows (by play and player) and delete the (play_id, player_id) pairs in `drop`."""
+    t = called_back
+    vals = [{"season": season, "play_id": r["play_id"], "player_id": r["player_id"], "week": r["week"], "body": r}
+            for r in put]
+    with _write() as c:
+        for i in range(0, len(vals), CHUNK):
+            c.execute(_upsert(t, vals[i:i + CHUNK], ["season", "play_id", "player_id"], ["week", "body"]))
+        for play_id, player_id in drop:
+            c.execute(t.delete().where(t.c.season == season, t.c.play_id == play_id, t.c.player_id == player_id))
+
+
+def called_back_rows(week: int, season: int = SEASON) -> list[dict]:
+    q = sa.select(called_back.c.body).where(called_back.c.season == season, called_back.c.week == week)
     with _read() as c:
         return list(c.execute(q).scalars())
 

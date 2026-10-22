@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import db
 from . import fastcast as fc
+from . import playbook
 from . import plays as P
 from . import season as S
 from .settings import load
@@ -429,9 +430,12 @@ class Runner(threading.Thread):
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if self.store is not None and not first:
-            rows = P.events_from(before, after, doc, self.roster, datetime.now(), self.week, self.plays, stats_before)
+            now = datetime.now()
+            rows = P.events_from(before, after, doc, self.roster, now, self.week, self.plays, stats_before)
             try:
                 self.store.add(rows)
+                self.store.record(playbook.from_fastcast(doc, self.week, now), self.roster, self.table,
+                                  also={r["play_id"] for r in rows if r.get("play_id")})
                 # only a write that happened proves the DB recovered: add([]) writes nothing
                 if rows and (self.state.error or "").startswith("plays not saved"):
                     self.state.error = None  # leave any other error alone

@@ -93,9 +93,29 @@ export function useLedger<T>(items: T[], keyOf: (t: T) => string): Ledger<T> {
 }
 
 const UNIT = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
-// A row whose points an earlier play gave and a penalty, a review or a stat fix took back
-// (ffl/plays.py `taken_back`): said in words, since its minus reads like a play for a loss.
-const TAKEN_BACK = "Taken back";
+// A row that is not a play scoring, said in words before its text: points an earlier play gave and a
+// penalty, a review or a stat fix took back (ffl/plays.py `taken_back`; its minus reads like a play for a
+// loss), or a play called back before it scored (ffl/playbook.py, no points moved).
+const TAGS: Partial<Record<NonNullable<Play["match"]>, string>> = { reversed: "Taken back", called_back: "Called back" };
+const tagOf = (p: Play) => (p.match ? TAGS[p.match] : undefined);
+
+// The row's numeral and the line under it: the points it moved and his total after, or for a play called
+// back what it would have scored him, struck through, and what it kept him if anything (yards to the spot).
+function Points({ p, size, align }: { p: Play; size: string; align: string }) {
+  const called = p.match === "called_back";
+  const value = called ? signed(p.would_be ?? 0) : signed(p.delta);
+  const dim = called ? "text-foreground/45 line-through decoration-2" : p.delta < 0 ? "text-foreground/70" : "";
+  const under = called ? (p.kept ? `kept ${signed(p.kept)}` : "would have been") : `now ${pts(p.total ?? 0)}`;
+  return (
+    <span className={`flex flex-col ${align}`}>
+      <span className="flex items-baseline gap-1.5">
+        <span className={`font-display ${size} font-bold leading-none tracking-tight ${dim}`}>{value}</span>
+        <span className={UNIT}>pts</span>
+      </span>
+      <span className="mt-0.5 text-xs leading-4 text-muted-foreground">{under}</span>
+    </span>
+  );
+}
 
 // A play row opens the player's season modal from its tile and name, with what the row knows; a
 // matchup view's strip opens its breakdown instead (`pick`, PlayerTrigger).
@@ -106,8 +126,7 @@ const seed = (p: Play) => ({ player_id: p.player_id, name: p.name, pos: p.pos, t
 // numeral swap ends and the two sides read as two teams facing each other across the same ledger.
 function PlayRow({ p }: { p: Play; pick?: Pick }) {
   const mine = p.side === "me";
-  const loss = p.delta < 0;
-  const back = p.match === "reversed";
+  const tag = tagOf(p);
   return (
     <div className={`play-row flex py-2.5 ${mine ? "justify-start" : "justify-end"}`}>
       <Item size="sm" className={`w-full max-w-[88%] flex-nowrap gap-2.5 rounded-none border-0 p-0 sm:max-w-[74%] sm:gap-3 ${mine ? "" : "flex-row-reverse"}`}>
@@ -123,9 +142,9 @@ function PlayRow({ p }: { p: Play; pick?: Pick }) {
               <span className="font-semibold text-foreground/80">{p.pos}</span> <span aria-hidden>·</span> {p.team}
             </span>
           </ItemTitle>
-          {(p.text || back) && (
+          {(p.text || tag) && (
             <ItemDescription className={`mt-1 line-clamp-none text-[0.8125rem] leading-snug text-foreground/85 ${mine ? "" : "text-right"}`}>
-              {back && <span className={`${UNIT} ${p.text ? "mr-1.5" : ""}`}>{TAKEN_BACK}</span>}{p.text}
+              {tag && <span className={`${UNIT} ${p.text ? "mr-1.5" : ""}`}>{tag}</span>}{p.text}
             </ItemDescription>
           )}
           <ItemDescription className={`mt-0.5 line-clamp-none text-xs leading-4 tabular-nums ${mine ? "" : "text-right"}`}>
@@ -134,11 +153,7 @@ function PlayRow({ p }: { p: Play; pick?: Pick }) {
           </ItemDescription>
         </ItemContent>
         <ItemActions className={`flex-col gap-0 self-center tabular-nums ${mine ? "items-end text-right" : "items-start text-left"}`}>
-          <p className="flex items-baseline gap-1.5">
-            <span className={`font-display text-[1.5rem] font-bold leading-none tracking-tight ${loss ? "text-foreground/70" : ""}`}>{signed(p.delta)}</span>
-            <span className={UNIT}>pts</span>
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">now {pts(p.total)}</p>
+          <Points p={p} size="text-[1.5rem]" align={mine ? "items-end" : "items-start"} />
         </ItemActions>
       </Item>
     </div>
@@ -152,9 +167,8 @@ function PlayRow({ p }: { p: Play; pick?: Pick }) {
 // descenders, so its box is padded below and the margin pulls the line back (both rows' names).
 function CompactRow({ p, pick }: { p: Play; pick?: Pick }) {
   const mine = p.side === "me";
-  const loss = p.delta < 0;
-  const back = p.match === "reversed";
-  const title = back ? [TAKEN_BACK, p.text].filter(Boolean).join(": ") : p.text;
+  const tag = tagOf(p);
+  const title = tag ? [tag, p.text].filter(Boolean).join(": ") : p.text;
   return (
     <div className={`play-row flex py-1.5 ${mine ? "justify-start" : "justify-end"}`}>
       <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`} title={title ?? undefined}>
@@ -169,16 +183,10 @@ function CompactRow({ p, pick }: { p: Play; pick?: Pick }) {
           </ItemTitle>
         </ItemContent>
         <ItemActions className={`gap-2.5 whitespace-nowrap tabular-nums ${mine ? "" : "flex-row-reverse"}`}>
-          {back && <span className={UNIT}>{TAKEN_BACK}</span>}
+          {tag && <span className={UNIT}>{tag}</span>}
           {p.quarter != null && p.clock && <span className="text-xs text-muted-foreground">Q{p.quarter} {p.clock}</span>}
           {/* the delta with the running total beneath it, the way a posted score carries the projection it replaced */}
-          <span className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-            <span className="flex items-baseline gap-1.5">
-              <span className={`font-display text-[1.25rem] font-bold leading-none tracking-tight ${loss ? "text-foreground/70" : ""}`}>{signed(p.delta)}</span>
-              <span className={UNIT}>pts</span>
-            </span>
-            <span className="mt-0.5 text-xs leading-4 text-muted-foreground">now {pts(p.total)}</span>
-          </span>
+          <Points p={p} size="text-[1.25rem]" align={mine ? "items-end" : "items-start"} />
         </ItemActions>
       </Item>
     </div>

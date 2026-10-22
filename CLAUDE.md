@@ -29,6 +29,7 @@ uv run python -m ffl.practice 4        # start a League Specific Practice Draft 
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results into the DB
+uv run python -m ffl.playbook backfill 1-6   # finished weeks' NFL plays from ESPN's drives, and their called-back rows (the tick keeps new games current)
 uv run python -m ffl.newsdesk run      # one news-desk run (collect, tag, write, queue pushes); seed / status (launchd POSTs /news/run every 10 min)
 uv run python -m ffl.newsdesk bench    # replay frozen news (`bench freeze` first) through tagging with saved Jev answers, against ffl/newsdesk/bench_cases.py; --player grupe, --write (Haiku too), --refresh
 uv run python -m ffl.decisions list --open   # decisions still needing a rationale or outcome; add / outcome / rationale / show / export
@@ -255,6 +256,14 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   The caption is the newest play *naming the player* (`plays.PlayCache`, fed from every game's lastPlay,
   drive plays and scoringPlays), never simply the game's last play: stats arrive one to three frames after
   the play text, by which time lastPlay is often the next play. `match: "last"` marks the fallback (D/ST).
+  A fall in points that erased an earlier play (a counting stat fell, or no stat rose and his newest play is not
+  one for a loss: `plays.taken_back`) is `match: "reversed"`, labelled Taken back.
+  Every NFL play is stored once in `nfl_plays` (`ffl/playbook.py`; FastCast's as the feed sees them, ESPN's core
+  drives' over them, written by the NFL tab's game page for the live week and by the tick's `final_plays` for each
+  game 30 min after it is final); a feed row shows its play's current text by `play_id` (`Store.latest`). A play
+  reading NULLIFIED / No Play that names a starter (a D/ST: its club on defence) gets a `called_back` row (play,
+  player; `match: "called_back"`, delta 0, `would_be` read off the text before the flag less `kept`), rewritten in
+  `Store.record` whenever the play or his rows on it change, dropped when the play stands after all.
 - **NFL tab** (`/nfl`, `/nfl/<week>/<club>` with the whole play feed and its `?f=` filter; the old `/plays` address redirects there; `ffl/nfl.py`, GET `/nfl` and `/nfl/{week}/{team}`): ESPN's
   public site scoreboard and core-API drives (one call embeds every play with participant athlete ids, which are the fantasy
   player ids), no cookies, behind `nfl.TtlCache` (inline, last good, `stale_since`; drives keyed by (event, status); the scoreboard lives

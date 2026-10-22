@@ -37,6 +37,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from . import calibrate, config, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, player_views, season, sources
+from . import fastcast, playbook
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -872,19 +873,61 @@ def _plays(data: dict, limit: int | None = None) -> list[dict]:
     if not sides:
         return []
     teams = {s.get("team_id") for s in sides}
+    try:
+        store = _play_store(data.get("week"))
+    except db.DBError as e:
+        log.warning("plays for week %s not read: %s", data.get("week"), e)
+        return []
+    return plays_mod.for_board(store.latest(limit, teams=teams), sides[0].get("team_id"))
+
+
+def _play_store(week: int) -> plays_mod.Store:
+    """The runner's store when it holds `week`, else that week's rows, plays and called-back rows from the DB."""
     runner = getattr(app.state, "runner", None)
-    store = runner.store if runner else None
-    if store is not None and runner.week == data.get("week"):
-        rows = store.latest(limit, teams=teams)
-    else:
-        try:
-            stored = db.plays_rows(data.get("week"))
-        except db.DBError as e:
-            log.warning("plays for week %s not read: %s", data.get("week"), e)
-            return []
-        rows = [r for r in reversed(stored) if r.get("team_id") in teams]
-        rows = rows[:limit] if limit else rows
-    return plays_mod.for_board(rows, sides[0].get("team_id"))
+    if runner is not None and runner.store is not None and runner.week == week:
+        return runner.store
+    return plays_mod.Store(week)
+
+
+def _record_plays(week: int, entries: list[dict]) -> int:
+    """NFL plays read off ESPN's drives into `week`'s feed store, with that week's starters; the number of
+    called-back rows the week holds after."""
+    runner = getattr(app.state, "runner", None)
+    live_week = runner is not None and runner.week == week and runner.roster
+    roster = runner.roster if live_week else plays_mod.roster_index(espn_season.league_starters(week))
+    table = runner.table if live_week else fastcast.scoring_table(load())
+    store = _play_store(week)
+    store.record(entries, roster, table)
+    return len(store.called)
+
+
+FINAL_PLAYS_AFTER = 30 * 60  # ESPN's drives can lag the final whistle: a game is read this long after it is seen final
+_FINAL_SEEN: dict[str, float] = {}  # event id -> when the tick first saw it final
+
+
+def final_plays() -> dict:
+    """The tick's step: each finished game of the NFL tab's week and the one before whose plays ESPN's drives have
+    not written yet, read once it has been final FINAL_PLAYS_AFTER, so every game's plays (and the plays called back
+    in it) are ESPN's final word whether or not anyone opened it on the NFL tab."""
+    shown = nfl.scoreboard(None)[0]["week"]
+    out: dict[str, int] = {}
+    for week in (shown - 1, shown):
+        if week < 1:
+            continue
+        done, now, due = db.nfl_games_read(week), time.time(), []
+        for g in nfl.scoreboard(week)[0]["games"]:
+            if g["status"] == "post" and g["event_id"] not in done \
+                    and now - _FINAL_SEEN.setdefault(g["event_id"], now) >= FINAL_PLAYS_AFTER:
+                due.append(g)
+        entries = []
+        for g in due:
+            clubs = (g["away"]["abbr"], g["home"]["abbr"])
+            drives, _ = nfl.drives(g["event_id"], g["status"], {g["away"]["id"]: clubs[0], g["home"]["id"]: clubs[1]})
+            entries += playbook.from_drives(drives, g["event_id"], week, clubs)
+        if entries:
+            _record_plays(week, entries)
+            out[str(week)] = len(due)
+    return out
 
 
 def _week_payload(data: dict) -> dict:
@@ -1054,6 +1097,12 @@ def nfl_game(week: int, team: str):
         drives, stale2 = nfl.drives(game["event_id"], game["status"], ids)
     except Exception as e:  # noqa: BLE001 — cold outage on this game's feed
         raise HTTPException(502, {"source": "espn-nfl", "error": str(e)})
+    runner = getattr(app.state, "runner", None)
+    if runner is not None and runner.store is not None and runner.week == week:  # another week waits for the tick
+        try:
+            _record_plays(week, playbook.from_drives(drives, game["event_id"], week, clubs))
+        except Exception as e:  # noqa: BLE001 — the page never fails on the play store
+            log.warning("plays of %s not recorded: %s", game["event_id"], e)
     sides = _nfl_sides(week)
     mine, opp = ([p for p in side if p.get("team") in clubs] for side in (sides or ([], [])))
     named = lambda ps: {p["player_id"]: p["name"] for p in ps if p["player_id"] > 0}  # noqa: E731
@@ -1498,6 +1547,10 @@ def notify_tick():
             out["corrections"] = correction_pass()
         except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
             out["corrections"] = {"error": str(e)}
+        try:
+            out["final_plays"] = final_plays()
+        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
+            out["final_plays"] = {"error": str(e)}
         try:
             out["pregame"] = pregame_pull()
         except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick

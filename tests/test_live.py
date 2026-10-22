@@ -396,6 +396,9 @@ def test_a_recovered_plays_write_clears_only_its_own_error(monkeypatch):
         def add(self, rows):
             self.written.extend(rows)
 
+        def record(self, *a, **k):
+            pass
+
     events = []
     monkeypatch.setattr(plays, "events_from", lambda *a, **k: list(events))
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)

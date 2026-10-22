@@ -20,9 +20,10 @@ rows of its two teams (`Store.latest(teams=)`) and `for_board` says which side e
 from __future__ import annotations
 
 import threading
+from collections import defaultdict
 from datetime import datetime
 
-from . import db
+from . import db, playbook
 
 
 def roster_index(league: dict) -> dict[int, dict]:
@@ -59,12 +60,6 @@ def _clock(play: dict, game: dict) -> str | None:
 DEFENCE_TEXT = {"99": "sacked", "95": "INTERCEPTED", "96": "RECOVERED by", "98": "SAFETY", "97": "BLOCKED",
                 **{s: "TOUCHDOWN" for s in ("93", "94", "101", "102", "103", "104")}}
 POINTS_ALLOWED = "120"
-
-
-def _offence(play: dict) -> str | None:
-    """The pro team id (ESPN's competitor id, "16") that had the ball at the snap."""
-    team = (play.get("start") or {}).get("team")
-    return str(team.get("id") if isinstance(team, dict) else team) if team is not None else None
 
 
 class PlayCache:
@@ -120,7 +115,7 @@ class PlayCache:
         known = self.plays.get(game_id) or {}
         for pid in sorted(known, key=int, reverse=True):
             play = known[pid]
-            offence = _offence(play)
+            offence = playbook.offence(play)
             if team is not None and offence is not None and offence == team:
                 continue
             text = (play.get("text") or "").lower()
@@ -203,12 +198,17 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
 
 class Store:
     """The week's events, newest last in memory (the live path reads it every few seconds),
-    written through to the DB as they happen and reloaded from it at boot."""
+    written through to the DB as they happen and reloaded from it at boot. Beside them the week's
+    NFL plays (`book`, ffl/playbook.py), whose text a row on a play shows, and the plays called back
+    that cost a starter points (`called`, by play and player), merged into the feed by time."""
 
     def __init__(self, week: int):
         self.week = week
         self._lock = threading.Lock()
+        self._record = threading.Lock()  # one record() at a time: the live feed, the NFL tab, the tick
         self.rows: list[dict] = db.plays_rows(week)
+        self.book: dict[str, dict] = {p["play_id"]: p for p in db.nfl_plays_rows(week)}
+        self.called: dict[tuple[str, int], dict] = {(r["play_id"], r["player_id"]): r for r in db.called_back_rows(week)}
 
     def add(self, rows: list[dict]) -> None:
         if not rows:
@@ -218,9 +218,48 @@ class Store:
         db.add_plays(rows)  # outside the lock: a slow or failed write must not block readers; errors propagate
 
     def latest(self, n: int | None = None, teams: set[int] | None = None) -> list[dict]:
-        """Newest first; with `teams`, only the rows scored for those fantasy teams (one board)."""
+        """Newest first; with `teams`, only the rows scored for those fantasy teams (one board). A row
+        on a stored play shows the play's text as it stands now."""
         with self._lock:
-            rows = self.rows[::-1]
+            rows, book = self.rows[::-1] + list(self.called.values()), self.book
+        rows.sort(key=lambda r: r.get("at") or "", reverse=True)  # stable: rows of one second stay newest first
         if teams is not None:
             rows = [r for r in rows if r.get("team_id") in teams]
-        return rows[:n] if n else rows
+        rows = rows[:n] if n else rows
+        return [{**r, "text": book[r["play_id"]]["text"] or r.get("text")}
+                if r.get("play_id") and r.get("match") != "correction" and r["play_id"] in book else r for r in rows]
+
+    def record(self, entries: list[dict], roster: dict[int, dict], table: dict[int, float],
+               also: set[str] | None = None) -> None:
+        """Store the plays that are new or changed (playbook.changes), then rewrite the called-back rows of
+        those plays and of `also` (plays a new feed row just landed on: what a play kept him moved)."""
+        with self._record:
+            fresh = [e for e in entries if playbook.changes(self.book.get(e["play_id"]), e)]
+            if fresh:
+                db.put_nfl_plays(fresh)
+                with self._lock:
+                    self.book.update({e["play_id"]: e for e in fresh})
+            ids = {e["play_id"] for e in fresh} | {str(i) for i in also or () if i}
+            ids &= self.book.keys()
+            if not ids or not roster:  # no starters read: keep the rows rather than drop them all
+                return
+            kept: dict[str, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+            for r in self.rows:
+                if str(r.get("play_id")) in ids:
+                    kept[str(r["play_id"])][r["player_id"]] += r.get("delta") or 0.0
+            put, drop = [], []
+            for pid in ids:
+                was = {k: r for k, r in self.called.items() if k[0] == pid}
+                now = {(pid, r["player_id"]): r for r in playbook.callbacks(self.book[pid], roster, kept[pid], table)}
+                for k, r in now.items():
+                    r = {**r, "at": was[k]["at"]} if k in was and was[k].get("at") else r  # first seen stands
+                    if was.get(k) != r:
+                        put.append(r)
+                drop += [k for k in was if k not in now]
+            if not put and not drop:
+                return
+            db.put_called_back(put, drop)
+            with self._lock:
+                self.called.update({(r["play_id"], r["player_id"]): r for r in put})
+                for k in drop:
+                    self.called.pop(k, None)

@@ -119,6 +119,11 @@ def _play(p: dict, ids: dict[str, str]) -> dict:
         "turnover": bool(p.get("isTurnover")), "penalty": bool(p.get("isPenalty")),
         "score": {"away": _int(p.get("awayScore")), "home": _int(p.get("homeScore"))},
         "athletes": [int(a) for x in p.get("participants") or [] if (a := _ref_id(x.get("athlete"), _ATHLETE_REF))],
+        # each athlete's part in the play (passer, receiver, rusher, kicker, penalized...) and when it was run, for
+        # ffl/playbook.py: what a play called back would have scored
+        "roles": [{"id": int(a), "type": x.get("type")} for x in p.get("participants") or []
+                  if (a := _ref_id(x.get("athlete"), _ATHLETE_REF))],
+        "wallclock": p.get("wallclock"),
         "mine": [], "opp": [],
     }
 
