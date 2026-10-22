@@ -280,6 +280,9 @@ def test_a_failed_plays_write_is_recorded_not_raised(monkeypatch):
         def add(self, rows):
             raise db.DBError("database is locked")
 
+        def record(self, *a, **k):
+            pass
+
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
     r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
     r._on_doc(copy.deepcopy(FIX))  # the baseline
@@ -425,6 +428,9 @@ def test_a_stale_schema_at_runtime_is_recorded_not_raised(monkeypatch):
     class Stale:
         def add(self, rows):
             stale()
+
+        def record(self, *a, **k):
+            pass
 
     monkeypatch.setattr(db, "plays_rows", stale)
     monkeypatch.setattr(plays, "events_from", lambda *a, **k: [{"player_id": 1}])

@@ -433,9 +433,11 @@ class Runner(threading.Thread):
             now = datetime.now()
             rows = P.events_from(before, after, doc, self.roster, now, self.week, self.plays, stats_before)
             try:
+                # the plays first, so a row on one reads its wording from the play; then what a new row
+                # kept him on a play called back
+                self.store.record(playbook.from_fastcast(doc, self.week, now), self.roster, self.table, seen=now)
                 self.store.add(rows)
-                self.store.record(playbook.from_fastcast(doc, self.week, now), self.roster, self.table,
-                                  also={r["play_id"] for r in rows if r.get("play_id")})
+                self.store.record([], self.roster, self.table, also={str(r["play_id"]) for r in rows if r.get("play_id")})
                 # only a write that happened proves the DB recovered: add([]) writes nothing
                 if rows and (self.state.error or "").startswith("plays not saved"):
                     self.state.error = None  # leave any other error alone

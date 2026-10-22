@@ -254,34 +254,40 @@ class Store:
         self.called: dict[tuple[str, int], dict] = {(r["play_id"], r["player_id"]): r for r in db.called_back_rows(week)}
 
     def add(self, rows: list[dict]) -> None:
+        """Rows on a stored play keep no text of their own: `latest` reads it from the play."""
         if not rows:
             return
         with self._lock:
+            rows = [{**r, "text": None} if r.get("play_id") and str(r["play_id"]) in self.book else r for r in rows]
             self.rows.extend(rows)  # memory first: the live baseline has moved on, so these must not be lost
         db.add_plays(rows)  # outside the lock: a slow or failed write must not block readers; errors propagate
 
     def latest(self, n: int | None = None, teams: set[int] | None = None) -> list[dict]:
         """Newest first; with `teams`, only the rows scored for those fantasy teams (one board). A row
-        on a stored play shows the play's text as it stands now."""
+        on a stored play shows its wording as it read when the row happened (`playbook.wording`)."""
         with self._lock:
             rows, book = self.rows[::-1] + list(self.called.values()), self.book
         rows.sort(key=lambda r: r.get("at") or "", reverse=True)  # stable: rows of one second stay newest first
         if teams is not None:
             rows = [r for r in rows if r.get("team_id") in teams]
         rows = rows[:n] if n else rows
-        return [{**r, "text": book[r["play_id"]]["text"] or r.get("text")}
-                if r.get("play_id") and r.get("match") != "correction" and r["play_id"] in book else r for r in rows]
+        return [{**r, "text": playbook.wording(book[str(r["play_id"])], r)}
+                if r.get("play_id") and r.get("match") != "correction" and str(r["play_id"]) in book else r
+                for r in rows]
 
     def record(self, entries: list[dict], roster: dict[int, dict], table: dict[int, float],
-               also: set[str] | None = None) -> None:
-        """Store the plays that are new or changed (playbook.changes), then rewrite the called-back rows of
-        those plays and of `also` (plays a new feed row just landed on: what a play kept him moved)."""
+               also: set[str] | None = None, seen: datetime | None = None) -> None:
+        """Store the plays that are new or changed (playbook.changes), a new wording added to the play's
+        versions as first `seen` (now), then rewrite the called-back rows of those plays and of `also`
+        (plays a new feed row just landed on: what a play kept him moved)."""
+        seen_at = (seen or datetime.now()).isoformat(timespec="seconds")
         with self._record:
-            fresh = [e for e in entries if playbook.changes(self.book.get(e["play_id"]), e)]
+            fresh = [playbook.versioned(self.book.get(e["play_id"]), e, seen_at) for e in entries
+                     if playbook.changes(self.book.get(e["play_id"]), e)]
             if fresh:
-                db.put_nfl_plays(fresh)
-                with self._lock:
+                with self._lock:  # memory first, as add: a failed write must not leave a row without its wording
                     self.book.update({e["play_id"]: e for e in fresh})
+                db.put_nfl_plays(fresh)
             ids = {e["play_id"] for e in fresh} | {str(i) for i in also or () if i}
             ids &= self.book.keys()
             if not ids or not roster:  # no starters read: keep the rows rather than drop them all
@@ -293,7 +299,8 @@ class Store:
             put, drop = [], []
             for pid in ids:
                 was = {k: r for k, r in self.called.items() if k[0] == pid}
-                now = {(pid, r["player_id"]): r for r in playbook.callbacks(self.book[pid], roster, kept[pid], table)}
+                now = {(pid, r["player_id"]): {**r, "text": None}  # the play's wording is read from the play
+                       for r in playbook.callbacks(self.book[pid], roster, kept[pid], table)}
                 for k, r in now.items():
                     r = {**r, "at": was[k]["at"]} if k in was and was[k].get("at") else r  # first seen stands
                     if was.get(k) != r:

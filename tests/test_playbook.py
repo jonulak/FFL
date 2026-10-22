@@ -95,7 +95,9 @@ def test_store_records_plays_and_keeps_called_back_rows_current():
     store.record([{**SCRAMBLE, "source": "live"}], ROSTER, TABLE)
     assert [(r["match"], r.get("would_be")) for r in store.latest()] == [("player", None), ("called_back", 10.5)], \
         "merged by time: the play ran at :30, its yards landed at :31"
-    assert all(r["text"] == SCRAMBLE["text"] for r in store.latest()), "the feed row shows the play's text as it stands"
+    gain, back = store.latest()
+    assert gain["text"] == "B.Purdy scrambles left end for 45 yards, TOUCHDOWN.", "older than any stored wording: its own"
+    assert back["text"] == SCRAMBLE["text"], "a called-back row reads the newest wording"
     reloaded = plays.Store(3)
     assert reloaded.called == store.called and reloaded.book["p1"]["text"] == SCRAMBLE["text"]
     store.record([{**SCRAMBLE, "text": "B.Purdy scrambles left end for 45 yards, TOUCHDOWN."}], ROSTER, TABLE)
@@ -119,6 +121,27 @@ def test_final_plays_reads_a_game_once_final_half_an_hour_even_if_opened_mid_gam
     assert db.get_state("final_plays_done") == ["e1"]
     clock[0] += 3600
     assert api.final_plays() == {} and len(recorded) == 1, "read once"
+
+
+def test_a_row_reads_the_wording_of_its_time_and_a_stat_fix_the_newest():
+    catch = "B.Purdy pass deep right to M.Evans pushed ob at WAS 17 for 55 yards (N.Cross)."
+    respot = "B.Purdy pass deep right to M.Evans pushed ob at WAS 18 for 54 yards (N.Cross)."
+    long = play(catch, [(1, "passer")], pid="460", source="live", week=6)
+    store = plays.Store(6)
+    store.record([long], ROSTER, TABLE, seen=datetime(2026, 10, 19, 20, 33, 37))
+    row = {"week": 6, "player_id": 1, "team_id": 7, "total": 8.24, "play_id": "460", "match": "player"}
+    store.add([{**row, "at": "2026-10-19T20:33:37", "delta": 2.2, "text": catch}])
+    store.record([{**long, "text": respot}], ROSTER, TABLE, seen=datetime(2026, 10, 19, 20, 33, 47))
+    store.add([{**row, "at": "2026-10-19T20:33:47", "delta": -0.04, "total": 8.2, "text": respot, "match": "adjusted"}])
+    assert [(r["delta"], r["text"]) for r in store.latest()] == [(-0.04, respot), (2.2, catch)]
+    assert all(r["text"] is None for r in db.plays_rows(6)), "a row on a stored play keeps no text of its own"
+    assert [t["text"] for t in plays.Store(6).book["460"]["texts"]] == [catch, respot]
+
+
+def test_versions_add_a_wording_only_when_it_reads_differently():
+    v1 = playbook.versioned(None, {"text": "a"}, "t1")
+    assert playbook.versioned(v1, {"text": "a"}, "t2")["texts"] == [{"at": "t1", "text": "a"}]
+    assert playbook.versioned(v1, {"text": "b"}, "t2")["texts"] == [{"at": "t1", "text": "a"}, {"at": "t2", "text": "b"}]
 
 
 def test_store_never_drops_rows_without_a_roster():

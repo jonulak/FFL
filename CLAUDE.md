@@ -263,7 +263,10 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `ffl.playbook backfill`.
   Every NFL play is stored once in `nfl_plays` (`ffl/playbook.py`; FastCast's as the feed sees them, ESPN's core
   drives' over them, written by the NFL tab's game page for the live week and by the tick's `final_plays` for each
-  game 30 min after it is final); a feed row shows its play's current text by `play_id` (`Store.latest`). A play
+  game 30 min after it is final). A play keeps every wording with when it was first seen (`texts`,
+  `playbook.versioned`); a feed row on a stored play keeps no text of its own and shows, by `play_id`, the wording in
+  force when it happened, a revision row (Taken back, Stat fix, Called back) the newest (`playbook.wording`); a row
+  older than every stored wording keeps the text it was written with. A play
   reading NULLIFIED / No Play that names a starter (a D/ST: its club on defence) gets a `called_back` row (play,
   player; `match: "called_back"`, delta 0, `would_be` read off the text before the flag less `kept`), rewritten in
   `Store.record` whenever the play or his rows on it change, dropped when the play stands after all.
