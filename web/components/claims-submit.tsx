@@ -139,8 +139,9 @@ function ClaimsWhy({ targets, presets }: { targets: Promise<number[]>; presets: 
   );
 }
 
-// withdrawn: the claims an empty plan was sent to cancel (ours, plus the outside ones when the box was ticked)
-type Frozen = { title: string; planned: number; outside: Set<string>; withdrawn: number };
+// withdrawn: the claims an empty plan was sent to cancel (ours, plus the outside ones when the box was ticked);
+// names: every player the plan named, since the refresh after an instant add takes the cut off the roster
+type Frozen = { title: string; planned: number; outside: Set<string>; withdrawn: number; names: Map<number, string> };
 
 // The review: what will be sent, then what ESPN held. The desk's dialog hosts it, and so does the
 // phone's claims sheet as its second step (`phone`: Back to the claims, the phone's footer at
@@ -153,7 +154,6 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
   const [replaceOutside, setReplaceOutside] = useState(false);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [fault, setFault] = useState<SubmitFailure | null>(null);
-  const name = (id: number) => player(id)?.name ?? `player ${id}`;
   const line = (c: Pick<Claim, "add" | "drop">) => `+${name(c.add)}${c.drop != null ? ` −${name(c.drop)}` : ""}`;
   const fromApp = data.pending.filter((c) => c.from_app);
   const outside = data.pending.filter((c) => !c.from_app);
@@ -176,6 +176,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
   // against, and the outside claims kept. The plan refreshes after a send (landed adds leave it),
   // and the result must be read against what was sent, not against the refreshed plan.
   const [frozen, setFrozen] = useState<Frozen | null>(null);
+  const name = (id: number) => player(id)?.name ?? frozen?.names.get(id) ?? `player ${id}`;
   // Statuses move (the Wednesday run turns waivers into free agents): re-read the plan on open so
   // the "Add now" list is what the server will run (Send passes it, and the server refuses a
   // different one). Send waits for it.
@@ -187,7 +188,10 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
   const [why, setWhy] = useState<{ rows: ReturnType<typeof deferred<number[]>>; needed: boolean | null } | null>(null);
   const send = async () => {
     setFault(null);
-    setFrozen({ title, planned: data.claims.length, outside: replaceOutside ? new Set() : new Set(outside.map((c) => c.id)), withdrawn });
+    const names = new Map<number, string>();
+    for (const c of [...data.now, ...data.claims, ...data.pending])
+      for (const id of [c.add, c.drop]) if (id != null && player(id)) names.set(id, player(id)!.name);
+    setFrozen({ title, planned: data.claims.length, outside: replaceOutside ? new Set() : new Set(outside.map((c) => c.id)), withdrawn, names });
     const rows = deferred<number[]>();
     // with logging off in Settings the server records nothing, so the form never opens
     if (log) setWhy({ rows, needed: null });
