@@ -238,6 +238,27 @@ sits = sa.Table(
     sa.PrimaryKeyConstraint("season", "week", "player_id"),
 )
 
+# The players on the watchlist (the Players page's eye toggle). A row is a watch; unwatching deletes it.
+watchlist = sa.Table(
+    "watchlist", metadata, _season(),
+    sa.Column("player_id", sa.Integer, nullable=False),
+    sa.Column("added_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("season", "player_id"),
+)
+
+# What happened to a watched player (kind ahead/usage/news/bench/available), one row per `key`; unwatching keeps them.
+# Not `watch_signals`: that name is the reader below.
+watch_signals_table = sa.Table(
+    "watch_signals", metadata, _season(),
+    sa.Column("key", sa.String, nullable=False),
+    sa.Column("player_id", sa.Integer, nullable=False),
+    sa.Column("kind", sa.String, nullable=False),
+    sa.Column("text", sa.String, nullable=False),
+    sa.Column("at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("season", "key"),
+    sa.Index("ix_watch_signals_player", "season", "player_id"),
+)
+
 # Which row of a starting slot each player stands in (season.reseat): ESPN's two WR slots are one slot to it and it
 # lists them in roster-acquisition order, so a swap would jump rows. A player stands in `seat_id`'s place in that
 # order; one with no row stands in his own.
@@ -924,6 +945,52 @@ def put_sit(week: int, player_id: int, sat: bool, season: int = SEASON) -> None:
         else:
             c.execute(sa.delete(sits).where(sits.c.season == season, sits.c.week == week,
                                             sits.c.player_id == player_id))
+
+
+def watched_ids(season: int = SEASON) -> list[int]:
+    q = (sa.select(watchlist.c.player_id).where(watchlist.c.season == season)
+         .order_by(watchlist.c.added_at, watchlist.c.player_id))
+    with _read() as c:
+        return list(c.execute(q).scalars())
+
+
+def put_watch(player_id: int, watched: bool, season: int = SEASON) -> None:
+    """Watch him (a repeat is a no-op) or stop (delete the watch; his signals stay)."""
+    with _write() as c:
+        if watched:
+            c.execute(_upsert(watchlist, [{"season": season, "player_id": player_id, "added_at": _now()}],
+                              ["season", "player_id"], None))
+        else:
+            c.execute(sa.delete(watchlist).where(watchlist.c.season == season, watchlist.c.player_id == player_id))
+
+
+_SIGNAL_COLS = ("key", "player_id", "kind", "text", "at")
+
+
+def add_watch_signals(rows: list[dict], season: int = SEASON) -> list[dict]:
+    """Store the signals not already known (key: season, key). Returns only the rows newly inserted."""
+    if not rows:
+        return []
+    t = watch_signals_table
+    with _write() as c:
+        known = set(c.execute(sa.select(t.c.key).where(t.c.season == season)).scalars())
+        new = []
+        for r in rows:
+            if r["key"] not in known:
+                known.add(r["key"])
+                new.append({k: r[k] for k in _SIGNAL_COLS})
+        if new:
+            c.execute(_upsert(t, [{"season": season, **v} for v in new], ["season", "key"], None))
+    return new
+
+
+def watch_signals(since: str, season: int = SEASON) -> list[dict]:
+    """Signals with `at` >= since, newest first."""
+    t = watch_signals_table
+    q = (sa.select(*[t.c[k] for k in _SIGNAL_COLS]).where(t.c.season == season, t.c.at >= since)
+         .order_by(t.c.at.desc(), t.c.key))
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
 
 
 def seat_map(season: int = SEASON) -> dict[int, int]:
