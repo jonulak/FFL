@@ -1017,6 +1017,83 @@ def test_free_agent_pool_rows_carry_defaults_when_the_reads_raise(monkeypatch):
     assert out["roster"] and all(r["droppable"] is True and r["locked"] is False for r in out["roster"])
 
 
+def _deep_doc(pid: int, w: int) -> dict:
+    """One RB as kona_player_info answers by id for scoringPeriodId w (as tests.test_form_io._info_doc)."""
+    def row(source, total):
+        return {"seasonId": espn_season.SEASON, "scoringPeriodId": w, "statSourceId": source, "statSplitTypeId": 1,
+                "appliedTotal": total, "stats": {"23": 12}}
+    return {"id": pid, "player": {"id": pid, "fullName": "Deep Back", "eligibleSlots": [2, 20], "proTeamId": 1,
+                                  "defaultPositionId": 2, "injuryStatus": "ACTIVE",
+                                  "stats": [row(0, 0.0), row(1, 9.5)]}}
+
+
+def _watched_pool(monkeypatch, matchup, get):
+    """free_agent_pool over the stub league, the claim-fact reads stubbed so `get` sees only the by-id ask."""
+    calls = {"box": 0, "fa": []}
+    lg = _stub_league(matchup, calls)
+    lg._get_pro_schedule = lambda w: {1: (2, 1_800_000_000_000)}
+    lg._get_positional_ratings = lambda w: {}
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "pool_status", lambda: {999: {"status": "WAIVERS", "waiver_date": 5}})
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {})
+    monkeypatch.setattr(espn_season, "raw_league_get", get)
+    return espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
+
+
+def test_pool_watched_includes_deep_free_agent(monkeypatch):
+    from ffl import db
+    db.put_watch(999, True)
+    db.put_watch(1001, True)  # the stub's first free agent: in the pool already, reused
+    asked = []
+
+    def get(view, headers=None, **params):
+        flt = json.loads(headers["x-fantasy-filter"])["players"]
+        asked.append((view, flt, params))
+        return {"players": [_deep_doc(pid, params["scoringPeriodId"]) for pid in flt["filterIds"]["value"]]}
+    pool = _watched_pool(monkeypatch, _matchup(), get)
+    assert asked == [("kona_player_info", {"filterIds": {"value": [999]}}, {"scoringPeriodId": 1})], \
+        "one by-id ask for this week, only for the man the pool lacks, no limit"
+    watched = {r["player_id"]: r for r in pool["watched"]}
+    assert list(watched) == [999, 1001], "one row per watched id, in watch order"
+    deep = watched[999]
+    assert deep["pos"] == "RB" and deep["slot"] == "FA" and deep["owner"] is None and deep["mine"] is False
+    assert isinstance(deep["add"], float) and isinstance(deep["delta_roster"], float)
+    assert deep["week_proj"] == 9.5, "this week's ESPN projection off the by-id answer"
+    assert deep["status"] == "WAIVERS" and deep["waiver_date"] == 5, "claim facts as a pool row's"
+    assert 999 not in {r["player_id"] for rows in pool["positions"].values() for r in rows}
+    assert 999 not in {r["player_id"] for rows in pool["rostered"].values() for r in rows}
+    fa = next(r for rows in pool["positions"].values() for r in rows if r["player_id"] == 1001)
+    assert watched[1001] == fa, "a pool row is reused, not repriced"
+
+
+def test_pool_watched_rostered_elsewhere_has_owner(monkeypatch):
+    from ffl import db
+    m = _matchup()
+    m.away_team = SimpleNamespace(team_id=2, team_name="Them", team_abbrev="THM")
+    m.away_lineup = [as_box({**season_roster()[3], "player_id": 500, "name": "Their RB"})]
+    db.put_watch(500, True)
+    pool = _watched_pool(monkeypatch, m, lambda *a, **k: pytest.fail("a rostered man is never fetched"))
+    [row] = pool["watched"]
+    assert row["player_id"] == 500 and row["mine"] is False
+    assert row["owner"] == {"team_id": 2, "name": "Them", "abbrev": "THM"}
+    them = next(r for r in pool["rostered"]["RB"] if r["player_id"] == 500)
+    assert row["add"] == them["add"] and row["delta_roster"] == them["delta_roster"], "worth to me, as on the Players page"
+
+
+def test_pool_watched_fetch_failure_omits_not_fails(monkeypatch):
+    from ffl import db
+    db.put_watch(999, True)
+    db.put_watch(-16001, True)  # a D/ST no list carries: never asked by id
+
+    def boom(*a, **k):
+        raise requests.ConnectionError("espn down")
+    pool = _watched_pool(monkeypatch, _matchup(), boom)
+    assert pool["watched"] == []
+    assert list(pool["positions"]) == ["QB", "RB", "WR", "TE", "D/ST", "K"] and pool["roster"]
+
+
 def test_parse_roster_flags_carries_the_slot_name():
     doc = {"teams": [{"id": 7, "roster": {"entries": [
         {"playerId": 1, "lineupSlotId": 20, "playerPoolEntry": {}},

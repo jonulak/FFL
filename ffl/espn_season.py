@@ -1559,8 +1559,26 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
             if r["mine"]:
                 r.update(add=None, delta_roster=None, delta_pool=None, week_delta=None, would_start=None)
         rostered_out[pos] = rows
+    # the Watch page: every watched man priced as a Players row, a free agent deeper than the lists by id;
+    # never added to `positions`, and a failed read costs the watch, not the page
+    try:
+        watching = db.watched_ids()
+    except db.DBError as e:
+        print(f"watchlist not read: {e}")
+        watching = []
+    found = {r["player_id"]: r for rows in (*out.values(), *rostered_out.values()) for r in rows}
+    deep, games = _watched_rows(lg, [pid for pid in watching if pid not in found and pid > 0], week)
+    deep = enrich(deep, games)
+    for pos in positions:
+        at = [{**p, "slot": "FA"} for p in deep if p["pos"] == pos]
+        # replacement level off the same pool a free agent's row reads: the deep man does not move it
+        for r in S.waiver_deltas(at, my_players, rostered + frees_by_pos[pos], settings, rw, week_over=week_over):
+            s = status.get(r["player_id"]) or {}
+            found[r["player_id"]] = {**r, "status": s.get("status"), "waiver_date": s.get("waiver_date"),
+                                     "owner": None, "mine": False}
+    watched = [dict(found[pid]) for pid in watching if pid in found]
     return {"week": week, "ros_week": rw, "week_over": week_over, "positions": out, "rostered": rostered_out,
-            "roster": roster, "ros_source": ros_source(seas)}
+            "roster": roster, "watched": watched, "ros_source": ros_source(seas)}
 
 
 def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]]:
@@ -1671,6 +1689,40 @@ def _gap_games(gaps: dict[int, list[int]], week: int) -> dict[int, list[dict]]:
         if rows := [g for w in ws for g in _GAP_GAMES.get((pid, w), [])]:
             out[pid] = rows
     return out
+
+
+def _watched_rows(lg, ids: list[int], week: int) -> tuple[list[dict], dict[int, list[dict]]]:
+    """Watched free agents deeper than the pool's lists, flattened as a free agent is, with their game rows:
+    one kona_player_info read by ids for this week (what free_agents(week) asks, filterIds in place of the
+    ownership sort; no `limit`, ESPN 400s on it beside filterIds) wrapped in BoxPlayers the same way, and the
+    earlier form weeks through _gap_games. A failed read is logged and leaves them out; so is a man ESPN
+    answers without or oddly."""
+    from espn_api.football.box_player import BoxPlayer
+
+    log = logging.getLogger(__name__)
+    if not ids:
+        return [], {}
+    filt = {"players": {"filterIds": {"value": ids}}}
+    try:
+        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=week)
+        sched, ranks = lg._get_pro_schedule(week), lg._get_positional_ratings(week)
+    except Exception as e:  # noqa: BLE001 — a watched man is not worth the Players page
+        log.warning("watched players %s not read: %s", ids, e)
+        return [], {}
+    boxes = []
+    for p in doc.get("players") or []:
+        try:
+            b = BoxPlayer(p, sched, ranks, week, SEASON)
+        except Exception as e:  # noqa: BLE001
+            log.warning("watched player info unreadable for %s: %s", p.get("id"), e)
+            continue
+        if b.playerId in ids:
+            boxes.append(b)
+    if missing := sorted(set(ids) - {b.playerId for b in boxes}):
+        log.warning("watched players %s not in ESPN's answer", missing)
+    earlier = _gap_games({b.playerId: form_weeks(week)[:-1] for b in boxes}, week)
+    games = {b.playerId: earlier.get(b.playerId, []) + player_games(b, [week], week) for b in boxes}
+    return [flatten_box_player(b) for b in boxes], games
 
 
 def with_espn_slots(rows: list[dict], flags: dict[int, dict], fake: dict[int, str],
