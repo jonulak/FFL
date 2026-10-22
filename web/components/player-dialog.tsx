@@ -583,24 +583,48 @@ function Fold({ on, flush, children }: { on: boolean; flush?: boolean; children:
   return on ? <div className="fold" data-flush={flush || undefined}><div><div>{children}</div></div></div> : children;
 }
 
+const SHOWN = 3; // past seasons shown before the "more" row
+
 // The past seasons in one table, newest first, so a season's totals read against the others.
+// The newest SHOWN stand open; the rest fold out of a "more" row beneath them, in the same table
+// so their columns line up with the ones above.
 function PastSeasons({ seasons }: { seasons: SeasonLog[] }) {
+  const [more, setMore] = useState(false);
   const cols = columns(seasons[0]);
+  const span = cols.length + 4;
+  const rest = seasons.slice(SHOWN);
   return (
     <SeasonTable cols={cols} first="Yr">
-      {seasons.map((s) => <PastSeason key={s.season} s={s} totals={s.totals!} span={cols.length + 4} />)}
+      {seasons.slice(0, SHOWN).map((s) => <PastSeason key={s.season} s={s} totals={s.totals!} span={span} />)}
+      {rest.length > 0 && (
+        <TableRow className={`${ROW} cursor-pointer hover:bg-transparent`} onClick={() => setMore((m) => !m)}>
+          <TableCell colSpan={span} className="py-1 pr-0 pl-0">
+            <Button variant="ghost" size="xs" aria-expanded={more}
+              aria-label={`${rest.length} more ${rest.length === 1 ? "season" : "seasons"}, ${rest.at(-1)!.season} to ${rest[0].season}`}
+              className="px-0 font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:bg-transparent hover:text-foreground aria-expanded:bg-transparent dark:hover:bg-transparent">
+              {more ? "Fewer" : `+${rest.length} more`}
+              <span className="font-sans font-normal normal-case tracking-normal text-foreground/45">{rest.at(-1)!.season}–{rest[0].season}</span>
+              <ChevronDown aria-hidden className={`stroke-[2.5] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${more ? "rotate-180" : ""}`} />
+            </Button>
+          </TableCell>
+        </TableRow>
+      )}
+      {rest.map((s) => <PastSeason key={s.season} s={s} totals={s.totals!} span={span} fold={more} />)}
     </SeasonTable>
   );
 }
 
 // A past season as one row: the year, games, the stat group summed, points with the per-game
-// rate beneath. It opens onto his weeks, each of which opens onto its breakdown.
+// rate beneath. It opens onto his weeks, each of which opens onto its breakdown. `fold` is a
+// season behind the "more" row: its cells fold with it, and its weeks shut when it does.
 // The weeks are rendered on the first open, not with the log: three seasons of folded rows were
 // enough work to stall the modal's grow on a phone as the log landed. That first open commits
 // them shut (flushSync) and reads the layout, so the fold has a shut state to run from.
-function PastSeason({ s, totals, span }: { s: SeasonLog; totals: SeasonTotals; span: number }) {
+function PastSeason({ s, totals, span, fold }: { s: SeasonLog; totals: SeasonTotals; span: number; fold?: boolean }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const folds = fold != null;
+  const row = folds ? { "data-fold": fold ? "open" : "shut", inert: !fold } : {};
   const toggle = (e: React.MouseEvent<HTMLTableRowElement>) => {
     if (!mounted) {
       flushSync(() => setMounted(true));
@@ -610,19 +634,23 @@ function PastSeason({ s, totals, span }: { s: SeasonLog; totals: SeasonTotals; s
   };
   return (
     <>
-      <TableRow className={`${ROW} cursor-pointer`} onClick={toggle}>
-        <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold`}>{s.season}</TableCell>
-        <TableCell className={`${CELL} text-xs text-foreground/80`}>{totals.games} G</TableCell>
-        {totals.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right font-medium`}>{v}</TableCell>)}
+      <TableRow className={`${ROW} cursor-pointer`} onClick={toggle} {...row}>
+        <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold`}><Fold on={folds}>{s.season}</Fold></TableCell>
+        <TableCell className={`${CELL} text-xs text-foreground/80`}><Fold on={folds}>{totals.games} G</Fold></TableCell>
+        {totals.summary.map(([k, v]) => <TableCell key={k} className={`${CELL} text-right font-medium`}><Fold on={folds}>{v}</Fold></TableCell>)}
         <TableCell className={`${CELL} text-right`}>
-          <span className="block font-display text-lg font-bold leading-none tracking-tight">{pts(totals.pts)}</span>
-          <span className="mt-0.5 block text-[0.6875rem] leading-none text-muted-foreground">{pts(totals.ppg)}/g</span>
+          <Fold on={folds}>
+            <span className="block font-display text-lg font-bold leading-none tracking-tight">{pts(totals.pts)}</span>
+            <span className="mt-0.5 block text-[0.6875rem] leading-none text-muted-foreground">{pts(totals.ppg)}/g</span>
+          </Fold>
         </TableCell>
         <TableCell className="py-2 pr-0 pl-1">
-          <Toggle open={open} label={`${s.season} season: ${totals.games} games, ${pts(totals.pts)} points, weeks`} />
+          <Fold on={folds}>
+            <Toggle open={open} label={`${s.season} season: ${totals.games} games, ${pts(totals.pts)} points, weeks`} />
+          </Fold>
         </TableCell>
       </TableRow>
-      {mounted && s.weeks.map((w) => <WeekRows key={w.week} w={w} span={span} fold={open} />)}
+      {mounted && s.weeks.map((w) => <WeekRows key={w.week} w={w} span={span} fold={open && fold !== false} />)}
     </>
   );
 }

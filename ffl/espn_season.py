@@ -1112,7 +1112,10 @@ def past_schedule(season: int) -> dict:
     return _PAST_SCHED[season]
 
 
-HISTORY = 3  # past seasons in the season modal
+# ESPN's per-season player reads 404 before 2018, and 2018's weekly rows carry no games played (stat 210),
+# so the log reads none of them (checked 2026-10-22)
+FIRST_SEASON = 2019
+HISTORY = SEASON - FIRST_SEASON  # past seasons in the season modal: every one ESPN has
 _RANKS: list = []  # [expires_at, ranks]
 
 
@@ -1179,7 +1182,7 @@ def past_stats(season: int, player_id: int) -> list[dict]:
 
 
 def player_card(player_id: int) -> dict:
-    """One player's game log, this season and HISTORY before it (player_card.player_log): the
+    """One player's game log, this season and every one ESPN has before it (player_card.player_log): the
     league call returns every week of this season and last, each earlier season is one more call,
     made side by side, with the opponent ranks and Sleeper's projection for every week left. A
     failed read drops what it carried (that season, its opponents, the ranks, a week's Sleeper

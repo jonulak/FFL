@@ -191,7 +191,7 @@ def test_player_card_io(monkeypatch):
     log = espn_season.player_card(3918298)
     assert seen["view"] == "kona_playercard" and seen["filter"]["players"]["filterIds"]["value"] == [3918298]
     assert set(log) == PLAYER_LOG and log["seasons"][1]["weeks"][0]["opp"] is None
-    assert sorted(past) == [2023, 2024]
+    assert sorted(past) == list(range(espn_season.FIRST_SEASON, 2025))  # every season ESPN has before last
     assert [s["season"] for s in log["seasons"]] == [2026, 2025, 2024]
     assert sorted(set(sleeper_weeks)) == list(range(4, 19))  # week 4 twice: the page read and the current-week consensus (cached in production)
     assert asked == ["QB"] and log["seasons"][0]["totals"]["pos_rank"] == 5
