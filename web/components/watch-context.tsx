@@ -8,12 +8,14 @@ import type { WatchSet } from "@/lib/api";
 // The watched players' ids (GET /watch/ids), read once by the layout and held here for every star in the app. A star
 // takes at once and the API's answer settles that one id only, so two quick taps on two players never undo each
 // other; a failed save puts it back and says so. Nothing here reaches ESPN or the decisions record.
-type Watch = { ids: Set<number>; toggle: (id: number, name?: string) => Promise<void> };
+// `names`: the name each star was tapped with, so the Watch page can name a player /watch has not priced yet.
+type Watch = { ids: Set<number>; names: ReadonlyMap<number, string>; toggle: (id: number, name?: string) => Promise<void> };
 
 const Ctx = createContext<Watch | null>(null);
 
 export function WatchProvider({ ids: initial, children }: { ids: number[]; children: React.ReactNode }) {
   const [ids, setIds] = useState(() => new Set(initial));
+  const [names, setNames] = useState<ReadonlyMap<number, string>>(() => new Map());
   // a layout refresh (router.refresh) brings the server's list: it wins over what this page last held
   const [seen, setSeen] = useState(initial);
   if (seen !== initial) {
@@ -28,6 +30,7 @@ export function WatchProvider({ ids: initial, children }: { ids: number[]; child
   }), []);
   const toggle = useCallback(async (id: number, name = "him") => {
     const on = !ids.has(id);
+    if (on && name !== "him") setNames((cur) => new Map(cur).set(id, name));
     set(id, on);
     try {
       set(id, (await clientPost<WatchSet>(`/watch/${id}`, { watched: on })).watched);
@@ -36,7 +39,7 @@ export function WatchProvider({ ids: initial, children }: { ids: number[]; child
       toast(`The watch on ${name} didn't save. Try again.`);
     }
   }, [ids, set]);
-  const value = useMemo(() => ({ ids, toggle }), [ids, toggle]);
+  const value = useMemo(() => ({ ids, names, toggle }), [ids, names, toggle]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
