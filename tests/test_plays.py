@@ -228,6 +228,14 @@ def test_a_play_for_lost_yards_is_a_loss_not_a_takeback():
     assert rows[0]["match"] == "player" and rows[0]["play_id"] == KNEEL["playId"]
 
 
+def test_a_loss_whose_yards_land_before_its_carry_is_a_loss_not_a_takeback():
+    cache = plays.PlayCache()
+    doc = _qb_doc(KNEEL, [KNEEL], {"23": 2.0, "24": 10.0})  # the yards frame; the carry follows
+    cache.remember(doc)
+    rows = plays.events_from({1: 31.38}, {1: 31.28}, doc, QB, AT, 3, cache, {1: {"23": 2.0, "24": 11.0}})
+    assert rows[0]["match"] == "player"
+
+
 def test_a_gain_is_never_a_takeback_even_when_a_stat_falls():
     cache = plays.PlayCache()
     doc = _qb_doc(NEXT, [NEXT], {"0": 21.0, "20": 0.0})  # an interception overturned gives points back

@@ -144,14 +144,22 @@ COUNTERS = frozenset({"0", "1", "4", "19", "20", "23", "25", "26", "43", "44", "
 CALLED_BACK = ("no play", "nullified", "reversed")
 
 
-def taken_back(before: dict | None, after: dict | None) -> bool:
+# What his newest play says when it lost yards: then a fall with no count risen is that play's
+# yards landing a frame ahead of its carry (the feed patches stat by stat), not a takeback
+LOSS_TEXT = ("for -", "kneels")
+
+
+def taken_back(before: dict | None, after: dict | None, play: dict | None = None) -> bool:
     """Whether a fall in a player's points erased an earlier play rather than scoring a new one:
     a counting stat fell (a catch called back), or no stat rose at all (yards trimmed back to a
-    foul spot, a stat correction). A new play, even one for a loss, raises a count."""
+    foul spot, a stat correction) and his newest play (`play`) was not one for a loss. A new
+    play, even one for a loss, raises a count."""
     before, after = before or {}, after or {}
-    fell = any(float(after.get(s) or 0) < float(before.get(s) or 0) for s in COUNTERS)
-    rose = any(float(v or 0) > float(before.get(s) or 0) for s, v in after.items())
-    return fell or not rose
+    if any(float(after.get(s) or 0) < float(before.get(s) or 0) for s in COUNTERS):
+        return True
+    if any(float(v or 0) > float(before.get(s) or 0) for s, v in after.items()):
+        return False
+    return not any(w in ((play or {}).get("text") or "").lower() for w in LOSS_TEXT)
 
 
 def events_from(before: dict[int, float], after: dict[int, float], doc: dict, roster: dict[int, dict],
@@ -172,7 +180,7 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
         row = doc.get("statistics", {}).get(str(pid)) or {}
         play, match = None, "last"
         if cache is not None and stats_before is not None and new < (old or 0.0) \
-                and taken_back(stats_before.get(pid), row.get("stats")):
+                and taken_back(stats_before.get(pid), row.get("stats"), cache.play_for(game.get("id"), pid)):
             # no caption beats the next play's: it is what the feed shows when none says it was called back
             play, match = cache.called_back(game.get("id"), pid) or {}, "reversed"
         elif cache is not None and who["pos"] == "D/ST":
