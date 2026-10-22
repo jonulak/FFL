@@ -175,3 +175,77 @@ def test_dst_yardage_band_alone_falls_back_to_the_last_play():
     rows = plays.events_from({-16016: 14.0}, {-16016: 13.0}, doc, DST, AT, 4, cache,
                              {-16016: {"127": 96.0, "128": 1, "129": 0}})
     assert rows[0]["play_id"] == INCOMPLETE["playId"] and rows[0]["match"] == "last"
+
+
+# Points taken back: a play the feed credited is erased (a penalty, a replay reversal, a stat
+# correction). Counting stats never fall in a game, so one falling is the tell; so is points
+# falling while no stat rose (yards trimmed back to a foul spot). Purdy once lost an 11-yard
+# completion captioned with the incompletion after it.
+QB = {1: {"name": "Brock Purdy", "pos": "QB", "team": "SF", "team_id": 7}}
+CALLED_BACK = {"playId": "4018729583696", "text": "B.Purdy pass short left to D.Samuel for 11 yards. "
+               "PENALTY on SF-T.Williams, Offensive Holding, 10 yards, enforced at ARZ 25 - No Play.",
+               "period": 4, "clock": 300.0, "players": [{"playerId": "1", "type": "passer"}]}
+NEXT = {"playId": "4018729583753", "text": "B.Purdy pass incomplete short left to K.Juszczyk.", "period": 4,
+        "clock": 290.0, "players": [{"playerId": "1", "type": "passer"}]}
+KNEEL = {"playId": "4018729584716", "text": "B.Purdy kneels to ARZ 46 for -1 yards.", "period": 4, "clock": 40.0,
+         "players": [{"playerId": "1", "type": "rusher"}]}
+
+
+def _qb_doc(last, drive_plays, stats):
+    return {"statistics": {"1": {"gameId": "g", "stats": stats}},
+            "events": [{"id": "g", "period": 4, "clock": "4:50", "lastPlay": last, "drive": {"plays": list(drive_plays)}}]}
+
+
+def test_a_counting_stat_falling_is_a_takeback_captioned_with_the_play_called_back():
+    cache = plays.PlayCache()
+    doc = _qb_doc(NEXT, [CALLED_BACK, NEXT], {"0": 21.0, "1": 14.0, "3": 189.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 18.68}, {1: 18.24}, doc, QB, AT, 3, cache, {1: {"0": 21.0, "1": 15.0, "3": 200.0}})
+    assert rows[0]["match"] == "reversed" and rows[0]["play_id"] == CALLED_BACK["playId"]
+    assert rows[0]["clock"] == "5:00"
+
+
+def test_a_takeback_with_no_called_back_play_has_no_caption():
+    cache = plays.PlayCache()
+    doc = _qb_doc(NEXT, [NEXT], {"0": 21.0, "1": 14.0, "3": 189.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 18.68}, {1: 18.24}, doc, QB, AT, 3, cache, {1: {"0": 21.0, "1": 15.0, "3": 200.0}})
+    assert rows[0]["match"] == "reversed" and rows[0]["text"] is None and rows[0]["play_id"] is None
+
+
+def test_points_falling_with_no_stat_rising_is_a_takeback():
+    cache = plays.PlayCache()
+    doc = _qb_doc(NEXT, [NEXT], {"0": 21.0, "1": 15.0, "3": 193.0})
+    rows = plays.events_from({1: 18.68}, {1: 18.40}, doc, QB, AT, 3, cache, {1: {"0": 21.0, "1": 15.0, "3": 200.0}})
+    assert rows[0]["match"] == "reversed"
+
+
+def test_a_play_for_lost_yards_is_a_loss_not_a_takeback():
+    cache = plays.PlayCache()
+    doc = _qb_doc(KNEEL, [KNEEL], {"23": 3.0, "24": 10.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 31.38}, {1: 31.28}, doc, QB, AT, 3, cache, {1: {"23": 2.0, "24": 11.0}})
+    assert rows[0]["match"] == "player" and rows[0]["play_id"] == KNEEL["playId"]
+
+
+def test_a_gain_is_never_a_takeback_even_when_a_stat_falls():
+    cache = plays.PlayCache()
+    doc = _qb_doc(NEXT, [NEXT], {"0": 21.0, "20": 0.0})  # an interception overturned gives points back
+    cache.remember(doc)
+    rows = plays.events_from({1: 16.0}, {1: 18.0}, doc, QB, AT, 3, cache, {1: {"0": 21.0, "20": 1.0}})
+    assert rows[0]["match"] == "player"
+
+
+def test_a_dst_sack_taken_back_is_a_takeback():
+    cache = plays.PlayCache()
+    doc = _dst_doc(INCOMPLETE, [INCOMPLETE], {"99": 1.0})
+    rows = plays.events_from({-16016: 12.0}, {-16016: 11.0}, doc, DST, AT, 4, cache, {-16016: {"99": 2.0}})
+    assert rows[0]["match"] == "reversed"
+
+
+def test_points_allowed_is_a_loss_not_a_takeback():
+    cache = plays.PlayCache()
+    doc = _dst_doc(INCOMPLETE, [INCOMPLETE], {"120": 7.0}, [TD_ALLOWED])
+    cache.remember(doc)
+    rows = plays.events_from({-16016: 14.0}, {-16016: 11.0}, doc, DST, AT, 4, cache, {-16016: {"120": 0.0}})
+    assert rows[0]["match"] == "defence"

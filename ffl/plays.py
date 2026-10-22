@@ -99,6 +99,18 @@ class PlayCache:
                 return known[pid]
         return None
 
+    def called_back(self, game_id: str, player_id: int) -> dict | None:
+        """The newest remembered play of the game naming the player whose text says it no longer
+        counts (a penalty's "No Play", "NULLIFIED", a review "REVERSED")."""
+        known = self.plays.get(game_id) or {}
+        for pid in sorted(known, key=int, reverse=True):
+            play = known[pid]
+            text = (play.get("text") or "").lower()
+            if any(w in text for w in CALLED_BACK) and \
+                    any(str(p.get("playerId")) == str(player_id) for p in play.get("players") or []):
+                return play
+        return None
+
     def defence_play(self, game_id: str, team: str | None, moved: set[str]) -> dict | None:
         """The newest remembered play the D/ST's opponent ran (`team` is the D/ST's club id)
         whose text says what `moved` in its stat row; a points-allowed move takes the newest
@@ -122,23 +134,48 @@ def _moved(before: dict | None, after: dict | None) -> set[str]:
     return {s for s, v in after.items() if v != before.get(s, 0)}
 
 
+# Stats that only count up during a game (ESPN ids, as in live.stat_line): attempts, completions,
+# carries, receptions, targets, TDs, 2PTs, interceptions, fumbles lost, kicks, a D/ST's takeaways
+# and scores. Yards fall on a play for a loss; the yardage bands flip; these never fall but by a
+# play being erased.
+COUNTERS = frozenset({"0", "1", "4", "19", "20", "23", "25", "26", "43", "44", "53", "58", "72",
+                      "83", "84", "85", "86", "87", *DEFENCE_TEXT})
+# What a play's text says once it no longer counts, or once a review overturned it
+CALLED_BACK = ("no play", "nullified", "reversed")
+
+
+def taken_back(before: dict | None, after: dict | None) -> bool:
+    """Whether a fall in a player's points erased an earlier play rather than scoring a new one:
+    a counting stat fell (a catch called back), or no stat rose at all (yards trimmed back to a
+    foul spot, a stat correction). A new play, even one for a loss, raises a count."""
+    before, after = before or {}, after or {}
+    fell = any(float(after.get(s) or 0) < float(before.get(s) or 0) for s in COUNTERS)
+    rose = any(float(v or 0) > float(before.get(s) or 0) for s, v in after.items())
+    return fell or not rose
+
+
 def events_from(before: dict[int, float], after: dict[int, float], doc: dict, roster: dict[int, dict],
                 at: datetime, week: int, cache: PlayCache | None = None,
                 stats_before: dict[int, dict] | None = None) -> list[dict]:
     """The play-feed rows for one rescoring: every rostered starter whose points moved.
 
     `match` says where the caption came from: "player" (a remembered play naming him),
-    "defence" (a D/ST's play, read off which of its stats moved since `stats_before`) or
-    "last" (the game's current last play, which may already be the next one)."""
+    "defence" (a D/ST's play, read off which of its stats moved since `stats_before`),
+    "last" (the game's current last play, which may already be the next one) or "reversed"
+    (points taken back, `taken_back`: the play called back naming him, else no caption)."""
     rows = []
     for pid, who in roster.items():
         new, old = after.get(pid), before.get(pid)
         if new is None or new == (old if old is not None else 0.0):
             continue
         game = _game_of(doc, pid) or {}
+        row = doc.get("statistics", {}).get(str(pid)) or {}
         play, match = None, "last"
-        if cache is not None and who["pos"] == "D/ST":
-            row = doc.get("statistics", {}).get(str(pid)) or {}
+        if cache is not None and stats_before is not None and new < (old or 0.0) \
+                and taken_back(stats_before.get(pid), row.get("stats")):
+            # no caption beats the next play's: it is what the feed shows when none says it was called back
+            play, match = cache.called_back(game.get("id"), pid) or {}, "reversed"
+        elif cache is not None and who["pos"] == "D/ST":
             moved = _moved((stats_before or {}).get(pid), row.get("stats"))
             team = row.get("proTeamId")
             play = cache.defence_play(game.get("id"), str(team) if team is not None else None, moved)
@@ -146,7 +183,8 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
         elif cache is not None:
             play = cache.play_for(game.get("id"), pid)
             match = "player" if play else "last"
-        play = play or game.get("lastPlay") or {}
+        if match != "reversed":
+            play = play or game.get("lastPlay") or {}
         rows.append({"at": at.isoformat(timespec="seconds"), "week": week, "player_id": pid, **who,
                      "delta": round(new - (old or 0.0), 2), "total": round(new, 2),
                      "text": (play.get("text") or "").strip() or None, "play_id": play.get("playId"),

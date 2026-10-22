@@ -93,6 +93,9 @@ export function useLedger<T>(items: T[], keyOf: (t: T) => string): Ledger<T> {
 }
 
 const UNIT = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+// A row whose points an earlier play gave and a penalty, a review or a stat fix took back
+// (ffl/plays.py `taken_back`): said in words, since its minus reads like a play for a loss.
+const TAKEN_BACK = "Taken back";
 
 // A play row opens the player's season modal from its tile and name, with what the row knows; a
 // matchup view's strip opens its breakdown instead (`pick`, PlayerTrigger).
@@ -104,6 +107,7 @@ const seed = (p: Play) => ({ player_id: p.player_id, name: p.name, pos: p.pos, t
 function PlayRow({ p }: { p: Play; pick?: Pick }) {
   const mine = p.side === "me";
   const loss = p.delta < 0;
+  const back = p.match === "reversed";
   return (
     <div className={`play-row flex py-2.5 ${mine ? "justify-start" : "justify-end"}`}>
       <Item size="sm" className={`w-full max-w-[88%] flex-nowrap gap-2.5 rounded-none border-0 p-0 sm:max-w-[74%] sm:gap-3 ${mine ? "" : "flex-row-reverse"}`}>
@@ -119,7 +123,11 @@ function PlayRow({ p }: { p: Play; pick?: Pick }) {
               <span className="font-semibold text-foreground/80">{p.pos}</span> <span aria-hidden>·</span> {p.team}
             </span>
           </ItemTitle>
-          {p.text && <ItemDescription className={`mt-1 line-clamp-none text-[0.8125rem] leading-snug text-foreground/85 ${mine ? "" : "text-right"}`}>{p.text}</ItemDescription>}
+          {(p.text || back) && (
+            <ItemDescription className={`mt-1 line-clamp-none text-[0.8125rem] leading-snug text-foreground/85 ${mine ? "" : "text-right"}`}>
+              {back && <span className={`${UNIT} ${p.text ? "mr-1.5" : ""}`}>{TAKEN_BACK}</span>}{p.text}
+            </ItemDescription>
+          )}
           <ItemDescription className={`mt-0.5 line-clamp-none text-xs leading-4 tabular-nums ${mine ? "" : "text-right"}`}>
             <Clock iso={p.at} />
             {p.quarter != null && p.clock && <> <span aria-hidden>·</span> Q{p.quarter} {p.clock}</>}
@@ -145,9 +153,11 @@ function PlayRow({ p }: { p: Play; pick?: Pick }) {
 function CompactRow({ p, pick }: { p: Play; pick?: Pick }) {
   const mine = p.side === "me";
   const loss = p.delta < 0;
+  const back = p.match === "reversed";
+  const title = back ? [TAKEN_BACK, p.text].filter(Boolean).join(": ") : p.text;
   return (
     <div className={`play-row flex py-1.5 ${mine ? "justify-start" : "justify-end"}`}>
-      <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`} title={p.text ?? undefined}>
+      <Item size="xs" className={`w-full max-w-[85%] flex-nowrap gap-2 rounded-none border-0 p-0 sm:max-w-[82%] sm:gap-2.5 ${mine ? "" : "flex-row-reverse"}`} title={title ?? undefined}>
         <ItemMedia className="size-7 overflow-hidden rounded-sm *:w-full">
           <PlayerTrigger p={seed(p)} pick={pick} className="block size-full">
             <TeamPanel abbr={p.team} playerId={p.player_id} name={p.name} muted={false} tile />
@@ -159,6 +169,7 @@ function CompactRow({ p, pick }: { p: Play; pick?: Pick }) {
           </ItemTitle>
         </ItemContent>
         <ItemActions className={`gap-2.5 whitespace-nowrap tabular-nums ${mine ? "" : "flex-row-reverse"}`}>
+          {back && <span className={UNIT}>{TAKEN_BACK}</span>}
           {p.quarter != null && p.clock && <span className="text-xs text-muted-foreground">Q{p.quarter} {p.clock}</span>}
           {/* the delta with the running total beneath it, the way a posted score carries the projection it replaced */}
           <span className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
