@@ -1,7 +1,8 @@
 """News pushes, pure: which written stories reach the phone, and what they say.
 
 A player row pushes when it moves my roster down (▼ on a player I hold) or a free agent up (▲), Jev is sure of it
-(NEWS_PUSH_PROB), Haiku wrote him a line and did not disagree with the arrow, and he is not muted. One push per story
+(NEWS_PUSH_PROB), Haiku wrote him a line and did not disagree with the arrow, and he is not muted. A kicker or defense
+(`pos`, off the player index) pushes only as injury news on my roster (QUIET_POS). One push per story
 revision (`news:<id>:<rev>`); a correction or retraction pushes once more (`news:<id>:<status>`), only when the
 story pushed before. At most one push per player and kind of news in DEDUPE: `recent` is what was queued in that
 time (sent or waiting), off the notices table and the stories' rows; a story whose earlier revision pushed is a
@@ -19,6 +20,7 @@ NEWS_PUSH_PROB = 0.8
 NEWS_PUSH_MAX_AGE = timedelta(hours=6)
 DEDUPE = timedelta(hours=24)
 ARROW = {"down": "▼", "up": "▲"}
+QUIET_POS = {"K", "D/ST"}  # no free-agent pushes; mine only for an injury
 SEP = " · "
 STATUS_TITLE = {"corrected": "Corrected", "retracted": "Retracted"}
 STATUS_BODY = {"corrected": "The report was corrected.", "retracted": "Every source withdrew the report."}
@@ -31,6 +33,8 @@ def _pushes(p: dict, owners: dict[int, dict], me: int, muted: set[int], recent: 
     elif p["effect"] == "up":
         ours = pid not in owners
     else:
+        return False
+    if p.get("pos") in QUIET_POS and not (p["effect"] == "down" and p["kind"] == "injury"):
         return False
     return (ours and p["prob"] >= NEWS_PUSH_PROB and not p.get("flag") and bool((p.get("reason") or "").strip())
             and pid not in muted and (pid, p["kind"]) not in recent)

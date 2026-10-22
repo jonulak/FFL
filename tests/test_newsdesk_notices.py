@@ -8,9 +8,9 @@ ME, OTHER = 7, 3
 OWNERS = {1: {"team_id": ME}, 2: {"team_id": OTHER}}  # 3 and up are free agents
 
 
-def row(pid, effect, prob=0.9, reason="A reason.", flag=False, kind="injury", name=None):
+def row(pid, effect, prob=0.9, reason="A reason.", flag=False, kind="injury", name=None, pos="WR"):
     return {"player_id": pid, "effect": effect, "kind": kind, "prob": prob, "confidence": 0.5, "reason": reason,
-            "flag": flag, "name": name or f"P{pid}"}
+            "flag": flag, "name": name or f"P{pid}", "pos": pos}
 
 
 FRESH = "2026-10-19T15:30:00+00:00"  # half an hour before AT
@@ -44,6 +44,14 @@ def test_for_story_gates():
     n = push(row(1, "down"), row(2, "down"), row(3, "up"))
     assert n == {"key": "news:5:1", "kind": "news", "title": "Something happened", "body": "▼ P1: A reason. · ▲ P3: A reason.",
                  "url": "/news?story=5", "created_at": AT}
+
+
+def test_kicker_and_defense_push_only_as_my_injury():
+    assert push(row(3, "up", pos="K")) is None                            # free-agent kicker out
+    assert push(row(3, "up", pos="D/ST")) is None                         # free-agent defense out
+    assert push(row(1, "down", pos="K")) is not None                      # my kicker's injury in
+    assert push(row(1, "down", pos="K", kind="role")) is None             # my kicker's other news out
+    assert push(row(1, "down", pos=None)) is not None                     # no position: the usual rules
 
 
 def test_body_order_down_first_then_prob():

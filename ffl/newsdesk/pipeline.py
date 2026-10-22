@@ -67,7 +67,8 @@ def notify_written(written: list, index: players.Index) -> dict:
         if s is None or s["rev"] != rev or s["written_rev"] != rev:
             continue
         for p in s["players"]:
-            p["name"] = (index.by_id.get(p["player_id"]) or {}).get("name")
+            info = index.info(p["player_id"])
+            p["name"], p["pos"] = (index.by_id.get(p["player_id"]) or {}).get("name"), info.get("pos")
         own = f"news:{sid}:"
         mine = [k for k in pushed if k.startswith(own)]
         stale = [k for k in waiting if k.startswith(own)]
