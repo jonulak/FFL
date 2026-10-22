@@ -14,10 +14,13 @@ for PENDING, at most once per RETRY_EVERY (its last try in state `news_pending_t
 are kept, not deleted, since they are how often captions never came; when a pending video's captions
 arrive their lag (published to fetched, minutes) is appended to state `news_caption_lag` (captions there
 on the first read are no lag: the video may simply have been seen late). YouTube rate-limits caption reads
-(one HTTP 429 in testing), so they are GAP_S apart and at most CAPTIONS_PER_RUN a run: new videos first,
+by IP (its caption file answers 429 "Sorry…" after ~20 reads in a burst, and stayed shut about a day each
+time in October 2026), so they are GAP_S apart and at most CAPTIONS_PER_RUN a run: new videos first,
 newest first, then pending ones in the slots left, so a pile of never-captioned live-stream pages cannot
 starve a new presser. A blocked read stops the run's captions and fails its source, never reading as
-"no captions yet". A video that cannot be read for its own reasons (private, deleted, age-gated) waits as a
+"no captions yet", and pauses every caption read (state `news_captions_blocked`): BLOCK_BACKOFF, doubled
+by each block after a pause up to BLOCK_MAX, cleared by the first read YouTube answers. While paused the
+source that hit it stays failing, so a block that never lifts reaches the 24 h health notice. A video that cannot be read for its own reasons (private, deleted, age-gated) waits as a
 pending one does (`unreadable` in the run's result); only a failed feed or transport fails the source.
 
 Podcasts: Omny feeds carry `<podcast:transcript>` in SubRip, WebVTT and plain text; SubRip is taken.
@@ -54,8 +57,10 @@ _NAME = r"[A-Z](?:[a-z]|\.[A-Z])[\w.'’\-]*"  # "Nix", "Ja’Quan", "J.J."; nev
 NAME_ON = re.compile(rf"(?:[A-Z/]{{1,4}} )?{_NAME}(?: {_NAME}){{1,3}} (?i:on) ")
 PODCAST_EVERY = timedelta(hours=1)
 LANGS = ("en", "en-US", "en-GB")
-GAP_S = 2.0
-CAPTIONS_PER_RUN = 10
+GAP_S = 10.0
+CAPTIONS_PER_RUN = 3
+BLOCK_BACKOFF = timedelta(hours=1)
+BLOCK_MAX = timedelta(hours=24)
 PENDING = timedelta(hours=24)
 RETRY_EVERY = timedelta(hours=1)
 TRANSCRIPT_TYPES = ("application/srt", "application/x-subrip", "text/vtt", "text/plain")  # preference order
@@ -278,12 +283,22 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
     videos = ([sv for sv in videos if sv[1]["video_id"] not in pending]
               + [sv for sv in videos if sv[1]["video_id"] in pending and retry_due(sv[1]["video_id"])])
     unreadable: list[str] = []
-    for source, v in videos[:CAPTIONS_PER_RUN]:
+    block: dict | None = db.get_state("news_captions_blocked")
+    paused = bool(block) and now < datetime.fromisoformat(block["until"])
+    if paused:  # the source that hit the block stays failing, so a block that never lifts reaches the health notice
+        errors.setdefault(block["source"], block["error"])
+    for source, v in [] if paused else videos[:CAPTIONS_PER_RUN]:
         vid = v["video_id"]
         try:
             segs = captions(vid)
         except (RequestBlocked, YouTubeRequestFailed, requests.RequestException) as e:  # 429, a blocked IP, no network
             errors[source["id"]] = _err(e)
+            if isinstance(e, RequestBlocked):
+                wait = min(timedelta(minutes=block["minutes"] * 2), BLOCK_MAX) if block else BLOCK_BACKOFF
+                block = {"until": (now + wait).isoformat(timespec="seconds"), "minutes": wait.total_seconds() / 60,
+                         "source": source["id"], "error": errors[source["id"]]}
+                db.put_state("news_captions_blocked", block)
+                paused = True
             break
         except Exception as e:  # noqa: BLE001 — this video's own problem (private, deleted, age-gated…): the rest still run
             # not the channel failing (its feed read fine): the video waits like one with no captions yet, so it is
@@ -291,6 +306,9 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
             print(f"news media: {vid}: {_err(e)}")
             unreadable.append(vid)
             segs = None
+        if block:  # YouTube answered: the block has lifted
+            db.put_state("news_captions_blocked", None)
+            block = None
         if segs is None:
             pending.setdefault(vid, at)
             tried[vid] = at
@@ -316,4 +334,4 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
         except db.DBError as e:
             print(f"news source {source['id']} not marked: {e}")
     return {"new": new, "media": stored, "pending": sum(1 for vid in pending if waiting(vid)),
-            "failed": sorted(errors), "unreadable": unreadable}
+            "failed": sorted(errors), "unreadable": unreadable, "captions_paused_until": block["until"] if paused else None}

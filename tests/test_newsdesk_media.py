@@ -252,7 +252,8 @@ def test_pending_never_starves_new_videos(monkeypatch):
     assert calls[0] == "fresh000000" and len(calls) == media.CAPTIONS_PER_RUN
     calls.clear()
     media.run_all(INDEX, now=NOW + timedelta(minutes=15))  # the ones just tried wait an hour
-    assert sorted(calls) == ids[9:12]
+    n = media.CAPTIONS_PER_RUN
+    assert sorted(calls) == ids[:12][n - 1:2 * n - 1]
 
 
 def test_captions_capped_per_run(monkeypatch):
@@ -279,6 +280,50 @@ def test_blocked_captions_fail_the_source_and_stop(monkeypatch):
     assert got["failed"] == ["yt:SF"]
     assert db.get_state("news_pending_media", {}) == {}
     assert db.news_sources()[0]["error"].startswith("RequestBlocked")
+
+
+def _blocked(vid):
+    raise RequestBlocked(vid)
+
+
+def test_a_block_pauses_caption_reads_and_keeps_the_source_failing(monkeypatch):
+    db.put_news_sources([YT])
+    serve(monkeypatch, {YT["url"]: channel()})
+    monkeypatch.setattr(media, "captions", _blocked)
+    media.run_all(INDEX, now=NOW)
+    until = NOW + media.BLOCK_BACKOFF
+    assert db.get_state("news_captions_blocked")["until"] == until.isoformat(timespec="seconds")
+
+    monkeypatch.setattr(media, "captions", lambda vid: pytest.fail("read captions while paused"))
+    got = media.run_all(INDEX, now=NOW + timedelta(minutes=30))
+    assert got["captions_paused_until"] == until.isoformat(timespec="seconds")
+    assert got["failed"] == ["yt:SF"] and db.news_sources()[0]["error"].startswith("RequestBlocked")
+
+
+def test_a_block_after_the_pause_doubles_it_up_to_a_day(monkeypatch):
+    db.put_news_sources([YT])
+    serve(monkeypatch, {YT["url"]: channel()})
+    monkeypatch.setattr(media, "captions", _blocked)
+    waits = []
+    for minutes in (None, 60, 120, 240, 480, 960, 1440):
+        ended = (NOW - timedelta(seconds=1)).isoformat(timespec="seconds")
+        db.put_state("news_captions_blocked",
+                     minutes and {"until": ended, "minutes": minutes, "source": "yt:SF", "error": "RequestBlocked"})
+        media.run_all(INDEX, now=NOW)
+        waits.append(datetime.fromisoformat(db.get_state("news_captions_blocked")["until"]) - NOW)
+    h = timedelta(hours=1)
+    assert waits == [h, 2 * h, 4 * h, 8 * h, 16 * h, 24 * h, 24 * h]
+
+
+def test_a_good_read_after_the_pause_clears_it(monkeypatch):
+    db.put_news_sources([YT])
+    serve(monkeypatch, {YT["url"]: channel()})
+    monkeypatch.setattr(media, "captions", _blocked)
+    media.run_all(INDEX, now=NOW)
+    monkeypatch.setattr(media, "captions", lambda vid: SEGS)
+    got = media.run_all(INDEX, now=NOW + timedelta(hours=1))
+    assert got["new"] == 2 and got["failed"] == [] and got["captions_paused_until"] is None
+    assert db.get_state("news_captions_blocked") is None
 
 
 def test_one_unavailable_video_does_not_stop_the_rest(monkeypatch):
@@ -352,7 +397,8 @@ def test_podcast_feed_polled_hourly(monkeypatch):
     assert len(calls) == 1  # inside the hour: not polled
     got = media.run_all(INDEX, now=NOW + timedelta(minutes=61))
     assert calls[1] == {"If-None-Match": 'W/"abc"', "If-Modified-Since": "Mon, 19 Oct 2026 17:00:00 GMT"}
-    assert got == {"new": 0, "media": 0, "pending": 0, "failed": [], "unreadable": []}
+    assert got == {"new": 0, "media": 0, "pending": 0, "failed": [], "unreadable": [],
+                   "captions_paused_until": None}
     assert db.get_state("news_podcast_polled")["pod:LAR"]["etag"] == 'W/"abc"'
 
 
