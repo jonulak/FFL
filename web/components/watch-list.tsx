@@ -37,7 +37,7 @@ const KIND: Record<WatchChip["kind"], string> = { ahead: "Depth", usage: "Usage"
 const GROUPS = [
   ["moving", "Moving", null],
   ["quiet", "Quiet", null],
-  ["elsewhere", "Rostered elsewhere", "No pushes for these until he's dropped."],
+  ["elsewhere", "Rostered elsewhere", "No pushes for a player here until he's dropped."],
 ] as const;
 
 // how soon /watch is asked again while a starred player is still missing from it
@@ -159,14 +159,19 @@ export function WatchList({ initial }: { initial: WatchPage }) {
     toast(`Stopped watching ${name}`, { action: { label: "Undo", onClick: () => void latest.current?.toggle(id, name) } });
   };
 
+  // each answer, or failure, schedules the next ask while anyone is still pending
+  const [polls, setPolls] = useState(0);
   useEffect(() => {
     if (!waiting) return;
     let current = true;
     const t = setTimeout(() => {
-      clientGet<WatchPage>("/watch").then((d) => { if (current) setData(d); }).catch(() => {});
+      clientGet<WatchPage>("/watch")
+        .then((d) => { if (current) setData(d); })
+        .catch(() => {})
+        .finally(() => { if (current) setPolls((n) => n + 1); });
     }, PENDING_POLL_MS);
     return () => { current = false; clearTimeout(t); };
-  }, [waiting, data]);
+  }, [waiting, polls]);
 
   if (ids.size === 0) {
     return (
