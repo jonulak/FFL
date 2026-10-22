@@ -197,7 +197,9 @@ def backfill(weeks: list[int]) -> None:
             n += len(entries)
             done.add(g["event_id"])
         db.put_state("final_plays_done", sorted(done))
-        print(f"week {w}: {len(games)} games, {n} plays, {len(store.called)} called back")
+        fixed = plays.old_revisions(store.rows)
+        db.update_plays(fixed)
+        print(f"week {w}: {len(games)} games, {n} plays, {len(store.called)} called back, {len(fixed)} old rows retagged")
 
 
 if __name__ == "__main__":

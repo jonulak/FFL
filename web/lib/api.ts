@@ -144,7 +144,7 @@ export type Play = {
   // "called_back" (ffl/playbook.py): a play called back that cost him points, never a points change (delta 0,
   // total null): `would_be` what it would have scored him, `kept` what it scored anyway (yards to a foul's spot)
   would_be?: number; kept?: number;
-  match?: "player" | "defence" | "last" | "correction" | "reversed" | "called_back"; // "reversed": points taken back in the game (a penalty, a review, a live stat fix), text the play called back or null; "correction": a stat correction after the week, text says old → new, no quarter/clock; "player": a play naming him; "defence": a D/ST's play, read off its moved stats; "last": the game's last play, possibly the next one
+  match?: "player" | "defence" | "last" | "correction" | "reversed" | "adjusted" | "called_back"; // "reversed": points taken back in the game (a penalty, a review), text the play called back or flagged, or null; "adjusted": only yards moved on a play already scored (the ball re-spotted), text that play; "correction": a stat correction after the week, text says old → new, no quarter/clock; "player": a play naming him; "defence": a D/ST's play, read off its moved stats; "last": the game's last play, possibly the next one
 };
 // One game's whole week (GET /plays, `?team=` for any game but mine); `me`/`opp` as on its board.
 // `live` keeps the page on the feed all game window; `game_on` is the badge: a starter in this game is playing.

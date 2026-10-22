@@ -256,8 +256,11 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   The caption is the newest play *naming the player* (`plays.PlayCache`, fed from every game's lastPlay,
   drive plays and scoringPlays), never simply the game's last play: stats arrive one to three frames after
   the play text, by which time lastPlay is often the next play. `match: "last"` marks the fallback (D/ST).
-  A fall in points that erased an earlier play (a counting stat fell, or no stat rose and his newest play is not
-  one for a loss: `plays.taken_back`) is `match: "reversed"`, labelled Taken back.
+  A change that scored no new play (no count moved: `plays.revision`) is `match: "reversed"` (Taken back: a count
+  fell, or yards fell on a flagged play) or `"adjusted"` (Stat fix: only yards moved, the ball re-spotted, either
+  way); ESPN's post-week rows (`"correction"`) are labelled Correction. Rows from before stats were read are
+  retagged by `plays.old_revisions` (text only, so narrow: ≤0.5 pts within 30 s of the play's first row), run by
+  `ffl.playbook backfill`.
   Every NFL play is stored once in `nfl_plays` (`ffl/playbook.py`; FastCast's as the feed sees them, ESPN's core
   drives' over them, written by the NFL tab's game page for the live week and by the tick's `final_plays` for each
   game 30 min after it is final); a feed row shows its play's current text by `play_id` (`Store.latest`). A play

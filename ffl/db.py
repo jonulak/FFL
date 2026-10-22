@@ -556,6 +556,15 @@ def plays_rows(week: int, season: int = SEASON) -> list[dict]:
         return list(c.execute(q).scalars())
 
 
+def update_plays(rows: list[dict], season: int = SEASON) -> None:
+    """Rewrite stored play-feed rows' bodies in place, each found by its key (week, player, at, total)."""
+    t = plays
+    with _write() as c:
+        for r in rows:
+            c.execute(t.update().where(t.c.season == season, t.c.week == r["week"], t.c.player_id == r["player_id"],
+                                       t.c.at == r["at"], t.c.total == r["total"]).values(body=r))
+
+
 CHUNK = 400  # rows per multi-row statement: SQLite caps a statement's bound variables
 
 

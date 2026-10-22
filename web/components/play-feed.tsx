@@ -94,9 +94,12 @@ export function useLedger<T>(items: T[], keyOf: (t: T) => string): Ledger<T> {
 
 const UNIT = "font-display text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 // A row that is not a play scoring, said in words before its text: points an earlier play gave and a
-// penalty, a review or a stat fix took back (ffl/plays.py `taken_back`; its minus reads like a play for a
-// loss), or a play called back before it scored (ffl/playbook.py, no points moved).
-const TAGS: Partial<Record<NonNullable<Play["match"]>, string>> = { reversed: "Taken back", called_back: "Called back" };
+// penalty or a review took back (ffl/plays.py `revision`; its minus reads like a play for a loss), the
+// ball re-spotted on a play already scored (a yard either way), ESPN's correction after the week, or a
+// play called back before it scored (ffl/playbook.py, no points moved).
+const TAGS: Partial<Record<NonNullable<Play["match"]>, string>> = {
+  reversed: "Taken back", adjusted: "Stat fix", correction: "Correction", called_back: "Called back",
+};
 const tagOf = (p: Play) => (p.match ? TAGS[p.match] : undefined);
 
 // The row's numeral and the line under it: the points it moved and his total after, or for a play called

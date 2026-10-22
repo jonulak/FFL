@@ -213,11 +213,38 @@ def test_a_takeback_with_no_called_back_play_has_no_caption():
     assert rows[0]["match"] == "reversed" and rows[0]["text"] is None and rows[0]["play_id"] is None
 
 
-def test_points_falling_with_no_stat_rising_is_a_takeback():
+# Purdy to Evans, week 6: credited at 55 yards, the ball re-spotted ten seconds later at 54.
+LONG = {"playId": "401873008460", "text": "(Shotgun) B.Purdy pass deep right to M.Evans pushed ob at WAS 17 for 55 "
+        "yards (N.Cross).", "period": 1, "clock": 523.0, "players": [{"playerId": "1", "type": "passer"}]}
+TRIMMED = {"playId": "4018729582302", "text": "K.Williams left end pushed ob at PHI 23 for 7 yards (J.Jones).\n"
+           "PENALTY on LA-P.Nacua, Illegal Blindside Block, 22 yards, enforced at PHI 23.", "period": 2,
+           "clock": 100.0, "players": [{"playerId": "1", "type": "rusher"}]}
+
+
+def test_yards_moving_with_no_count_is_a_stat_fix_either_way():
     cache = plays.PlayCache()
-    doc = _qb_doc(NEXT, [NEXT], {"0": 21.0, "1": 15.0, "3": 193.0})
-    rows = plays.events_from({1: 18.68}, {1: 18.40}, doc, QB, AT, 3, cache, {1: {"0": 21.0, "1": 15.0, "3": 200.0}})
-    assert rows[0]["match"] == "reversed"
+    doc = _qb_doc(LONG, [LONG], {"0": 21.0, "1": 15.0, "3": 199.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 8.24}, {1: 8.2}, doc, QB, AT, 6, cache, {1: {"0": 21.0, "1": 15.0, "3": 200.0}})
+    assert rows[0]["match"] == "adjusted" and rows[0]["play_id"] == LONG["playId"]
+    rows = plays.events_from({1: 8.2}, {1: 8.24}, doc, QB, AT, 6, cache, {1: {"0": 21.0, "1": 15.0, "3": 199.0}})
+    assert rows[0]["match"] == "adjusted", "a re-spot can add a yard too"
+
+
+def test_yards_trimmed_on_a_flagged_play_are_taken_back_with_that_play():
+    cache = plays.PlayCache()
+    doc = _qb_doc(TRIMMED, [TRIMMED], {"23": 9.0, "24": 40.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 12.0}, {1: 11.3}, doc, QB, AT, 4, cache, {1: {"23": 9.0, "24": 47.0}})
+    assert rows[0]["match"] == "reversed" and rows[0]["play_id"] == TRIMMED["playId"]
+
+
+def test_a_new_play_is_never_a_revision():
+    cache = plays.PlayCache()
+    doc = _qb_doc(LONG, [LONG], {"0": 22.0, "1": 16.0, "3": 255.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 6.04}, {1: 8.24}, doc, QB, AT, 6, cache, {1: {"0": 21.0, "1": 15.0, "3": 200.0}})
+    assert rows[0]["match"] == "player"
 
 
 def test_a_play_for_lost_yards_is_a_loss_not_a_takeback():
@@ -257,3 +284,28 @@ def test_points_allowed_is_a_loss_not_a_takeback():
     cache.remember(doc)
     rows = plays.events_from({-16016: 14.0}, {-16016: 11.0}, doc, DST, AT, 4, cache, {-16016: {"120": 0.0}})
     assert rows[0]["match"] == "defence"
+
+
+def _old(pid, pos, delta, text, play_id, at="2026-10-19T20:33:37"):
+    return {"player_id": pid, "pos": pos, "delta": delta, "text": text, "play_id": play_id, "at": at,
+            "match": "player", "week": 6, "total": 1.0}
+
+
+def test_old_rows_are_retagged_only_where_the_text_is_plain():
+    catch = "B.Purdy pass deep right to M.Evans pushed ob at WAS 17 for 55 yards (N.Cross)."
+    flagged = "K.Williams left end to PHI 23 for 7 yards. PENALTY on LA-P.Nacua, Illegal Blindside Block."
+    rows = [_old(1, "QB", 2.2, catch, "c"), _old(2, "WR", 6.5, catch, "c"),
+            _old(1, "QB", -0.04, catch, "c", "2026-10-19T20:33:47"), _old(2, "WR", -0.1, catch, "c", "2026-10-19T20:33:47"),
+            _old(3, "K", 6.0, "J.Williams up the middle for 1 yard, TOUCHDOWN.", "td"),
+            _old(3, "K", 1.0, "J.Williams up the middle for 1 yard, TOUCHDOWN.", "td"),       # the extra point
+            _old(4, "QB", 0.44, "B.Purdy pass short left to D.Samuel for 11 yards.", "inc"),
+            _old(4, "QB", -0.44, "B.Purdy pass incomplete short left to K.Juszczyk.", "inc"),  # no yards in the text
+            _old(5, "RB", 2.0, flagged, "blk"), _old(5, "RB", -0.4, flagged, "blk"),
+            _old(6, "WR", 1.5, "J.Love pass to T.Kraft for 5 yards.", "big"),
+            _old(6, "WR", -1.5, "J.Love pass to T.Kraft for 5 yards.", "big"),                # too big to call
+            _old(7, "RB", 0.3, "C.Brown left guard to MIA 42 for 3 yards.", "two"),
+            _old(7, "RB", 0.3, "C.Brown left guard to MIA 42 for 3 yards.", "two", "2026-10-19T20:33:38"),  # a second carry
+            _old(8, "RB", 0.4, "T.Pollard up the middle for 4 yards.", "late"),
+            _old(8, "RB", -0.1, "T.Pollard up the middle for 4 yards.", "late", "2026-10-19T20:34:37")]  # a minute on
+    out = plays.old_revisions(rows)
+    assert [(r["player_id"], r["match"]) for r in out] == [(1, "adjusted"), (2, "adjusted"), (5, "reversed")]

@@ -19,6 +19,7 @@ rows of its two teams (`Store.latest(teams=)`) and `for_board` says which side e
 """
 from __future__ import annotations
 
+import re
 import threading
 from collections import defaultdict
 from datetime import datetime
@@ -139,22 +140,58 @@ COUNTERS = frozenset({"0", "1", "4", "19", "20", "23", "25", "26", "43", "44", "
 CALLED_BACK = ("no play", "nullified", "reversed")
 
 
-# What his newest play says when it lost yards: then a fall with no count risen is that play's
-# yards landing a frame ahead of its carry (the feed patches stat by stat), not a takeback
+# What his newest play says when it lost yards: then a fall with no count moved is that play's
+# yards landing a frame ahead of its carry (the feed patches stat by stat), not a revision. Weeks
+# 1-6 never showed a play split that way; the guard is cheap.
 LOSS_TEXT = ("for -", "kneels")
 
 
-def taken_back(before: dict | None, after: dict | None, play: dict | None = None) -> bool:
-    """Whether a fall in a player's points erased an earlier play rather than scoring a new one:
-    a counting stat fell (a catch called back), or no stat rose at all (yards trimmed back to a
-    foul spot, a stat correction) and his newest play (`play`) was not one for a loss. A new
-    play, even one for a loss, raises a count."""
+def _n(v) -> float:
+    return float(v or 0)
+
+
+def revision(before: dict | None, after: dict | None, delta: float, play: dict | None = None,
+             dst: bool = False) -> str | None:
+    """How a points change that scored no new play reads (a new play moves a count): "reversed"
+    when it erased one (a count fell: a catch called back; or yards fell on his newest play
+    (`play`) and it drew a flag: trimmed back to the foul's spot), "adjusted" when only yards
+    moved (the ball re-spotted, 55 yards to 54, either way). None for a new play. A D/ST's yards
+    and points allowed move with no count, so only a count falling revises one."""
     before, after = before or {}, after or {}
-    if any(float(after.get(s) or 0) < float(before.get(s) or 0) for s in COUNTERS):
-        return True
-    if any(float(v or 0) > float(before.get(s) or 0) for s, v in after.items()):
-        return False
-    return not any(w in ((play or {}).get("text") or "").lower() for w in LOSS_TEXT)
+    if any(_n(after.get(s)) < _n(before.get(s)) for s in COUNTERS):
+        return "reversed" if delta < 0 else None
+    if dst or any(_n(after.get(s)) != _n(before.get(s)) for s in COUNTERS):
+        return None
+    text = ((play or {}).get("text") or "").lower()
+    if delta < 0 and "penalty on" in text:
+        return "reversed"
+    if delta < 0 and any(w in text for w in LOSS_TEXT):
+        return None
+    return "adjusted"
+
+
+_GAINED = re.compile(r"\bfor ([1-9]\d*) yards?", re.I)
+OLD_FIX_SECS = 30  # weeks 1-6: a re-spot landed within ~25 s of the play; later, two carries often shared a caption
+
+
+def old_revisions(rows: list[dict]) -> list[dict]:
+    """Rows written before `revision` (no stats kept), retagged where the text alone is plain: a change of
+    half a point or less, unlike the first, within OLD_FIX_SECS of the first row on the same play, which gained
+    yards, for a player who is not a kicker or D/ST (an extra point was often captioned with the TD). Yards
+    falling on a flagged play are "reversed", any other such change "adjusted". Oldest first in, the retagged
+    rows out."""
+    first: dict[tuple, dict] = {}
+    out = []
+    for r in rows:
+        key, text = (r["player_id"], r.get("play_id")), r.get("text") or ""
+        was = first.get(key)
+        if was and r.get("match") == "player" and abs(r["delta"]) <= 0.5 and r["delta"] != was["delta"] \
+                and (datetime.fromisoformat(r["at"]) - datetime.fromisoformat(was["at"])).total_seconds() <= OLD_FIX_SECS \
+                and r["pos"] not in ("K", "D/ST") and _GAINED.search(text) and not playbook.called_back(text):
+            out.append({**r, "match": "reversed" if r["delta"] < 0 and "penalty on" in text.lower() else "adjusted"})
+        if r.get("play_id"):
+            first.setdefault(key, r)
+    return out
 
 
 def events_from(before: dict[int, float], after: dict[int, float], doc: dict, roster: dict[int, dict],
@@ -164,8 +201,9 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
 
     `match` says where the caption came from: "player" (a remembered play naming him),
     "defence" (a D/ST's play, read off which of its stats moved since `stats_before`),
-    "last" (the game's current last play, which may already be the next one) or "reversed"
-    (points taken back, `taken_back`: the play called back naming him, else no caption)."""
+    "last" (the game's current last play, which may already be the next one), "reversed"
+    (points taken back, `revision`: the play called back naming him, else the flagged play, else
+    no caption) or "adjusted" (his yards re-spotted: his newest play, else no caption)."""
     rows = []
     for pid, who in roster.items():
         new, old = after.get(pid), before.get(pid)
@@ -174,19 +212,24 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
         game = _game_of(doc, pid) or {}
         row = doc.get("statistics", {}).get(str(pid)) or {}
         play, match = None, "last"
-        if cache is not None and stats_before is not None and new < (old or 0.0) \
-                and taken_back(stats_before.get(pid), row.get("stats"), cache.play_for(game.get("id"), pid)):
-            # no caption beats the next play's: it is what the feed shows when none says it was called back
-            play, match = cache.called_back(game.get("id"), pid) or {}, "reversed"
+        named = cache.play_for(game.get("id"), pid) if cache is not None else None
+        kind = revision(stats_before.get(pid), row.get("stats"), new - (old or 0.0), named, who["pos"] == "D/ST") \
+            if cache is not None and stats_before is not None else None
+        # no caption beats the next play's: it is what the feed shows when none is the play revised
+        if kind == "reversed":
+            flagged = named if "penalty on" in ((named or {}).get("text") or "").lower() else None
+            play, match = cache.called_back(game.get("id"), pid) or flagged or {}, "reversed"
+        elif kind == "adjusted":
+            play, match = named or {}, "adjusted"
         elif cache is not None and who["pos"] == "D/ST":
             moved = _moved((stats_before or {}).get(pid), row.get("stats"))
             team = row.get("proTeamId")
             play = cache.defence_play(game.get("id"), str(team) if team is not None else None, moved)
             match = "defence" if play else "last"
         elif cache is not None:
-            play = cache.play_for(game.get("id"), pid)
+            play = named
             match = "player" if play else "last"
-        if match != "reversed":
+        if match not in ("reversed", "adjusted"):
             play = play or game.get("lastPlay") or {}
         rows.append({"at": at.isoformat(timespec="seconds"), "week": week, "player_id": pid, **who,
                      "delta": round(new - (old or 0.0), 2), "total": round(new, 2),
