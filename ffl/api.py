@@ -37,7 +37,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from . import calibrate, config, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import fastcast, playbook
+from . import fastcast, news, playbook, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -253,6 +253,12 @@ class Cache:
 
     def has(self, key: str) -> bool:
         return key in self._d
+
+    def peek(self, key: str) -> object | None:
+        """The installed payload, fresh or not, without building it; None when nothing is cached."""
+        with self._lock:
+            hit = self._d.get(key)
+        return hit.payload if hit else None
 
     def expire(self, prefix: str):
         """Mark `prefix` and every `prefix:...` key expired: served stale once, rebuilt behind the request."""
@@ -817,6 +823,56 @@ def roster_sit(player_id: int, body: SitIn):
         return {**roster_(), "decision": ref}
     finally:
         _LINEUP.release()
+
+
+# --- the watchlist (ffl/watch.py): the star, the Watch page, and the tick's hourly pass ---
+
+WATCH_SINCE = "2000"  # every signal of the season: an unlit chip still names his last one of its kind
+
+
+class WatchIn(BaseModel):
+    watched: bool
+
+
+def _watched(data: dict) -> list[dict]:
+    """The pool's watched rows still watched now (an unwatch does not rebuild the pool). One now on my roster stops
+    being watched: the Watch page is for players I do not have."""
+    ids = set(db.watched_ids())
+    rows = []
+    for r in data.get("watched", []):
+        if r["player_id"] not in ids:
+            continue
+        if r.get("mine"):
+            db.put_watch(r["player_id"], False)
+        else:
+            rows.append(r)
+    return rows
+
+
+@app.get("/watch/ids")
+def watch_ids():
+    return {"ids": db.watched_ids()}
+
+
+@app.post("/watch/{player_id:int}")
+def watch_set(player_id: int, body: WatchIn):
+    """Watch him or stop. Nothing reaches ESPN and nothing is a decision. A newly watched player the cached pool
+    has no row for (a free agent deeper than its lists) rebuilds it behind the next request."""
+    was = player_id in db.watched_ids()
+    db.put_watch(player_id, body.watched)
+    if body.watched and not was:
+        cached = cache.peek("waivers")
+        if cached is not None and player_id not in {r["player_id"] for r in cached.get("watched", [])}:
+            cache.expire("waivers")
+    return {"watched": body.watched, "ids": db.watched_ids()}
+
+
+@app.get("/watch")
+def watch_page():
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    groups = watch.page(_watched(data), db.watch_signals(WATCH_SINCE), datetime.now().astimezone())
+    return {"week": data["week"], "ros_week": data.get("ros_week", data["week"]), "groups": groups,
+            "stale_since": data["stale_since"]}
 
 
 def _live_for(week: int | None) -> bool:
@@ -1558,6 +1614,10 @@ def notify_tick():
         except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
             out["final_plays"] = {"error": str(e)}
         try:
+            out["watch"] = watch_pass()
+        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
+            out["watch"] = {"error": str(e)}
+        try:
             out["pregame"] = pregame_pull()
         except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
             out["pregame"] = {"error": str(e)}
@@ -1744,6 +1804,56 @@ def pregame_pull(now: datetime | None = None) -> list[str]:
     t.start()
     db.put_state("pregame_pulls", sorted(pulled | {k.isoformat() for k in due})[-40:])  # a season's kickoff times
     return [k.isoformat() for k in due]
+
+
+WATCH_EVERY = timedelta(hours=1)
+
+
+def watch_pass() -> dict:
+    """The tick's watchlist step, at most once an hour: every detector over every watched player (whoever holds
+    him), the new signals stored, and one push a day for a free agent with something new (`available` included:
+    it fires only once he is free). A player on another roster is never pushed. `watch_state` holds what the
+    detectors compare against: who has stood ahead of him, his last worth to my roster, his last owner."""
+    st = db.get_state("watch_state", {}) or {}
+    at = notify.now()
+    t = datetime.fromisoformat(at)
+    if st.get("last_pass") and t - datetime.fromisoformat(st["last_pass"]) < WATCH_EVERY:
+        return {"skipped": "hourly"}
+    day = at[:10]
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    chart = news.fetch_depth()
+    # ESPN's feed by club and position (norm name -> status, and -> its name for the chip), laid over Sleeper's
+    feed: dict[tuple, dict[str, str | None]] = {}
+    names: dict[tuple, dict[str, str]] = {}
+    for row in espn_season.fetch_injuries().values():
+        if row.get("team") and row.get("pos") and row.get("name"):
+            n = news.norm_name(row["name"])
+            feed.setdefault((row["team"], row["pos"]), {})[n] = row.get("status")
+            names.setdefault((row["team"], row["pos"]), {})[n] = row["name"]
+    seen, bench, owner = st.get("above", {}) or {}, st.get("bench", {}) or {}, st.get("owner", {}) or {}
+    found, rows = [], {}
+    for p in _watched(data):
+        pid, k, club = p["player_id"], str(p["player_id"]), (p.get("team"), p["pos"])
+        rows[pid] = p
+        ahead, above = watch.ahead_signals(p, chart.get(p.get("team"), []), feed.get(club, {}),
+                                           set(seen.get(k, [])), at, names.get(club, {}))
+        found += ahead
+        weakest = watch.weakest_at(data.get("roster", []), p["pos"])
+        priced = p.get("delta_roster") is not None  # a row priced without a worth to me has nothing to cross
+        found += [s for s in (watch.usage_signal(p, at),
+                              priced and watch.bench_signal(p, bench.get(k), weakest, data.get("ros_week", data["week"]), at),
+                              watch.available_signal(p, owner.get(k), day, at)) if s]
+        seen[k], bench[k] = sorted(above), p.get("delta_roster")
+        owner[k] = (p.get("owner") or {}).get("team_id")
+    new = db.add_watch_signals(found)
+    by_player: dict[int, list[dict]] = {}
+    for s in new:
+        by_player.setdefault(s["player_id"], []).append(s)
+    notices = [watch.notice_for(rows[pid], sigs, day, at) for pid, sigs in by_player.items()
+               if rows[pid].get("owner") is None]
+    queued = db.add_notices(notices)
+    db.put_state("watch_state", {"last_pass": at, "above": seen, "bench": bench, "owner": owner})
+    return {"signals": len(new), "queued": queued}
 
 
 @app.post("/refresh")

@@ -123,3 +123,18 @@ def test_put_prefs_accepts_news_bool():
     with pytest.raises(ValueError):
         notify.put_prefs({"news": "yes"})
     assert notify.prefs()["news"] is False
+
+
+def test_notify_prefs_watch_bool():
+    from datetime import datetime
+    assert notify.prefs()["watch"] is True
+    with pytest.raises(ValueError):
+        notify.put_prefs({"watch": "yes"})
+    t = datetime(2026, 10, 22, 12, 0).astimezone()
+    n = {"key": "watch:5:2026-10-22", "kind": "watch", "title": "A", "body": "B Out", "url": "/watch",
+         "created_at": t.isoformat()}
+    pushes, _ = notify.plan([n], notify.prefs(), t)
+    assert [p["url"] for p in pushes] == ["/watch"]
+    assert notify.put_prefs({"watch": False})["watch"] is False
+    pushes, marks = notify.plan([n], notify.prefs(), t)
+    assert pushes == [] and marks["off"] == ["watch:5:2026-10-22"]

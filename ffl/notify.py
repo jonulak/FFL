@@ -111,7 +111,7 @@ def check_sources() -> int:
     return db.add_notices(source_notices(db.get_state("source_status", {}), datetime.now().astimezone(), now()))
 
 
-DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "news": True, "quiet": ["23:00", "07:00"]}
+DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "news": True, "watch": True, "quiet": ["23:00", "07:00"]}
 MAX_AGE = timedelta(hours=24)
 BODY_MAX = 180
 _HM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -126,7 +126,7 @@ def put_prefs(p: dict) -> dict:
     q = merged["quiet"]
     if not (isinstance(q, list) and len(q) == 2 and all(isinstance(s, str) and _HM.match(s) for s in q)):
         raise ValueError(f"quiet must be two HH:MM times, got {q!r}")
-    for k in ("move", "injury", "waivers", "news"):
+    for k in ("move", "injury", "waivers", "news", "watch"):
         if not isinstance(merged[k], bool):
             raise ValueError(f"{k} must be true or false, got {merged[k]!r}")
     db.put_state("prefs", merged)
