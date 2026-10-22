@@ -8,7 +8,8 @@ import { PlayerDialogProvider } from "@/components/player-dialog";
 import { SwRegister } from "@/components/sw-register";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { apiGet, DEFAULT_DECISION_PREFS, type DecisionPrefs } from "@/lib/api";
+import { WatchProvider } from "@/components/watch-context";
+import { apiGet, DEFAULT_DECISION_PREFS, type DecisionPrefs, type WatchIds } from "@/lib/api";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -22,7 +23,11 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // every page renders under this layout: an API that cannot answer leaves the switches at their defaults, never an error
-  const prefs = await apiGet<DecisionPrefs>("/decisions/prefs").catch(() => DEFAULT_DECISION_PREFS);
+  // and the watched players' ids, so a star draws filled on the first paint; unread, every star starts empty
+  const [prefs, watched] = await Promise.all([
+    apiGet<DecisionPrefs>("/decisions/prefs").catch(() => DEFAULT_DECISION_PREFS),
+    apiGet<WatchIds>("/watch/ids").catch((): WatchIds => ({ ids: [] })),
+  ]);
   // The font variables belong on <html>: globals.css applies `font-sans` there, and
   // `--font-sans` has to be defined on the same element or above it.
   return (
@@ -32,11 +37,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {/* the season modal: one dialog for the app, opened from any player row */}
         <TooltipProvider delay={400}>
           <DecisionPrefsProvider prefs={prefs}>
-            <PlayerDialogProvider>
-              <Nav />
-              {/* one 64rem column on every page, the nav's width; the Players page's claims dock stands outside it */}
-              <main className="mx-auto max-w-5xl px-3 py-4"><PageTransition>{children}</PageTransition></main>
-            </PlayerDialogProvider>
+            <WatchProvider ids={watched.ids}>
+              <PlayerDialogProvider>
+                <Nav />
+                {/* one 64rem column on every page, the nav's width; the Players page's claims dock stands outside it */}
+                <main className="mx-auto max-w-5xl px-3 py-4"><PageTransition>{children}</PageTransition></main>
+              </PlayerDialogProvider>
+            </WatchProvider>
           </DecisionPrefsProvider>
         </TooltipProvider>
         <Toaster position="bottom-center" />

@@ -22,6 +22,7 @@ import { PlayerTrigger } from "./player-dialog";
 import { TeamLogo } from "./player-media";
 import { WaiverOutlookButton } from "./waiver-outlook";
 import { ClaimControl } from "./claim-control";
+import { WatchStar } from "./watch-star";
 import { statusTag } from "@/lib/claims";
 import { SLOT_LABEL } from "@/lib/board";
 import { isFreeAgent, ownerLabel, rowKind } from "@/lib/players";
@@ -146,8 +147,8 @@ export function comparePositions(pos: string): Set<string> {
 // positions · TEAM · years · matchup), then the hurt teammates ahead of him. It is pinned at a
 // fixed width (168px on the phone, room for the outlook and the claim side by side; 224px from `sm`):
 // the name, the chips and the caption all wrap, and a chip too wide for the column breaks inside
-// itself (`would start` / `+14.0`). `tail` closes the caption line (the outlook button, on a wide
-// table); `actions` is a line of its own under it all (the outlook and the claim, on a narrow one,
+// itself (`would start` / `+14.0`). `tail` closes the caption line (the outlook button and the watch star, on a wide
+// table); `actions` is a line of its own under it all (the star, the outlook and the claim, on a narrow one,
 // where the caption has no room for them).
 function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
   r: PlayerRow | RosterRow; week: number; showPos: boolean; mine?: boolean; chip?: React.ReactNode; tail?: React.ReactNode; actions?: React.ReactNode;
@@ -269,10 +270,16 @@ function columns(week: number, showPos: boolean, cols: string[]): Col[] {
           {kind === "mine" && <Badge variant="muted" shape="chip">mine</Badge>}
           {r.would_start && <Badge variant="start" shape="chip">{free ? "start" : "would start"} {signed(r.week_delta ?? 0)}</Badge>}
           {free && <PoolTag r={r} />}
-        </>} tail={free && <span className={`contents ${CLAIM_COL}`}><span aria-hidden>·</span><WaiverOutlookButton r={r} /></span>}
-        actions={free
-          ? <><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} /></>
-          : kind === "theirs" && r.owner && <OwnerChip owner={r.owner} />} />
+        </>} tail={kind !== "mine" && <span className={`contents ${CLAIM_COL}`}>
+          {free && <><span aria-hidden>·</span><WaiverOutlookButton r={r} /></>}
+          <WatchStar id={r.player_id} name={r.name} className="ml-0.5" />
+        </span>}
+        actions={kind !== "mine" && <>
+          <WatchStar id={r.player_id} name={r.name} />
+          {free
+            ? <><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} /></>
+            : r.owner && <OwnerChip owner={r.owner} />}
+        </>} />
       );
     },
   };

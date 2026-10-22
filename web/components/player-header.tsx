@@ -11,6 +11,7 @@ import { teamHref } from "@/lib/team-link";
 import { headshotArt, logoArt, team } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { GameLine } from "./local-time";
+import { WatchStar } from "./watch-star";
 
 /* eslint-disable @next/next/no-img-element -- ESPN's CDN, as player-media.tsx */
 
@@ -20,7 +21,9 @@ export type PlayerSeed = Pick<Player, "player_id" | "name" | "pos" | "team">
   & Partial<Pick<Player, "injury" | "injury_note" | "return_week" | "opponent" | "home" | "kickoff" | "bye" | "game">>
   // what a Players row knows past the header: the season figures and form his dialog lays out (SeasonFacts)
   & Partial<Pick<Player, "ros_proj" | "ros_spread" | "ros_n" | "form">>
-  & Partial<Pick<PlayerRow, "ros_adj" | "delta_roster" | "delta_pool">>;
+  & Partial<Pick<PlayerRow, "ros_adj" | "delta_roster" | "delta_pool">>
+  // one of mine (a Players row says so, the Roster page passes it): no watch star, since the watch is for players I lack
+  & Partial<Pick<PlayerRow, "mine">>;
 
 // Whose roster he is on: the fantasy team (owner null: a free agent) and whether it is mine. Undefined until
 // the owners read lands, and when it failed: then the header says nothing rather than "free agent".
@@ -35,7 +38,8 @@ const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 // the name set on a caption scrim at the foot (white type on any club's colour, the Steelers'
 // gold included), and beneath the band, on the dialog's own surface, this week's game and, at the
 // strip's right end, the fantasy team that rosters him (its name opens that roster).
-// The dialog's close button sits on the band: the DialogContent carries BAND_CLOSE.
+// The dialog's close button sits on the band: the DialogContent carries BAND_CLOSE; the watch star stands
+// beside it in the same register, and the caption keeps clear of both.
 export function PlayerHeader({ p, week, rank, jersey, rostered }: {
   p: PlayerSeed; week?: number; rank?: number; jersey?: string | null; rostered?: Rostered;
 }) {
@@ -45,6 +49,8 @@ export function PlayerHeader({ p, week, rank, jersey, rostered }: {
   const [portrait, setPortrait] = useState(src !== null);
   const hurt = p.injury != null && !HEALTHY.has(p.injury);
   const scheduled = p.opponent !== undefined || p.bye !== undefined;
+  // one of mine by the row that opened him, or by the owners read: no watch star
+  const mine = p.mine || rostered?.mine;
   return (
     <DialogHeader className="gap-0">
       <div
@@ -70,7 +76,8 @@ export function PlayerHeader({ p, week, rank, jersey, rostered }: {
         </div>
         {/* the caption scrim: dark enough at the foot for white type on every club's colour */}
         <div aria-hidden className="absolute inset-0 bg-linear-to-t from-black/75 via-black/30 via-55% to-transparent will-change-transform" />
-        <div className="absolute right-12 bottom-0 left-32 pb-3 will-change-transform sm:left-38">
+        {!mine && <WatchStar id={p.player_id} name={p.name} band className="absolute! top-2 right-11 z-10" />}
+        <div className={`absolute ${mine ? "right-12" : "right-20"} bottom-0 left-32 pb-3 will-change-transform sm:left-38`}>
           <DialogTitle className="line-clamp-2 text-balance font-display text-[1.65rem] font-semibold leading-none tracking-tight text-white">
             {p.name}
             {jersey && <span className="font-medium text-white/70"> #{jersey}</span>}

@@ -37,7 +37,7 @@ export function Spread({ p, className = "" }: { p: Pick<Player, "spread" | "n_sr
 
 // The number as a button that opens the sources. `children` is what stands on the page.
 export function ProjectionTrigger({ p, week, className = "", label, children }: {
-  p: Player; week?: number; className?: string; label?: string; children: ReactNode;
+  p: Player & { mine?: boolean }; week?: number; className?: string; label?: string; children: ReactNode;
 }) {
   return (
     <Dialog>

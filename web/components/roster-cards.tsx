@@ -306,7 +306,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
             <div className="flex min-w-0 items-baseline justify-between gap-x-2 md:contents">
               <div className="min-w-0 md:[grid-area:name]">
                 <p className={`flex flex-wrap items-baseline gap-x-1.5 font-display text-[1.0625rem] font-semibold leading-tight tracking-tight transition-colors duration-500 md:text-[1.1875rem] ${idle ? "text-foreground/70" : ""}`}>
-                  <PlayerTrigger p={c} className={`min-w-0 break-words text-left rounded-sm ${NAME_LINK}`}>
+                  <PlayerTrigger p={{ ...c, mine: true }} className={`min-w-0 break-words text-left rounded-sm ${NAME_LINK}`}>
                     <span className="lg:hidden">{shortName(c.name)}</span>
                     <span className="max-lg:hidden">{c.name}</span>
                   </PlayerTrigger>
@@ -319,7 +319,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
                 </p>
               </div>
               {/* a tap opens the sources; before kickoff the spread stands beside the number on the phone, under it from md */}
-              <ProjectionTrigger p={c} week={week} className="block shrink-0 text-right md:[grid-area:num]"
+              <ProjectionTrigger p={{ ...c, mine: true }} week={week} className="block shrink-0 text-right md:[grid-area:num]"
                 label={live ? `${c.name}: ${pts(c.actual)} points scored, projected ${pts(c.proj)}; show the sources` : undefined}>
                 <span className="flex items-baseline justify-end gap-1">
                   <Swap k={live ? "pts" : "proj"} className={`font-display text-[1.5rem] font-bold leading-none tracking-tight tabular-nums ${!live && c.proj === 0 ? "text-muted-foreground" : ""}`}>

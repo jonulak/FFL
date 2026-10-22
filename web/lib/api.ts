@@ -5,7 +5,7 @@ export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 export const API_TIMEOUT_MS = 20_000;
 
 // ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
-export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; quiet: [string, string] };
+export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; quiet: [string, string] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
 
 export class ApiError extends Error {
@@ -389,6 +389,18 @@ export type Decisions = { decisions: Decision[]; weeks: number[] };
 export type Presets = Record<string, { key: string; label: string }[]>;
 // What a move's answer carries: the row just recorded, and whether to ask for its reason.
 export type DecisionRef = { id: number; needs_rationale: boolean };
+// The watchlist (ffl/watch.py): GET /watch/ids, and POST /watch/{id} {watched}'s answer.
+export type WatchIds = { ids: number[] };
+export type WatchSet = { watched: boolean; ids: number[] };
+// One of the Watch page's signal chips: lit while the signal is recent (`at`, its newest).
+export type WatchChip = { kind: "ahead" | "usage" | "news" | "bench"; text: string | null; at: string | null; lit: boolean };
+export type WatchRow = PlayerRow & { chips: WatchChip[] };
+// GET /watch: the watched players grouped (moving: a signal in the last 3 days; quiet; elsewhere: on another roster).
+export type WatchPage = {
+  week: number; ros_week: number; stale_since: string | null;
+  groups: { moving: WatchRow[]; quiet: WatchRow[]; elsewhere: WatchRow[] };
+};
+
 // The Settings switches (GET/POST /decisions/prefs): `log` records the app's moves and asks why; `page` shows the Decisions page.
 export type DecisionPrefs = { log: boolean; page: boolean };
 export const DEFAULT_DECISION_PREFS: DecisionPrefs = { log: true, page: true };
