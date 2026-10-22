@@ -27,7 +27,7 @@ import { BoxTable } from "./box-table";
 import { ClubLogo } from "./club-logo";
 import { useDecisionPrefs } from "./decision-prefs";
 import { RecentNews } from "./news-recent";
-import { BAND_CLOSE, PlayerHeader, type PlayerSeed } from "./player-header";
+import { BAND_CLOSE, PlayerHeader, type PlayerSeed, type Rostered } from "./player-header";
 import { TeamLogo } from "./player-media";
 import { SeasonFacts } from "./season-facts";
 import { usePresets } from "./rationale-form";
@@ -139,13 +139,26 @@ export function useLog(id: number, fetch: LogFetch) {
   return { load, retry };
 }
 
+// Whose roster he is on, off the news read the tap already made (its player head reads the owners at
+// request time); undefined while it is out, when it failed, and when the owners read inside it failed.
+export function useRostered(fetch: LogFetch): Rostered | undefined {
+  const [r, setR] = useState<Rostered>();
+  useEffect(() => {
+    let current = true;
+    void fetch.news.then((n) => { if (current && n && !n.owners_error) setR({ owner: n.player.owner, mine: n.player.mine }); });
+    return () => { current = false; };
+  }, [fetch]);
+  return r;
+}
+
 function Body({ seed, fetch }: { seed: PlayerSeed; fetch: LogFetch }) {
   const { load, retry } = useLog(seed.player_id, fetch);
+  const rostered = useRostered(fetch);
   return (
     <>
       <PlayerHeader p={seed} week={load.state === "ready" ? load.log.current_week : undefined}
         rank={load.state === "ready" ? seasonRank(load.log) : undefined}
-        jersey={load.state === "ready" ? load.log.jersey : undefined} />
+        jersey={load.state === "ready" ? load.log.jersey : undefined} rostered={rostered} />
       <div className="overflow-y-auto overscroll-contain">
         <FormSection p={seed} />
         <PlayerRecord load={load} retry={retry} fetch={fetch} className="px-4 pt-4 pb-5" />

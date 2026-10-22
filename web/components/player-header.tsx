@@ -1,12 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { Player, PlayerRow } from "@/lib/api";
+import { DialogClose, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { Owner, Player, PlayerRow } from "@/lib/api";
 import { injuryTone } from "@/lib/format";
-import { headerInjury } from "@/lib/player-log";
+import { headerInjury, NAME_LINK } from "@/lib/player-log";
+import { teamHref } from "@/lib/team-link";
 import { headshotArt, logoArt, team } from "@/lib/teams";
+import { ClubLogo } from "./club-logo";
 import { GameLine } from "./local-time";
 
 /* eslint-disable @next/next/no-img-element -- ESPN's CDN, as player-media.tsx */
@@ -19,6 +22,10 @@ export type PlayerSeed = Pick<Player, "player_id" | "name" | "pos" | "team">
   & Partial<Pick<Player, "ros_proj" | "ros_spread" | "ros_n" | "form">>
   & Partial<Pick<PlayerRow, "ros_adj" | "delta_roster" | "delta_pool">>;
 
+// Whose roster he is on: the fantasy team (owner null: a free agent) and whether it is mine. Undefined until
+// the owners read lands, and when it failed: then the header says nothing rather than "free agent".
+export type Rostered = { owner: Owner | null; mine: boolean };
+
 const TAG = { ok: "secondary", warn: "warn", bad: "out" } as const;
 // ESPN says ACTIVE for a player and NORMAL for a defence; neither is news.
 const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
@@ -26,13 +33,17 @@ const HEALTHY = new Set(["ACTIVE", "NORMAL"]);
 // Both player modals open on this: the roster card's team-colour panel laid down as a band across
 // the top, the portrait standing at its left foot and the club mark trailing off the right edge,
 // the name set on a caption scrim at the foot (white type on any club's colour, the Steelers'
-// gold included), and beneath the band, on the dialog's own surface, this week's game.
+// gold included), and beneath the band, on the dialog's own surface, this week's game and, at the
+// strip's right end, the fantasy team that rosters him (its name opens that roster).
 // The dialog's close button sits on the band: the DialogContent carries BAND_CLOSE.
-export function PlayerHeader({ p, week, rank, jersey }: { p: PlayerSeed; week?: number; rank?: number; jersey?: string | null }) {
+export function PlayerHeader({ p, week, rank, jersey, rostered }: {
+  p: PlayerSeed; week?: number; rank?: number; jersey?: string | null; rostered?: Rostered;
+}) {
   const t = team(p.team);
   // the portrait stands about 200 CSS px wide on the band; the watermark is w-56, the stand-in mark w-24 at most
   const src = headshotArt(p.player_id, 200);
-  const [portrait, setPortrait] = useState(src !== null);  const hurt = p.injury != null && !HEALTHY.has(p.injury);
+  const [portrait, setPortrait] = useState(src !== null);
+  const hurt = p.injury != null && !HEALTHY.has(p.injury);
   const scheduled = p.opponent !== undefined || p.bye !== undefined;
   return (
     <DialogHeader className="gap-0">
@@ -79,12 +90,32 @@ export function PlayerHeader({ p, week, rank, jersey }: { p: PlayerSeed; week?: 
           </DialogDescription>
         </div>
       </div>
-      {scheduled && (
-        <div className="border-b border-foreground/10 px-4 py-2 text-xs text-muted-foreground">
-          <GameLine p={{ team: p.team, opponent: p.opponent ?? null, home: p.home ?? null, kickoff: p.kickoff ?? null, bye: p.bye ?? false, game: p.game }} size={16} />
+      {(scheduled || rostered) && (
+        <div className="flex min-h-9 items-center gap-3 border-b border-foreground/10 px-4 py-2 text-xs text-muted-foreground">
+          {scheduled && <GameLine p={{ team: p.team, opponent: p.opponent ?? null, home: p.home ?? null, kickoff: p.kickoff ?? null, bye: p.bye ?? false, game: p.game }} size={16} />}
+          {rostered && <RosteredOn r={rostered} />}
         </div>
       )}
     </DialogHeader>
+  );
+}
+
+// The fantasy side of the strip, trailing to its right end: the club's mark and name, linked to its roster, my own
+// in the foreground; "Free agent" when nobody holds him.
+function RosteredOn({ r }: { r: Rostered }) {
+  if (!r.owner) return <span className="ml-auto shrink-0 whitespace-nowrap">Free agent</span>;
+  const o = r.owner;
+  const name = o.name || o.abbrev || `Team ${o.team_id}`;
+  const href = teamHref(o.team_id);
+  const label = <span className="truncate">{name}</span>;
+  return (
+    <span className={`ml-auto flex min-w-0 max-w-[60%] items-center gap-1.5 ${r.mine ? "font-medium text-foreground" : ""}`}>
+      <ClubLogo src={`/api/logo/${o.team_id}`} abbrev={o.abbrev || name} size={16} />
+      <span className="sr-only">Rostered by </span>
+      {href
+        ? <DialogClose nativeButton={false} render={<Link href={href} />} className={`min-w-0 truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${NAME_LINK}`}>{label}</DialogClose>
+        : label}
+    </span>
   );
 }
 

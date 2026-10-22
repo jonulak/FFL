@@ -7,7 +7,7 @@ import { pts } from "@/lib/format";
 import { seasonRank } from "@/lib/player-log";
 import { BoxTable } from "./box-table";
 import { BAND_CLOSE, PlayerHeader } from "./player-header";
-import { Heading, PlayerRecord, useLog, type LogFetch } from "./player-dialog";
+import { Heading, PlayerRecord, useLog, useRostered, type LogFetch } from "./player-dialog";
 import { Swap, Ticker } from "./motion";
 // One player's points taken apart, in a matchup view: this week first, then his season log (this
 // season's weeks and the games ahead, and the past seasons) as the season modal sets it, under the
@@ -28,6 +28,7 @@ export function BoxScoreDialog({ p, week, log, open, onOpenChange }: {
 
 function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
   const { load, retry } = useLog(p.player_id, log);
+  const rostered = useRostered(log);
   const box = p.box ?? [];
   const off = box.length > 0 && Math.abs(boxSum(box) - p.actual) >= 0.05;
   // only once his game is on: before kickoff an empty row still reads "0 targets"
@@ -35,7 +36,7 @@ function Body({ p, week, log }: { p: Player; week: number; log: LogFetch }) {
   return (
     <>
       <PlayerHeader p={p} rank={load.state === "ready" ? seasonRank(load.log) : undefined}
-        jersey={load.state === "ready" ? load.log.jersey : undefined} />
+        jersey={load.state === "ready" ? load.log.jersey : undefined} rostered={rostered} />
       <div className="overflow-y-auto overscroll-contain">
         <section aria-labelledby="box-week" className="space-y-1.5 px-4 pt-4">
           <Heading id="box-week" title={`Week ${week}`} note={box.length > 0 ? `${pts(p.actual)} pts` : undefined} />
