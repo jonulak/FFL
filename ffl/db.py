@@ -575,14 +575,6 @@ def nfl_plays_rows(week: int, season: int = SEASON) -> list[dict]:
         return list(c.execute(q).scalars())
 
 
-def nfl_games_read(week: int, season: int = SEASON) -> set[str]:
-    """The games of a week whose plays ESPN's drives have written (source "espn")."""
-    q = (sa.select(nfl_plays.c.game_id).distinct()
-         .where(nfl_plays.c.season == season, nfl_plays.c.week == week, nfl_plays.c.source == "espn"))
-    with _read() as c:
-        return set(c.execute(q).scalars())
-
-
 def put_called_back(put: list[dict], drop: list[tuple[str, int]], season: int = SEASON) -> None:
     """Write called-back rows (by play and player) and delete the (play_id, player_id) pairs in `drop`."""
     t = called_back

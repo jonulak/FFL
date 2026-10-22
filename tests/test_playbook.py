@@ -102,6 +102,25 @@ def test_store_records_plays_and_keeps_called_back_rows_current():
     assert store.called == {} and db.called_back_rows(3) == [], "upheld on review: the row goes"
 
 
+def test_final_plays_reads_a_game_once_final_half_an_hour_even_if_opened_mid_game(monkeypatch):
+    from ffl import api, nfl
+    game = {"event_id": "e1", "status": "post", "away": {"abbr": "SF", "id": "25"}, "home": {"abbr": "ARI", "id": "22"}}
+    monkeypatch.setattr(nfl, "scoreboard", lambda week: ({"week": 6, "games": [game] if week == 6 else []}, None))
+    monkeypatch.setattr(nfl, "drives", lambda *a: ([{"plays": [{"id": 9, "team": "SF", "text": "x", "roles": []}]}], None))
+    recorded = []
+    monkeypatch.setattr(api, "_record_plays", lambda week, entries: recorded.append((week, entries)))
+    monkeypatch.setattr(api, "_FINAL_SEEN", {})
+    db.put_nfl_plays([{**SCRAMBLE, "game_id": "e1", "week": 6}])  # the NFL tab wrote ESPN's rows in Q1
+    clock = [1000.0]
+    monkeypatch.setattr(api.time, "time", lambda: clock[0])
+    assert api.final_plays() == {} and recorded == [], "just final: ESPN's drives can lag the whistle"
+    clock[0] += api.FINAL_PLAYS_AFTER
+    assert api.final_plays() == {"6": 1} and recorded[0][1][0]["play_id"] == "9"
+    assert db.get_state("final_plays_done") == ["e1"]
+    clock[0] += 3600
+    assert api.final_plays() == {} and len(recorded) == 1, "read once"
+
+
 def test_store_never_drops_rows_without_a_roster():
     store = plays.Store(3)
     store.record([SCRAMBLE], ROSTER, TABLE)

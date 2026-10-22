@@ -911,10 +911,13 @@ def final_plays() -> dict:
     in it) are ESPN's final word whether or not anyone opened it on the NFL tab."""
     shown = nfl.scoreboard(None)[0]["week"]
     out: dict[str, int] = {}
+    # its own record of the games read: a game opened on the NFL tab mid-game has ESPN rows for what had been
+    # played, not ESPN's final word
+    done = set(db.get_state("final_plays_done", []))
     for week in (shown - 1, shown):
         if week < 1:
             continue
-        done, now, due = db.nfl_games_read(week), time.time(), []
+        now, due = time.time(), []
         for g in nfl.scoreboard(week)[0]["games"]:
             if g["status"] == "post" and g["event_id"] not in done \
                     and now - _FINAL_SEEN.setdefault(g["event_id"], now) >= FINAL_PLAYS_AFTER:
@@ -927,6 +930,8 @@ def final_plays() -> dict:
         if entries:
             _record_plays(week, entries)
             out[str(week)] = len(due)
+            done |= {g["event_id"] for g in due}
+            db.put_state("final_plays_done", sorted(done))
     return out
 
 
@@ -1098,7 +1103,8 @@ def nfl_game(week: int, team: str):
     except Exception as e:  # noqa: BLE001 — cold outage on this game's feed
         raise HTTPException(502, {"source": "espn-nfl", "error": str(e)})
     runner = getattr(app.state, "runner", None)
-    if runner is not None and runner.store is not None and runner.week == week:  # another week waits for the tick
+    # another week, or no starters read yet, waits for the tick: this page polls every 15 s
+    if runner is not None and runner.store is not None and runner.week == week and runner.roster:
         try:
             _record_plays(week, playbook.from_drives(drives, game["event_id"], week, clubs))
         except Exception as e:  # noqa: BLE001 — the page never fails on the play store

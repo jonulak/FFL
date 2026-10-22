@@ -180,9 +180,10 @@ def _weeks(arg: str) -> list[int]:
 
 def backfill(weeks: list[int]) -> None:
     """Each week's finished games' plays from ESPN's drives, through that week's feed store."""
-    from . import espn_season, nfl, plays
+    from . import db, espn_season, nfl, plays
     from .settings import load
     table = fc.scoring_table(load())
+    done = set(db.get_state("final_plays_done", []))  # the tick's record (api.final_plays): these need no read
     for w in weeks:
         roster = plays.roster_index(espn_season.league_starters(w))
         store = plays.Store(w)
@@ -194,6 +195,8 @@ def backfill(weeks: list[int]) -> None:
             entries = from_drives(nfl.drives(g["event_id"], g["status"], ids)[0], g["event_id"], w, clubs)
             store.record(entries, roster, table)
             n += len(entries)
+            done.add(g["event_id"])
+        db.put_state("final_plays_done", sorted(done))
         print(f"week {w}: {len(games)} games, {n} plays, {len(store.called)} called back")
 
 
