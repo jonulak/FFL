@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./api";
-import { accepts, afterFailure, applyMoves, applyOps, fillOptions, gainText, irEligible, irIllegal, isLocked, isMismatch, lineupFailure, movesFor, type Op, opIds, recommendedTarget, slotLabel, swapOptions, targets, wantedSlot, withoutBusy } from "./lineup";
+import { accepts, pairStarters, afterFailure, applyMoves, applyOps, fillOptions, gainText, irEligible, irIllegal, isLocked, isMismatch, lineupFailure, movesFor, type Op, opIds, recommendedTarget, slotLabel, swapOptions, targets, wantedSlot, withoutBusy } from "./lineup";
 
 const c = (player_id: number, pos: string, slot: string, play_proj: number, extra: Partial<Card> = {}) =>
   ({ player_id, name: `P${player_id}`, pos, slot, play_proj, locked: false,
@@ -346,5 +346,24 @@ describe("illegal IR", () => {
   it("lets an empty slot be filled only by him", () => {
     expect(fillOptions(roster, "RB/WR/TE").map((o) => (o.kind === "fill" ? o.who.player_id : o.kind))).toEqual([7]);
     expect(fillOptions(roster, "QB")).toEqual([]);
+  });
+});
+
+describe("pairStarters", () => {
+  const p = (player_id: number, slot: string) => ({ player_id, slot });
+  const slots = ["QB", "QB", "RB", "RB/WR/TE"];
+  it("pairs slot for slot, leaving an empty slot's half blank", () => {
+    const rows = pairStarters(slots, [p(1, "QB"), p(3, "RB"), p(4, "RB/WR/TE")], [p(11, "QB"), p(12, "QB"), p(13, "RB"), p(14, "RB/WR/TE")]);
+    expect(rows.map(([s, a, b]) => [s, a?.player_id, b?.player_id])).toEqual([
+      ["QB", 1, 11], ["QB", undefined, 12], ["RB", 3, 13], ["RB/WR/TE", 4, 14]]);
+  });
+  it("keeps a slot both sides left empty", () => {
+    expect(pairStarters(["QB", "K"], [p(1, "QB")], [p(11, "QB")]).map(([s, a, b]) => [s, a, b])).toEqual([
+      ["QB", p(1, "QB"), p(11, "QB")], ["K", undefined, undefined]]);
+  });
+  it("puts a starter in a slot the list lacks after the rest, and falls back to list order with no slots", () => {
+    expect(pairStarters(["QB"], [p(1, "QB"), p(2, "TQB")], []).map(([s, a]) => [s, a?.player_id])).toEqual([["QB", 1], ["TQB", 2]]);
+    expect(pairStarters(undefined, [p(1, "QB"), p(3, "RB")], [p(12, "RB")]).map(([s, a, b]) => [s, a?.player_id, b?.player_id])).toEqual([
+      ["QB", 1, 12], ["RB", 3, undefined]]);
   });
 });

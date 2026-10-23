@@ -1363,7 +1363,7 @@ def week_state(week: int | None = None, sources: dict | None = None, season: dic
             sigma, source = calibrate.load_sigma()
             p = S.win_prob(built[0]["lineup"], built[1]["lineup"], sigma)
             odds = {"me": round(p, 3), "opp": round(1 - p, 3), "sigma_source": source}
-        return {"week": week, "live": S.is_live(), "mine": mine, "me": built[0],
+        return {"week": week, "live": S.is_live(), "mine": mine, "slots": S.starter_slots(settings), "me": built[0],
                 "opp": built[1] if len(built) > 1 else None, "win_prob": odds}
     if team != me:
         raise LookupError(f"no matchup for team {team} in week {week}")

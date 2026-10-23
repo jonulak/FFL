@@ -254,6 +254,11 @@ def position_caps(roster: list[dict], limits: dict) -> list[dict]:
     return [{"pos": pos, "n": held.get(pos, 0), "limit": cap} for pos, cap in limits.items()]
 
 
+def starter_slots(settings: dict) -> list[str]:
+    """One entry per starter spot, in lineup order: the rows the Matchup board pairs the two sides on."""
+    return [s for s in SLOT_ORDER for _ in range(settings["starters"].get(s, 0))]
+
+
 def empty_slots(roster: list[dict], settings: dict) -> list[str]:
     """One entry per starter spot ESPN has nobody in, in slot order, then one per open IR spot."""
     filled = Counter(p.get("slot") for p in roster)

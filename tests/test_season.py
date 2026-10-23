@@ -677,6 +677,10 @@ def test_starters_sort_in_espn_slot_order_whatever_the_position():
     assert [c["slot"] for c in season.roster_cards(ps, settings, week=5)] == ["QB", "RB/WR/TE", "K"]
 
 
+def test_starter_slots_lists_every_starter_spot_in_lineup_order():
+    assert season.starter_slots({"starters": {"K": 1, "RB/WR/TE": 2, "QB": 2, "BE": 7}}) == ["QB", "QB", "RB/WR/TE", "RB/WR/TE", "K"]
+
+
 def test_empty_slots_lists_each_unfilled_starter_spot():
     settings = {"starters": {"RB": 2, "RB/WR/TE": 2}, "ir_size": 0}
     ps = [{"player_id": 1, "pos": "RB", "slot": "RB"}, {"player_id": 2, "pos": "WR", "slot": "RB/WR/TE"},

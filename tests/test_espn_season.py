@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 import requests
 
-from ffl import espn_season
+from ffl import espn_season, season
 from ffl.adp import norm_name
 from tests.test_season import TWO_QB, roster as season_roster
 
@@ -227,6 +227,19 @@ def test_week_state_gives_no_opponent_on_a_bye(monkeypatch):
     assert st["week"] == 1 and st["opp"] is None
     assert "stale" not in st, "the freshness flag is stale_since, added by the API's cache"
     assert st["me"]["team"] == "Mine" and len(st["me"]["lineup"]) == 11
+
+
+def test_week_state_carries_the_leagues_starter_slots(monkeypatch):
+    """The board pairs the sides slot by slot off this list, so an empty slot stays a blank row."""
+    matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
+                              home_lineup=[as_box(p) for p in season_roster()],
+                              away_team=SimpleNamespace(), away_lineup=[])
+    lg = SimpleNamespace(box_scores=lambda week: [matchup], current_week=1)
+    monkeypatch.setattr(espn_season, "league", lambda: lg)
+    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    st = espn_season.week_state(week=1, sources={}, season={}, injuries={})
+    assert st["slots"] == season.starter_slots(TWO_QB)
 
 
 def test_roster_state_builds_cards_for_my_side_only(monkeypatch):

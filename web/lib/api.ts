@@ -181,7 +181,7 @@ export type NflGamePage = { week: number; live: boolean; game: NflGame; marked: 
 // win_prob is the left side's odds (and the right's) off season.win_prob, re-priced by the live
 // overlay; null with no opponent, and absent from a payload cached before it existed.
 export type WinProb = { me: number; opp: number; sigma_source: "calibrated" | "fallback" };
-export type Week = { week: number; live: boolean; mine: boolean; me: Side; opp: Side | null; win_prob?: WinProb | null; plays: Play[]; stale_since: string | null };
+export type Week = { week: number; live: boolean; mine: boolean; slots?: string[]; me: Side; opp: Side | null; win_prob?: WinProb | null; plays: Play[]; stale_since: string | null };
 // ros_proj is the model mean (resolved: the season formula when no source has him); ros_adj the
 // usage-adjusted number `add` and the deltas run on (STRATEGY.md "Usage-adjusted ROS").
 // add and the deltas are "worth to me": on another team's player, what he'd add if I traded for

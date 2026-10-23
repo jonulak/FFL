@@ -9,6 +9,21 @@ export function slotLabel(slot: string): string {
   return slot === "BE" ? "Bench" : (SLOT_LABEL[slot] ?? slot);
 }
 
+// The Matchup board's starter rows: one per league slot (the payload's `slots`, season.starter_slots), each side's
+// player in that slot or nobody, so an empty slot stays a blank half instead of pulling the rows under it up. A
+// starter in a slot the list lacks follows the rest; a payload without `slots` (cached before it) pairs by position.
+export function pairStarters<P extends { slot: string }>(slots: string[] | undefined, a: P[], b: P[]): [string, P | undefined, P | undefined][] {
+  if (!slots?.length) {
+    return Array.from({ length: Math.max(a.length, b.length) }, (_, i) => [(a[i] ?? b[i])!.slot, a[i], b[i]]);
+  }
+  const left = [[...a], [...b]];
+  const take = (side: P[], slot: string) => { const i = side.findIndex((p) => p.slot === slot); return i < 0 ? undefined : side.splice(i, 1)[0]; };
+  const rows: [string, P | undefined, P | undefined][] = slots.map((s) => [s, take(left[0], s), take(left[1], s)]);
+  const [ra, rb] = left;
+  for (let i = 0; i < Math.max(ra.length, rb.length); i++) rows.push([(ra[i] ?? rb[i])!.slot, ra[i], rb[i]]);
+  return rows;
+}
+
 // Which positions a slot takes: season._slot_accepts. "OP" is the superflex.
 export function accepts(slot: string): Set<string> {
   if (slot === "OP") return new Set(["QB", "RB", "WR", "TE"]);

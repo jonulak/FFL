@@ -15,6 +15,7 @@ import { FIELD, fieldOf, inGameOf } from "@/lib/field";
 import { gameOn, gamePhase, sideTotals, toPlay } from "@/lib/game";
 import { finalP } from "@/lib/win-prob";
 import { playsHref } from "@/lib/matchup-link";
+import { pairStarters } from "@/lib/lineup";
 import { gameLinkFor } from "@/lib/nfl";
 import { clubLogoSrc } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
@@ -300,20 +301,20 @@ function Pair({ a, b, slot, week, now, grid, onPick, k }: { a?: Player; b?: Play
   );
 }
 
-// Pairs the two sides line for line: starters slot by slot (both lineups fill the league's slots
-// in the same order), bench and IR by position in the list.
-function zip(a: Player[], b: Player[]): [Player | undefined, Player | undefined][] {
+// One board line before it is drawn: the slot code for the spine (null on bench and IR), my player, his.
+type Row = [string | null, Player | undefined, Player | undefined];
+
+// Bench and IR pair line for line by position in the list; the starters pair slot by slot (pairStarters).
+function zip(a: Player[], b: Player[]): Row[] {
   const n = Math.max(a.length, b.length);
-  return Array.from({ length: n }, (_, i) => [a[i], b[i]]);
+  return Array.from({ length: n }, (_, i) => [null, a[i], b[i]]);
 }
 
-function Group({ title, a, b, week, slot, now, grid, onPick }: { title: string | null; a: Player[]; b: Player[]; week: number; slot: boolean; now: number; grid: string; onPick: Pick }) {
-  const rows = zip(a, b);
-  const key = ([x, y]: [Player | undefined, Player | undefined], i: number) => String(x?.player_id ?? y?.player_id ?? i);
+function Group({ title, rows, week, now, grid, onPick }: { title: string | null; rows: Row[]; week: number; now: number; grid: string; onPick: Pick }) {
+  const key = ([s, x, y]: Row, i: number) => String(x?.player_id ?? y?.player_id ?? `${s}-${i}`);
   // a lineup changed on ESPN: the rows slide to their new places rather than jump
   const list = useReorder<HTMLDivElement>(rows.map(key).join());
   if (rows.length === 0) return null;
-  const label = (p?: Player) => (slot && p ? (SLOT_LABEL[p.slot] ?? p.slot) : null);
   return (
     <div>
       {title && (
@@ -335,7 +336,7 @@ function Group({ title, a, b, week, slot, now, grid, onPick }: { title: string |
       )}
       <ItemGroup ref={list} className="gap-0 divide-y divide-foreground/10">
         {rows.map((r, i) => (
-          <Pair key={key(r, i)} k={key(r, i)} a={r[0]} b={r[1]} slot={label(r[0]) ?? label(r[1])} week={week} now={now} grid={grid} onPick={onPick} />
+          <Pair key={key(r, i)} k={key(r, i)} a={r[1]} b={r[2]} slot={r[0] && (SLOT_LABEL[r[0]] ?? r[0])} week={week} now={now} grid={grid} onPick={onPick} />
         ))}
       </ItemGroup>
     </div>
@@ -450,14 +451,14 @@ function Board({ data, now, onPick }: { data: Week; now: number; onPick: Pick })
         )}
       </CardHeader>
       <CardContent className="-mt-1 pb-1">
-        <Group title={null} a={me.lineup} b={opp?.lineup ?? []} week={week} slot now={now} grid={grid} onPick={onPick} />
+        <Group title={null} rows={pairStarters(data.slots, me.lineup, opp?.lineup ?? [])} week={week} now={now} grid={grid} onPick={onPick} />
         <div className={`${grid} items-start`}>
           <SideTotals side={me} now={now} end="me" />
           <span />
           {opp && <SideTotals side={opp} now={now} end="opp" />}
         </div>
-        <Group title="Bench" a={me.bench} b={opp?.bench ?? []} week={week} slot={false} now={now} grid={grid} onPick={onPick} />
-        <Group title="IR" a={me.ir} b={opp?.ir ?? []} week={week} slot={false} now={now} grid={grid} onPick={onPick} />
+        <Group title="Bench" rows={zip(me.bench, opp?.bench ?? [])} week={week} now={now} grid={grid} onPick={onPick} />
+        <Group title="IR" rows={zip(me.ir, opp?.ir ?? [])} week={week} now={now} grid={grid} onPick={onPick} />
       </CardContent>
       {/* the lineup by projection opens under the board when one differs, and folds away once set */}
       <Presence show={swaps} fold>
