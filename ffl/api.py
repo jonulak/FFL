@@ -301,6 +301,8 @@ cache = Cache(TTL, persist=True)
 # The pages a league move makes stale: the log, every roster (mine, a team's, the boards'), the pool, the live
 # starters, a player's card (owner, record). Logos, the draft and finished weeks' box scores never change.
 MOVE_KEYS = ("transactions", "roster", "waivers", "week", "league", "team", "starters", "player")
+# The pages a lineup move makes stale: every board and tile showing my starters, and the live feed's starters
+LINEUP_KEYS = ("week", "league", "team", "starters")
 REWARM_SKIP = ("player",)  # one card per player ever opened: built again on its next open, not all at once
 
 
@@ -765,7 +767,9 @@ def lineup(body: LineupIn):
             except db.DBError as e:
                 log.warning("lineup moved but its rows not kept: %s", e)
             espn_season.forget_current_boxes()  # the box scores carry the slots; read them again
-            cache.expire("week")  # the Matchup board shows this lineup too
+            # the Matchup board, the League tile and my Team page show this lineup too: dropped, not expired, which
+            # would serve the pre-move board once more; rebuilt behind, and /live ticks so an open board refetches
+            _start_rewarm(cache, cache.drop_prefixes(LINEUP_KEYS))
             # the claims validate against the pool's roster slots (an IR player with no designation blocks every
             # claim): the next /claims or /players builds it from the moved roster, never from the pre-move one
             cache.drop("waivers")
@@ -819,7 +823,8 @@ def roster_sit(player_id: int, body: SitIn):
         rows = espn_season.with_sits(data["cards"], sat)
         payload = {k: v for k, v in data.items() if k != "stale_since"}
         cache.put("roster", {**payload, "cards": season.roster_cards(rows, espn_season.load(), week)})
-        cache.expire("week")  # the Matchup board's by-projection lineup leaves him out too
+        if before.get("sat") != body.sat:  # the Matchup board's by-projection lineup leaves him out too (as /lineup)
+            _start_rewarm(cache, cache.drop_prefixes(("week",)))
         return {**roster_(), "decision": ref}
     finally:
         _LINEUP.release()

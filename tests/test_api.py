@@ -628,6 +628,25 @@ def test_a_lineup_move_rebuilds_the_claims_roster(lineup_env, monkeypatch):
     assert builds["n"] == 2, "the move off IR the panel asked for must clear the block on the next read"
 
 
+def _counting_board(monkeypatch):
+    """week:current built from a counter: the version a read sees says whether it was built after the move."""
+    builds = {"n": 0}
+
+    def week_state(week=None, team=None):
+        builds["n"] += 1
+        return {"week": 3, "v": builds["n"]}
+
+    monkeypatch.setattr(api.espn_season, "week_state", week_state)
+    assert api._board(None, None)["v"] == 1
+    return builds
+
+
+def test_a_lineup_move_shows_on_the_matchup_board_at_once(lineup_env, monkeypatch):
+    _counting_board(monkeypatch)
+    assert lineup_env.post("/lineup", json=SWAP).status_code == 200
+    assert api._board(None, None)["v"] == 2, "the first open after the move is the moved lineup, never the old board"
+
+
 def test_waiver_run_retires_the_submitted_plan(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
@@ -1315,6 +1334,12 @@ def test_sit_remakes_the_call_without_an_espn_read_and_journals_it(sit_env):
     assert db.sat_ids(3) == {3}
     assert _titles() == ["Week 3 sit: QB C"] and r.json()["decision"]["needs_rationale"] is True
     assert {c["player_id"]: c["call"] for c in sit_env.get("/roster").json()["cards"]}[3] == "SIT", "cached as sat"
+
+
+def test_a_sit_shows_on_the_matchup_board_at_once(sit_env, monkeypatch):
+    _counting_board(monkeypatch)
+    assert sit_env.post("/roster/sit/3", json={"sat": True}).status_code == 200
+    assert api._board(None, None)["v"] == 2, "the first open after the sit is built without him"
 
 
 def test_unsit_puts_him_back_and_a_repeat_is_not_journaled_twice(sit_env):
