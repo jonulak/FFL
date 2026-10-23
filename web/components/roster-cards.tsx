@@ -337,9 +337,11 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
             <div className="flex min-w-0 items-center justify-between gap-x-2 md:contents">
               {/* at least the chip's 20px; the 16px line box keeps the mixed faces from standing it 24px tall,
                   and a wrapped line stays tight */}
-              <div className="flex min-w-0 items-center max-md:min-h-5 max-md:leading-4 md:[grid-area:match]">
-                {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it */}
-                {c.pos !== slot && <span className="mr-1 shrink-0 self-start text-xs font-semibold leading-5 text-foreground/80 md:hidden">{c.pos}</span>}
+              <div className="flex min-w-0 items-center max-md:min-h-5 max-md:items-baseline max-md:leading-4 md:[grid-area:match]">
+                {/* the slot already says it for a QB in QB; a FLEX, bench or IR row needs it. On the game line's
+                    baseline (its two faces set the text lower than a plain line would), clear of the chip's wash:
+                    mr-2 less the chip's -mx-1 */}
+                {c.pos !== slot && <span className="mr-2 shrink-0 text-xs font-semibold text-foreground/80 md:hidden">{c.pos}</span>}
                 {/* no `max-w-full` on the phone: the div is sized to the chip less its negative margin, so a
                     100% cap left the chip 4px short of its own line, which broke (and, truncated, cut "Final" to
                     "F…" at every phone width). As a min-w-0 flex item the chip still shrinks when it must. */}
