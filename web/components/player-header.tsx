@@ -76,7 +76,7 @@ export function PlayerHeader({ p, week, rank, jersey, rostered }: {
         </div>
         {/* the caption scrim: dark enough at the foot for white type on every club's colour */}
         <div aria-hidden className="absolute inset-0 bg-linear-to-t from-black/75 via-black/30 via-55% to-transparent will-change-transform" />
-        {!mine && <WatchStar id={p.player_id} name={p.name} band className="absolute! top-2 right-11 z-10" />}
+        {!mine && <WatchStar id={p.player_id} name={p.name} band className="absolute! top-2 right-10 z-10" />}
         <div className={`absolute ${mine ? "right-12" : "right-20"} bottom-0 left-32 pb-3 will-change-transform sm:left-38`}>
           <DialogTitle className="line-clamp-2 text-balance font-display text-[1.65rem] font-semibold leading-none tracking-tight text-white">
             {p.name}
