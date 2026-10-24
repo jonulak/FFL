@@ -526,7 +526,7 @@ class Watcher:
         if note := board_mod.banner(self.settings):
             print(note, flush=True)
         if order_is_placeholder(self.settings):
-            print("!! Draft order is randomized at draft start and settings.json still holds the "
+            print("!! Draft order is randomized at draft start and the league's stored settings still hold the "
                   "placeholder 1..n. The slot above is a guess until the room shows the order: set "
                   "FFL_PICK_ORDER=<team ids in order> (or re-run ffl.settings) and restart, or let the "
                   "first-round picks correct it as they land.", flush=True)

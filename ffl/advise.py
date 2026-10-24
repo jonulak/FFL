@@ -61,8 +61,8 @@ def main(n: int = 8, made: int | None = None):
     if note := board_mod.banner(settings):
         print(note)
     if order_is_placeholder(settings) and len(picks) < len(order):
-        print("!! pick order not confirmed (settings.json placeholder; round 1 not complete) — "
-              "set FFL_PICK_ORDER or re-run ffl.settings")
+        print("!! pick order not confirmed (the league's stored settings hold the placeholder; round 1 not complete) — "
+              "set FFL_PICK_ORDER or re-run `ffl.settings`")
     print("roster:", ", ".join(f"{r['name']} ({r['pos']})" for r in my_roster.to_dict("records")) or "empty")
     print("needs:", rec["needs"], "| flex open:", rec["flex_open"], "| opp demand:", opp)
 

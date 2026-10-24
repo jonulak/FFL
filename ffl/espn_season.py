@@ -773,7 +773,7 @@ def fetch_injuries() -> dict[int, dict]:
 def apply_injuries(players: list[dict], injuries: dict[int, dict], week1_start: date | None) -> list[dict]:
     """The return week and injury note from the feed, where it has the player.
 
-    Without week1_start — a settings.json written before that key existed — a return date cannot
+    Without week1_start — settings stored before that key existed — a return date cannot
     be turned into a week, so only the note is applied and season.games_out stays None.
     """
     def ret_week(row: dict) -> int | None:
@@ -830,7 +830,7 @@ def _injuries_for(injuries: dict | None) -> dict:
 
 
 def _week1_start(settings: dict) -> date | None:
-    """settings.json's week 1 Tuesday, absent from files written before ffl.settings wrote it."""
+    """The stored settings' week 1 Tuesday, absent from settings stored before ffl.settings wrote it."""
     d = settings.get("week1_start")
     return date.fromisoformat(d) if d else None
 

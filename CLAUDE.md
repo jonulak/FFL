@@ -12,6 +12,8 @@ uv run alembic upgrade head            # create / migrate the DB schema (deploy.
 uv run python -m ffl.db import         # one-time: old journal/ + data/ files into the DB (idempotent; done 2026-10-08, originals in data/pre-db/)
 uv run python -m ffl.db backup         # checked snapshot to Google Drive (launchd nightly 03:30)
 uv run python -m ffl.settings          # league settings from ESPN -> the DB (formats, league_settings, caps); prints the summary (run first)
+uv run python -m ffl.leagues list      # the registry: key, season, my team, home, formats
+uv run python -m ffl.leagues add espn <id> [--season N] [--home]   # register a league and store its settings, formats and caps (reads ESPN)
 uv run python -m ffl.leagues caps espn:100000001 QB=3   # my roster caps per league (never above the league's; no args: the table)
 uv run python -m ffl.players           # ESPN pool w/ league-scored projections -> espn_pools (per position scoring format; only what is missing, --refresh all)
 uv run python -m ffl.sleeper           # Sleeper's raw season projections -> sleeper_season (once a season; --refresh); prints them rescored to the league
@@ -58,6 +60,7 @@ draft tool builds the board from the DB (`board.load_inputs(ref)` + `build`; the
 
 ## Config
 `.env` (gitignored): `ESPN_S2`, `SWID` (the account's, valid for every ESPN league). League facts (id, season, my team) live in the `leagues` table (`ffl/leagues.py`; `uv run python -m ffl.leagues list`; migration 0014 seeded the home row from the old `LEAGUE_ID`/`SEASON`/`MY_TEAM_ID` lines); `config.SEASON` is derived from the date (`nfl_season`), and `config.LEAGUE_ID`/`MY_TEAM_ID`/`DRAFT_ROOM_URL`/`LEAGUE_URL` are lazy transitional reads of the home league. A league's settings are DB rows, not files (`ffl/formats.py`, migration 0015 imported the old `data/settings.json`): per-position scoring tables in `scoring_formats` (one row per distinct table, shared by every league on it; `rescore_key` covers only the stats projections are rescored on), linked per league in `league_scoring`; the lineup in `lineup_formats` (`leagues.lineup_format`); everything else in `league_settings`; `league_caps` holds the league's position limits and my caps (`leagues.caps`: the lower). `settings.load(ref=None)` puts back the dict settings.json held, plus `first_week` and `league_key`; `formats.league_table(ref)` is the per-position scoring.
+`FFL_LEAGUE=<key>` (e.g. `espn:100000001`) selects the league for `ffl.settings`/`players`/`adp`/`board` and the draft tools (advise, avail, simulate, draft_watch, ...); unset, the home league.
 Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing.
 News: `TYPESAFE_API_KEY` in `.env` is Jev's (TypeSafe AI), which tags and groups the newsdesk's items (`ffl/newsdesk/jev.py`); without it the tag stage stops and nothing new reaches the feed.
 `FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.
