@@ -31,6 +31,12 @@ def position_limits(limits: dict) -> dict[str, int]:
     return {LIMIT_POS[int(k)]: v for k, v in limits.items() if int(k) in LIMIT_POS and v >= 0}
 
 
+def playoff_weeks(schedule: dict) -> list[int]:
+    """The NFL weeks of the fantasy playoffs: the scoring periods of every matchup period after the regular season's."""
+    reg = schedule["matchupPeriodCount"]
+    return sorted(w for mp, weeks in schedule.get("matchupPeriods", {}).items() if int(mp) > reg for w in weeks)
+
+
 def collect() -> dict:
     lg = league()
     raw = raw_league_get(["mSettings", "mTeam"])
@@ -65,6 +71,7 @@ def collect() -> dict:
         "scoring_type": s["scoringSettings"].get("scoringType"),
         "reg_season_weeks": s["scheduleSettings"]["matchupPeriodCount"],
         "playoff_teams": s["scheduleSettings"]["playoffTeamCount"],
+        "playoff_weeks": playoff_weeks(s["scheduleSettings"]),
         "roster_slots": {POSITION_MAP.get(k, str(k)): v for k, v in slot_counts.items() if v},
         "roster_slot_ids": slot_counts,
         "starters": starters_by_position(slot_counts),
@@ -111,7 +118,8 @@ def to_markdown(d: dict) -> str:
             if dr.get("date_ms") else "unset")
     L = [f"# {d['name']} ({d['season']})", "",
          f"- League ID: {d['league_id']}",
-         f"- Teams: {d['team_count']}  |  Reg season: {d['reg_season_weeks']} wks  |  Playoff teams: {d['playoff_teams']}",
+         f"- Teams: {d['team_count']}  |  Reg season: {d['reg_season_weeks']} wks  |  Playoff teams: {d['playoff_teams']}"
+         f"  |  Playoff weeks: {', '.join(map(str, d.get('playoff_weeks', [])))}",
          f"- Draft: {dr['type']} / order={dr['order_type']} / {when} / {dr['time_per_pick_s']}s per pick / keepers={dr['keeper_count']}",
          f"- FAAB: {d['faab']} (budget {d['faab_budget']})  |  waiver hours: {d['waiver_hours']}",
          f"- Week 1 starts: {d['week1_start']}",

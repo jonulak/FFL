@@ -3,39 +3,46 @@
 import { useRouter } from "next/navigation";
 import { useOptimistic, useTransition } from "react";
 import { Swap } from "./motion";
+import { PlayoffChip } from "./playoff-chip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // The week is server state in `?week=`, so choosing one is a navigation the page re-renders
 // from; the trigger takes the chosen week at once (crossfading to it) and dims while the page is
-// on its way, then the page's own week takes over.
-export function WeekSelect({ week, current, weeks, base }: { week: number; current: number; weeks: number; base: string }) {
+// on its way, then the page's own week takes over. `playoffs` are the fantasy playoff weeks: each
+// is flagged in the list, and the chip stands beside the trigger while one is chosen.
+export function WeekSelect({ week, current, weeks, base, playoffs = [] }: { week: number; current: number; weeks: number; base: string; playoffs?: number[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [shown, setShown] = useOptimistic(week);
   const all = Array.from({ length: weeks }, (_, i) => i + 1);
   return (
-    <Select
-      value={String(shown)}
-      onValueChange={(v) => {
-        if (v == null || Number(v) === week) return;
-        // scroll: false — the picker sits above the scoreboard, and the eye should stay there
-        start(() => {
-          setShown(Number(v));
-          router.push(Number(v) === current ? base : `${base}?week=${v}`, { scroll: false });
-        });
-      }}
-    >
-      <SelectTrigger size="sm" aria-label="Week" data-pending={pending || undefined} className="pending-dim font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em]">
-        <SelectValue><Swap>{`Week ${shown}`}</Swap></SelectValue>
-      </SelectTrigger>
-      <SelectContent align="end" alignItemWithTrigger={false}>
-        {all.map((n) => (
-          <SelectItem key={n} value={String(n)}>
-            <span className="tabular-nums">Week {n}</span>
-            {n === current && <span className="text-xs text-muted-foreground">now</span>}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex items-center gap-2">
+      {playoffs.includes(shown) && <PlayoffChip />}
+      <Select
+        value={String(shown)}
+        onValueChange={(v) => {
+          if (v == null || Number(v) === week) return;
+          // scroll: false — the picker sits above the scoreboard, and the eye should stay there
+          start(() => {
+            setShown(Number(v));
+            router.push(Number(v) === current ? base : `${base}?week=${v}`, { scroll: false });
+          });
+        }}
+      >
+        <SelectTrigger size="sm" aria-label="Week" data-pending={pending || undefined} className="pending-dim font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em]">
+          <SelectValue><Swap>{`Week ${shown}`}</Swap></SelectValue>
+        </SelectTrigger>
+        {/* as wide as its rows, never narrower than the trigger: a Playoffs chip would run under the check */}
+        <SelectContent align="end" alignItemWithTrigger={false} className="w-auto min-w-(--anchor-width)">
+          {all.map((n) => (
+            <SelectItem key={n} value={String(n)}>
+              <span className="tabular-nums">Week {n}</span>
+              {playoffs.includes(n) && <PlayoffChip />}
+              {n === current && <span className="text-xs text-muted-foreground">now</span>}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

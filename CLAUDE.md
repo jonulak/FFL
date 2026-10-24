@@ -179,6 +179,12 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   my own rows carry no add or deltas). `fa=1` (default) serves `positions[pos]`, `fa=0` adds `rostered[pos]`,
   and `q` searches both halves at every position whatever `fa` says; `season.rank_players` keeps one row per
   player (the rostered one wins) by add, None last. The Free agents toggle rides in the URL as `fa=1`/`fa=0` when it differs from the preset; an Availability filter naming theirs or mine reads the rostered half whatever `fa` says. A view (ffl-8iz, `ffl/player_views.py`, pure) is a preset (`player_presets` state key: `{presets, default}`, seeded "Waivers"; `GET/POST /players/presets`, `POST /players/presets/{id}`, `/{id}/delete`, `/default`) with the URL's overrides laid over; no params opens the default, an unknown preset id opens the default. Filters run server-side over the whole pool (a missing figure fails a numeric filter; a search ignores them); `pos=ALL` spans every position and `pos=FLEX` RB/WR/TE (`GROUPS`), each capped to 150 by the view's sort when unfiltered (`capped`). The payload carries `view`, `presets`, `default`; COLUMNS mirrors `web/lib/player-columns.ts`.
+- **Playoff weeks** (ffl-p2z): `settings["playoff_weeks"]` (`settings.playoff_weeks`: the NFL weeks of every matchup period
+  after `matchupPeriodCount`, off ESPN's `scheduleSettings`; never hard-coded) rides on `/league`, `/nfl` and the player log
+  as `playoff_weeks`. `WeekSelect` flags them (`PlayoffChip`) in its list and beside the trigger; the League picker runs
+  through the last of them; the player log's weeks carry a short "PO" (its week column is one width for the table).
+  A settings.json without the key flags nothing and the League picker stops at the regular season: re-run
+  `uv run python -m ffl.settings` on the main checkout after deploying it.
 - A League scoreboard tile opens that game on the Matchup board at `/league/<week>/<away team id>`
   (`GET /week/{n}?team=`, `week_state(team=)`). The payload's `me`/`opp` are the board's left/right sides:
   I stand left of my own game (`mine: true`), any other game reads away then home. No play feed off my game;

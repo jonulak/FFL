@@ -1232,8 +1232,9 @@ def player_card(player_id: int) -> dict:
         except Exception as e:  # noqa: BLE001 — an earlier season or the opponents are not worth the log
             print(f"{kind} {yr} unavailable for player {player_id}: {e}")
     card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
-    return card_log.player_log(card, settings["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks,
-                               sleeper=sleeper, pos_ranks=pos_ranks, snaps=snaps, current=current)
+    log = card_log.player_log(card, settings["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks,
+                              sleeper=sleeper, pos_ranks=pos_ranks, snaps=snaps, current=current)
+    return {**log, "playoff_weeks": settings.get("playoff_weeks", [])}  # this season's: the log flags its weeks
 
 
 def _boxes_by_team(lg, week: int) -> dict[int, list]:
@@ -1865,8 +1866,10 @@ def league_state(week: int | None = None) -> dict:
             p = S.win_prob(row["away"]["starters"], row["home"]["starters"], sigma)
             odds = {"away": round(p, 3), "home": round(1 - p, 3)}
         board.append({**row, "live": False, "final": S.matchup_final(row), "win_prob": odds})
-    return {"week": week, "current_week": current, "weeks": settings["reg_season_weeks"],
-            "playoff_teams": settings["playoff_teams"], "live": S.is_live() and week == current,
+    # the picker runs on through the playoffs, whose weeks have no pairings until the regular season ends
+    playoffs = settings.get("playoff_weeks", [])
+    return {"week": week, "current_week": current, "weeks": max(playoffs, default=settings["reg_season_weeks"]),
+            "playoff_teams": settings["playoff_teams"], "playoff_weeks": playoffs, "live": S.is_live() and week == current,
             "standings": standings, "scoreboard": board}
 
 

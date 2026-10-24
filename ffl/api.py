@@ -937,6 +937,14 @@ def _scoring() -> list[dict] | None:
         return None
 
 
+def _playoff_weeks() -> list[int]:
+    """The fantasy playoffs' NFL weeks, for the NFL tab's flags; none when the settings file cannot be read."""
+    try:
+        return load().get("playoff_weeks", [])
+    except (Exception, SystemExit):  # noqa: BLE001 — load() exits when the file is missing
+        return []
+
+
 def _sigma() -> dict:
     """The win meter's spread per position (the fallback table when calibrate has not fitted one)."""
     return calibrate.load_sigma()[0]
@@ -1159,7 +1167,7 @@ def nfl_scoreboard(week: int | None = None):
     wk = sb["week"] or week
     games = nfl.overlay(sb["games"], _live_games(wk)) if wk is not None else sb["games"]
     mine, opp = _nfl_starters(wk) if wk is not None else ([], [])
-    return {"week": wk, "current": current, "weeks": NFL_WEEKS,
+    return {"week": wk, "current": current, "weeks": NFL_WEEKS, "playoff_weeks": _playoff_weeks(),
             "live": any(nfl.is_live(g) for g in games),
             "sections": nfl.board(games, _by_club(mine), _by_club(opp)), "byes": sb["byes"], "stale_since": stale}
 

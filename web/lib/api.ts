@@ -89,6 +89,7 @@ export type SeasonTotals = {
 export type SeasonLog = { season: number; weeks: WeekLog[]; totals: SeasonTotals | null };
 export type PlayerLog = {
   player_id: number; name: string; pos: string; team: string; season: number; current_week: number; seasons: SeasonLog[];
+  playoff_weeks?: number[]; // this season's fantasy playoff weeks, flagged on its rows
   jersey?: string | null; // ESPN's number as written ("41"); none for a D/ST
   stale_since: string | null;
 };
@@ -164,7 +165,7 @@ export type NflGame = {
 };
 // `final`: every game in it is over; those sections come last, in time order
 export type NflSection = { live: boolean; final?: boolean; kickoff: string | null; games: NflGame[] };
-export type NflBoard = { week: number; current: number; weeks: number; live: boolean; sections: NflSection[]; byes: string[]; stale_since: string | null };
+export type NflBoard = { week: number; current: number; weeks: number; playoff_weeks?: number[]; live: boolean; sections: NflSection[]; byes: string[]; stale_since: string | null };
 export type NflPlay = {
   id: string; quarter: number | null; clock: string | null; team: string | null; down: string | null; text: string; kind: string | null;
   scoring: boolean; turnover: boolean; penalty: boolean; score: { away: number | null; home: number | null }; athletes: number[]; mine: string[]; opp: string[];
@@ -280,7 +281,7 @@ export type Standing = Club & { rank: number; points_for: number; points_against
 export type ScoreStarter = { player_id: number; pos: string; team: string; proj: number; actual: number; game_played: number; bye: boolean; injury: string };
 export type ScoreSide = Club & { score: number; proj: number; me: boolean; starter_ids: number[]; starter_teams: string[]; pending_teams: string[]; starters: ScoreStarter[] };
 export type League = {
-  week: number; current_week: number; weeks: number; playoff_teams: number; live: boolean;
+  week: number; current_week: number; weeks: number; playoff_teams: number; playoff_weeks?: number[]; live: boolean;
   standings: Standing[];
   scoreboard: { home: ScoreSide; away: ScoreSide; live: boolean; final: boolean; win_prob?: { away: number; home: number } | null }[];
   stale_since: string | null;

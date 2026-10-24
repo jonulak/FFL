@@ -160,6 +160,11 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
 
 export function LeagueView({ data }: { data: League }) {
   const final = data.week < data.current_week;
+  const playoffs = data.playoff_weeks ?? [];
+  // a playoff week has no pairings until the regular season (the weeks before the first playoff one) ends
+  const empty = playoffs.includes(data.week)
+    ? `Playoff matchups are set after week ${Math.min(...playoffs) - 1}.`
+    : `No matchups scheduled for week ${data.week}.`;
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
@@ -174,12 +179,12 @@ export function LeagueView({ data }: { data: League }) {
       <section className="space-y-3">
         <SectionHeading title="Scoreboard" count={data.scoreboard.length}>
           <LiveChip on={data.scoreboard.some((m) => m.live)} />
-          <WeekSelect week={data.week} current={data.current_week} weeks={data.weeks} base="/league" />
+          <WeekSelect week={data.week} current={data.current_week} weeks={data.weeks} playoffs={data.playoff_weeks} base="/league" />
         </SectionHeading>
         {/* another week crossfades in over the last, in place (globals.css, `.swap`) */}
         <ViewTransition update="swap" default="none">
           {data.scoreboard.length === 0
-            ? <Empty className="py-6"><EmptyHeader><EmptyDescription>No matchups scheduled for week {data.week}.</EmptyDescription></EmptyHeader></Empty>
+            ? <Empty className="py-6"><EmptyHeader><EmptyDescription>{empty}</EmptyDescription></EmptyHeader></Empty>
             : (
               <div className="grid gap-3 md:grid-cols-2 md:gap-4">
                 {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final || m.final} href={matchupHref(m, data.week, data.current_week)} />)}

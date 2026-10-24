@@ -112,7 +112,7 @@ export function NflBoardLive({ initial, path }: { initial: NflBoard; path: strin
       </div>
       <SectionHeading title={`Week ${data.week}`} count={count}>
         <LiveChip on={data.live} />
-        <WeekSelect week={data.week} current={data.current} weeks={data.weeks} base="/nfl" />
+        <WeekSelect week={data.week} current={data.current} weeks={data.weeks} playoffs={data.playoff_weeks} base="/nfl" />
       </SectionHeading>
       {count === 0 && <Empty className="py-6"><EmptyHeader><EmptyDescription>No NFL games in week {data.week}.</EmptyDescription></EmptyHeader></Empty>}
       {data.sections.map((s) => (

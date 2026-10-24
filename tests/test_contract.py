@@ -38,7 +38,7 @@ SCORE_STARTER = {"player_id", "pos", "team", "proj", "actual", "game_played", "b
 SCORE_ROW = {"home", "away", "live", "final", "win_prob"}
 # web/lib/api.ts: type Week / type League top level (stale_since is added by the API's cache)
 WEEK = {"week", "live", "mine", "slots", "me", "opp", "win_prob"}
-LEAGUE = {"week", "current_week", "weeks", "playoff_teams", "live", "standings", "scoreboard"}
+LEAGUE = {"week", "current_week", "weeks", "playoff_teams", "playoff_weeks", "live", "standings", "scoreboard"}
 
 
 def test_player_keys():
@@ -82,9 +82,11 @@ def test_standings_row_keys(monkeypatch):
                          scoreboard=lambda wk: [future])
     monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    monkeypatch.setattr(espn_season, "load", lambda: {"reg_season_weeks": 14, "playoff_teams": 6})
+    monkeypatch.setattr(espn_season, "load", lambda: {"reg_season_weeks": 14, "playoff_teams": 6,
+                                                      "playoff_weeks": [15, 16, 17]})
     st = espn_season.league_state(2)
     assert set(st) == LEAGUE
+    assert st["weeks"] == 17 and st["playoff_weeks"] == [15, 16, 17]  # the picker runs through the playoffs
     assert st["week"] == 2 and st["current_week"] == 3 and st["live"] is False
     assert set(st["standings"][0]) == STANDINGS_ROW
     assert st["standings"][0]["streak"] == "W2" and st["standings"][1]["streak"] == "L1"
@@ -132,7 +134,7 @@ def test_week_state_top_level_keys(monkeypatch):
 
 
 # web/lib/api.ts: type PlayerLog / SeasonLog / WeekLog / SeasonTotals
-PLAYER_LOG = {"player_id", "name", "pos", "team", "jersey", "season", "current_week", "seasons"}
+PLAYER_LOG = {"player_id", "name", "pos", "team", "jersey", "season", "current_week", "seasons", "playoff_weeks"}
 SEASON_LOG = {"season", "weeks", "totals"}
 WEEK_LOG = {"week", "opp", "home", "status", "pts", "summary", "box", "volume"}
 SEASON_TOTALS = {"games", "pts", "ppg", "summary", "box"}
@@ -147,7 +149,7 @@ def _allen() -> dict:
 def test_player_log_keys():
     scoring = json.loads((FX / "settings_scoring.json").read_text())["scoring"]
     log = player_card.player_log(_allen(), scoring, {2025: json.loads((FX / "pro_schedule_2025.json").read_text())}, 4, 2026)
-    assert set(log) == PLAYER_LOG
+    assert set(log) == PLAYER_LOG - {"playoff_weeks"}  # espn_season.player_card adds it from the settings
     s = log["seasons"][-1]
     assert set(s) == SEASON_LOG and set(s["weeks"][0]) == WEEK_LOG and set(s["totals"]) == SEASON_TOTALS
 

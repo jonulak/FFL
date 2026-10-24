@@ -44,6 +44,13 @@ def test_scoreboard_route(c):
     assert r["byes"] == ["CAR", "KC"]
 
 
+def test_scoreboard_carries_the_playoff_weeks_from_settings(c, monkeypatch):
+    monkeypatch.setattr(api, "load", lambda: {"playoff_weeks": [15, 16, 17]})
+    assert c.get("/nfl").json()["playoff_weeks"] == [15, 16, 17]
+    monkeypatch.setattr(api, "load", lambda: {})  # a settings file from before the key: no flags
+    assert c.get("/nfl").json()["playoff_weeks"] == []
+
+
 def test_game_route_marks_and_starters(c):
     r = c.get("/nfl/5/gb").json()
     assert r["game"]["home"]["abbr"] == "GB" and r["live"] is True
