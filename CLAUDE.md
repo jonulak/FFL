@@ -53,7 +53,7 @@ scripts/install.sh                     # one-time: launchd agents, hooks path, t
 Pipeline order: settings -> players -> sleeper -> adp -> board -> (browser + draft_watch).
 
 ## Config
-`.env` (gitignored): `LEAGUE_ID`, `ESPN_S2`, `SWID`, `SEASON`, optional `MY_TEAM_ID` (auto-detected from SWID).
+`.env` (gitignored): `ESPN_S2`, `SWID` (the account's, valid for every ESPN league). League facts (id, season, my team) live in the `leagues` table (`ffl/leagues.py`; `uv run python -m ffl.leagues list`; migration 0014 seeded the home row from the old `LEAGUE_ID`/`SEASON`/`MY_TEAM_ID` lines); `config.SEASON` is derived from the date (`nfl_season`), and `config.LEAGUE_ID`/`MY_TEAM_ID`/`DRAFT_ROOM_URL`/`LEAGUE_URL` are lazy transitional reads of the home league.
 Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing.
 News: `TYPESAFE_API_KEY` in `.env` is Jev's (TypeSafe AI), which tags and groups the newsdesk's items (`ffl/newsdesk/jev.py`); without it the tag stage stops and nothing new reaches the feed.
 `FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.

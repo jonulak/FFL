@@ -129,7 +129,7 @@ def test_live_submit_and_cancel_send_what_espn_expects(monkeypatch):
     W.cancel_claim("abc-123", 5)
     assert sent[0][1]["executionType"] == "EXECUTE" and sent[1][1]["executionType"] == "CANCEL"
     assert sent[1][1]["relatedTransactionId"] == "abc-123"
-    assert all(u == W.WRITE_URL for u, _, _ in sent)
+    assert all(u == W.write_url() for u, _, _ in sent)
     assert sent[0][2]["x-fantasy-source"] == "kona" and sent[0][2]["x-fantasy-platform"] == "espn-fantasy-web"
 
 
@@ -335,7 +335,7 @@ def test_move_lineup_under_fake_writes_moves_the_fake_slots(monkeypatch):
 def test_move_lineup_raises_unless_espn_says_executed(monkeypatch):
     monkeypatch.setenv("FFL_WRITES", "1")
     monkeypatch.setattr(W, "_team_id", lambda: 7)
-    monkeypatch.setattr(W, "_post", lambda body, url=W.WRITE_URL: {"status": "PENDING"})
+    monkeypatch.setattr(W, "_post", lambda body, url=None: {"status": "PENDING"})
     with pytest.raises(W.WriteError):
         W.move_lineup([(1, "BE", "RB")], 5)
 

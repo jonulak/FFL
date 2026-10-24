@@ -32,8 +32,8 @@ import numpy as np
 import pandas as pd
 
 from . import board as board_mod
-from . import db
-from .config import DATA, MY_TEAM_ID, SWID, raw_league_get
+from . import config, db
+from .config import DATA, SWID, raw_league_get
 
 POLL_S = 5
 # a mock/practice run (FFL_DATA_DIR set) must not pollute the real draft log
@@ -67,15 +67,16 @@ def my_team_id(settings: dict) -> int:
     by_swid = None
     if SWID:
         by_swid = next((t["id"] for t in settings["teams"] if SWID in t.get("owner_swids", [])), None)
-    if by_swid and MY_TEAM_ID and by_swid != MY_TEAM_ID:
+    registered = config.MY_TEAM_ID
+    if by_swid and registered and by_swid != registered:
         name = next((t.get("name", "?") for t in settings["teams"] if t["id"] == by_swid), "?")
-        print(f"!! MY_TEAM_ID={MY_TEAM_ID} but the SWID owns team {by_swid} ({name}) "
+        print(f"!! MY_TEAM_ID={registered} but the SWID owns team {by_swid} ({name}) "
               f"in this league — using {by_swid}.", flush=True)
     if by_swid:
         return by_swid
-    if MY_TEAM_ID:
-        return MY_TEAM_ID
-    raise SystemExit("Could not identify my team: set MY_TEAM_ID in .env")
+    if registered:
+        return registered
+    raise SystemExit("Could not identify my team: register it in the leagues table (ffl.leagues)")
 
 
 def pick_order(settings: dict) -> list[int]:

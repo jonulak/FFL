@@ -21,7 +21,8 @@ from .sources import cbs, fleaflicker, sharks
 from . import season as S
 from .adp import norm_name
 from .flight import Flight
-from .config import MY_TEAM_ID, SEASON, SWID, cookies, league, raw_league_get
+from . import config
+from .config import SEASON, SWID, cookies, league, raw_league_get
 from .players import fetch_pool
 from .settings import key_scoring, load
 from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
@@ -568,12 +569,12 @@ def record_projections() -> dict:
 
 
 def my_team_id(lg) -> int:
-    if MY_TEAM_ID:
-        return MY_TEAM_ID
+    if config.MY_TEAM_ID:
+        return config.MY_TEAM_ID
     settings = load()
     tid = next((t["id"] for t in settings["teams"] if SWID in t.get("owner_swids", [])), None)
     if tid is None:
-        raise RuntimeError("cannot identify my team: set MY_TEAM_ID in .env")
+        raise RuntimeError("cannot identify my team: register it in the leagues table (ffl.leagues)")
     return tid
 
 

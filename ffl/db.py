@@ -34,6 +34,25 @@ def _season():
     return sa.Column("season", sa.Integer, nullable=False, default=SEASON)
 
 
+def _league():
+    """The league a row belongs to, a registry key ("espn:100000001"); the phase-1b tables carry it."""
+    return sa.Column("league", sa.String, nullable=False)
+
+
+leagues_table = sa.Table(
+    "leagues", metadata,
+    sa.Column("key", sa.String, primary_key=True),       # "<provider>:<provider league id>"
+    sa.Column("provider", sa.String, nullable=False),
+    sa.Column("provider_id", sa.String, nullable=False),
+    sa.Column("season", sa.Integer, nullable=False),
+    sa.Column("name", sa.String, nullable=False),
+    sa.Column("team_id", sa.Integer),                    # mine in that league; NULL until known
+    sa.Column("home", sa.Boolean, nullable=False, default=False),
+    sa.Column("lineup_format", sa.String),
+    sa.Column("strategy", sa.String),
+    sa.Column("added_at", sa.String, nullable=False),
+)
+
 transactions_table = sa.Table(  # not `transactions`: that name is the reader below
     "transactions", metadata, _season(),
     sa.Column("id", sa.String, nullable=False),          # `{epoch ms}-{team_id}-{action}-{player_id}`, as journal.py keys it
@@ -556,6 +575,24 @@ def _upsert(table: sa.Table, rows: list[dict], keys: list[str], update: list[str
     if update is None:
         return stmt.on_conflict_do_nothing(index_elements=keys)
     return stmt.on_conflict_do_update(index_elements=keys, set_={c: stmt.excluded[c] for c in update})
+
+
+def league_rows() -> list[dict]:
+    """Every registered league, the home one first."""
+    t = leagues_table
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(sa.select(t).order_by(t.c.home.desc(), t.c.added_at, t.c.key))]
+
+
+def put_league(row: dict) -> None:
+    """Upsert a league by key (added_at set on first insert only); a home row demotes every other."""
+    from datetime import datetime
+    t = leagues_table
+    row = {**row, "added_at": datetime.now().astimezone().isoformat(timespec="seconds")}
+    with _write() as c:
+        if row["home"]:
+            c.execute(sa.update(t).where(t.c.key != row["key"]).values(home=False))
+        c.execute(_upsert(t, [row], ["key"], [k for k in row if k not in ("key", "added_at")]))
 
 
 def add_plays(rows: list[dict], season: int = SEASON) -> int:

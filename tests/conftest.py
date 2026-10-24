@@ -22,6 +22,10 @@ def _db_template(tmp_path_factory):
     path = tmp_path_factory.mktemp("db") / "template.db"
     mp = pytest.MonkeyPatch()
     mp.setenv("FFL_DB_URL", f"sqlite:///{path}")
+    # migration 0014 seeds the home league from these, the last time league facts come from the environment
+    mp.setenv("LEAGUE_ID", "100000001")
+    mp.setenv("SEASON", "2026")
+    mp.setenv("MY_TEAM_ID", "7")
     command.upgrade(db._alembic_config(), "head")
     db.reset()
     db.engine().dispose()  # the connect hook switches the file to WAL, as production runs it; copies start there

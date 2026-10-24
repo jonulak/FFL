@@ -22,8 +22,14 @@ import requests
 
 from . import config
 
-WRITE_URL = (f"https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/{config.SEASON}"
-             f"/segments/0/leagues/{config.LEAGUE_ID}/transactions/")
+
+
+def write_url() -> str:
+    """Looked up per call: the league's id comes from the registry, which an import must not need."""
+    return (f"https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/{config.SEASON}"
+            f"/segments/0/leagues/{config.LEAGUE_ID}/transactions/")
+
+
 # The headers ESPN's own page sends on every write.
 HEADERS = {"x-fantasy-platform": "espn-fantasy-web", "x-fantasy-source": "kona"}
 TIMEOUT = 15
@@ -152,11 +158,11 @@ def move_lineup(items: list[tuple[int, str, str]], week: int) -> None:
         raise WriteError(200, f"lineup move not executed (status {status!r})")
 
 
-def _post(body: dict | list, url: str = WRITE_URL) -> dict | list:
+def _post(body: dict | list, url: str | None = None) -> dict | list:
     global _READ, _GEN
     with _GEN_LOCK:  # before and whatever the answer: a write that errored may still have landed
         _READ, _GEN = None, _GEN + 1
-    r = requests.post(url, json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
+    r = requests.post(url or write_url(), json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
     if r.status_code >= 400:
         raise WriteError(r.status_code, r.text[:500])
     return r.json()
@@ -249,7 +255,7 @@ def reorder_claims(ids: list[str]) -> None:
         _FAKE.sort(key=lambda c: rank.get(c["id"], len(rank)))
         return
     team = _team_id()
-    _post(reorder_body(ids), url=WRITE_URL.replace("/transactions/", f"/teams/{team}/pendingTransactions"))
+    _post(reorder_body(ids), url=write_url().replace("/transactions/", f"/teams/{team}/pendingTransactions"))
 
 
 def cancel_claim(claim_id: str, week: int) -> None:

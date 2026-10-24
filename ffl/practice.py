@@ -88,9 +88,9 @@ def start(slot: int) -> str:
         if not room:
             raise SystemExit("Draft room tab did not open")
         print(f"practice draft room: {room}")
-        print("Now start the watcher against it:\n"
-              f"  LEAGUE_ID=<mock id from that url> FFL_DATA_DIR=data-mock "
-              "uv run python -m ffl.draft_watch")
+        print("Register the mock league, then start the watcher against it:\n"
+              "  FFL_DATA_DIR=data-mock uv run python -m ffl.leagues add espn <mock id from that url> --home\n"
+              "  FFL_DATA_DIR=data-mock uv run python -m ffl.draft_watch")
         return room
 
 

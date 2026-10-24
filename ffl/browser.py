@@ -15,7 +15,8 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-from .config import CDP_PORT, DATA, DRAFT_ROOM_URL, ESPN_S2, LEAGUE_URL, ROOT, SWID
+from . import config
+from .config import CDP_PORT, DATA, ESPN_S2, ROOT, SWID
 
 PROFILE = ROOT / ".chrome-profile"
 
@@ -87,4 +88,4 @@ if __name__ == "__main__":
         screenshot(sys.argv[2] if len(sys.argv) > 2 else str(DATA / "shot.png"),
                    sys.argv[3] if len(sys.argv) > 3 else None)
     else:
-        launch(LEAGUE_URL if cmd == "league" else DRAFT_ROOM_URL)
+        launch(config.LEAGUE_URL if cmd == "league" else config.DRAFT_ROOM_URL)
