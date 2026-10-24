@@ -24,7 +24,7 @@ import { teamHref } from "@/lib/team-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { HISTORY_LABEL, historyDetail, historyWhen } from "@/lib/transactions";
 import { BoxTable } from "./box-table";
-import { PlayoffChip } from "./playoff-chip";
+import { PLAYOFFS_LABEL } from "./week-select";
 import { ClubLogo } from "./club-logo";
 import { useDecisionPrefs } from "./decision-prefs";
 import { RecentNews } from "./news-recent";
@@ -435,8 +435,9 @@ function Toggle({ open, label }: { open: boolean; label: string }) {
 // that defence has held his position and his projection in the points column, and the bye where
 // it falls. A bye still to come belongs ahead, so the rule falls at the first game to play or the
 // first week past the current one, whichever comes first. Every game this season carries the
-// opponent's rank. No legend under the table: he reads the columns without one. A fantasy playoff
-// week carries the Playoffs chip after its label (this season only: the settings are this season's).
+// opponent's rank. No legend under the table: he reads the columns without one. The fantasy
+// playoff weeks stand under a Playoffs divider and are ruled off from the week after (this season
+// only: the settings are this season's).
 function Weeks({ s, pos, week, playoffs }: { s: SeasonLog; pos: string; week: number; playoffs: number[] }) {
   const cols = columns(s);
   const snaps = hasSnaps(s);
@@ -444,10 +445,16 @@ function Weeks({ s, pos, week, playoffs }: { s: SeasonLog; pos: string; week: nu
   const split = s.weeks.findIndex((w) => w.status === "upcoming" || w.week > week);
   const done = split < 0 ? s.weeks : s.weeks.slice(0, split);
   const ahead = split < 0 ? [] : s.weeks.slice(split);
+  const first = playoffs.length ? Math.min(...playoffs) : null;
+  const after = playoffs.length ? Math.max(...playoffs) + 1 : null;
+  // the divider over the first playoff week, the rule over the week after the last; each enters with its row
+  const rule = (w: WeekLog, i: number) => w.week === first
+    ? <PlayoffsRow key={`po-${w.week}`} span={span} i={i} />
+    : w.week === after ? <PlayoffsEnd key={`po-${w.week}`} span={span} i={i} /> : null;
   return (
     <>
       <SeasonTable cols={cols} ranked>
-        {done.map((w, i) => <WeekRows key={w.week} w={w} span={span} i={i + 1} ranked pos={pos} snaps={snaps} playoff={playoffs.includes(w.week)} />)}
+        {done.map((w, i) => [rule(w, i + 1), <WeekRows key={w.week} w={w} span={span} i={i + 1} ranked pos={pos} snaps={snaps} />])}
         {ahead.length > 0 && (
           <TableRow className={`${ROW} hover:bg-transparent log-in`} style={{ "--i": done.length + 1 } as React.CSSProperties}>
             <TableCell colSpan={3} className="px-0 pt-5 pb-1 font-display text-[0.8125rem] font-semibold uppercase leading-none tracking-[0.12em]">Ahead</TableCell>
@@ -456,23 +463,38 @@ function Weeks({ s, pos, week, playoffs }: { s: SeasonLog; pos: string; week: nu
             <TableCell className="p-0" />
           </TableRow>
         )}
-        {ahead.map((w, i) => w.status === "upcoming"
-          ? <AheadRow key={w.week} w={w} pos={pos} cols={cols.length} i={done.length + i + 2} playoff={playoffs.includes(w.week)} />
-          : <WeekRows key={w.week} w={w} span={span} i={done.length + i + 2} snaps={snaps} playoff={playoffs.includes(w.week)} />)}
+        {ahead.map((w, i) => [rule(w, done.length + i + 2), w.status === "upcoming"
+          ? <AheadRow key={w.week} w={w} pos={pos} cols={cols.length} i={done.length + i + 2} />
+          : <WeekRows key={w.week} w={w} span={span} i={done.length + i + 2} snaps={snaps} />])}
       </SeasonTable>
     </>
   );
 }
 
-// A game still to play: the week, the opponent and its rank, how that defence has held his
-// position per game, and his projection. Nothing opens; there is no box yet.
-function AheadRow({ w, pos, cols, i, playoff }: { w: WeekLog; pos: string; cols: number; i: number; playoff: boolean }) {
+// The divider the playoff weeks stand under, set like the Ahead heading.
+function PlayoffsRow({ span, i }: { span: number; i: number }) {
   return (
     <TableRow className={`${ROW} hover:bg-transparent log-in`} style={{ "--i": i } as React.CSSProperties}>
-      <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold text-muted-foreground`}>
-        {weekLabel(w)}
-        {playoff && <span className="mt-1 block leading-none"><PlayoffChip short className="px-1" /></span>}
-      </TableCell>
+      <TableCell colSpan={span} className={`px-0 pt-5 pb-1 ${PLAYOFFS_LABEL}`}>Playoffs</TableCell>
+    </TableRow>
+  );
+}
+
+// The rule closing the playoff weeks off from the week after: the standings' cut line, a heavier border.
+function PlayoffsEnd({ span, i }: { span: number; i: number }) {
+  return (
+    <TableRow aria-hidden className="border-0 hover:bg-transparent log-in" style={{ "--i": i } as React.CSSProperties}>
+      <TableCell colSpan={span} className="h-0.5 bg-foreground/35 p-0" />
+    </TableRow>
+  );
+}
+
+// A game still to play: the week, the opponent and its rank, how that defence has held his
+// position per game, and his projection. Nothing opens; there is no box yet.
+function AheadRow({ w, pos, cols, i }: { w: WeekLog; pos: string; cols: number; i: number }) {
+  return (
+    <TableRow className={`${ROW} hover:bg-transparent log-in`} style={{ "--i": i } as React.CSSProperties}>
+      <TableCell className={`${CELL} pl-0 font-display text-sm font-semibold text-muted-foreground`}>{weekLabel(w)}</TableCell>
       <TableCell className={CELL}><Opponent w={w} /></TableCell>
       <TableCell className={`${CELL} text-right`}><Rank r={w.opp_rank} pos={pos} /></TableCell>
       {cols > 0 && <TableCell colSpan={cols} className={`${CELL} text-right`}><Allowed r={w.opp_rank} /></TableCell>}
@@ -530,7 +552,7 @@ function Opponent({ w }: { w: WeekLog }) {
 // `i` places the row in the log's entrance (log-in), a beat after the one above it. A past
 // season's weeks carry `fold` instead: always mounted, they fold open and shut with their season
 // (globals.css, tr[data-fold]), and a shut one is inert so no tab stop or reader lands in it.
-function WeekRows({ w, span, i, fold, ranked, pos = "", snaps = false, playoff = false }: { w: WeekLog; span: number; i?: number; fold?: boolean; ranked?: boolean; pos?: string; snaps?: boolean; playoff?: boolean }) {
+function WeekRows({ w, span, i, fold, ranked, pos = "", snaps = false }: { w: WeekLog; span: number; i?: number; fold?: boolean; ranked?: boolean; pos?: string; snaps?: boolean }) {
   const [open, setOpen] = useState(false);
   const enter = i == null ? "" : "log-in";
   const order = i == null ? undefined : { "--i": i } as React.CSSProperties;
@@ -542,7 +564,6 @@ function WeekRows({ w, span, i, fold, ranked, pos = "", snaps = false, playoff =
         {/* a game in progress: a lime dot before the week, not a chip in the narrow Opp column */}
         {w.status === "live" && <span aria-hidden className="mr-1 inline-block size-1.5 rounded-full bg-start align-middle motion-safe:animate-pulse" />}
         {weekLabel(w)}
-        {playoff && <span className="mt-1 block leading-none"><PlayoffChip short className="px-1" /></span>}
       </Fold>
     </TableCell>
   );

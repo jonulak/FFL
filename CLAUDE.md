@@ -181,8 +181,10 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   player (the rostered one wins) by add, None last. The Free agents toggle rides in the URL as `fa=1`/`fa=0` when it differs from the preset; an Availability filter naming theirs or mine reads the rostered half whatever `fa` says. A view (ffl-8iz, `ffl/player_views.py`, pure) is a preset (`player_presets` state key: `{presets, default}`, seeded "Waivers"; `GET/POST /players/presets`, `POST /players/presets/{id}`, `/{id}/delete`, `/default`) with the URL's overrides laid over; no params opens the default, an unknown preset id opens the default. Filters run server-side over the whole pool (a missing figure fails a numeric filter; a search ignores them); `pos=ALL` spans every position and `pos=FLEX` RB/WR/TE (`GROUPS`), each capped to 150 by the view's sort when unfiltered (`capped`). The payload carries `view`, `presets`, `default`; COLUMNS mirrors `web/lib/player-columns.ts`.
 - **Playoff weeks** (ffl-p2z): `settings["playoff_weeks"]` (`settings.playoff_weeks`: the NFL weeks of every matchup period
   after `matchupPeriodCount`, off ESPN's `scheduleSettings`; never hard-coded) rides on `/league`, `/nfl` and the player log
-  as `playoff_weeks`. `WeekSelect` flags them (`PlayoffChip`) in its list and beside the trigger; the League picker runs
-  through the last of them; the player log's weeks carry a short "PO" (its week column is one width for the table).
+  as `playoff_weeks`. A divider marks them, never a per-week chip: `WeekSelect`'s list groups them under a Playoffs label,
+  separated from the weeks either side, and a "Playoffs" label stands beside the trigger on one; the player log sets them
+  under a Playoffs row and rules them off from the week after (`PlayoffsRow`/`PlayoffsEnd`). The League picker runs
+  through the last of them.
   A settings.json without the key flags nothing and the League picker stops at the regular season: re-run
   `uv run python -m ffl.settings` on the main checkout after deploying it.
 - A League scoreboard tile opens that game on the Matchup board at `/league/<week>/<away team id>`
