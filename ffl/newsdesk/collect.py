@@ -306,7 +306,7 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
     def one(source: dict) -> tuple[str, int, int, str | None]:
         try:
             new, edited = _collect(source, index, window, cutoff, at)
-        # any failure is this source's, reported on it; SystemExit is config.league's "no LEAGUE_ID" (Rotowire's pool)
+        # any failure is this source's, reported on it; SystemExit is leagues.home()'s "no home league" (Rotowire's pool)
         except (Exception, SystemExit) as e:  # noqa: BLE001
             _SEEN.pop(source["id"], None)
             err = f"{type(e).__name__}: {e}"[:300]

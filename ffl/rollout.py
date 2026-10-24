@@ -7,8 +7,9 @@ candidate by the season points of my best legal lineup at the end, bye weeks inc
 
 This replaces nothing. `recommend()`'s `score` stays the default ordering; the rollout is
 printed beside it (`FFL_ROLLOUT=1`) so the two can be read against each other. Where they
-disagree, the hard rules in the league's strategy (`uv run python -m ffl.strategy show`) and the human decide. It is pure over its inputs and
-writes nothing.
+disagree, the hard rules in the league's strategy (`uv run python -m ffl.strategy show`) and the human decide. It writes nothing, and
+is pure over its inputs except that `caps` and `qb_pace` default to the league's (`strategy.caps`,
+`strategy.qb_pace`, read from the DB) when the caller passes none.
 
 Why a rollout at all: the table estimates survival one player at a time and prices the cost
 of waiting per position. Those are heuristics for a joint question — "given who is likely to

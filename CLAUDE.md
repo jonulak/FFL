@@ -88,12 +88,12 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   first read, then owned and changed with `ffl.leagues caps`; QB 3, TE 2, K 1, D/ST 1, RB/WR 7 at home), which
   `recommend(caps=)` and the rollout read, beside the lineup blacklists (a second K/D/ST, a second non-flex backup,
   K/D/ST before the run-in); everything else is a rule in the strategy.
-- **The draft order is drawn at draft start.** `settings.json` holds ESPN's placeholder (teams in id order)
+- **The draft order is drawn at draft start.** The league's stored settings hold ESPN's placeholder (teams in id order)
   until then; `FFL_PICK_ORDER` overrides it and `learn_order()` rebuilds it from round 1's picks. Never
   hard-code a slot. `turn_math()` owns all pick-number maths and is shared by the watcher, `advise` and
   `simulate` so they cannot drift.
-- `ffl/rollout.py` is the Monte Carlo second opinion, off unless `FFL_ROLLOUT=1`. It is pure over (board,
-  order, rosters, candidate table) and printed *under* the table, never merged into `score`. Opponents draft
+- `ffl/rollout.py` is the Monte Carlo second opinion, off unless `FFL_ROLLOUT=1`. It writes nothing and is pure over (board,
+  order, rosters, candidate table), except that its caps and QB pace default to the league's (`strategy.caps` / `qb_pace`, read from the DB); it is printed *under* the table, never merged into `score`. Opponents draft
   to ADP + spread under roster constraints; my later picks are planned by assignment of open slots to remaining
   picks (`plan_position`); candidates are scored by `season_points` (best lineup, byes out, per week).
   Judge it with `ffl.replay` on real logs, not by tuning it until a simulation looks right.
@@ -138,18 +138,27 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   (hurt teammates at his position, with return week): the rookie and the fill-in are told apart by hand.
   The bye still ahead comes from the same pro-schedule document as the venue (`bye_by_team`).
 - Injury return dates come from ESPN's public NFL injuries feed (`ffl/espn_season.py::fetch_injuries`, no auth,
-  30-min cache, last-good on failure). `ffl.settings` writes `week1_start`, which `season.week_of` needs to turn a
+  30-min cache, last-good on failure). The league's settings carry `week1_start`, which `season.week_of` needs to turn a
   return date into a week — re-run `uv run python -m ffl.settings` on the main checkout after deploying this, or the
   feed degrades to notes only and the OUT/IR constants keep pricing.
 - **Position caps**: `settings["position_limits"]` (ESPN's `rosterSettings.positionLimits`, keyed by *position* id, not slot
   id: QB 4, RB 8, WR 8, TE 3, K 3, D/ST 3; IR counts). `claims.validate` errors on a target at a full position whose group
   has no cut of his; `claims.cap_warnings` (non-blocking, `warnings` in `/claims`) on a group whose wins could pass a cap.
-  Both pages show `position_caps` (`season.position_caps`). A settings.json without the key shows and checks nothing:
+  Both pages show `position_caps` (`season.position_caps`). Stored settings without the key show and check nothing:
   re-run `uv run python -m ffl.settings` on the main checkout after deploying it.
+- **Draft inputs** (`board.load_inputs(ref)`, the one place every draft tool gets its board from): ESPN's pool per position and
+  scoring format (`espn_pools`, `players.store_pool`/`pool`: a leagues-shared row per format, ownership never stored, a position
+  older than `POOL_MAX_AGE_H` = 24 h refetched by `ffl.players` through the league being drafted; `pool()` itself never fetches),
+  Sleeper's raw season projections (`sleeper_season`, rescored per league at read) and the FFC ADP feeds (`adp_feeds`, for the
+  league's size and PPR). The board is built on demand and written nowhere. **Mid-season draft**: when `settings["first_week"]` > 1
+  (`board.start_week`; `board.banner` warns on the board, advise and the watcher), `proj` is the rest of the season
+  (`board.ros_players`: `season_lookup`'s sourced ROS scaled to the fantasy weeks left, else the season total scaled the same way),
+  byes already played cost nothing and `weeks_left` replaces 17 in urgency and the rollout; ADP stays preseason, so survive% is rough.
+  The draft tables are keyed by league (`draft_picks`, `draft_feeds`, `draft_states`), and the watcher reads only its league's room.
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
   is primary; `adp_1qb` is kept for comparison.
 - **Persistence** (`ffl/db.py`, SQLAlchemy Core + Alembic, no ORM; the only SQLAlchemy importer): SQLite in WAL mode at
-  `<DATA>/ffl.db` (or `FFL_DB_URL`). Tables, with the files each replaced: `transactions` ← `journal/transactions.csv`;
+  `<DATA>/ffl.db` (or `FFL_DB_URL`). Tables, with the files each replaced: `leagues` (the registry, `ffl/leagues.py`; no file, seeded by migration 0014 from `.env`), `strategies` (presets, migration 0016 from the old strategy file), `scoring_formats`/`league_scoring`/`lineup_formats`/`league_settings`/`league_caps` (`ffl/formats.py`, from `data/settings.json` by migration 0015); `transactions` ← `journal/transactions.csv`;
   `draft_picks` ← `journal/draft/picks.csv` (keyed by league, season, overall; migration 0018 filed the 2026 draft under the
   home league; a practice run's are in its own `FFL_DATA_DIR`'s ffl.db); `draft_feeds` ← `data/socket_picks.json` (the room's raw
   feed and attach offset, per league: the watcher writes it, advise/avail/autodraft/draft_pick read it); `draft_states` ←

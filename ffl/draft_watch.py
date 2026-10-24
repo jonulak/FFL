@@ -57,7 +57,7 @@ def pick_order(settings: dict) -> list[int]:
     """The first-round order to start from.
 
     `FFL_PICK_ORDER=3,7,1,...` (team ids) wins, for the moment the room reveals the draw. Otherwise
-    settings.json — which, when the league randomizes the order at draft start, is only a
+    the league's stored settings (`settings.load`) — which, when the league randomizes the order at draft start, is only a
     placeholder (team ids 1..10 in order) until ESPN fills it in. `learn_order` corrects it from
     the picks themselves as the draft goes.
     """

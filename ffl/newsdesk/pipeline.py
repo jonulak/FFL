@@ -133,7 +133,7 @@ def run() -> dict:
             return None
         try:
             out[name] = fn()
-        # reported, never raised: SystemExit is config's "no LEAGUE_ID", which would end the API's run thread
+        # reported, never raised: SystemExit is leagues.home()'s "no home league", which would end the API's run thread
         except (Exception, SystemExit) as e:  # noqa: BLE001
             out[name] = {"error": f"{type(e).__name__}: {e}"[:300]}
         return out[name]
