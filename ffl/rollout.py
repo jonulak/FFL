@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from . import strategy
+from . import board as board_mod, strategy
 from .draft_watch import DEFAULT_ADP_SD, POSITIONS, SEASON_WEEKS, _is_flex
 
 # The roster caps the opponents (and my own later picks) respect are the league's (`strategy.caps`,
@@ -146,17 +146,20 @@ def lineup_points(proj: list[float], pos: list[str], settings: dict) -> float:
 def season_points(proj: list[float], pos: list[str], bye: list[float], settings: dict) -> float:
     """Season points of the best legal lineup, re-picked every week with bye players out.
 
-    Each player is worth proj / SEASON_WEEKS a week. This is the number a candidate is scored
+    Each player is worth proj / weeks left a week. This is the number a candidate is scored
     on: it is what the roster actually fields, and it is where two starters sharing a bye
     cost something and a backup at a thin position earns his keep.
     """
-    weeks = sorted({int(b) for b in bye if b is not None and not (isinstance(b, float) and math.isnan(b))})
-    full = lineup_points(proj, pos, settings) / SEASON_WEEKS
-    total = full * (SEASON_WEEKS - len(weeks))
+    first = board_mod.start_week(settings)
+    n_weeks = board_mod.weeks_left(settings)
+    weeks = sorted({int(b) for b in bye if b is not None and not (isinstance(b, float) and math.isnan(b))
+                    and int(b) >= first})  # a bye already played is no week to lose
+    full = lineup_points(proj, pos, settings) / n_weeks
+    total = full * (n_weeks - len(weeks))
     for w in weeks:
         keep_p = [v for v, b in zip(proj, bye) if not (b is not None and not math.isnan(b) and int(b) == w)]
         keep_pos = [q for q, b in zip(pos, bye) if not (b is not None and not math.isnan(b) and int(b) == w)]
-        total += lineup_points(keep_p, keep_pos, settings) / SEASON_WEEKS
+        total += lineup_points(keep_p, keep_pos, settings) / n_weeks
     return total
 
 

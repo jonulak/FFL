@@ -302,3 +302,12 @@ def test_rollout_reads_league_caps(monkeypatch):
     ro.from_state(bd, SETTINGS_2QB, full, 7, tm, {}, my_roster, rec, n_sims=10, seed=2,
                   caps={**strategy.caps(), "QB": 2})
     assert qbs and max(qbs) <= 2, f"a simulated roster of mine held {max(qbs)} QBs under QB=2"
+
+
+def test_season_points_counts_weeks_left():
+    one = {**SETTINGS_2QB, "first_week": 9, "starters": {"QB": 1}}
+    # one starter at 10 a week: 9 weeks left, so 90 -- not 170
+    assert ro.season_points([90.0], ["QB"], [float("nan")], one) == pytest.approx(90.0)
+    # a bye already played is ignored; one still to come costs a week of him
+    assert ro.season_points([90.0], ["QB"], [6.0], one) == pytest.approx(90.0)
+    assert ro.season_points([90.0], ["QB"], [11.0], one) == pytest.approx(80.0)

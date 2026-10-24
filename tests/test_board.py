@@ -300,3 +300,64 @@ def test_no_files_written(espn, monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "# Draft board:" in out and "QB One" in out
     assert list(data.iterdir()) == []
+
+
+def two_players():
+    return pd.DataFrame([
+        {"player_id": 1, "name": "A", "pos": "QB", "team": "T1", "proj": 200.0, "injury": "ACTIVE"},
+        {"player_id": 2, "name": "B", "pos": "QB", "team": "T2", "proj": 150.0, "injury": "ACTIVE"},
+    ])
+
+
+def test_mid_season_board_prices_rest_of_season():
+    settings = {**SETTINGS, "first_week": 9}
+    lookup = {1: {"ros_proj": 60.0}, 2: {"ros_proj": 90.0}}
+    pl = board_mod.ros_players(two_players(), lookup, settings)
+    assert pl.set_index("name").proj.to_dict() == {"A": 60.0, "B": 90.0}
+    bd = board_mod.build(settings, pl, EMPTY_ADP)
+    assert list(bd.sort_values("vorp", ascending=False).name) == ["B", "A"]
+
+
+def test_ros_players_scales_a_player_the_sources_lack():
+    settings = {**SETTINGS, "first_week": 9}
+    pl = board_mod.ros_players(two_players(), {1: {"ros_proj": None}}, settings)
+    assert pl.proj.tolist() == [round(200 * 9 / 17, 1), round(150 * 9 / 17, 1)]
+    assert board_mod.weeks_left(settings) == 9 and board_mod.weeks_left(SETTINGS) == 17
+
+
+def test_banner_only_mid_season():
+    assert board_mod.banner(SETTINGS) is None and board_mod.banner({**SETTINGS, "first_week": 1}) is None
+    assert board_mod.banner({**SETTINGS, "first_week": 9}) == (
+        "mid-season draft from week 9: board on rest-of-season projections; ADP is preseason, so survive% is rough")
+
+
+def seed_home():
+    home = formats.store(leagues.home(), home_fx())
+    players_mod.store_pool(home)
+    db.put_sleeper_season(2026, QB_RAW)
+    db.put_adp_feed("2qb", 10, 2026, adp.records(ffc_frame()), {})
+    db.put_adp_feed("ppr", 10, 2026, adp.records(ffc_frame()), {})
+    return home
+
+
+def test_week1_board_unchanged(espn, monkeypatch):
+    from ffl import espn_season
+    monkeypatch.delenv("FFL_ADP_MODE", raising=False)
+    monkeypatch.setattr(espn_season, "season_lookup", lambda *a, **k: pytest.fail("week 1 must not price ROS"))
+    home = seed_home()
+    for fw in ({}, {"first_week": 1}):
+        monkeypatch.setattr(board_mod, "load", lambda ref, fw=fw: {**home_fx(), **fw, "league_key": ref.key})
+        board_mod.load_inputs(home)
+
+
+def test_mid_season_load_inputs_prices_through_this_league(espn, monkeypatch):
+    from ffl import espn_season
+    monkeypatch.delenv("FFL_ADP_MODE", raising=False)
+    home = seed_home()
+    monkeypatch.setattr(board_mod, "load", lambda ref: {**home_fx(), "first_week": 9, "league_key": ref.key})
+    seen = []
+    monkeypatch.setattr(espn_season, "season_lookup",
+                        lambda settings, week, ref=None: seen.append((week, ref.key)) or {1001: {"ros_proj": 12.0}})
+    s, pl, a = board_mod.load_inputs(home)
+    assert seen == [(9, home.key)]
+    assert pl.set_index("player_id").proj[1001] == 12.0

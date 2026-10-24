@@ -202,6 +202,8 @@ def bye_penalty(pos: str, bye, my_roster: pd.DataFrame, settings: dict, vorp: fl
     need = settings["starters"].get(pos, 0)
     if not need or bye is None or pd.isna(bye) or "bye" not in my_roster.columns:
         return 0.0  # byes ride in on the ADP feed; without them there is nothing to price
+    if bye < board_mod.start_week(settings):
+        return 0.0  # a bye already played costs the roster nothing
     same = my_roster[my_roster.pos == pos]
     have = len(same) + 1
     if have < need:
@@ -210,7 +212,7 @@ def bye_penalty(pos: str, bye, my_roster: pd.DataFrame, settings: dict, vorp: fl
     shortfall = max(need - (have - on_bye), 0)
     if not shortfall:
         return 0.0
-    return round(shortfall ** 1.5 * max(vorp, 0.0) / SEASON_WEEKS, 1)
+    return round(shortfall ** 1.5 * max(vorp, 0.0) / board_mod.weeks_left(settings), 1)
 
 
 def flex_left(settings: dict, counts: dict[str, int]) -> int:
@@ -523,6 +525,8 @@ class Watcher:
     def banner(self, source: str):
         print(f"Watching league {self.settings['league_id']} via {source} — I am team {self.me} "
               f"({self.teams[self.me]['name']}), slot {self.my_slot()} of {len(self.order)}", flush=True)
+        if note := board_mod.banner(self.settings):
+            print(note, flush=True)
         if order_is_placeholder(self.settings):
             print("!! Draft order is randomized at draft start and settings.json still holds the "
                   "placeholder 1..n. The slot above is a guess until the room shows the order: set "

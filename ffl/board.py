@@ -83,12 +83,47 @@ def load_adp(settings: dict) -> pd.DataFrame:
     return one
 
 
+MID_SEASON_BANNER = ("mid-season draft from week {w}: board on rest-of-season projections; "
+                     "ADP is preseason, so survive% is rough")
+
+
+def start_week(settings: dict) -> int:
+    """The first scoring week the league plays (1 for a preseason draft)."""
+    return settings.get("first_week") or 1
+
+
+def weeks_left(settings: dict) -> int:
+    """Weeks of the season the drafted roster will play."""
+    from .draft_watch import SEASON_WEEKS  # draft_watch imports this module
+    return SEASON_WEEKS - (start_week(settings) - 1)
+
+
+def banner(settings: dict) -> str | None:
+    """The mid-season warning, or None for a draft from week 1."""
+    w = start_week(settings)
+    return MID_SEASON_BANNER.format(w=w) if w > 1 else None
+
+
+def ros_players(players: pd.DataFrame, lookup: dict[int, dict], settings: dict) -> pd.DataFrame:
+    """`proj` on what is still to be played: the sources' rest-of-season consensus where a player has one,
+    else the full-season figure scaled by the weeks left. proj_espn / proj_sleeper stay season totals."""
+    from .draft_watch import SEASON_WEEKS
+    df = players.copy()
+    ros = pd.to_numeric(df.player_id.map(lambda pid: (lookup.get(int(pid)) or {}).get("ros_proj")), errors="coerce")
+    scaled = df.proj * weeks_left(settings) / SEASON_WEEKS
+    df["proj"] = ros.fillna(scaled).round(1)
+    return df
+
+
 def load_inputs(ref=None):
     """(settings, players, adp) for the league (None: the current one), from the DB: ESPN's pool for its
     formats with Sleeper's projections averaged in, and its ADP feeds."""
     ref = ref or leagues.current()
     settings = load(ref)
     players = merge_sleeper(players_mod.pool(ref), sleeper_mod.season_players(ref))
+    if start_week(settings) > 1:
+        from . import espn_season
+        players = ros_players(players, espn_season.season_lookup(settings, start_week(settings), ref=ref), settings)
     return settings, players, load_adp(settings)
 
 

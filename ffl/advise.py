@@ -53,6 +53,8 @@ def main(n: int = 8, made: int = 0):
           f"{teams.get(on_clock, {}).get('name', '?')}{tag} | slot {slot} | your next: "
           f"#{tm['decide']} (in {tm['picks_until_me']}), then #{tm['following']} "
           f"({tm['horizon']} picks between)")
+    if note := board_mod.banner(settings):
+        print(note)
     if order_is_placeholder(settings) and len(picks) < len(order):
         print("!! pick order not confirmed (settings.json placeholder; round 1 not complete) — "
               "set FFL_PICK_ORDER or re-run ffl.settings")

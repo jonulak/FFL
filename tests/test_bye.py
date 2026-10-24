@@ -82,3 +82,15 @@ def test_stacked_kicker_bye_is_nearly_free():
     assert k_penalty < 1.0, f"stacked K bye priced at {k_penalty}, should be near zero"
     assert qb_penalty > 5 * k_penalty, (
         f"penalty must scale with position scarcity: QB {qb_penalty} vs K {k_penalty}")
+
+
+def test_past_bye_costs_nothing():
+    players = make_players()
+    qbs = qb_ids(players, 2)
+    bd = board_mod.build(TWO_QB, players, adp_with_byes(players, {qbs[0]: 6, qbs[1]: 6}), drafted_ids={qbs[0]})
+    mine = bd[bd.player_id == qbs[0]]
+    mid = {**TWO_QB, "first_week": 9}
+    assert dw.bye_penalty("QB", 6, mine, mid, vorp=60.0) == 0.0
+    assert dw.bye_penalty("QB", 6, mine, TWO_QB, vorp=60.0) > 0
+    later = mine.assign(bye=11.0)
+    assert dw.bye_penalty("QB", 11, later, mid, vorp=60.0) > 0

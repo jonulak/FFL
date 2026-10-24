@@ -44,7 +44,7 @@ _LEAGUE_BUILT_AT = 0.0
 # week -> (fetched_at, lookup), every week asked for and none dropped: the Matchup board prices on the scoring
 # week, the Roster and Players pages on the ROS week (the next one once the week's games are played), and with
 # one slot each build evicted the other's 5-25 s lookup. An entry refetches only once it is CACHE_S old.
-_SEASON_CACHE: dict[int, tuple[float, dict]] = {}
+_SEASON_CACHE: dict[tuple[str | None, int], tuple[float, dict]] = {}  # (league key or None, week)
 _SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
 _SL_FLIGHT = Flight()  # week -> its Sleeper fetch in flight, shared by the builds asking at once
 _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
@@ -672,18 +672,20 @@ def _remaining_sleeper_weeks(week: int, settings: dict) -> list[dict] | None:
         return None
 
 
-def season_lookup(settings: dict, week: int) -> dict[int, dict]:
+def season_lookup(settings: dict, week: int, ref=None) -> dict[int, dict]:
     """The whole player pool's season and rest-of-season projections, cached for CACHE_S per week
-    (one ESPN call, Sleeper's season and every remaining week, CBS's and FantasySharks' pages)."""
+    (one ESPN call, Sleeper's season and every remaining week, CBS's and FantasySharks' pages).
+    `ref` is the league whose ESPN scoring prices the pool (None: the home league, as the API reads it)."""
     now = time.time()
-    hit = _SEASON_CACHE.get(week)
+    cache_key = (ref.key if ref else None, week)
+    hit = _SEASON_CACHE.get(cache_key)
     if hit and now - hit[0] < CACHE_S:
         return hit[1]
     # four independent sources of one to four seconds each, in flight together: in sequence they
     # were most of what the Refresh button waited on
     ks = key_scoring(settings["scoring"])
     with ThreadPoolExecutor(3 + len(ROS_SOURCES)) as pool:
-        espn_f = pool.submit(fetch_pool)
+        espn_f = pool.submit(fetch_pool, ref=ref) if ref else pool.submit(fetch_pool)
         sleeper_f = pool.submit(fetch_sleeper_season)
         weeks_f = pool.submit(_remaining_sleeper_weeks, week, settings)
         ros_f = {name: pool.submit(fn, ks, week) for name, fn in ROS_SOURCES.items()}
@@ -700,7 +702,7 @@ def season_lookup(settings: dict, week: int) -> dict[int, dict]:
     for name, d in ros.items():
         if miss := unmatched(d, pool_keys):
             print(f"ROS source {name}: no ESPN player for {', '.join(miss[:10])}")
-    _SEASON_CACHE[week] = (now, lookup)
+    _SEASON_CACHE[cache_key] = (now, lookup)
     return lookup
 
 
