@@ -151,6 +151,52 @@ def test_pool_is_the_espn_players_frame(espn):
     assert list(df[df.proj == 200.0].pos) == players_mod.POSITIONS
 
 
+def test_pool_never_shows_another_leagues_ownership(espn, monkeypatch):
+    """Rows are shared by format; who owns a player is the fetching league's fact, so it is never stored."""
+    real = players_mod._fetch_position
+
+    def owned(pos, limit, season, ref=None):
+        data = real(pos, limit, season, ref)
+        for e in data["players"]:
+            e["onTeamId"], e["status"] = 7, "ONTEAM"
+        return data
+
+    monkeypatch.setattr(players_mod, "_fetch_position", owned)
+    a = formats.store(leagues.home(), home_fx())
+    b = register(999, home_fx())
+    players_mod.store_pool(a)
+    assert players_mod.store_pool(b) == []
+    for ref in (a, b):
+        df = players_mod.pool(ref)
+        assert set(df.on_team_id) == {0} and set(df.status) == {""}
+    stored = db.espn_pool_rows(list(formats.position_formats(b).values()), 2026)
+    assert not any({"on_team_id", "status"} & set(r) for rows in stored.values() for r in rows)
+
+
+def _age_rows(hours: float, pos: str = "QB"):
+    from datetime import datetime, timedelta
+    home = leagues.home()
+    key = formats.position_formats(home)[pos]
+    rows = db.espn_pool_rows([key], 2026)[key]
+    db.put_espn_pool({key: rows}, 2026,
+                     fetched_at=(datetime.now().astimezone() - timedelta(hours=hours)).isoformat(timespec="seconds"))
+
+
+def test_a_stale_pool_row_is_refetched(espn):
+    home = formats.store(leagues.home(), home_fx())
+    players_mod.store_pool(home)
+    _age_rows(25, "QB")
+    assert players_mod.store_pool(home) == ["QB"]
+    assert espn[6:] == [("QB", home.key)]
+
+
+def test_a_fresh_pool_row_is_reused(espn):
+    home = formats.store(leagues.home(), home_fx())
+    players_mod.store_pool(home)
+    _age_rows(1, "QB")
+    assert players_mod.store_pool(home) == [] and len(espn) == 6
+
+
 def test_pool_missing_says_how_to_fetch_it():
     home = formats.store(leagues.home(), home_fx())
     with pytest.raises(SystemExit, match="ffl.players"):

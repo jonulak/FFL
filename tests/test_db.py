@@ -355,7 +355,10 @@ def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch):
     command.upgrade(db._alembic_config(), "head")
     db.reset()
     home = leagues.home()
-    pd.testing.assert_frame_equal(players.pool(home), pd.read_csv(data / "espn_players.csv"))
+    want = pd.read_csv(data / "espn_players.csv").assign(on_team_id=0, status="")   # ownership is never imported
+    pd.testing.assert_frame_equal(players.pool(home), want)
+    stored = db.espn_pool_rows(list(db.league_scoring_keys(home.key).values()), 2026)
+    assert not any({"on_team_id", "status"} & set(r) for rows in stored.values() for r in rows)
     pd.testing.assert_frame_equal(adp.load_feed("2qb", 10, 2026), pd.read_csv(data / "adp_2qb.csv"))
     assert adp.load_feed("ppr", 10, 2026).adp[0] == 30.0
     assert db.sleeper_season_raw(2026) is None, "sleeper_players.csv is rescored already: never imported"

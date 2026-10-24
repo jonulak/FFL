@@ -114,7 +114,7 @@ espn_pools = sa.Table(
     "espn_pools", metadata,
     sa.Column("scoring_format", sa.String, nullable=False),  # a position's scoring_formats key: ESPN scores on it
     sa.Column("season", sa.Integer, nullable=False),
-    sa.Column("rows", sa.JSON, nullable=False),          # that position's players, espn_players.csv's columns
+    sa.Column("rows", sa.JSON, nullable=False),          # that position's players, espn_players.csv's columns less ownership
     sa.Column("fetched_at", sa.String, nullable=False),
     sa.PrimaryKeyConstraint("scoring_format", "season"),
 )
@@ -771,6 +771,14 @@ def espn_pool_rows(keys: list[str], season: int) -> dict[str, list[dict]]:
     with _read() as c:
         return {r.scoring_format: r.rows for r in c.execute(
             sa.select(t.c.scoring_format, t.c.rows).where(t.c.season == season, t.c.scoring_format.in_(keys)))}
+
+
+def espn_pool_fetched(keys: list[str], season: int) -> dict[str, str]:
+    """{scoring_format: fetched_at} for the keys stored for the season."""
+    t = espn_pools
+    with _read() as c:
+        return {r.scoring_format: r.fetched_at for r in c.execute(
+            sa.select(t.c.scoring_format, t.c.fetched_at).where(t.c.season == season, t.c.scoring_format.in_(keys)))}
 
 
 def put_espn_pool(pools: dict[str, list[dict]], season: int, fetched_at: str | None = None) -> None:

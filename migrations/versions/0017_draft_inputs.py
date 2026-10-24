@@ -29,7 +29,8 @@ def _json(v):
 
 
 def upgrade() -> None:
-    """Upgrade schema; import <DATA>/espn_players.csv as the home league's pool, under its six position formats, and
+    """Upgrade schema; import <DATA>/espn_players.csv as the home league's pool, under its six position formats (its
+    ownership columns, on_team_id and status, left out: a pool row is shared by format), and
     adp_2qb.csv / adp_1qb.csv as its feeds, the last time they are read. sleeper_players.csv is already rescored, so
     it is not imported: Sleeper's raw season projections are fetched on first use."""
     espn_pools = op.create_table('espn_pools',
@@ -71,7 +72,9 @@ def upgrade() -> None:
     if path.exists():
         df = pd.read_csv(path)
         op.bulk_insert(espn_pools, [{"scoring_format": keys[pos], "season": home.season,
-                                     "rows": adp.records(df[df.pos == pos]), "fetched_at": _mtime(path)}
+                                     "rows": adp.records(df[df.pos == pos].drop(columns=list(players.LEAGUE_COLUMNS),
+                                                                                errors="ignore")),
+                                     "fetched_at": _mtime(path)}
                                     for pos in players.POSITIONS])
 
     lineup = bind.execute(sa.text("SELECT doc FROM lineup_formats WHERE key = :k"), {"k": home.lineup_format}).scalar()
