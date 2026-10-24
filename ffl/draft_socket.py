@@ -21,20 +21,52 @@ Frame protocol (plain text, space separated):
     PING / PONG                                                keepalive
 
 Picks arrive in draft order, so overall pick number is just arrival index + 1.
+
+ONE LEAGUE PER FEED. The feed attaches only to a draft tab whose URL names its own league
+(`leagueId=<id>`): with two leagues' rooms open, reading the other's picks would mark the wrong
+players gone. The picks go to the league's row of the DB's `draft_feeds` as they land, so a
+restarted watcher resumes where the last one stopped.
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
+from . import db
 from .config import CDP_PORT
 DRAFT_URL_MATCH = "/football/draft"
 
 
-class DraftFeed:
-    """Accumulates picks off the draft room socket. Use as a context manager and call pump()."""
+def is_room(url: str, league_id: str) -> bool:
+    """True for the draft room of league `league_id` (the query's leagueId exactly, never a prefix of it)."""
+    u = urlparse(url)
+    return DRAFT_URL_MATCH in u.path and parse_qs(u.query).get("leagueId") == [str(league_id)]
 
-    def __init__(self, cache: Path | None = None, url_match: str = DRAFT_URL_MATCH):
+
+def room_page(pages, league_id: str):
+    """The open draft tab of league `league_id` (the newest if there are two), or None."""
+    rooms = [p for p in pages if not p.is_closed() and is_room(p.url, league_id)]
+    return rooms[-1] if rooms else None
+
+
+class FeedStore:
+    """Where a feed keeps its picks: the league's `draft_feeds` row."""
+
+    def __init__(self, ref):
+        self.ref = ref
+
+    def load(self) -> tuple[list[dict], int]:
+        return db.draft_feed(self.ref)
+
+    def save(self, picks: list[dict], offset: int) -> None:
+        db.put_draft_feed(self.ref, picks, offset)
+
+
+class DraftFeed:
+    """Accumulates picks off one league's draft room socket. Use as a context manager and call pump().
+
+    store: a FeedStore (load/save); None keeps the picks in memory only."""
+
+    def __init__(self, league_id: str, store: FeedStore | None = None):
         self.picks: list[dict] = []          # [{teamId, playerId, lineupSlotId, overall}]
         self.on_clock: int | None = None
         # how many picks had been made when that SELECTING arrived: the frame lags the pick
@@ -42,13 +74,17 @@ class DraftFeed:
         # this still matches len(self.picks) (see on_clock_now)
         self.on_clock_after = 0
         self.ms_left: int | None = None
-        self.url_match = url_match
-        self.cache = cache
+        self.league_id = str(league_id)
+        self.store = store
         self.url = None
         self.offset = 0  # picks made before we attached (see sync_offset)
         self._pw = self._browser = self._page = self._cdp = None
-        if cache and cache.exists():  # resume after a crash/restart mid-draft
-            self.picks = json.loads(cache.read_text())
+        if store:  # resume after a crash/restart mid-draft
+            self.picks, self.offset = store.load()
+
+    def _save(self):
+        if self.store:
+            self.store.save(self.picks, self.offset)
 
     # -- lifecycle -------------------------------------------------------
     def __enter__(self):
@@ -86,13 +122,13 @@ class DraftFeed:
         """(Re)attach to the draft tab. Safe to call again after the CDP link drops."""
         self._browser = self._pw.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
         ctx = self._browser.contexts[0]
-        pages = [p for p in ctx.pages if not p.is_closed() and self.url_match in p.url]
-        if not pages:
+        page = room_page(ctx.pages, self.league_id)
+        if page is None:
             raise RuntimeError(
-                f"No draft room tab open (looking for '{self.url_match}'). "
-                "Run `uv run python -m ffl.browser` and open the draft room first."
+                f"No draft room tab open for league {self.league_id} (looking for '{DRAFT_URL_MATCH}' "
+                f"with leagueId={self.league_id}). Run `uv run python -m ffl.browser` and open the draft room first."
             )
-        self._page = pages[-1]
+        self._page = page
         # A page dialog (ESPN confirm/alert) with no handler makes the driver auto-dismiss it;
         # if the dialog is already gone by then the driver process dies with an uncaught
         # ProtocolError (live draft 2026-09-07, 18:33). Handle it ourselves and swallow errors.
@@ -128,8 +164,7 @@ class DraftFeed:
             if any(p["playerId"] == pick["playerId"] for p in self.picks):
                 return  # duplicate frame (reconnect replay)
             self.picks.append(pick)
-            if self.cache:
-                self.cache.write_text(json.dumps(self.picks))
+            self._save()
         elif kind == "SELECTING" and len(parts) >= 3:
             self.on_clock, self.ms_left = int(parts[1]), int(parts[2])
             self.on_clock_after = len(self.picks)
@@ -168,6 +203,7 @@ class DraftFeed:
             return self.offset
         made = int(m.group(1)) - 1  # the pick on the clock has not happened yet
         self.offset = max(made - len(self.picks), 0)
+        self._save()
         return self.offset
 
     def backfill(self, name_to_id: dict[str, int]) -> list[str]:
@@ -205,8 +241,7 @@ class DraftFeed:
         # earliest first, then everything the socket already gave us
         self.picks = found[: self.offset] + self.picks
         self.offset = max(self.offset - len(found), 0)
-        if self.cache:
-            self.cache.write_text(json.dumps(self.picks))
+        self._save()
         return [f["playerId"] for f in found]
 
     def pump(self, ms: int = 1000) -> bool:

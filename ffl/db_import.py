@@ -40,9 +40,11 @@ def _transactions(journal: Path, season: int):
 
 def _picks(journal: Path, season: int):
     ints, floats = ("overall", "round", "pick", "team_id", "player_id"), ("adp_2qb", "board_rank_at_pick", "proj")
-    rows = []
-    for r in _csv(journal / "draft" / "picks.csv"):
-        row = {"season": season, **{k: (v if v != "" else None) for k, v in r.items()}}
+    from . import leagues
+    rows, path = [], journal / "draft" / "picks.csv"
+    league = leagues.home().key if path.exists() else None  # the old log is the home league's draft
+    for r in _csv(path):
+        row = {"league": league, "season": season, **{k: (v if v != "" else None) for k, v in r.items()}}
         row.update({k: _num(r[k], int) for k in ints})
         row.update({k: _num(r[k], float) for k in floats})
         row["team"], row["player"] = row["team"] or "", row["player"] or ""  # NOT NULL, as put_picks coerces

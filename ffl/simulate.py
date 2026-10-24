@@ -7,7 +7,8 @@
 Opponents take the best player left by 2QB ADP; I take the board's top candidate. That makes it
 a check on our own logic — does the lineup fill, do the QBs land in the window of the league's strategy (`uv run python -m ffl.strategy show`), does
 the heads-up (two picks out) agree with the on-clock table — not a prediction of who will be
-there. Reads the same inputs as the watcher; writes nothing.
+there. Reads the same inputs as the watcher, for the current league (FFL_LEAGUE, else the home
+league); writes nothing.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ import argparse
 import pandas as pd
 
 from . import board as board_mod
-from . import strategy
+from . import leagues, strategy
 from .draft_watch import (my_team_id, opponent_demand, recommend, roster_counts, snake_order,
                           turn_math)
 
@@ -27,10 +28,15 @@ def order_for_slot(settings: dict, me: int, slot: int) -> list[int]:
 
 
 def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: bool = True,
-             rollout_sims: int = 100, pick_by: str = "score") -> dict:
+             rollout_sims: int = 100, pick_by: str = "score", caps: dict[str, int] | None = None,
+             qb_pace: float | None = None) -> dict:
+    """caps / qb_pace: the league's (None reads the current league's); main reads them once per run."""
     from . import rollout as _ro
     rollout_mod = _ro if _ro.enabled() else None
-    qb_pace = strategy.qb_pace()
+    if caps is None:
+        caps = strategy.caps()
+    if qb_pace is None:
+        qb_pace = strategy.qb_pace()
     order = order_for_slot(settings, me, slot)
     n = len(order)
     full = snake_order(order, settings["roster_size"])
@@ -46,7 +52,7 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
         by_team = roster_counts(picks, id_to_row)
         opp = opponent_demand(settings, [by_team.get(t, {}) for t in tm["window"]])
         rec = recommend(bd, settings, roster, max(tm["picks_until_me"], 0), tm["my_picks_left"],
-                        horizon=tm["horizon"], opp_demand=opp)
+                        horizon=tm["horizon"], opp_demand=opp, caps=caps)
         return bd, roster, rec, tm, by_team
 
     heads_up = None  # (pick it was for, top-3 [(player_id, name)])
@@ -60,7 +66,8 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
             res = None
             if rollout_mod is not None:
                 res = rollout_mod.from_state(bd, settings, full, me, tm, by_team, roster, rec,
-                                             n_sims=rollout_sims, time_budget_s=8.0, seed=p)
+                                             n_sims=rollout_sims, time_budget_s=8.0, seed=p, caps=caps,
+                                             qb_pace=qb_pace)
                 if pick_by == "rollout" and res["rows"]:
                     # let the rollout draft, unfiltered by the hard rules: the test of whether
                     # it reaches the strategy's deadlines on its own
@@ -106,7 +113,7 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
     if len(qb_picks) < 2 or qb_picks[1] > qb20:
         warnings.append(f"QB2 at {qb_picks[1] if len(qb_picks) > 1 else 'never'} is past the "
                         f"twentieth QB's ADP ({qb20:.0f})")
-    for pos, cap in strategy.caps().items():
+    for pos, cap in caps.items():
         if pos_counts.get(pos, 0) > cap:
             warnings.append(f"{pos_counts[pos]} {pos}s rostered (cap {cap})")
     return {"slot": slot, "mine": mine, "pos_counts": pos_counts, "disagreements": disagreements,
@@ -124,14 +131,17 @@ def main():
     ap.add_argument("--pick-by", choices=["score", "rollout"], default="score",
                     help="who makes my picks: score (default) or the rollout (needs FFL_ROLLOUT=1)")
     a = ap.parse_args()
-    settings, players, adp = board_mod.load_inputs()
-    me = my_team_id(settings)
+    ref = leagues.current()
+    settings, players, adp = board_mod.load_inputs(ref)
+    me = my_team_id(settings, ref)
+    caps, qb_pace = strategy.caps(ref), strategy.qb_pace(ref)
     n = settings["team_count"]
     rounds = a.rounds or settings["roster_size"]
     slots = range(1, n + 1) if a.slot == "all" else [int(a.slot)]
     for slot in slots:
         print(f"\n=== SLOT {slot} ({rounds} rounds) ===")
-        res = run_slot(settings, players, adp, me, slot, rounds, verbose=(a.slot != "all"), pick_by=a.pick_by)
+        res = run_slot(settings, players, adp, me, slot, rounds, verbose=(a.slot != "all"), pick_by=a.pick_by,
+                       caps=caps, qb_pace=qb_pace)
         if a.slot == "all":
             print("  " + " | ".join(f"#{m['pick']} {short(m['name'])} {m['pos']}" for m in res["mine"]))
         qbs = [m["pick"] for m in res["mine"] if m["pos"] == "QB"]

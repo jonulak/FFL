@@ -19,13 +19,13 @@ uv run python -m ffl.adp               # FFC 2QB + 1QB ADP for the league's size
 uv run python -m ffl.board             # merge + VORP + tiers, built from the DB on demand; prints the markdown, writes nothing
 uv run python -m ffl.browser           # headed Chrome on the draft room (cookies injected, CDP :9222)
 uv run python -m ffl.browser shot x.png  # screenshot the running Chrome window
-uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; writes the DB's draft_picks
+uv run python -m ffl.draft_watch       # LIVE: picks off the league's draft room socket (FFL_LEAGUE, else home); writes the DB's draft_picks, draft_feeds, draft_states
 uv run python -m ffl.advise            # LIVE: the candidate table, recomputed from the raw pick feed
 uv run python -m ffl.avail WR 8        # LIVE: who is left at a position, by projection (the table hides replacement-level players)
 uv run python -m ffl.simulate 7        # dry-run the draft from a slot (opponents pick to 2QB ADP); `all` for every slot
 uv run python -m ffl.strategy show     # the league's strategy, the prose to advise from (--league KEY; `list`: presets and versions)
 FFL_ROLLOUT=1 uv run python -m ffl.<mod>  # draft_watch / advise / simulate: add the Monte Carlo rollout (second opinion)
-uv run python -m ffl.replay journal/draft/practice-8-slot4.csv   # a finished draft through score + rollout, from my seat
+uv run python -m ffl.replay journal/draft/practice-8-slot4.csv   # a finished draft through score + rollout, from my seat (--league KEY: its draft_picks)
 uv run python -m ffl.ffc fetch         # FantasyFootballCalculator 10-team 2QB draft logs -> data/ffc/ (replay --human)
 uv run python -m ffl.practice 4        # start a League Specific Practice Draft from slot 4 (see journal/PRACTICE_DRAFT.md)
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
@@ -61,8 +61,8 @@ draft tool builds the board from the DB (`board.load_inputs(ref)` + `build`; the
 Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_NOTIFY=0` keeps a dev API from pushing.
 News: `TYPESAFE_API_KEY` in `.env` is Jev's (TypeSafe AI), which tags and groups the newsdesk's items (`ffl/newsdesk/jev.py`); without it the tag stage stops and nothing new reaches the feed.
 `FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.
-Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` keeps the
-real board and pick log untouched.
+Mock/practice runs: `FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` (the mock league registered as home in
+`data-mock/ffl.db`) keeps the real board and pick log untouched: `FFL_DATA_DIR` only chooses the SQLite file.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
 `data/` is gitignored, and everything in it is regenerable except `data/ffl.db` (the season's data; see Persistence), which is backed up nightly to Drive, not by git.
 `journal/` is the durable prose and is committed. The strategy is not a file: presets live in the DB's `strategies` table (added and versioned only by migrations; 0016 holds the old strategy file's text as `2qb-10team` v1) and `uv run python -m ffl.strategy show` prints the league's.
@@ -75,7 +75,8 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   (`draft_watch once` / `rest`) is only for pre-draft checks and post-draft recaps.
 - **Never open a second draft-room connection.** ESPN allows one per team and kicks the earlier
   session out: a duplicate tab, or a standalone websocket client, will boot you out of your own
-  draft mid-pick. The watcher only listens to the tab you are already drafting in.
+  draft mid-pick. The watcher only listens to the tab you are already drafting in, and only to a tab whose
+  URL carries its own league's `leagueId` (`draft_socket.room_page`; `draft_pick` clicks only there too).
 - `ffl/board.py::build()` is pure over (settings, players, adp, drafted_ids) so the watcher rebuilds it every poll;
   replacement level is computed from the still-available pool. Starter counts come from `settings["starters"]`
   with FLEX/OP slots split across positions (see `FLEX_SPLIT`).
@@ -149,8 +150,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   is primary; `adp_1qb` is kept for comparison.
 - **Persistence** (`ffl/db.py`, SQLAlchemy Core + Alembic, no ORM; the only SQLAlchemy importer): SQLite in WAL mode at
   `<DATA>/ffl.db` (or `FFL_DB_URL`). Tables, with the files each replaced: `transactions` ← `journal/transactions.csv`;
-  `draft_picks` ← `journal/draft/picks.csv` (real draft only: `FFL_DATA_DIR` practice runs still write `data-mock/picks.csv`
-  for `ffl.replay`); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
+  `draft_picks` ← `journal/draft/picks.csv` (keyed by league, season, overall; migration 0018 filed the 2026 draft under the
+  home league; a practice run's are in its own `FFL_DATA_DIR`'s ffl.db); `draft_feeds` ← `data/socket_picks.json` (the room's raw
+  feed and attach offset, per league: the watcher writes it, advise/avail/autodraft/draft_pick read it); `draft_states` ←
+  `data/draft_state.json` (the watcher's state, per league, which autodraft reads); `results` ← `journal/results/weekly.csv`; `plays` ← `data/live/plays-week-<n>.jsonl`; `outlooks` (kind
   `week`/`waivers-week`) ← `data/outlook/*.json`; `calibration_snapshots` + `calibration_rows` ← `data/calibration/week-<w>.json`;
   `sigma_fits` ← `sigma.json` (latest wins, history kept; `calibrate.load_sigma` never fails); `claim_plans` ←
   `journal/waivers/week-<n>.json`; `sits` (players sat by hand for a week, no file before it); `box_scores` (ESPN's raw matchup read per week; `fetched_at` moves on every read, `settled` after the Thursday following the week, `final` when read after the week finished); `gap_games` ← `_GAP_GAMES`; `espn_pools` (per position scoring format) ← `data/espn_players.csv` and `adp_feeds` ← `adp_2qb.csv`/`adp_1qb.csv` (0017), `sleeper_season` (raw, fetched on first use; `sleeper_players.csv` was already rescored); `box_score_corrections` (old/new points per player); `source_cache` (`sources.Cached`'s scrapes); `page_cache` (`api.Cache(persist=True)`:

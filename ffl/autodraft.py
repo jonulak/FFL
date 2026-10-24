@@ -3,7 +3,8 @@
     FFL_DATA_DIR=data-mock uv run python -m ffl.autodraft queue.txt
     uv run python -m ffl.autodraft queue.txt --live      # the real draft: opt in explicitly
 
-Watches the watcher's `draft_state.json`; when it says I am on the clock it drafts the first
+For the current league (FFL_LEAGUE, else the home league). Watches the watcher's state for it (the
+DB's draft_states row); when it says I am on the clock it drafts the first
 player in the queue who is still available, falling back to the candidate table's own order.
 `ffl.draft_pick` does the clicking and verifies against the socket feed.
 
@@ -24,13 +25,12 @@ Re-read before every pick, so it can be edited mid-draft.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import time
 from datetime import datetime
 from pathlib import Path
 
-from .config import DATA
+from . import db, leagues
 from .draft_pick import PlayerGone, pick
 
 POLL_S = 1.0
@@ -61,17 +61,17 @@ def parse_queue(text: str, current: int) -> list[tuple[int, str]]:
     return out
 
 
-def drafted_ids() -> set[int]:
-    path = DATA / "socket_picks.json"
+def drafted_ids(ref=None) -> set[int]:
+    """Every player the league's pick feed has seen go (None: the current league)."""
     try:
-        return {p["playerId"] for p in json.loads(path.read_text())}
-    except Exception:
+        return {p["playerId"] for p in db.draft_feed(ref)[0]}
+    except db.DBError:
         return set()
 
 
-def candidates(state: dict, queue: list[tuple[int, str]]) -> list[tuple[int, str]]:
+def candidates(state: dict, queue: list[tuple[int, str]], ref=None) -> list[tuple[int, str]]:
     """Queue first, then the candidate table's own order; drafted and blacklisted removed."""
-    gone = drafted_ids()
+    gone = drafted_ids(ref)
     out = [(pid, nm) for pid, nm in queue if pid not in gone]
     for r in state.get("recommend", {}).get("top", []):
         # -999 is recommend()'s blacklist (a position at the league's cap, a 2nd K/DST or non-flex backup,
@@ -87,29 +87,41 @@ def log(msg: str):
     print(f"[{datetime.now():%H:%M:%S}] {msg}", flush=True)
 
 
-def run(queue_path: Path, timeout_s: float = 22.0):
-    state_file = DATA / "draft_state.json"
+def _state(ref) -> dict | None:
+    try:
+        return db.draft_state(ref)
+    except db.DBError:  # a busy DB mid-draft: ask again next poll
+        return None
+
+
+def my_turn(state: dict | None, last_pick: int | None) -> int | None:
+    """The overall pick I am on the clock for, by the watcher's state; None when it is not my turn, the turn is
+    the one already taken (`last_pick`), the draft is over, or no watcher has written a state yet."""
+    if not state or state.get("drafted") or not state.get("on_clock_is_me"):
+        return None
+    current = state.get("current_pick")
+    return None if current == last_pick else current
+
+
+def run(queue_path: Path, timeout_s: float = 22.0, ref=None):
+    ref = ref or leagues.current()
     last_pick = None
-    log(f"watching {state_file} — queue {queue_path}")
+    log(f"watching the draft state of {ref.key} — queue {queue_path}")
     while True:
-        try:
-            state = json.loads(state_file.read_text())
-        except Exception:
-            time.sleep(POLL_S)
-            continue
-        if state.get("drafted"):
+        state = _state(ref)
+        if state and state.get("drafted"):
             log("draft complete")
             return
-        current = state.get("current_pick")
-        if not state.get("on_clock_is_me") or current == last_pick:
+        current = my_turn(state, last_pick)
+        if current is None:
             time.sleep(POLL_S)
             continue
         queue = parse_queue(queue_path.read_text(), current) if queue_path.exists() else []
-        opts = candidates(state, queue)
+        opts = candidates(state, queue, ref)
         log(f"ON THE CLOCK #{current}: trying {[n for _, n in opts[:MAX_ATTEMPTS]]}")
         for pid, name in opts[:MAX_ATTEMPTS]:
             try:
-                log("  " + pick(pid, name, timeout_s=timeout_s))
+                log("  " + pick(pid, name, timeout_s=timeout_s, ref=ref))
                 last_pick = current
                 break
             except PlayerGone as e:

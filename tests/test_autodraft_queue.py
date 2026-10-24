@@ -1,7 +1,7 @@
 """The queue file is edited between turns, sometimes seconds before a pick, so its parsing
 has to be forgiving of comments and blank lines and exact about which picks a section covers.
 """
-from ffl import autodraft
+from ffl import autodraft, db, leagues
 from ffl.autodraft import candidates, parse_queue
 
 QUEUE = """
@@ -35,7 +35,7 @@ def test_pick_range_section_is_inclusive():
 
 def test_candidates_put_the_queue_first_then_the_table(monkeypatch):
     # drafted_ids() reads the live pick feed; Gibbs went 1.03 for real on 2026-09-07
-    monkeypatch.setattr(autodraft, "drafted_ids", set)
+    monkeypatch.setattr(autodraft, "drafted_ids", lambda ref=None: set())
     state = {"recommend": {"top": [
         {"player_id": 1, "name": "Table Man", "score": 12.0},
         {"player_id": 4429795, "name": "Jahmyr Gibbs", "score": 30.0},  # already queued
@@ -48,3 +48,31 @@ def test_candidates_put_the_queue_first_then_the_table(monkeypatch):
 def test_blacklisted_players_are_never_offered():
     state = {"recommend": {"top": [{"player_id": 2, "name": "QB4", "score": -999.0}]}}
     assert candidates(state, []) == []
+
+
+def _other():
+    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+
+
+def test_drafted_ids_come_from_the_leagues_feed():
+    other = _other()
+    db.put_draft_feed(other, [{"teamId": 1, "playerId": 4429795, "lineupSlotId": 2, "overall": 1}], 0)
+    assert autodraft.drafted_ids(other) == {4429795}
+    assert autodraft.drafted_ids(leagues.home()) == set()
+    state = {"recommend": {"top": [{"player_id": 4429795, "name": "Jahmyr Gibbs", "score": 30.0}]}}
+    assert candidates(state, [(4429795, "Jahmyr Gibbs")], other) == []
+    assert candidates(state, [], leagues.home()) == [(4429795, "Jahmyr Gibbs")]
+
+
+def test_the_turn_is_read_off_the_leagues_draft_state():
+    other = _other()
+    turn = lambda ref, last: autodraft.my_turn(autodraft._state(ref), last)
+    assert turn(other, None) is None, "no state yet: wait"
+    db.put_draft_state(other, {"current_pick": 12, "on_clock_is_me": True, "drafted": False})
+    assert turn(other, None) == 12
+    assert turn(other, 12) is None, "a turn already taken is not taken twice"
+    assert turn(leagues.home(), None) is None, "another league's turn is not mine"
+    db.put_draft_state(other, {"current_pick": 13, "on_clock_is_me": False, "drafted": False})
+    assert turn(other, 12) is None
+    db.put_draft_state(other, {"current_pick": 14, "on_clock_is_me": True, "drafted": True})
+    assert turn(other, 12) is None, "the draft is over"

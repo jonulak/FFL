@@ -287,7 +287,6 @@ def test_no_files_written(espn, monkeypatch, tmp_path, capsys):
     data = tmp_path / "data"
     data.mkdir()
     monkeypatch.setattr(config, "DATA", data)
-    monkeypatch.setattr(avail, "DATA", data)
     monkeypatch.setattr(settings_mod, "fetch", lambda ref: {**home_fx(), "first_week": 1})
     monkeypatch.setattr(sleeper, "fetch_raw", lambda season: QB_RAW)
     monkeypatch.setattr(adp, "fetch", lambda fmt, teams, year: ffc_frame())

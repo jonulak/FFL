@@ -5,8 +5,10 @@ candidate table for my next pick.
     uv run python -m ffl.draft_watch once       # single REST snapshot (pre-draft sanity check)
     uv run python -m ffl.draft_watch rest       # REST polling loop (post-draft recap only)
 
-Outputs: data/draft_state.json (full state), the DB's draft_picks (real draft) or
-data-mock/picks.csv (FFL_DATA_DIR runs), stdout.
+Outputs, all under the watched league (FFL_LEAGUE, else the home league): the DB's draft_picks
+(the log), draft_states (full state, which ffl.autodraft reads) and draft_feeds (the raw socket
+feed, which ffl.advise / ffl.avail read), and stdout. A practice run (FFL_DATA_DIR) writes the same
+tables in its own data dir's ffl.db.
 ESPN's REST mDraftDetail view is useless *during* a live draft — every slot stays at
 playerId -1 until the draft finishes — so live mode reads the draft room's websocket
 over CDP instead (see ffl/draft_socket.py). REST stays for pre-draft checks; whether it backfills after a draft is unverified.
@@ -19,7 +21,6 @@ Claude) reading that table against the league's strategy (`uv run python -m ffl.
 """
 from __future__ import annotations
 
-import csv
 import json
 import math
 import os
@@ -33,13 +34,9 @@ import pandas as pd
 
 from . import board as board_mod
 from . import config, db, leagues, strategy
-from .config import DATA, raw_league_get
+from .config import raw_league_get
 
 POLL_S = 5
-# a mock/practice run (FFL_DATA_DIR set) must not pollute the real draft log
-# (ffl.replay and PRACTICE_DRAFT.md read that CSV); the real draft's log is the DB
-PICKS_CSV = (DATA / "picks.csv") if os.environ.get("FFL_DATA_DIR") else None
-STATE = DATA / "draft_state.json"
 NEED_WEIGHT = {"starter_open": 1.35, "flex_open": 1.1, "unstartable": 0.15}
 POSITIONS = ["QB", "RB", "WR", "TE", "D/ST", "K"]
 # ADP spread to assume when the feed has none for a player (FFC's typical mid-round stdev)
@@ -51,9 +48,9 @@ INJURY_SHORT = {"ACTIVE": "", "QUESTIONABLE": "Q", "DOUBTFUL": "D", "OUT": "OUT"
                 "INJURY_RESERVE": "IR", "SUSPENSION": "SUSP"}
 
 
-def my_team_id(settings: dict) -> int:
+def my_team_id(settings: dict, ref=None) -> int:
     """Which team is mine, in *this* league: `leagues.my_team_id` (the SWID wins over the registry)."""
-    return leagues.my_team_id(settings)
+    return leagues.my_team_id(settings, ref)
 
 
 def pick_order(settings: dict) -> list[int]:
@@ -137,8 +134,8 @@ def turn_math(full_order: list[int], me: int, current: int) -> dict:
             "horizon": horizon, "window": window, "my_picks_left": my_picks_left}
 
 
-def fetch_picks() -> dict:
-    d = raw_league_get("mDraftDetail")
+def fetch_picks(ref=None) -> dict:
+    d = raw_league_get("mDraftDetail", ref=ref)
     dd = d.get("draftDetail", {})
     # before the draft ESPN returns the whole slate as placeholders with playerId == -1
     picks = [p for p in dd.get("picks", []) if p.get("playerId", 0) > 0]
@@ -496,11 +493,16 @@ def candidate_table(rows: list[dict], n: int = 10) -> str:
 
 
 class Watcher:
-    """Board state + logging, driven by whatever pick feed it is handed."""
+    """Board state + logging for one league (None: the current one), driven by whatever pick feed it is handed."""
 
-    def __init__(self):
-        self.settings, self.players, self.adp = board_mod.load_inputs()
-        self.me = my_team_id(self.settings)
+    def __init__(self, ref=None):
+        self.ref = ref or leagues.current()
+        self.settings, self.players, self.adp = board_mod.load_inputs(self.ref)
+        self.me = my_team_id(self.settings, self.ref)
+        # the league's caps and QB pace, read once: every tick (one a second live) would read the DB, and a
+        # failed lookup inside the rollout thread would be a SystemExit there, not a line on screen
+        self.caps = strategy.caps(self.ref)
+        self.qb_pace = strategy.qb_pace(self.ref)
         self.teams = {t["id"]: t for t in self.settings["teams"]}
         self.base_order = pick_order(self.settings)
         self.order = list(self.base_order)
@@ -513,17 +515,12 @@ class Watcher:
         from . import rollout as rollout_mod  # here, not at the top: rollout imports this module
         self.rollout_mod = rollout_mod if rollout_mod.enabled() else None
         self._roll_gen = 0
-        if PICKS_CSV:
-            PICKS_CSV.parent.mkdir(parents=True, exist_ok=True)
-            if not PICKS_CSV.exists():
-                with PICKS_CSV.open("w", newline="") as f:
-                    csv.writer(f).writerow(["overall", "round", "pick", "team_id", "team", "player_id", "player", "pos", "nfl", "adp_2qb", "board_rank_at_pick", "proj", "ts"])
 
     def my_slot(self) -> int | str:
         return self.order.index(self.me) + 1 if self.me in self.order else "?"
 
     def banner(self, source: str):
-        print(f"Watching league {self.settings['league_id']} via {source} — I am team {self.me} "
+        print(f"Watching league {self.ref.key} via {source} — I am team {self.me} "
               f"({self.teams[self.me]['name']}), slot {self.my_slot()} of {len(self.order)}", flush=True)
         if note := board_mod.banner(self.settings):
             print(note, flush=True)
@@ -552,7 +549,7 @@ class Watcher:
                                   drafted_ids={p["playerId"] for p in picks[:self.seen]})
             pre_rank = pre.set_index("player_id").board_rank
             adp_by_id = bd.set_index("player_id").adp
-            new_rows, csv_rows = [], []
+            new_rows = []
             for p in picks[self.seen:]:
                 pid = p["playerId"]
                 row = self.id_to_row.loc[pid] if pid in self.id_to_row.index else None
@@ -572,15 +569,7 @@ class Watcher:
                     "board_rank_at_pick": float(br) if pd.notna(br) else None,
                     "proj": float(row["proj"]) if row is not None else None,
                     "ts": datetime.now().isoformat(timespec="seconds")})
-                # the CSV keeps the raw values it always had ("" for a missing nfl/proj, nan/"" for adp/rank)
-                csv_rows.append([p["overallPickNumber"], p["roundId"], p["roundPickNumber"], p["teamId"],
-                                 new_rows[-1]["team"], pid, name, pos, row["team"] if row is not None else "", a, br,
-                                 row["proj"] if row is not None else "", new_rows[-1]["ts"]])
-            if PICKS_CSV:
-                with PICKS_CSV.open("a", newline="") as f:
-                    csv.writer(f).writerows(csv_rows)
-            else:
-                db.put_picks(new_rows)
+            db.put_picks(new_rows, ref=self.ref)
             self.seen = len(picks)
 
         current = len(picks) + offset + 1  # offset = picks made before we attached
@@ -592,7 +581,7 @@ class Watcher:
         by_team = roster_counts(picks, self.id_to_row)
         opp = opponent_demand(self.settings, [by_team.get(t, {}) for t in tm["window"]])
         rec = recommend(bd, self.settings, my_roster, max(tm["picks_until_me"], 0), tm["my_picks_left"],
-                        horizon=tm["horizon"], opp_demand=opp)
+                        horizon=tm["horizon"], opp_demand=opp, caps=self.caps)
         recent = [self.id_to_row.loc[p["playerId"]]["pos"] for p in picks[-6:] if p["playerId"] in self.id_to_row.index]
         runs = {pos: recent.count(pos) for pos in set(recent) if recent.count(pos) >= 3}
         state = {
@@ -609,7 +598,8 @@ class Watcher:
             "rosters": {self.teams[t]["name"]: [self.id_to_row.loc[p["playerId"]]["name"] + f" ({self.id_to_row.loc[p['playerId']]['pos']})"
                                                 for p in picks if p["teamId"] == t and p["playerId"] in self.id_to_row.index] for t in self.teams},
         }
-        STATE.write_text(json.dumps(state, indent=1, default=str))
+        # plain JSON, as the old state file held it (numpy scalars and the like as strings)
+        db.put_draft_state(self.ref, json.loads(json.dumps(state, default=str)))
         state["_fresh"] = fresh
         state["_rec"] = rec
         state["_rollout_inputs"] = (bd, tm, by_team, my_roster)
@@ -661,9 +651,9 @@ class Watcher:
         def work():
             try:
                 res = self.rollout_mod.from_state(bd, self.settings, self.full_order, self.me, tm,
-                                                  by_team, my_roster, rec)
+                                                  by_team, my_roster, rec, caps=self.caps, qb_pace=self.qb_pace)
                 lines = self.rollout_mod.rollout_lines(res, rec)
-            except Exception as e:  # never let the second opinion take the first one down
+            except (Exception, SystemExit) as e:  # never let the second opinion take the first one down
                 lines = [f"rollout    failed: {e!r}"]
             stale = "" if gen == self._roll_gen else " (STALE: a pick landed since)"
             for line in lines:
@@ -688,16 +678,16 @@ def numbered(picks: list[dict], n_teams: int, offset: int = 0) -> list[dict]:
 
 def run_socket():
     """Live mode: read picks off the draft room websocket via the open Chrome tab."""
-    from .draft_socket import DraftFeed
+    from .draft_socket import DraftFeed, FeedStore
 
     w = Watcher()
     n_teams = len(w.order)
     total = n_teams * w.rounds
-    with DraftFeed(cache=DATA / "socket_picks.json") as feed:
+    with DraftFeed(w.ref.provider_id, store=FeedStore(w.ref)) as feed:
         print(f"Attached to {feed.url}", flush=True)
         w.banner("draft-room socket")
         if feed.picks:
-            print(f"Resuming with {len(feed.picks)} picks from cache", flush=True)
+            print(f"Resuming with {len(feed.picks)} picks from the DB's draft feed", flush=True)
         if feed.sync_offset():
             missed = feed.offset
             got = feed.backfill({str(n).lower(): int(i) for n, i in
@@ -740,7 +730,7 @@ def run(once: bool = False):
     printed = False
     while True:
         try:
-            d = fetch_picks()
+            d = fetch_picks(w.ref)
         except Exception as e:  # network hiccup: keep polling
             print(f"[{datetime.now():%H:%M:%S}] fetch error: {e}", flush=True)
             time.sleep(POLL_S)

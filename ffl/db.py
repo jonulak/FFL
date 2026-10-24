@@ -153,7 +153,7 @@ transactions_table = sa.Table(  # not `transactions`: that name is the reader be
 sa.Index("ix_transactions_player", transactions_table.c.season, transactions_table.c.player_id)
 
 draft_picks = sa.Table(
-    "draft_picks", metadata, _season(),
+    "draft_picks", metadata, _league(), _season(),
     sa.Column("overall", sa.Integer, nullable=False),
     sa.Column("round", sa.Integer, nullable=False),
     sa.Column("pick", sa.Integer, nullable=False),
@@ -167,7 +167,23 @@ draft_picks = sa.Table(
     sa.Column("board_rank_at_pick", sa.Float),
     sa.Column("proj", sa.Float),
     sa.Column("ts", sa.String),
-    sa.PrimaryKeyConstraint("season", "overall"),
+    sa.PrimaryKeyConstraint("league", "season", "overall"),
+)
+
+# The live draft (ffl/draft_socket.py, ffl/draft_watch.py): the room's raw pick feed, and the watcher's state.
+draft_feeds = sa.Table(
+    "draft_feeds", metadata, _league(), _season(),
+    sa.Column("picks", sa.JSON, nullable=False),         # [{teamId, playerId, lineupSlotId, overall}] in arrival order
+    sa.Column("offset", sa.Integer, nullable=False),     # picks made before the feed attached, still unaccounted for
+    sa.Column("updated_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("league", "season"),
+)
+
+draft_states = sa.Table(
+    "draft_states", metadata, _league(), _season(),
+    sa.Column("doc", sa.JSON, nullable=False),           # the watcher's full state, as each tick left it
+    sa.Column("updated_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("league", "season"),
 )
 
 results = sa.Table(
@@ -1045,22 +1061,68 @@ _PICK_COLS = ("overall", "round", "pick", "team_id", "team", "player_id", "playe
               "adp_2qb", "board_rank_at_pick", "proj", "ts")
 
 
-def put_picks(rows: list[dict], season: int = SEASON) -> None:
-    """Upsert per overall pick. team and player are NOT NULL: the watcher can hand over None for a team it
-    does not know."""
+def _league_season(ref, season: int | None = None):
+    """(league key, season) for a LeagueRef; None is the current league (`leagues.current()`), its season."""
+    if ref is None:
+        from . import leagues  # here: leagues imports this module
+        ref = leagues.current()
+    return ref.key, season if season is not None else ref.season
+
+
+def put_picks(rows: list[dict], ref=None, season: int | None = None) -> None:
+    """Upsert per overall pick, in the league `ref` names. team and player are NOT NULL: the watcher can hand
+    over None for a team it does not know."""
     if rows:
-        rows = [{"season": season, **{k: r.get(k) for k in _PICK_COLS}} for r in rows]
+        league, season = _league_season(ref, season)
+        rows = [{"league": league, "season": season, **{k: r.get(k) for k in _PICK_COLS}} for r in rows]
         for r in rows:
             r["team"], r["player"] = r["team"] or "", r["player"] or ""
         with _write() as c:
-            c.execute(_upsert(draft_picks, rows, ["season", "overall"], [k for k in _PICK_COLS if k != "overall"]))
+            c.execute(_upsert(draft_picks, rows, ["league", "season", "overall"],
+                              [k for k in _PICK_COLS if k != "overall"]))
 
 
-def picks(season: int = SEASON) -> list[dict]:
-    q = sa.select(*[draft_picks.c[k] for k in _PICK_COLS]).where(draft_picks.c.season == season) \
-        .order_by(draft_picks.c.overall)
+def picks(ref=None, season: int | None = None) -> list[dict]:
+    """The league's draft log in pick order (the `_PICK_COLS`, no league or season)."""
+    league, season = _league_season(ref, season)
+    t = draft_picks
+    q = sa.select(*[t.c[k] for k in _PICK_COLS]).where(t.c.league == league, t.c.season == season) \
+        .order_by(t.c.overall)
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
+
+
+def put_draft_feed(ref, picks: list[dict], offset: int) -> None:
+    """Replace the league's raw pick feed (every pick the room's socket has shown, and the offset still missing)."""
+    league, season = _league_season(ref)
+    row = {"league": league, "season": season, "picks": picks, "offset": offset, "updated_at": _now()}
+    with _write() as c:
+        c.execute(_upsert(draft_feeds, [row], ["league", "season"], ["picks", "offset", "updated_at"]))
+
+
+def draft_feed(ref) -> tuple[list[dict], int]:
+    """(picks, offset) of the league's pick feed; ([], 0) before its draft room was ever watched."""
+    league, season = _league_season(ref)
+    t = draft_feeds
+    with _read() as c:
+        r = c.execute(sa.select(t.c.picks, t.c.offset).where(t.c.league == league, t.c.season == season)).first()
+    return (list(r.picks), int(r.offset)) if r else ([], 0)
+
+
+def put_draft_state(ref, doc: dict) -> None:
+    """Replace the watcher's state for the league. `doc` must be plain JSON (the watcher round-trips it)."""
+    league, season = _league_season(ref)
+    row = {"league": league, "season": season, "doc": doc, "updated_at": _now()}
+    with _write() as c:
+        c.execute(_upsert(draft_states, [row], ["league", "season"], ["doc", "updated_at"]))
+
+
+def draft_state(ref) -> dict | None:
+    """The watcher's latest state for the league; None when no watcher has run on it."""
+    league, season = _league_season(ref)
+    t = draft_states
+    with _read() as c:
+        return c.execute(sa.select(t.c.doc).where(t.c.league == league, t.c.season == season)).scalar()
 
 
 def put_outlooks(week: int, kind: str, entries: dict[int, dict], season: int = SEASON) -> None:
@@ -1763,7 +1825,7 @@ def decisions(season: int = SEASON) -> list[dict]:
         return [_decision_out(r) for r in c.execute(sa.select(t).where(t.c.season == season).order_by(t.c.at.desc(), t.c.id.desc()))]
 
 
-_KEYS = {"transactions": ["season", "id"], "draft_picks": ["season", "overall"], "results": ["season", "week"],
+_KEYS = {"transactions": ["season", "id"], "draft_picks": ["league", "season", "overall"], "results": ["season", "week"],
          "plays": ["season", "week", "player_id", "at", "total"],
          "outlooks": ["season", "week", "kind", "player_id"], "sigma_fits": ["season", "fitted_at"],
          "claim_plans": ["season", "week"], "decisions": ["season", "import_key"]}

@@ -61,7 +61,7 @@ class Pool:
     by_pos: dict[str, list[int]] = field(default_factory=dict)
 
     @classmethod
-    def from_board(cls, bd: pd.DataFrame) -> "Pool":
+    def from_board(cls, bd: pd.DataFrame, qb_pace: float | None = None) -> "Pool":
         avail = bd[~bd.drafted].copy()
         # unranked players: after the feed, in projection order
         unranked = avail.adp.isna()
@@ -73,7 +73,7 @@ class Pool:
         # QB with this at 0 (measured 2026-09-07); a league where every manager hurries a QB3
         # is faster, and nothing measures by how much until the real draft. Applied to the
         # opponents' draw order and to my own plan's survival expectations alike.
-        pace = strategy.qb_pace()
+        pace = strategy.qb_pace() if qb_pace is None else qb_pace
         if pace:
             qb = avail.pos == "QB"
             avail.loc[qb, "adp"] = (avail.loc[qb, "adp"] - pace).clip(lower=1.0)
@@ -457,19 +457,21 @@ def candidate_indices(pool: Pool, rec: dict, my_counts: dict[str, int], settings
 def rollout(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, decide: int,
             rosters: dict[int, dict[str, int]], my_roster: pd.DataFrame, rec: dict, n_sims: int = 300,
             time_budget_s: float | None = None, seed: int | None = None,
-            candidates: list[int] | None = None, caps: dict[str, int] | None = None) -> dict:
+            candidates: list[int] | None = None, caps: dict[str, int] | None = None,
+            qb_pace: float | None = None) -> dict:
     """Score each candidate for my pick at overall number `decide` by the roster it leads to.
 
     rosters: position counts per team id for everyone drafted so far (mine included).
     my_roster: the board rows of the players I already hold (they are off the pool, so their
         projections and byes ride in here for the final evaluation).
     caps: the roster caps every simulated team respects; None reads the league's (`strategy.caps`).
+    qb_pace: picks earlier than ADP the room takes its QBs; None reads the league's (`strategy.qb_pace`).
     Returns {"rows": [...sorted by roll desc...], "n_sims": achieved, "elapsed": seconds}.
     Each row: player_id, name, pos, roll (mean season lineup points), roll_se, next_pos and
     next_proj (what my following pick most often is, and its mean projection) — the reason
     the candidate scores as he does, in one line.
     """
-    pool = Pool.from_board(bd)
+    pool = Pool.from_board(bd, qb_pace)
     rng = np.random.default_rng(seed)
     if caps is None:
         caps = strategy.caps()
@@ -568,7 +570,7 @@ def enabled() -> bool:
 def from_state(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, tm: dict,
                by_team: dict[int, dict[str, int]], my_roster: pd.DataFrame, rec: dict,
                n_sims: int = 300, time_budget_s: float | None = 12.0, seed: int | None = None,
-               caps: dict[str, int] | None = None) -> dict:
+               caps: dict[str, int] | None = None, qb_pace: float | None = None) -> dict:
     """The rollout for the pick `turn_math` says I am choosing for. Empty when I have none left.
 
     FFL_ROLLOUT_SIMS overrides the simulation count (fewer on a slow machine; tests use 20).
@@ -578,7 +580,7 @@ def from_state(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int,
         return {"rows": [], "n_sims": 0, "elapsed": 0.0}
     n_sims = int(os.environ.get("FFL_ROLLOUT_SIMS") or n_sims)
     return rollout(bd, settings, full_order, me, tm["decide"], by_team, my_roster, rec,
-                   n_sims=n_sims, time_budget_s=time_budget_s, seed=seed, caps=caps)
+                   n_sims=n_sims, time_budget_s=time_budget_s, seed=seed, caps=caps, qb_pace=qb_pace)
 
 
 def rollout_lines(res: dict, rec: dict, n: int = 3) -> list[str]:

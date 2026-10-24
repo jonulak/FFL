@@ -2,37 +2,42 @@
 
     uv run python -m ffl.advise            # top 8
     uv run python -m ffl.advise 12         # deeper list
-    uv run python -m ffl.advise --made 3   # the watcher attached 3 picks late
+    uv run python -m ffl.advise --made 3   # the watcher attached 3 picks late (default: the feed's own count)
 
-Deliberately rebuilds the board from `data/socket_picks.json` (the watcher's raw pick log)
-instead of reading its `draft_state.json`. That way advice always reflects the current code
-and keeps working even if the watcher process has died or gone stale mid-draft. The pick math,
+For the current league (FFL_LEAGUE, else the home league). Deliberately rebuilds the board from
+the DB's draft_feeds row (the watcher's raw pick feed) instead of reading its draft_states row.
+That way advice always reflects the current code and keeps working even if the watcher process
+has died or gone stale mid-draft. The pick math,
 opponent model and candidate table are the watcher's own functions, so the two cannot drift.
 """
 from __future__ import annotations
 
 import argparse
-import json
 
 from . import board as board_mod
-from .config import DATA
+from . import db, leagues, strategy
 from .draft_watch import (candidate_table, learn_order, my_team_id, numbered, opponent_demand,
                           order_is_placeholder, pick_order, recommend, roster_counts, snake_order,
                           turn_math)
 
 
-def load_picks() -> list[dict]:
-    path = DATA / "socket_picks.json"
-    if not path.exists():
-        raise SystemExit(f"no {path} yet — is the watcher attached to the draft room?")
-    return json.loads(path.read_text())
+def load_picks(ref) -> tuple[list[dict], int]:
+    """(picks, offset) off the league's pick feed."""
+    picks, offset = db.draft_feed(ref)
+    if not picks and not offset:
+        raise SystemExit(f"no draft feed for {ref.key} yet — is the watcher attached to the draft room?")
+    return picks, offset
 
 
-def main(n: int = 8, made: int = 0):
-    settings, players, adp = board_mod.load_inputs()
-    me = my_team_id(settings)
+def main(n: int = 8, made: int | None = None):
+    ref = leagues.current()
+    settings, players, adp = board_mod.load_inputs(ref)
+    me = my_team_id(settings, ref)
+    caps, qb_pace = strategy.caps(ref), strategy.qb_pace(ref)   # once per run
     base = pick_order(settings)
-    picks = numbered(load_picks(), len(base), made)
+    raw, offset = load_picks(ref)
+    made = offset if made is None else made
+    picks = numbered(raw, len(base), made)
     order = learn_order(base, picks)
     full_order = snake_order(order, settings["roster_size"])
     teams = {t["id"]: t for t in settings["teams"]}
@@ -44,7 +49,7 @@ def main(n: int = 8, made: int = 0):
     by_team = roster_counts(picks, players.set_index("player_id"))
     opp = opponent_demand(settings, [by_team.get(t, {}) for t in tm["window"]])
     rec = recommend(bd, settings, my_roster, max(tm["picks_until_me"], 0), tm["my_picks_left"],
-                    horizon=tm["horizon"], opp_demand=opp)
+                    horizon=tm["horizon"], opp_demand=opp, caps=caps)
 
     on_clock = full_order[current - 1] if current - 1 < len(full_order) else None
     tag = " <-- YOU" if on_clock == me else ""
@@ -77,7 +82,8 @@ def main(n: int = 8, made: int = 0):
     from . import rollout as rollout_mod
     if rollout_mod.enabled() and tm["decide"] is not None:
         print("\nROLLOUT  (season lineup points if I take him now and the draft plays out to ADP; gap to the leader)")
-        res = rollout_mod.from_state(bd, settings, full_order, me, tm, by_team, my_roster, rec)
+        res = rollout_mod.from_state(bd, settings, full_order, me, tm, by_team, my_roster, rec, caps=caps,
+                                     qb_pace=qb_pace)
         top = res["rows"][0]["roll"] if res["rows"] else 0.0
         for r in res["rows"]:
             nxt = f"then {r['next_pos']} ~{r['next_proj']:.0f}" if r["next_pos"] else ""
@@ -90,6 +96,7 @@ def main(n: int = 8, made: int = 0):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("n", nargs="?", type=int, default=8)
-    ap.add_argument("--made", type=int, default=0, help="picks made before the watcher attached")
+    ap.add_argument("--made", type=int, default=None,
+                    help="picks made before the watcher attached (default: the feed's offset)")
     a = ap.parse_args()
     main(a.n, a.made)

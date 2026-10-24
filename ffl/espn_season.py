@@ -1960,7 +1960,7 @@ def draft_picks() -> list[dict]:
     and when (the log's stamp). The DB's draft_picks is the record; when it is empty, ESPN's own
     draft (League.draft, complete once the draft is done) stands in, in pick order, with no time
     (ESPN keeps none)."""
-    rows = db.picks()
+    rows = db.picks(ref=leagues.home())
     if rows:
         return [{"overall": r["overall"], "round": r["round"], "pick": r["pick"], "team_id": r["team_id"],
                  "team": r["team"], "player_id": r["player_id"], "at": r["ts"]} for r in rows]

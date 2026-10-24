@@ -32,26 +32,26 @@ How the room actually works, learned the hard way in a practice draft:
 """
 from __future__ import annotations
 
-import json
 import re
 import sys
 import time
 
 from playwright.sync_api import sync_playwright
 
-from .config import DATA
-from .draft_socket import CDP_PORT, DRAFT_URL_MATCH
+from . import db, leagues
+from .draft_socket import CDP_PORT, room_page
 
 
 class PlayerGone(RuntimeError):
     """The player is not offered in the search dropdown — almost always already drafted."""
 
 
-def _room(ctx):
-    pages = [p for p in ctx.pages if not p.is_closed() and DRAFT_URL_MATCH in p.url]
-    if not pages:
-        raise SystemExit("No draft room tab open.")
-    return pages[-1]
+def _room(ctx, ref):
+    """The draft tab of `ref`'s league, never another league's room (a click there drafts in the wrong league)."""
+    page = room_page(ctx.pages, ref.provider_id)
+    if page is None:
+        raise SystemExit(f"No draft room tab open for league {ref.provider_id}.")
+    return page
 
 
 AUTOPICK_TOGGLE = "[class*=autoPick-toggle] input"
@@ -162,17 +162,19 @@ def _action(page, player_id: int, name: str, want: str, deadline: float):
 PICK_TIMEOUT_S = 20.0
 
 
-def pick(player_id: int, name: str, queue: bool = False, timeout_s: float = PICK_TIMEOUT_S) -> str:
-    """Draft (or queue) one player, and do not report success unless the feed says so.
+def pick(player_id: int, name: str, queue: bool = False, timeout_s: float = PICK_TIMEOUT_S, ref=None) -> str:
+    """Draft (or queue) one player in `ref`'s room (None: the current league), and do not report success
+    unless the feed says so.
 
     The clock is the budget: a practice room gives 30s and our league 90s, so everything here
     retries against a deadline rather than failing on the first miss.
     """
+    ref = ref or leagues.current()
     want = "QUEUE" if queue else "DRAFT"
     deadline = time.time() + timeout_s
     with sync_playwright() as p:
         b = p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
-        page = _room(b.contexts[0])
+        page = _room(b.contexts[0], ref)
         # never bring_to_front(): the room does not need focus for these clicks, and
         # stealing it yanks the user's screen away mid-draft
         # With autopick on, every row offers Queue instead of Draft — and ESPN turns it back
@@ -211,24 +213,25 @@ def pick(player_id: int, name: str, queue: bool = False, timeout_s: float = PICK
             # Verify against the socket feed, which is ground truth. Checking the DOM instead
             # gave false negatives — a drafted player still shows up in the search dropdown, so
             # two picks that actually landed (Jordan Love, Brandon Aubrey) were reported failed.
-            last = confirm_drafted(player_id, timeout_s=2.0)
+            last = confirm_drafted(player_id, timeout_s=2.0, ref=ref)
             if last is not False:  # True, or None when no watcher feed is running
                 return f"drafted {name}" + ("" if last else " (unconfirmed: no watcher feed)")
         raise RuntimeError(f"clicked {want} on {name} until the clock ran out but no pick "
                            f"arrived on the feed")
 
 
-def confirm_drafted(player_id: int, timeout_s: float = 8.0):
-    """True once the pick shows up on the socket feed; None if no feed is running."""
-    path = DATA / "socket_picks.json"
-    if not path.exists():
+def confirm_drafted(player_id: int, timeout_s: float = 8.0, ref=None):
+    """True once the pick shows up on the league's socket feed (the DB's draft_feeds); None if no feed is running
+    (no pick on it yet, as the old feed file did not exist before the first)."""
+    ref = ref or leagues.current()
+    if not db.draft_feed(ref)[0]:
         return None
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         try:
-            if any(p["playerId"] == player_id for p in json.loads(path.read_text())):
+            if any(p["playerId"] == player_id for p in db.draft_feed(ref)[0]):
                 return True
-        except Exception:
+        except db.DBError:
             pass
         time.sleep(0.5)
     return False
@@ -238,7 +241,7 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     with sync_playwright() as _p:
         _b = _p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
-        _page = _room(_b.contexts[0])
+        _page = _room(_b.contexts[0], leagues.current())
         if "--autopick-off" in args:
             print(autopick_off(_page))
             sys.exit(0)

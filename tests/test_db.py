@@ -364,3 +364,80 @@ def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch):
     assert db.sleeper_season_raw(2026) is None, "sleeper_players.csv is rescored already: never imported"
     stored = db.espn_pool_rows(list(db.league_scoring_keys(home.key).values()), 2026)
     assert len(stored) == 6, "every position's format gets a row, an empty one included"
+
+
+def _other_league():
+    from ffl import leagues
+    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+
+
+def test_picks_are_kept_per_league():
+    from ffl import leagues
+    home, other = leagues.home(), _other_league()
+    db.put_picks([{**PICK, "overall": i} for i in (1, 2, 3)], ref=home)
+    db.put_picks([{**PICK, "overall": i, "player": "Other Man"} for i in (1, 2)], ref=other)
+    assert len(db.picks(ref=home)) == 3 and len(db.picks(ref=other)) == 2
+    assert db.picks(ref=home)[0]["player"] == "Josh Allen" and db.picks(ref=other)[0]["player"] == "Other Man"
+    assert db.picks() == db.picks(ref=home), "no league named is the current (home) one"
+
+
+def test_draft_feed_and_state_are_kept_per_league():
+    from ffl import leagues
+    home, other = leagues.home(), _other_league()
+    assert db.draft_feed(other) == ([], 0) and db.draft_state(other) is None
+    first = [{"teamId": 3, "playerId": 11, "lineupSlotId": 0, "overall": 1}]
+    both = first + [{"teamId": 4, "playerId": 12, "lineupSlotId": 0, "overall": 2}]
+    db.put_draft_feed(other, first, 2)
+    db.put_draft_feed(other, both, 1)
+    db.put_draft_state(other, {"current_pick": 5, "on_clock_is_me": True})
+    assert db.draft_feed(other) == (both, 1)
+    assert db.draft_state(other) == {"current_pick": 5, "on_clock_is_me": True}
+    assert db.draft_feed(home) == ([], 0) and db.draft_state(home) is None
+
+
+def _at_0017(tmp_path, monkeypatch, seed_home: bool):
+    """A DB at 0017 holding two draft_picks rows, as the live data/ffl.db stands before 0018."""
+    from alembic import command
+    from ffl import config
+    monkeypatch.setattr(config, "DATA", tmp_path)       # 0015 / 0017 import files from DATA: there are none
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    monkeypatch.setenv("FFL_DB_URL", url)
+    if seed_home:
+        monkeypatch.setenv("LEAGUE_ID", "100000001")
+        monkeypatch.setenv("SEASON", "2026")
+        monkeypatch.setenv("MY_TEAM_ID", "7")
+    else:
+        monkeypatch.delenv("LEAGUE_ID", raising=False)
+    db.reset()
+    command.upgrade(db._alembic_config(), "0017")
+    eng = sa.create_engine(url)                          # not db.engine(): it refuses a schema short of head
+    with eng.begin() as c:
+        for r in (PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}):
+            c.execute(sa.text(f"INSERT INTO draft_picks (season, {', '.join(db._PICK_COLS)}) "
+                              f"VALUES (2026, {', '.join(':' + k for k in db._PICK_COLS)})"), r)
+    eng.dispose()
+    return url
+
+
+def test_migration_backfills_home_league(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0017(tmp_path, monkeypatch, seed_home=True)
+    command.upgrade(db._alembic_config(), "head")
+    db.reset()
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        rows = [dict(r._mapping) for r in c.execute(sa.text("SELECT * FROM draft_picks ORDER BY overall"))]
+        pk = sa.inspect(c).get_pk_constraint("draft_picks")["constrained_columns"]
+    eng.dispose()
+    assert [r["league"] for r in rows] == ["espn:100000001"] * 2
+    assert pk == ["league", "season", "overall"]
+    assert db.picks() == [PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}]
+    db.put_picks([PICK])                                 # the new key upserts
+    assert len(db.picks()) == 2
+
+
+def test_migration_refuses_picks_with_no_home_league(tmp_path, monkeypatch):
+    from alembic import command
+    _at_0017(tmp_path, monkeypatch, seed_home=False)
+    with pytest.raises(RuntimeError, match="home league"):
+        command.upgrade(db._alembic_config(), "head")
