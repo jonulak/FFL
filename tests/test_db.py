@@ -304,3 +304,60 @@ def test_gap_rows_round_trip():
     assert db.gap_rows(3, [11]) == {11: [{"week": 3, "pts": 6.0}]}
     db.add_box_corrections([{"week": 3, "player_id": 11, "team_id": None, "old": 4.0, "new": 6.0, "at": "x"}])
     assert db.box_corrections(week=3)[0]["team_id"] is None
+
+
+def test_draft_inputs_round_trip():
+    rows = [{"player_id": 1, "name": "A", "injury": None, "proj": 10.5}]
+    db.put_espn_pool({"sc-QB-x": rows, "sc-RB-y": []}, 2026)
+    assert db.espn_pool_rows(["sc-QB-x", "sc-RB-y", "sc-TE-z"], 2026) == {"sc-QB-x": rows, "sc-RB-y": []}
+    assert db.espn_pool_rows(["sc-QB-x"], 2025) == {}
+    db.put_espn_pool({"sc-QB-x": []}, 2026)
+    assert db.espn_pool_rows(["sc-QB-x"], 2026) == {"sc-QB-x": []}, "a refetch replaces the rows"
+
+    assert db.sleeper_season_raw(2026) is None
+    db.put_sleeper_season(2026, [{"player": {"position": "QB"}, "stats": {"gp": 17}}])
+    assert db.sleeper_season_raw(2026)[0]["stats"] == {"gp": 17}
+
+    assert db.adp_feed("2qb", 10, 2026) is None
+    db.put_adp_feed("2qb", 10, 2026, [{"key": "a", "adp": 1.5}], {"total_drafts": 3}, fetched_at="t")
+    assert db.adp_feed("2qb", 10, 2026) == {"rows": [{"key": "a", "adp": 1.5}], "meta": {"total_drafts": 3},
+                                            "fetched_at": "t"}
+    assert db.adp_feed("2qb", 12, 2026) is None
+
+
+def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch):
+    """0017 takes espn_players.csv as the home pool under its six formats and the two ADP files as its feeds;
+    read back, they are the frames the CSVs were."""
+    from pathlib import Path
+    import pandas as pd
+    from alembic import command
+    from ffl import adp, config, leagues, players
+    data = tmp_path / "data"
+    data.mkdir()
+    fx = Path(__file__).parent / "fixtures"
+    (data / "settings.json").write_text((fx / "home_settings.json").read_text())
+    pool = pd.DataFrame({"player_id": [1, 2, 3], "name": ["Q", "R", "K"], "pos": ["QB", "RB", "K"],
+                         "team": ["BUF", "DET", "FA"], "proj": [300.0, 300.0, 0.0], "actual": [0.0] * 3,
+                         "injury": ["ACTIVE", None, None], "espn_adp": [1.0, 2.0, 0.0], "espn_auction": [5.0] * 3,
+                         "espn_rank_ppr": [1, 2, None], "espn_rank_std": [1, 2, None], "on_team_id": [0] * 3,
+                         "status": ["FREEAGENT"] * 3})
+    pool.to_csv(data / "espn_players.csv", index=False)
+    feed = pd.DataFrame({"name": ["Q"], "key": ["q"], "pos": ["QB"], "team": ["BUF"], "bye": [7.0], "adp": [1.5],
+                         "adp_rank": [1], "adp_pos_rank": [1]})
+    feed.to_csv(data / "adp_2qb.csv", index=False)
+    feed.assign(adp=[30.0]).to_csv(data / "adp_1qb.csv", index=False)
+    monkeypatch.setattr(config, "DATA", data)
+    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{tmp_path / 'fresh.db'}")
+    monkeypatch.setenv("LEAGUE_ID", "100000001")
+    monkeypatch.setenv("SEASON", "2026")
+    monkeypatch.setenv("MY_TEAM_ID", "7")
+    db.reset()
+    command.upgrade(db._alembic_config(), "head")
+    db.reset()
+    home = leagues.home()
+    pd.testing.assert_frame_equal(players.pool(home), pd.read_csv(data / "espn_players.csv"))
+    pd.testing.assert_frame_equal(adp.load_feed("2qb", 10, 2026), pd.read_csv(data / "adp_2qb.csv"))
+    assert adp.load_feed("ppr", 10, 2026).adp[0] == 30.0
+    assert db.sleeper_season_raw(2026) is None, "sleeper_players.csv is rescored already: never imported"
+    stored = db.espn_pool_rows(list(db.league_scoring_keys(home.key).values()), 2026)
+    assert len(stored) == 6, "every position's format gets a row, an empty one included"

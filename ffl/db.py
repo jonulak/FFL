@@ -109,6 +109,34 @@ league_caps = sa.Table(
     sa.PrimaryKeyConstraint("league", "pos"),
 )
 
+# Draft inputs (ffl/players.py, ffl/sleeper.py, ffl/adp.py): fetched once, shared by every league they fit.
+espn_pools = sa.Table(
+    "espn_pools", metadata,
+    sa.Column("scoring_format", sa.String, nullable=False),  # a position's scoring_formats key: ESPN scores on it
+    sa.Column("season", sa.Integer, nullable=False),
+    sa.Column("rows", sa.JSON, nullable=False),          # that position's players, espn_players.csv's columns
+    sa.Column("fetched_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("scoring_format", "season"),
+)
+
+sleeper_season = sa.Table(
+    "sleeper_season", metadata,
+    sa.Column("season", sa.Integer, primary_key=True, autoincrement=False),
+    sa.Column("raw", sa.JSON, nullable=False),           # Sleeper's season projections as it answered: rescored on read
+    sa.Column("fetched_at", sa.String, nullable=False),
+)
+
+adp_feeds = sa.Table(
+    "adp_feeds", metadata,
+    sa.Column("fmt", sa.String, nullable=False),         # FFC's format: 2qb, ppr, half-ppr, standard
+    sa.Column("teams", sa.Integer, nullable=False),
+    sa.Column("year", sa.Integer, nullable=False),
+    sa.Column("rows", sa.JSON, nullable=False),          # adp.fetch's frame, adp_2qb.csv's columns
+    sa.Column("meta", sa.JSON, nullable=False),          # FFC's meta (drafts counted, date range)
+    sa.Column("fetched_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("fmt", "teams", "year"),
+)
+
 transactions_table = sa.Table(  # not `transactions`: that name is the reader below
     "transactions", metadata, _season(),
     sa.Column("id", sa.String, nullable=False),          # `{epoch ms}-{team_id}-{action}-{player_id}`, as journal.py keys it
@@ -727,6 +755,60 @@ def seed_my_caps(league: str, caps: dict[str, int]) -> None:
                           ["league", "pos"], None))
         for p, n in caps.items():
             c.execute(sa.update(t).where(t.c.league == league, t.c.pos == p, t.c.my_cap.is_(None)).values(my_cap=n))
+
+
+def league_scoring_keys(league: str) -> dict[str, str]:
+    """{pos: scoring_formats key} linked to the league; empty when its settings were never stored."""
+    t = league_scoring
+    with _read() as c:
+        return {r.pos: r.scoring_format for r in c.execute(sa.select(t.c.pos, t.c.scoring_format)
+                                                           .where(t.c.league == league))}
+
+
+def espn_pool_rows(keys: list[str], season: int) -> dict[str, list[dict]]:
+    """{scoring_format: rows} for the keys stored for the season (a key never stored is left out)."""
+    t = espn_pools
+    with _read() as c:
+        return {r.scoring_format: r.rows for r in c.execute(
+            sa.select(t.c.scoring_format, t.c.rows).where(t.c.season == season, t.c.scoring_format.in_(keys)))}
+
+
+def put_espn_pool(pools: dict[str, list[dict]], season: int, fetched_at: str | None = None) -> None:
+    """Replace the season's rows under each scoring format, in one transaction."""
+    if not pools:
+        return
+    at = fetched_at or _now()
+    with _write() as c:
+        c.execute(_upsert(espn_pools, [{"scoring_format": k, "season": season, "rows": v, "fetched_at": at}
+                                       for k, v in pools.items()],
+                          ["scoring_format", "season"], ["rows", "fetched_at"]))
+
+
+def sleeper_season_raw(season: int) -> list | None:
+    with _read() as c:
+        return c.execute(sa.select(sleeper_season.c.raw).where(sleeper_season.c.season == season)).scalar()
+
+
+def put_sleeper_season(season: int, raw: list, fetched_at: str | None = None) -> None:
+    with _write() as c:
+        c.execute(_upsert(sleeper_season, [{"season": season, "raw": raw, "fetched_at": fetched_at or _now()}],
+                          ["season"], ["raw", "fetched_at"]))
+
+
+def adp_feed(fmt: str, teams: int, year: int) -> dict | None:
+    """{rows, meta, fetched_at} of one stored FFC feed; None when never fetched."""
+    t = adp_feeds
+    with _read() as c:
+        r = c.execute(sa.select(t.c.rows, t.c.meta, t.c.fetched_at)
+                      .where(t.c.fmt == fmt, t.c.teams == teams, t.c.year == year)).first()
+    return dict(r._mapping) if r else None
+
+
+def put_adp_feed(fmt: str, teams: int, year: int, rows: list[dict], meta: dict, fetched_at: str | None = None) -> None:
+    with _write() as c:
+        c.execute(_upsert(adp_feeds, [{"fmt": fmt, "teams": teams, "year": year, "rows": rows, "meta": meta,
+                                       "fetched_at": fetched_at or _now()}],
+                          ["fmt", "teams", "year"], ["rows", "meta", "fetched_at"]))
 
 
 def add_plays(rows: list[dict], season: int = SEASON) -> int:

@@ -1,15 +1,18 @@
-"""Build a league-tuned draft board: ESPN projections + 2QB ADP -> data/board.csv, data/board.md."""
+"""Build a league-tuned draft board from the DB's draft inputs (ESPN + Sleeper projections, FFC ADP), on demand.
+
+    uv run python -m ffl.board [league key]    # print the board (markdown); nothing is written
+"""
 from __future__ import annotations
 
-import json
 import math
 import os
+import sys
 
 import numpy as np
 import pandas as pd
 
+from . import adp as adp_mod, leagues, players as players_mod, sleeper as sleeper_mod
 from .adp import norm_name
-from .config import DATA
 from .settings import key_scoring, load
 
 FLEX_SPLIT = {"RB/WR/TE": {"RB": 0.5, "WR": 0.4, "TE": 0.1}, "RB/WR": {"RB": 0.55, "WR": 0.45},
@@ -29,8 +32,7 @@ def bench_depth(settings: dict) -> dict[str, float]:
     """League-wide bench demand per position, given the league's size and lineup format."""
     teams = settings["team_count"]
     out = {p: v * teams for p, v in BENCH_PER_TEAM.items()}
-    starters = settings["starters"]
-    if starters.get("QB", 1) > 1 or "OP" in starters:  # 2QB / superflex
+    if is_multi_qb(settings):
         out["QB"] = QB_BENCH_PER_TEAM_MULTI * teams
     return out
 
@@ -47,39 +49,47 @@ def starter_counts(settings: dict) -> dict[str, float]:
     return counts
 
 
-def adp_mode() -> str:
-    """Which FFC feed is the market: our 2QB league, or a 1QB room.
+def is_multi_qb(settings: dict) -> bool:
+    starters = settings["starters"]
+    return starters.get("QB", 1) > 1 or "OP" in starters  # 2QB / superflex
 
-    Public ESPN mock drafts are all Standard (one QB), and 2QB ADP is badly wrong there —
-    quarterbacks look wildly mispriced and every survival probability with them. Set
-    `FFL_ADP_MODE=1qb` for a mock in such a room; the default stays the 2QB feed, which is the
-    right market for our league.
+
+def adp_mode(settings: dict) -> str:
+    """Which FFC feed is the market: "2qb" for a room that starts two quarterbacks (QB 2, or an OP slot),
+    else "1qb".
+
+    2QB ADP is badly wrong in a one-QB room (public ESPN mocks are all Standard): quarterbacks look wildly
+    mispriced, and every survival probability with them. `FFL_ADP_MODE=1qb` (or `2qb`) overrides the
+    league's lineup, for a mock in a room that is not the league's; any other value is ignored.
     """
-    return "1qb" if (os.environ.get("FFL_ADP_MODE") or "").lower() == "1qb" else "2qb"
+    env = (os.environ.get("FFL_ADP_MODE") or "").lower()
+    if env in ("1qb", "2qb"):
+        return env
+    return "2qb" if is_multi_qb(settings) else "1qb"
 
 
-def load_adp() -> pd.DataFrame:
-    """The ADP table, with `adp`/`adp_rank` set to whichever feed `adp_mode()` names.
+def load_adp(settings: dict) -> pd.DataFrame:
+    """The league's ADP table, with `adp`/`adp_rank` set to whichever feed `adp_mode()` names.
 
-    The 1QB feed is read from its own file rather than the merged one, because the merge only
-    carried its mean and rank across — the spread (`adp_stdev`), which drives every survival
-    probability, stays with the 2QB numbers in `adp.csv`.
+    2QB: the 2QB feed with the 1QB feed's mean and ranks merged beside it (adp_1qb*). 1QB: the 1QB feed
+    alone, its own spread kept: the merge carries only the 1QB mean and rank across, and the spread
+    (`adp_stdev`), which drives every survival probability, would stay the 2QB one.
     """
-    if adp_mode() == "2qb":
-        return pd.read_csv(DATA / "adp.csv")
-    one = pd.read_csv(DATA / "adp_1qb.csv")
+    keys = adp_mod.feed_keys(settings)
+    one = adp_mod.load_feed(*keys["1qb"])
+    if adp_mode(settings) == "2qb":
+        return adp_mod.merged(adp_mod.load_feed(*keys["2qb"]), one)
     one["adp_1qb"], one["adp_1qb_rank"] = one["adp"], one["adp_rank"]
     return one
 
 
-def load_inputs():
-    settings = load()
-    players = pd.read_csv(DATA / "espn_players.csv")
-    adp = load_adp()
-    sl = DATA / "sleeper_players.csv"
-    if sl.exists():
-        players = merge_sleeper(players, pd.read_csv(sl))
-    return settings, players, adp
+def load_inputs(ref=None):
+    """(settings, players, adp) for the league (None: the current one), from the DB: ESPN's pool for its
+    formats with Sleeper's projections averaged in, and its ADP feeds."""
+    ref = ref or leagues.current()
+    settings = load(ref)
+    players = merge_sleeper(players_mod.pool(ref), sleeper_mod.season_players(ref))
+    return settings, players, load_adp(settings)
 
 
 def merge_sleeper(players: pd.DataFrame, sleeper: pd.DataFrame) -> pd.DataFrame:
@@ -177,13 +187,18 @@ def _taken(df: pd.DataFrame, pos: str) -> int:
 
 def to_markdown(df: pd.DataFrame, settings: dict, top_n: int = 40) -> str:
     ks = key_scoring(settings["scoring"])
+    one_fmt = adp_mod.feed_keys(settings)["1qb"][0]
+    if adp_mode(settings) == "2qb":
+        market, feeds = "2QB", f"ADP = FantasyFootballCalculator 2QB drafts; ADP1 = same site's 1QB ({one_fmt}) drafts."
+    else:
+        market, feeds = "1QB", f"ADP = FantasyFootballCalculator 1QB ({one_fmt}) drafts (ADP1 is the same)."
     L = [f"# Draft board: {settings['name']} {settings['season']}", "",
          f"{settings['team_count']} teams | starters {settings['starters']} | bench {settings['bench_size']} | "
          f"PPR={ks['ppr']} passTD={ks['pass_td']} passYd={ks['pass_yd']} INT={ks['int']}", "",
-         "ADP = FantasyFootballCalculator 2QB drafts; ADP1 = same site's 1QB drafts. value = ADP rank minus board rank (positive = tends to fall past his value).", ""]
+         f"{feeds} value = ADP rank minus board rank (positive = tends to fall past his value).", ""]
     cols = ["blend_rank", "board_rank", "name", "pos", "team", "bye", "proj", "proj_espn", "proj_sleeper", "vorp", "tier", "adp", "adp_1qb", "value_vs_adp", "injury"]
     a = df[~df.drafted]
-    L += ["## Overall (blend of VORP rank and 2QB ADP rank)", "", a.head(top_n)[cols].to_markdown(index=False), ""]
+    L += [f"## Overall (blend of VORP rank and {market} ADP rank)", "", a.head(top_n)[cols].to_markdown(index=False), ""]
     for pos in ["QB", "RB", "WR", "TE", "D/ST", "K"]:
         sub = a[a.pos == pos]
         n = {"QB": 32, "RB": 45, "WR": 50, "TE": 20, "D/ST": 14, "K": 12}[pos]
@@ -192,17 +207,11 @@ def to_markdown(df: pd.DataFrame, settings: dict, top_n: int = 40) -> str:
     return "\n".join(L)
 
 
-def main():
-    settings, players, adp = load_inputs()
+def main(argv: list[str] | None = None):
+    argv = sys.argv[1:] if argv is None else argv
+    settings, players, adp = load_inputs(leagues.get(argv[0]) if argv else None)
     df = build(settings, players, adp)
-    df.to_csv(DATA / "board.csv", index=False)
-    (DATA / "board.md").write_text(to_markdown(df, settings))
-    unmatched = df[df.adp.isna() & (df.proj > 60)][["name", "pos", "team", "proj"]]
-    print(f"{len(df)} players -> data/board.csv, data/board.md")
-    print(f"starter counts: {starter_counts(settings)}")
-    print(f"replacement: {df.groupby('pos').repl.first().round(0).to_dict()}")
-    print(f"\nProjected >60 pts but no ADP match ({len(unmatched)}):\n{unmatched.head(20).to_string(index=False)}")
-    print("\nTop 30:\n" + df.head(30)[["blend_rank", "board_rank", "name", "pos", "proj", "vorp", "tier", "adp", "adp_1qb"]].to_string(index=False))
+    print(to_markdown(df, settings))
 
 
 if __name__ == "__main__":

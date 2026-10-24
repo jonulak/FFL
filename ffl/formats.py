@@ -195,6 +195,16 @@ def store(ref, settings_doc: dict):
     return leagues.get(ref.key)
 
 
+def position_formats(ref) -> dict[str, str]:
+    """{pos: scoring_formats key} linked to the league, every position (ESPN's projections are scored on the
+    whole table, so a pool is keyed by this, not by rescore_key)."""
+    from . import db
+    keys = db.league_scoring_keys(ref.key)
+    if set(keys) != set(POSITIONS):
+        raise SystemExit(f"no scoring formats linked to {ref.key}: run `uv run python -m ffl.settings {ref.key}`")
+    return keys
+
+
 def league_table(ref) -> dict[str, dict[str, float]]:
     """The six tables linked to the league, for live scoring and box scores."""
     from . import db
