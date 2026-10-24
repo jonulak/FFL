@@ -66,3 +66,13 @@ def test_settings_league_id_picks_the_registered_league(monkeypatch):
     assert leagues.my_team_id({**SETTINGS, "league_id": 100000001}) == 7
     with pytest.raises(SystemExit, match="espn:555"):
         leagues.my_team_id({**SETTINGS, "league_id": 555})
+
+
+def test_espn_season_my_team_id_fails_with_runtime_error(monkeypatch):
+    """The API's `except Exception` paths catch this; a SystemExit would escape them."""
+    from ffl import espn_season
+    monkeypatch.setattr(config, "SWID", None)
+    _home_team(None)
+    monkeypatch.setattr(espn_season, "load", lambda: SETTINGS)
+    with pytest.raises(RuntimeError, match="Could not identify my team"):
+        espn_season.my_team_id(None)

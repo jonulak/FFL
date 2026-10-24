@@ -569,7 +569,11 @@ def record_projections() -> dict:
 
 
 def my_team_id(lg) -> int:
-    return leagues.my_team_id(load())
+    """leagues.my_team_id, but a failure is a RuntimeError: the API's `except Exception` paths must catch it (SystemExit would escape them)."""
+    try:
+        return leagues.my_team_id(load())
+    except SystemExit as e:
+        raise RuntimeError(str(e)) from e
 
 
 def owner_name(team) -> str:
