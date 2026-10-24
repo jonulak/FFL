@@ -30,10 +30,26 @@ def nfl_season(d: date) -> int:
 SEASON = nfl_season(date.today())
 
 
+def _espn_page(ref, page: str) -> str:
+    return f"https://fantasy.espn.com/football/{page}?leagueId={ref.provider_id}"
+
+
+def draft_room_url(ref) -> str:
+    return _espn_page(ref, "draft")
+
+
+def league_url(ref) -> str:
+    return _espn_page(ref, "league")
+
+
+_HOME_ATTRS = ("LEAGUE_ID", "MY_TEAM_ID", "DRAFT_ROOM_URL", "LEAGUE_URL")
+
+
 def __getattr__(name: str):
     """TRANSITIONAL (phase 1b removes): the home league's facts for callers not yet converted to `ffl.leagues`.
-    Lazy, because leagues -> db -> config: reading them at config import time would be circular."""
-    if name not in ("LEAGUE_ID", "MY_TEAM_ID", "DRAFT_ROOM_URL", "LEAGUE_URL"):
+    Lazy, because leagues -> db -> config: reading them at config import time would be circular.
+    Any other name is an ordinary missing attribute, so hasattr/getattr-with-default behave."""
+    if name not in _HOME_ATTRS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     from . import leagues
     ref = leagues.home()
@@ -41,8 +57,7 @@ def __getattr__(name: str):
         return int(ref.provider_id)
     if name == "MY_TEAM_ID":
         return ref.team_id or 0
-    page = "draft" if name == "DRAFT_ROOM_URL" else "league"
-    return f"https://fantasy.espn.com/football/{page}?leagueId={ref.provider_id}"
+    return draft_room_url(ref) if name == "DRAFT_ROOM_URL" else league_url(ref)
 
 
 def cookies() -> dict | None:
@@ -51,15 +66,26 @@ def cookies() -> dict | None:
     return None
 
 
-@lru_cache(maxsize=1)
-def league(fetch_league: bool = True):
+@lru_cache(maxsize=None)
+def _league(provider_id: str, season: int, fetch_league: bool):
     from espn_api.football import League
 
-    return League(league_id=__getattr__("LEAGUE_ID"), year=SEASON, espn_s2=ESPN_S2, swid=SWID, fetch_league=fetch_league)
+    return League(league_id=int(provider_id), year=season, espn_s2=ESPN_S2, swid=SWID, fetch_league=fetch_league)
 
 
-def raw_league_get(view, extend: str = "", headers: dict | None = None, **params) -> dict:
-    """Direct call to ESPN's league endpoint with the given view(s)."""
-    lg = league()
+def league(ref=None, fetch_league: bool = True):
+    """The espn-api League for `ref` (None: the home league), built once per (league, season, fetch_league)."""
+    if ref is None:
+        from . import leagues
+        ref = leagues.home()
+    return _league(ref.provider_id, ref.season, fetch_league)
+
+
+league.cache_clear = _league.cache_clear
+
+
+def raw_league_get(view, extend: str = "", headers: dict | None = None, *, ref=None, **params) -> dict:
+    """Direct call to ESPN's league endpoint with the given view(s), for `ref` (None: the home league)."""
+    lg = league(ref)
     params = {"view": view, **params}
     return lg.espn_request.league_get(params=params, headers=headers, extend=extend)

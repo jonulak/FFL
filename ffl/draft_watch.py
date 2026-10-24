@@ -32,8 +32,8 @@ import numpy as np
 import pandas as pd
 
 from . import board as board_mod
-from . import config, db
-from .config import DATA, SWID, raw_league_get
+from . import config, db, leagues
+from .config import DATA, raw_league_get
 
 POLL_S = 5
 # a mock/practice run (FFL_DATA_DIR set) must not pollute the real draft log
@@ -56,27 +56,8 @@ INJURY_SHORT = {"ACTIVE": "", "QUESTIONABLE": "Q", "DOUBTFUL": "D", "OUT": "OUT"
 
 
 def my_team_id(settings: dict) -> int:
-    """Which team is mine, in *this* league.
-
-    The SWID is the authority when it identifies a team, because it is per-account and right in
-    every league. MY_TEAM_ID is per-*league* and comes from `.env`, so in a mock room it names
-    somebody else's team — in the 2026-09-07 mock it pointed at "Team 7" while we were team 9,
-    which would have tracked a stranger's roster and predicted the wrong turns all draft. So a
-    disagreement resolves to the SWID, loudly, rather than to the stale number.
-    """
-    by_swid = None
-    if SWID:
-        by_swid = next((t["id"] for t in settings["teams"] if SWID in t.get("owner_swids", [])), None)
-    registered = config.MY_TEAM_ID
-    if by_swid and registered and by_swid != registered:
-        name = next((t.get("name", "?") for t in settings["teams"] if t["id"] == by_swid), "?")
-        print(f"!! MY_TEAM_ID={registered} but the SWID owns team {by_swid} ({name}) "
-              f"in this league — using {by_swid}.", flush=True)
-    if by_swid:
-        return by_swid
-    if registered:
-        return registered
-    raise SystemExit("Could not identify my team: register it in the leagues table (ffl.leagues)")
+    """Which team is mine, in *this* league: `leagues.my_team_id` (the SWID wins over the registry)."""
+    return leagues.my_team_id(settings)
 
 
 def pick_order(settings: dict) -> list[int]:

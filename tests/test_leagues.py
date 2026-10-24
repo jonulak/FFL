@@ -85,6 +85,75 @@ def test_key_for():
     assert leagues.key_for("espn", 100000001) == "espn:100000001"
 
 
+OTHER = LeagueRef("espn:999", "espn", "999", 2026, "other", None, False, None, None)
+
+
+def test_league_is_cached_per_league(monkeypatch):
+    import espn_api.football as fb
+    made = []
+    monkeypatch.setattr(fb, "League", lambda **kw: made.append(kw) or object())
+    config.league.cache_clear()
+    home = leagues.home()
+    a = config.league(home)
+    assert config.league(home) is a and config.league() is a
+    config.league(OTHER)
+    assert [m["league_id"] for m in made] == [100000001, 999]
+    config.league.cache_clear()
+
+
+def test_raw_league_get_uses_the_ref(monkeypatch):
+    from types import SimpleNamespace
+    seen = []
+    fake = lambda ref: SimpleNamespace(espn_request=SimpleNamespace(
+        league_get=lambda **kw: seen.append((ref.provider_id, kw)) or {}))
+    monkeypatch.setattr(config, "league", fake)
+    config.raw_league_get("mRoster", ref=OTHER, scoringPeriodId=3)
+    assert seen == [("999", {"params": {"view": "mRoster", "scoringPeriodId": 3}, "headers": None, "extend": ""})]
+
+
+def test_draft_room_and_league_url():
+    assert config.draft_room_url(OTHER) == "https://fantasy.espn.com/football/draft?leagueId=999"
+    assert config.league_url(OTHER) == "https://fantasy.espn.com/football/league?leagueId=999"
+
+
+def test_config_getattr_only_serves_its_own_names():
+    assert not hasattr(config, "NOPE")
+    assert getattr(config, "NOPE", 1) == 1
+
+
+def _raw(monkeypatch, swid="{ME}"):
+    monkeypatch.setattr(config, "SWID", swid)
+    monkeypatch.setattr(config, "raw_league_get", lambda view, **kw: {
+        "settings": {"name": "The Other One"},
+        "teams": [{"id": 2, "owners": ["{X}"]}, {"id": 5, "owners": ["{ME}"]}]})
+
+
+def test_add_registers_name_and_my_team(monkeypatch):
+    _raw(monkeypatch)
+    ref = leagues.add("999", season=2025)
+    assert ref == LeagueRef("espn:999", "espn", "999", 2025, "The Other One", 5, False, None, None)
+    assert leagues.get("espn:999") == ref
+
+
+def test_add_without_my_swid_leaves_the_team_empty(monkeypatch):
+    _raw(monkeypatch, swid="{NOBODY}")
+    assert leagues.add("999").team_id is None
+
+
+def test_add_refuses_the_home_league_and_a_second_home(monkeypatch):
+    _raw(monkeypatch)
+    with pytest.raises(SystemExit, match="already the home"):
+        leagues.add("100000001")
+    with pytest.raises(SystemExit, match="home league is already"):
+        leagues.add("999", make_home=True)
+
+
+def test_add_home_on_an_empty_registry(monkeypatch):
+    _clear()
+    _raw(monkeypatch)
+    assert leagues.add("999", make_home=True).home is True
+
+
 def test_nfl_season():
     assert config.nfl_season(date(2026, 10, 24)) == 2026
     assert config.nfl_season(date(2027, 1, 20)) == 2026

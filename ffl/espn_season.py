@@ -16,13 +16,13 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from . import calibrate, consensus, db, espn_write
+from . import calibrate, consensus, db, espn_write, leagues
 from .sources import cbs, fleaflicker, sharks
 from . import season as S
 from .adp import norm_name
 from .flight import Flight
 from . import config
-from .config import SEASON, SWID, cookies, league, raw_league_get
+from .config import SEASON, cookies, league, raw_league_get
 from .players import fetch_pool
 from .settings import key_scoring, load
 from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
@@ -569,13 +569,7 @@ def record_projections() -> dict:
 
 
 def my_team_id(lg) -> int:
-    if config.MY_TEAM_ID:
-        return config.MY_TEAM_ID
-    settings = load()
-    tid = next((t["id"] for t in settings["teams"] if SWID in t.get("owner_swids", [])), None)
-    if tid is None:
-        raise RuntimeError("cannot identify my team: register it in the leagues table (ffl.leagues)")
-    return tid
+    return leagues.my_team_id(load())
 
 
 def owner_name(team) -> str:

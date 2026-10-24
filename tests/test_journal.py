@@ -16,8 +16,7 @@ def test_sync_results_writes_rows(monkeypatch):
     me, opp = _fake_team(), SimpleNamespace(team_id=3, team_name="Them")
     m = SimpleNamespace(home_team=me, away_team=opp, home_score=110.0, away_score=90.0)
     lg = SimpleNamespace(current_week=2, teams=[me], standings=lambda: [me], scoreboard=lambda wk: [m])
-    monkeypatch.setitem(vars(config), "MY_TEAM_ID", None)
-    monkeypatch.setattr(journal, "SWID", "{ME}")
+    monkeypatch.setattr(config, "SWID", "{ME}")
     journal.sync_results(lg, {"teams": [{"id": 7, "owner_swids": ["{ME}"]}]})
     assert db.results_rows() == [{"week": 1, "opponent": "Them", "my_score": 110.0, "opp_score": 90.0, "result": "W"}]
 

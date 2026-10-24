@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from . import db
+from . import config, db
 
 
 @dataclass(frozen=True)
@@ -64,13 +64,70 @@ def register(ref: LeagueRef) -> LeagueRef:
     return get(ref.key)
 
 
+def my_team_id(settings: dict, ref: LeagueRef | None = None) -> int:
+    """Which team is mine, in the league `ref` names.
+
+    The SWID is the authority when it identifies a team, because it is per-account and right in every
+    league. The registry's team_id is per-league: a disagreement resolves to the SWID, loudly. A league
+    whose registry row has no team and whose owners lack my SWID has no answer (never another league's).
+    `ref` defaults to the registered league `settings` describe, else the home league when they name none.
+    """
+    key = None
+    if ref is None:
+        if settings.get("league_id") is None:
+            ref = home()
+        else:
+            key = key_for("espn", settings["league_id"])
+            ref = next((r for r in all_leagues() if r.key == key), None)
+    else:
+        key = ref.key
+    registered = ref.team_id if ref else None
+    swid = config.SWID
+    by_swid = None
+    if swid:
+        by_swid = next((t["id"] for t in settings["teams"] if swid in t.get("owner_swids", [])), None)
+    if by_swid and registered and by_swid != registered:
+        name = next((t.get("name", "?") for t in settings["teams"] if t["id"] == by_swid), "?")
+        print(f"!! {key or ref.key} says team {registered} but the SWID owns team {by_swid} ({name}) "
+              f"in this league — using {by_swid}.", flush=True)
+    if by_swid:
+        return by_swid
+    if registered:
+        return registered
+    raise SystemExit(f"Could not identify my team in {key or ref.key}: register it in the leagues table (ffl.leagues)")
+
+
+def add(provider_id: str, season: int | None = None, make_home: bool = False) -> LeagueRef:
+    """Register an ESPN league: name from its settings, my team by the SWID among its owners."""
+    key = key_for("espn", provider_id)
+    existing = next((r for r in all_leagues() if r.key == key), None)
+    if existing and existing.home:
+        raise SystemExit(f"{key} is already the home league")
+    if make_home and any(r.home for r in all_leagues()):
+        raise SystemExit("a home league is already registered; --home only works on an empty registry")
+    ref = LeagueRef(key, "espn", str(provider_id), season or config.SEASON, key, None, False, None, None)
+    raw = config.raw_league_get(["mSettings", "mTeam"], ref=ref)
+    name = (raw.get("settings") or {}).get("name") or key
+    swid = config.SWID
+    team = next((t for t in raw.get("teams", []) if swid and swid in t.get("owners", [])), None)
+    ref = replace(ref, name=name, team_id=team["id"] if team else None, home=make_home)
+    return register(ref)
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["list"]:
         for r in all_leagues():
             print(f"{r.key}  {r.season}  team {r.team_id if r.team_id is not None else '-'}  "
                   f"{'home' if r.home else '    '}  {r.name}")
         return 0
-    print("usage: python -m ffl.leagues list")
+    if argv[:2] == ["add", "espn"] and len(argv) >= 3:
+        rest = argv[3:]
+        season = int(rest[rest.index("--season") + 1]) if "--season" in rest else None
+        ref = add(argv[2], season, make_home="--home" in rest)
+        print(f"{ref.key}  {ref.season}  {ref.name}  "
+              f"{'team ' + str(ref.team_id) if ref.team_id is not None else 'my team not found among its owners'}")
+        return 0
+    print("usage: python -m ffl.leagues list | add espn <id> [--season N] [--home]")
     return 2
 
 

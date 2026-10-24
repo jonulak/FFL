@@ -88,4 +88,6 @@ if __name__ == "__main__":
         screenshot(sys.argv[2] if len(sys.argv) > 2 else str(DATA / "shot.png"),
                    sys.argv[3] if len(sys.argv) > 3 else None)
     else:
-        launch(config.LEAGUE_URL if cmd == "league" else config.DRAFT_ROOM_URL)
+        from . import leagues
+        ref = leagues.current()
+        launch(config.league_url(ref) if cmd == "league" else config.draft_room_url(ref))

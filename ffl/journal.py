@@ -11,8 +11,8 @@ from typing import Callable
 
 from espn_api.football.activity import Activity
 
-from . import config, db, notify
-from .config import SWID, league
+from . import config, db, leagues, notify
+from .config import league
 from .settings import load
 
 
@@ -22,7 +22,7 @@ ON_NEW_ROWS: list[Callable[[list[dict]], None]] = []
 
 
 def _my_team(lg, settings):
-    tid = config.MY_TEAM_ID or next((t["id"] for t in settings["teams"] if SWID in t.get("owner_swids", [])), None)
+    tid = leagues.my_team_id(settings)
     return next(t for t in lg.teams if t.team_id == tid)
 
 
