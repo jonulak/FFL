@@ -26,6 +26,10 @@ def _db_template(tmp_path_factory):
     mp.setenv("LEAGUE_ID", "100000001")
     mp.setenv("SEASON", "2026")
     mp.setenv("MY_TEAM_ID", "7")
+    # migration 0015 imports <DATA>/settings.json when there is one (the main checkout's, where deploy runs the
+    # tests): the template must not depend on which checkout runs it, so it sees an empty data dir
+    from ffl import config
+    mp.setattr(config, "DATA", tmp_path_factory.mktemp("data"))
     command.upgrade(db._alembic_config(), "head")
     db.reset()
     db.engine().dispose()  # the connect hook switches the file to WAL, as production runs it; copies start there

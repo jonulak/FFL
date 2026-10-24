@@ -1,12 +1,16 @@
-"""Dump league settings to data/settings.json and data/settings.md."""
+"""A league's settings from ESPN into the DB (ffl/formats.py), and back out as one dict.
+
+    uv run python -m ffl.settings [league key]    # read ESPN, store, print the summary (default: the home league)
+"""
 from __future__ import annotations
 
-import json
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 from espn_api.football.constant import POSITION_MAP, SETTINGS_SCORING_FORMAT_MAP
 
-from .config import DATA, league, raw_league_get
+from . import db, formats, leagues
+from .config import raw_league_get
 
 NON_STARTER_SLOTS = {20, 21}  # bench, IR
 
@@ -37,15 +41,19 @@ def playoff_weeks(schedule: dict) -> list[int]:
     return sorted(w for mp, weeks in schedule.get("matchupPeriods", {}).items() if int(mp) > reg for w in weeks)
 
 
-def collect() -> dict:
-    lg = league()
-    raw = raw_league_get(["mSettings", "mTeam"])
+def fetch(ref) -> dict:
+    """ESPN's settings for the league: today's settings.json dict plus `first_week` (ESPN's first scoring
+    period) and `scoring_items` (the raw items, every position's pointsOverrides kept, for the formats)."""
+    raw = raw_league_get(["mSettings", "mTeam"], ref=ref)
+    status = raw.get("status") or raw_league_get(["mStatus"], ref=ref).get("status") or {}
     s = raw["settings"]
     slot_counts = {int(k): v for k, v in s["rosterSettings"]["lineupSlotCounts"].items()}
     draft = s["draftSettings"]
     scoring = []
     for item in s["scoringSettings"].get("scoringItems", []):
         meta = SETTINGS_SCORING_FORMAT_MAP.get(item["statId"], {"abbr": f"stat{item['statId']}", "label": "Unknown"})
+        # the flat list keeps what it always held (D/ST's override, else the base: live scoring reads it);
+        # every position's own points are in the formats, built from scoring_items
         pts = item.get("pointsOverrides", {}).get("16") or item.get("points", 0)
         if pts:
             scoring.append({"stat_id": item["statId"], "abbr": meta["abbr"], "label": meta["label"], "points": pts})
@@ -62,10 +70,11 @@ def collect() -> dict:
             "owner_swids": t.get("owners", []),
         })
 
+    season = ref.season
     return {
-        "league_id": lg.league_id,
-        "season": lg.year,
-        "week1_start": nfl_week1_start(lg.year).isoformat(),
+        "league_id": int(ref.provider_id),
+        "season": season,
+        "week1_start": nfl_week1_start(season).isoformat(),
         "name": s["name"],
         "team_count": s["size"],
         "scoring_type": s["scoringSettings"].get("scoringType"),
@@ -94,20 +103,34 @@ def collect() -> dict:
         "trade_deadline_ms": s.get("tradeSettings", {}).get("deadlineDate"),
         "scoring": scoring,
         "teams": teams,
+        "first_week": status.get("firstScoringPeriod") or 1,
+        "scoring_items": s["scoringSettings"].get("scoringItems", []),
     }
 
 
-def load() -> dict:
-    p = DATA / "settings.json"
-    if not p.exists():
-        raise SystemExit("data/settings.json missing: run `uv run python -m ffl.settings` first")
-    return json.loads(p.read_text())
+def collect(ref=None) -> dict:
+    """Read the league's settings from ESPN and store them; returns what load() now answers."""
+    ref = ref or leagues.current()
+    ref = formats.store(ref, fetch(ref))
+    return load(ref)
+
+
+def load(ref=None) -> dict:
+    """The league's settings (None: the current league, the home one unless FFL_LEAGUE names another): the
+    dict settings.json used to hold, plus `first_week` and `league_key`. A fresh dict on every call."""
+    ref = ref or leagues.current()
+    stored = db.league_settings_doc(ref.key, ref.season)
+    if stored is None:
+        raise SystemExit(f"no settings stored for {ref.key} {ref.season}: run `uv run python -m ffl.settings {ref.key}`")
+    return formats.assemble(ref.key, stored)
 
 
 def key_scoring(scoring: list[dict]) -> dict:
+    """The points rescoring reads, signed as the league scores them; `int` is the interception thrown
+    (INTT), not the D/ST interception (INT), which only matched it while both were worth 2 (ffl-twi)."""
     by = {x["abbr"]: x["points"] for x in scoring}
     return {k: by.get(a, 0) for k, a in {
-        "ppr": "REC", "pass_td": "PTD", "pass_yd": "PY", "int": "INT",
+        "ppr": "REC", "pass_td": "PTD", "pass_yd": "PY", "int": "INTT",
         "rush_yd": "RY", "rush_td": "RTD", "rec_yd": "REY", "rec_td": "RETD", "fumble": "FUML",
     }.items()}
 
@@ -137,12 +160,10 @@ def to_markdown(d: dict) -> str:
     return "\n".join(L) + "\n"
 
 
-def main():
-    d = collect()
-    (DATA / "settings.json").write_text(json.dumps(d, indent=2))
-    md = to_markdown(d)
-    (DATA / "settings.md").write_text(md)
-    print(md)
+def main(argv: list[str] | None = None):
+    argv = sys.argv[1:] if argv is None else argv
+    d = collect(leagues.get(argv[0]) if argv else None)
+    print(to_markdown(d))
     print("Key scoring:", key_scoring(d["scoring"]))
 
 

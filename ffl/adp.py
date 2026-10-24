@@ -59,10 +59,14 @@ def main():
     teams = int(sys.argv[1]) if len(sys.argv) > 1 else 12
     year = int(sys.argv[2]) if len(sys.argv) > 2 else 2026
     ppr = float(sys.argv[3]) if len(sys.argv) > 3 else 1.0
-    if (DATA / "settings.json").exists() and len(sys.argv) == 1:
+    if len(sys.argv) == 1:
         from .settings import key_scoring, load
-        s = load()
-        teams, year, ppr = s["team_count"], s["season"], key_scoring(s["scoring"])["ppr"]
+        try:
+            s = load()
+        except SystemExit:   # no league settings stored yet: the defaults above
+            s = None
+        if s:
+            teams, year, ppr = s["team_count"], s["season"], key_scoring(s["scoring"])["ppr"]
 
     two = fetch("2qb", teams, year)
     one = fetch(one_qb_format(ppr), teams, year)

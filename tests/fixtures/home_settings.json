@@ -1,0 +1,487 @@
+{
+  "league_id": 100000001,
+  "season": 2026,
+  "week1_start": "2026-09-08",
+  "name": "2026 Fantasy Football ",
+  "team_count": 10,
+  "scoring_type": "H2H_POINTS",
+  "reg_season_weeks": 14,
+  "playoff_teams": 6,
+  "playoff_weeks": [
+    15,
+    16,
+    17
+  ],
+  "roster_slots": {
+    "QB": 2,
+    "RB": 2,
+    "WR": 2,
+    "TE": 1,
+    "D/ST": 1,
+    "K": 1,
+    "BE": 6,
+    "IR": 1,
+    "RB/WR/TE": 2
+  },
+  "roster_slot_ids": {
+    "0": 2,
+    "1": 0,
+    "2": 2,
+    "3": 0,
+    "4": 2,
+    "5": 0,
+    "6": 1,
+    "7": 0,
+    "8": 0,
+    "9": 0,
+    "10": 0,
+    "11": 0,
+    "12": 0,
+    "13": 0,
+    "14": 0,
+    "15": 0,
+    "16": 1,
+    "17": 1,
+    "18": 0,
+    "19": 0,
+    "20": 6,
+    "21": 1,
+    "22": 0,
+    "23": 2,
+    "24": 0
+  },
+  "starters": {
+    "QB": 2,
+    "RB": 2,
+    "WR": 2,
+    "TE": 1,
+    "D/ST": 1,
+    "K": 1,
+    "RB/WR/TE": 2
+  },
+  "roster_size": 17,
+  "bench_size": 6,
+  "ir_size": 1,
+  "position_limits": {
+    "QB": 4,
+    "RB": 8,
+    "WR": 8,
+    "TE": 3,
+    "K": 3,
+    "D/ST": 3
+  },
+  "draft": {
+    "type": "SNAKE",
+    "order_type": "DRAFT_START",
+    "date_ms": 1788822000000,
+    "pick_order": [
+      6,
+      2,
+      3,
+      9,
+      7,
+      8,
+      5,
+      4,
+      1,
+      10
+    ],
+    "keeper_count": 0,
+    "time_per_pick_s": 90,
+    "auction_budget": 200
+  },
+  "faab": false,
+  "faab_budget": 100,
+  "waiver_hours": 24,
+  "trade_deadline_ms": 1796230800000,
+  "scoring": [
+    {
+      "stat_id": 20,
+      "abbr": "INTT",
+      "label": "Interceptions Thrown",
+      "points": -2.0
+    },
+    {
+      "stat_id": 72,
+      "abbr": "FUML",
+      "label": "Total Fumbles Lost",
+      "points": -2.0
+    },
+    {
+      "stat_id": 85,
+      "abbr": "FGM",
+      "label": "Total FG Missed",
+      "points": -1.0
+    },
+    {
+      "stat_id": 89,
+      "abbr": "PA0",
+      "label": "0 points allowed",
+      "points": 5.0
+    },
+    {
+      "stat_id": 90,
+      "abbr": "PA1",
+      "label": "1-6 points allowed",
+      "points": 4.0
+    },
+    {
+      "stat_id": 91,
+      "abbr": "PA7",
+      "label": "7-13 points allowed",
+      "points": 3.0
+    },
+    {
+      "stat_id": 92,
+      "abbr": "PA14",
+      "label": "14-17 points allowed",
+      "points": 1.0
+    },
+    {
+      "stat_id": 95,
+      "abbr": "INT",
+      "label": "Each Interception",
+      "points": 2.0
+    },
+    {
+      "stat_id": 96,
+      "abbr": "FR",
+      "label": "Each Fumble Recovered",
+      "points": 2.0
+    },
+    {
+      "stat_id": 97,
+      "abbr": "BLKK",
+      "label": "Blocked Punt, PAT or FG",
+      "points": 2.0
+    },
+    {
+      "stat_id": 98,
+      "abbr": "SF",
+      "label": "Each Safety",
+      "points": 2.0
+    },
+    {
+      "stat_id": 99,
+      "abbr": "SK",
+      "label": "Each Sack",
+      "points": 1.0
+    },
+    {
+      "stat_id": 123,
+      "abbr": "PA28",
+      "label": "28-34 points allowed",
+      "points": -1.0
+    },
+    {
+      "stat_id": 124,
+      "abbr": "PA35",
+      "label": "35-45 points allowed",
+      "points": -3.0
+    },
+    {
+      "stat_id": 125,
+      "abbr": "PA46",
+      "label": "46+ points allowed",
+      "points": -5.0
+    },
+    {
+      "stat_id": 128,
+      "abbr": "YA100",
+      "label": "Less than 100 total yards allowed",
+      "points": 5.0
+    },
+    {
+      "stat_id": 129,
+      "abbr": "YA199",
+      "label": "100-199 total yards allowed",
+      "points": 3.0
+    },
+    {
+      "stat_id": 130,
+      "abbr": "YA299",
+      "label": "200-299 total yards allowed",
+      "points": 2.0
+    },
+    {
+      "stat_id": 132,
+      "abbr": "YA399",
+      "label": "350-399 total yards allowed",
+      "points": -1.0
+    },
+    {
+      "stat_id": 133,
+      "abbr": "YA449",
+      "label": "400-449 total yards allowed",
+      "points": -3.0
+    },
+    {
+      "stat_id": 134,
+      "abbr": "YA499",
+      "label": "450-499 total yards allowed",
+      "points": -5.0
+    },
+    {
+      "stat_id": 135,
+      "abbr": "YA549",
+      "label": "500-549 total yards allowed",
+      "points": -6.0
+    },
+    {
+      "stat_id": 136,
+      "abbr": "YA550",
+      "label": "550+ total yards allowed",
+      "points": -7.0
+    },
+    {
+      "stat_id": 3,
+      "abbr": "PY",
+      "label": "Passing Yards",
+      "points": 0.04
+    },
+    {
+      "stat_id": 24,
+      "abbr": "RY",
+      "label": "Rushing Yards",
+      "points": 0.1
+    },
+    {
+      "stat_id": 42,
+      "abbr": "REY",
+      "label": "Receiving Yards",
+      "points": 0.1
+    },
+    {
+      "stat_id": 53,
+      "abbr": "REC",
+      "label": "Each reception",
+      "points": 1.0
+    },
+    {
+      "stat_id": 86,
+      "abbr": "PAT",
+      "label": "Each PAT Made",
+      "points": 1.0
+    },
+    {
+      "stat_id": 209,
+      "abbr": "1PSF",
+      "label": "1pt Safety",
+      "points": 1.0
+    },
+    {
+      "stat_id": 19,
+      "abbr": "2PC",
+      "label": "2pt Passing Conversion",
+      "points": 2.0
+    },
+    {
+      "stat_id": 26,
+      "abbr": "2PR",
+      "label": "2pt Rushing Conversion",
+      "points": 2.0
+    },
+    {
+      "stat_id": 44,
+      "abbr": "2PRE",
+      "label": "2pt Receiving Conversion",
+      "points": 2.0
+    },
+    {
+      "stat_id": 206,
+      "abbr": "2PRET",
+      "label": "2pt Return",
+      "points": 2.0
+    },
+    {
+      "stat_id": 80,
+      "abbr": "FG0",
+      "label": "FG Made (0-39 yards)",
+      "points": 3.0
+    },
+    {
+      "stat_id": 4,
+      "abbr": "PTD",
+      "label": "TD Pass",
+      "points": 4.0
+    },
+    {
+      "stat_id": 77,
+      "abbr": "FG40",
+      "label": "FG Made (40-49 yards)",
+      "points": 4.0
+    },
+    {
+      "stat_id": 198,
+      "abbr": "FG50",
+      "label": "FG Made (50-59 yards)",
+      "points": 5.0
+    },
+    {
+      "stat_id": 25,
+      "abbr": "RTD",
+      "label": "TD Rush",
+      "points": 6.0
+    },
+    {
+      "stat_id": 43,
+      "abbr": "RETD",
+      "label": "TD Reception",
+      "points": 6.0
+    },
+    {
+      "stat_id": 63,
+      "abbr": "FTD",
+      "label": "Fumble Recovered for TD",
+      "points": 6.0
+    },
+    {
+      "stat_id": 93,
+      "abbr": "BLKKRTD",
+      "label": "Blocked Punt or FG return for TD",
+      "points": 6.0
+    },
+    {
+      "stat_id": 101,
+      "abbr": "KRTD",
+      "label": "Kickoff Return TD",
+      "points": 6.0
+    },
+    {
+      "stat_id": 102,
+      "abbr": "PRTD",
+      "label": "Punt Return TD",
+      "points": 6.0
+    },
+    {
+      "stat_id": 103,
+      "abbr": "INTTD",
+      "label": "Interception Return TD",
+      "points": 6.0
+    },
+    {
+      "stat_id": 104,
+      "abbr": "FRTD",
+      "label": "Fumble Return TD",
+      "points": 6.0
+    },
+    {
+      "stat_id": 201,
+      "abbr": "FG60",
+      "label": "FG Made (60+ yards)",
+      "points": 6.0
+    }
+  ],
+  "teams": [
+    {
+      "id": 1,
+      "abbrev": "T1",
+      "name": "Team 1",
+      "owners": [
+        "Owner 1"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-1-0}"
+      ]
+    },
+    {
+      "id": 2,
+      "abbrev": "T2",
+      "name": "Team 2",
+      "owners": [
+        "Owner 2"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-2-0}"
+      ]
+    },
+    {
+      "id": 3,
+      "abbrev": "T3",
+      "name": "Team 3",
+      "owners": [
+        "Owner 3"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-3-0}"
+      ]
+    },
+    {
+      "id": 4,
+      "abbrev": "T4",
+      "name": "Team 4",
+      "owners": [
+        "Owner 4"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-4-0}"
+      ]
+    },
+    {
+      "id": 5,
+      "abbrev": "T5",
+      "name": "Team 5",
+      "owners": [
+        "Owner 5"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-5-0}"
+      ]
+    },
+    {
+      "id": 6,
+      "abbrev": "T6",
+      "name": "Team 6",
+      "owners": [
+        "Owner 6"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-6-0}"
+      ]
+    },
+    {
+      "id": 7,
+      "abbrev": "T7",
+      "name": "Team 7",
+      "owners": [
+        "Owner 7"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-7-0}"
+      ]
+    },
+    {
+      "id": 8,
+      "abbrev": "T8",
+      "name": "Team 8",
+      "owners": [
+        "Owner 8"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-8-0}"
+      ]
+    },
+    {
+      "id": 9,
+      "abbrev": "T9",
+      "name": "Team 9",
+      "owners": [
+        "Owner 9"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-9-0}"
+      ]
+    },
+    {
+      "id": 10,
+      "abbrev": "T10",
+      "name": "Team 10",
+      "owners": [
+        "Owner 10"
+      ],
+      "owner_swids": [
+        "{SWID-TEAM-10-0}"
+      ]
+    }
+  ]
+}

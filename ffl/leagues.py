@@ -1,6 +1,8 @@
 """The league registry: every league the app knows, the home one included, lives in the `leagues` table.
 
     uv run python -m ffl.leagues list
+    uv run python -m ffl.leagues add espn <id> [--season N] [--home]   # registers it and stores its settings
+    uv run python -m ffl.leagues caps <key> [POS=N ...]                # my roster caps (no args: the table)
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ class LeagueRef:
     name: str
     team_id: int | None
     home: bool
-    lineup_format: str | None    # set by task 3
+    lineup_format: str | None    # lineup_formats key, set when its settings are stored (formats.store)
     strategy: str | None         # set by task 4
 
 
@@ -110,8 +112,47 @@ def add(provider_id: str, season: int | None = None, make_home: bool = False) ->
     name = (raw.get("settings") or {}).get("name") or key
     swid = config.SWID
     team = next((t for t in raw.get("teams", []) if swid and swid in t.get("owners", [])), None)
-    ref = replace(ref, name=name, team_id=team["id"] if team else None, home=make_home)
-    return register(ref)
+    ref = register(replace(ref, name=name, team_id=team["id"] if team else None, home=make_home))
+    from . import settings
+    settings.collect(ref)   # its settings, formats and the league's caps
+    return get(ref.key)
+
+
+CAP_POSITIONS = ("QB", "RB", "WR", "TE", "K", "D/ST")
+
+
+def caps(ref: LeagueRef) -> dict[str, int]:
+    """How many of each position I may roster: the lower of my cap and the league's limit (either alone
+    when the other is unset; a position with neither is left out, uncapped)."""
+    out = {}
+    for pos, c in db.caps_rows(ref.key).items():
+        vals = [v for v in (c["my_cap"], c["provider_limit"]) if v is not None]
+        if vals:
+            out[pos] = min(vals)
+    return {p: out[p] for p in CAP_POSITIONS if p in out}
+
+
+def set_cap(ref: LeagueRef, pos: str, n: int) -> None:
+    """My cap at a position; never above what the league allows."""
+    if pos not in CAP_POSITIONS:
+        raise SystemExit(f"unknown position {pos!r}; one of {', '.join(CAP_POSITIONS)}")
+    if n < 0:
+        raise SystemExit(f"a cap is a count of players, not {n}")
+    limit = db.caps_rows(ref.key).get(pos, {}).get("provider_limit")
+    if limit is not None and n > limit:
+        raise SystemExit(f"the league allows at most {limit} {pos}; {pos}={n} not set")
+    db.put_my_cap(ref.key, pos, n)
+
+
+def _caps_table(ref: LeagueRef) -> str:
+    rows = db.caps_rows(ref.key)
+    eff = caps(ref)
+    show = lambda v: "-" if v is None else str(v)
+    lines = [f"{ref.key}  {ref.name}", f"{'pos':5} {'league':>6} {'mine':>5} {'cap':>4}"]
+    for p in CAP_POSITIONS:
+        c = rows.get(p, {})
+        lines.append(f"{p:5} {show(c.get('provider_limit')):>6} {show(c.get('my_cap')):>5} {show(eff.get(p)):>4}")
+    return "\n".join(lines)
 
 
 def main(argv: list[str]) -> int:
@@ -127,7 +168,19 @@ def main(argv: list[str]) -> int:
         print(f"{ref.key}  {ref.season}  {ref.name}  "
               f"{'team ' + str(ref.team_id) if ref.team_id is not None else 'my team not found among its owners'}")
         return 0
-    print("usage: python -m ffl.leagues list | add espn <id> [--season N] [--home]")
+    if argv[:1] == ["caps"] and len(argv) >= 2:
+        ref = get(argv[1])
+        sets = []
+        for a in argv[2:]:
+            pos, eq, n = a.partition("=")
+            if not eq or not n.strip().isdigit():
+                raise SystemExit(f"expected POS=N, got {a!r}")
+            sets.append((pos.strip().upper(), int(n)))
+        for pos, n in sets:
+            set_cap(ref, pos, n)
+        print(_caps_table(ref))
+        return 0
+    print("usage: python -m ffl.leagues list | add espn <id> [--season N] [--home] | caps <key> [POS=N ...]")
     return 2
 
 

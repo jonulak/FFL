@@ -22,7 +22,8 @@ DST_NAMES = {"ARI": "Cardinals", "ATL": "Falcons", "BAL": "Ravens", "BUF": "Bill
 
 def score(st: dict, ks: dict) -> float:
     g = lambda k: float(st.get(k) or 0)
-    return (g("pass_yd") * ks["pass_yd"] + g("pass_td") * ks["pass_td"] - g("pass_int") * abs(ks["int"])
+    # ks["int"] is INTT's points, signed (settings.key_scoring; ffl-twi)
+    return (g("pass_yd") * ks["pass_yd"] + g("pass_td") * ks["pass_td"] + g("pass_int") * ks["int"]
             + g("rush_yd") * ks["rush_yd"] + g("rush_td") * ks["rush_td"]
             + g("rec") * ks["ppr"] + g("rec_yd") * ks["rec_yd"] + g("rec_td") * ks["rec_td"]
             - g("fum_lost") * abs(ks["fumble"]) + 2 * (g("pass_2pt") + g("rush_2pt") + g("rec_2pt")))

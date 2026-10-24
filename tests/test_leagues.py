@@ -122,17 +122,28 @@ def test_config_getattr_only_serves_its_own_names():
 
 
 def _raw(monkeypatch, swid="{ME}"):
+    from ffl import settings
+    raw = {"settings": {"name": "The Other One", "size": 2,
+                        "scoringSettings": {"scoringItems": [{"statId": 53, "points": 0.5}]},
+                        "scheduleSettings": {"matchupPeriodCount": 14, "playoffTeamCount": 4},
+                        "rosterSettings": {"lineupSlotCounts": {"0": 1, "20": 2}, "positionLimits": {"1": 3}},
+                        "draftSettings": {}, "acquisitionSettings": {}},
+           "status": {"firstScoringPeriod": 1},
+           "teams": [{"id": 2, "owners": ["{X}"]}, {"id": 5, "owners": ["{ME}"]}]}
     monkeypatch.setattr(config, "SWID", swid)
-    monkeypatch.setattr(config, "raw_league_get", lambda view, **kw: {
-        "settings": {"name": "The Other One"},
-        "teams": [{"id": 2, "owners": ["{X}"]}, {"id": 5, "owners": ["{ME}"]}]})
+    monkeypatch.setattr(config, "raw_league_get", lambda view, **kw: raw)
+    monkeypatch.setattr(settings, "raw_league_get", lambda view, **kw: raw)
 
 
 def test_add_registers_name_and_my_team(monkeypatch):
+    from ffl import formats, settings
     _raw(monkeypatch)
     ref = leagues.add("999", season=2025)
-    assert ref == LeagueRef("espn:999", "espn", "999", 2025, "The Other One", 5, False, None, None)
+    lineup = formats.lineup_key(formats.lineup_from_settings(settings.load(ref)))
+    assert ref == LeagueRef("espn:999", "espn", "999", 2025, "The Other One", 5, False, lineup, None)
     assert leagues.get("espn:999") == ref
+    assert settings.load(ref)["scoring"] == [{"stat_id": 53, "abbr": "REC", "label": "Each reception", "points": 0.5}]
+    assert leagues.caps(ref) == {"QB": 3}, "the league's limit, no cap of mine yet"
 
 
 def test_add_without_my_swid_leaves_the_team_empty(monkeypatch):

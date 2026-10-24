@@ -53,6 +53,50 @@ leagues_table = sa.Table(
     sa.Column("added_at", sa.String, nullable=False),
 )
 
+# Formats are shared: one row per distinct content (ffl/formats.py), linked per league.
+scoring_formats = sa.Table(
+    "scoring_formats", metadata,
+    sa.Column("key", sa.String, primary_key=True),       # "sc-<pos>-<sha1[:12]>" of the table
+    sa.Column("pos", sa.String, nullable=False),
+    sa.Column("rescore_key", sa.String, nullable=False),  # the same, over formats.RESCORED only
+    sa.Column("table", sa.JSON, nullable=False),         # {neutral stat: points}
+    sa.Column("added_at", sa.String, nullable=False),
+)
+
+league_scoring = sa.Table(
+    "league_scoring", metadata,
+    _league(),
+    sa.Column("pos", sa.String, nullable=False),
+    sa.Column("scoring_format", sa.String, nullable=False),
+    sa.Column("unmapped", sa.JSON, nullable=False),      # ESPN abbrs that score but no format can place
+    sa.PrimaryKeyConstraint("league", "pos"),
+)
+
+lineup_formats = sa.Table(
+    "lineup_formats", metadata,
+    sa.Column("key", sa.String, primary_key=True),       # "ln-<sha1[:12]>"
+    sa.Column("doc", sa.JSON, nullable=False),           # formats.lineup_from_settings
+    sa.Column("added_at", sa.String, nullable=False),
+)
+
+league_settings_table = sa.Table(
+    "league_settings", metadata,
+    _league(),
+    sa.Column("season", sa.Integer, nullable=False),
+    sa.Column("doc", sa.JSON, nullable=False),           # everything else ffl.settings.fetch read (formats.rows_for)
+    sa.Column("fetched_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("league", "season"),
+)
+
+league_caps = sa.Table(
+    "league_caps", metadata,
+    _league(),
+    sa.Column("pos", sa.String, nullable=False),
+    sa.Column("provider_limit", sa.Integer),             # the league's own cap (ESPN positionLimits); NULL: none
+    sa.Column("my_cap", sa.Integer),                     # mine, never above the league's; NULL: none
+    sa.PrimaryKeyConstraint("league", "pos"),
+)
+
 transactions_table = sa.Table(  # not `transactions`: that name is the reader below
     "transactions", metadata, _season(),
     sa.Column("id", sa.String, nullable=False),          # `{epoch ms}-{team_id}-{action}-{player_id}`, as journal.py keys it
@@ -593,6 +637,53 @@ def put_league(row: dict) -> None:
         if row["home"]:
             c.execute(sa.update(t).where(t.c.key != row["key"]).values(home=False))
         c.execute(_upsert(t, [row], ["key"], [k for k in row if k not in ("key", "added_at")]))
+
+
+def put_league_settings(rows: dict) -> None:
+    """Write formats.rows_for's rows in one transaction: formats insert-if-absent (a key is its content),
+    the league's links and settings replaced, its caps' provider limits replaced and my caps kept."""
+    with _write() as c:
+        c.execute(_upsert(scoring_formats, rows["scoring_formats"], ["key"], None))
+        c.execute(_upsert(lineup_formats, rows["lineup_formats"], ["key"], None))
+        c.execute(_upsert(league_scoring, rows["league_scoring"], ["league", "pos"], ["scoring_format", "unmapped"]))
+        c.execute(_upsert(league_settings_table, rows["league_settings"], ["league", "season"], ["doc", "fetched_at"]))
+        c.execute(_upsert(league_caps, rows["league_caps"], ["league", "pos"], ["provider_limit"]))
+
+
+def league_settings_doc(league: str, season: int) -> dict | None:
+    """The stored pieces formats.assemble puts back together: {doc, lineup, caps}; None when never stored."""
+    s, lf, lc, lg = league_settings_table, lineup_formats, league_caps, leagues_table
+    with _read() as c:
+        doc = c.execute(sa.select(s.c.doc).where(s.c.league == league, s.c.season == season)).scalar()
+        if doc is None:
+            return None
+        lineup = c.execute(sa.select(lf.c.doc).join(lg, lg.c.lineup_format == lf.c.key)
+                           .where(lg.c.key == league)).scalar()
+        caps = {r.pos: {"provider_limit": r.provider_limit, "my_cap": r.my_cap}
+                for r in c.execute(sa.select(lc).where(lc.c.league == league))}
+    return {"doc": doc, "lineup": lineup, "caps": caps}
+
+
+def league_scoring_tables(league: str) -> dict[str, dict[str, float]]:
+    ls, sf = league_scoring, scoring_formats
+    with _read() as c:
+        return {r.pos: r.table for r in c.execute(
+            sa.select(ls.c.pos, sf.c.table).join(sf, sf.c.key == ls.c.scoring_format).where(ls.c.league == league))}
+
+
+def caps_rows(league: str) -> dict[str, dict]:
+    """{pos: {provider_limit, my_cap}} for the league; empty when nothing is stored."""
+    t = league_caps
+    with _read() as c:
+        return {r.pos: {"provider_limit": r.provider_limit, "my_cap": r.my_cap}
+                for r in c.execute(sa.select(t).where(t.c.league == league))}
+
+
+def put_my_cap(league: str, pos: str, my_cap: int | None) -> None:
+    """Set my cap at a position, keeping the league's limit (a row without one is inserted with none)."""
+    with _write() as c:
+        c.execute(_upsert(league_caps, [{"league": league, "pos": pos, "provider_limit": None, "my_cap": my_cap}],
+                          ["league", "pos"], ["my_cap"]))
 
 
 def add_plays(rows: list[dict], season: int = SEASON) -> int:
