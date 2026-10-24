@@ -79,12 +79,22 @@ class DraftFeed:
         self.url = None
         self.offset = 0  # picks made before we attached (see sync_offset)
         self._pw = self._browser = self._page = self._cdp = None
+        self.dirty = False  # picks the store has not taken yet (see _save)
         if store:  # resume after a crash/restart mid-draft
             self.picks, self.offset = store.load()
 
     def _save(self):
-        if self.store:
+        """Write the picks through to the store. A DB error is one line on screen and a dirty flag: the next
+        pump() tries again, so the stored feed (what advise, avail and autodraft read) never lags in silence."""
+        if not self.store:
+            return
+        try:
             self.store.save(self.picks, self.offset)
+            self.dirty = False
+        except db.DBError as e:
+            if not self.dirty:
+                print(f"  !! pick feed not saved to the DB ({e.__class__.__name__}); retrying", flush=True)
+            self.dirty = True
 
     # -- lifecycle -------------------------------------------------------
     def __enter__(self):
@@ -248,6 +258,8 @@ class DraftFeed:
         """Let queued socket events dispatch. Returns False if the CDP link died."""
         try:
             self._page.wait_for_timeout(ms)
-            return True
         except Exception:
             return False
+        if self.dirty:
+            self._save()
+        return True

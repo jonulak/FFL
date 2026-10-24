@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 import pytest
+import sqlalchemy as sa
 
 from ffl import db, leagues
 from ffl.draft_socket import DraftFeed, FeedStore
@@ -85,6 +86,32 @@ def test_feed_attaches_only_to_its_league():
     f._pw = _cdp(pages)
     with pytest.raises(RuntimeError, match="333"):
         f.connect()
+
+
+class _FlakyStore:
+    def __init__(self, fails: int):
+        self.fails, self.saved = fails, None
+
+    def load(self):
+        return [], 0
+
+    def save(self, picks, offset):
+        if self.fails:
+            self.fails -= 1
+            raise sa.exc.OperationalError("INSERT", {}, Exception("database is locked"))
+        self.saved = (list(picks), offset)
+
+
+def test_a_failed_save_warns_once_and_the_next_pump_retries(capsys):
+    store = _FlakyStore(fails=2)
+    f = DraftFeed("222", store=store)
+    f._page = SimpleNamespace(wait_for_timeout=lambda ms: None)
+    f._handle("SELECTED 4 12 0")                 # the save fails: warned and flagged, not raised
+    assert f.dirty and store.saved is None and "not saved" in capsys.readouterr().out
+    assert f.pump(0) and f.dirty, "still failing: still dirty"
+    assert "not saved" not in capsys.readouterr().out, "one warning per outage, not one a second"
+    assert f.pump(0) and not f.dirty
+    assert store.saved == ([{"teamId": 4, "playerId": 12, "lineupSlotId": 0, "overall": 1}], 0)
 
 
 def test_feed_resumes_from_the_db():

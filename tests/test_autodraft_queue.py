@@ -64,6 +64,24 @@ def test_drafted_ids_come_from_the_leagues_feed():
     assert candidates(state, [], leagues.home()) == [(4429795, "Jahmyr Gibbs")]
 
 
+def test_confirm_drafted_treats_a_busy_db_as_not_yet(monkeypatch):
+    import sqlalchemy as sa
+    from ffl import draft_pick
+    other = _other()
+    db.put_draft_feed(other, [{"teamId": 1, "playerId": 4429795, "lineupSlotId": 2, "overall": 1}], 0)
+    real, calls = db.draft_feed, []
+
+    def flaky(ref):
+        calls.append(1)
+        if len(calls) == 1:
+            raise sa.exc.OperationalError("SELECT", {}, Exception("database is locked"))
+        return real(ref)
+    monkeypatch.setattr(db, "draft_feed", flaky)
+    monkeypatch.setattr(draft_pick.time, "sleep", lambda s: None)
+    assert draft_pick.confirm_drafted(4429795, timeout_s=5, ref=other) is True and len(calls) == 2
+    assert draft_pick.confirm_drafted(1, timeout_s=5, ref=leagues.home()) is None, "no feed running"
+
+
 def test_the_turn_is_read_off_the_leagues_draft_state():
     other = _other()
     turn = lambda ref, last: autodraft.my_turn(autodraft._state(ref), last)

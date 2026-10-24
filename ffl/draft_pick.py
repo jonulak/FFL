@@ -224,15 +224,19 @@ def confirm_drafted(player_id: int, timeout_s: float = 8.0, ref=None):
     """True once the pick shows up on the league's socket feed (the DB's draft_feeds); None if no feed is running
     (no pick on it yet, as the old feed file did not exist before the first)."""
     ref = ref or leagues.current()
-    if not db.draft_feed(ref)[0]:
-        return None
+    seen_feed = False
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        try:
-            if any(p["playerId"] == player_id for p in db.draft_feed(ref)[0]):
-                return True
+        try:  # a busy DB is "not yet", never an error out of pick()
+            feed = db.draft_feed(ref)[0]
         except db.DBError:
-            pass
+            feed = None
+        if feed is not None:
+            if not feed and not seen_feed:
+                return None
+            seen_feed = True
+            if any(p["playerId"] == player_id for p in feed):
+                return True
         time.sleep(0.5)
     return False
 

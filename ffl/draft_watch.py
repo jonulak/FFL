@@ -510,6 +510,7 @@ class Watcher:
         self.full_order = snake_order(self.order, self.rounds)
         self.id_to_row = self.players.set_index("player_id")
         self.seen = 0
+        self._written: dict | None = None  # the last state saved to draft_states, less its stamp
         # FFL_ROLLOUT=1: the Monte Carlo second opinion (ffl/rollout.py) is printed under the
         # table for the heads-up and on-clock picks. Off, nothing here changes.
         from . import rollout as rollout_mod  # here, not at the top: rollout imports this module
@@ -598,14 +599,39 @@ class Watcher:
             "rosters": {self.teams[t]["name"]: [self.id_to_row.loc[p["playerId"]]["name"] + f" ({self.id_to_row.loc[p['playerId']]['pos']})"
                                                 for p in picks if p["teamId"] == t and p["playerId"] in self.id_to_row.index] for t in self.teams},
         }
-        # plain JSON, as the old state file held it (numpy scalars and the like as strings)
-        db.put_draft_state(self.ref, json.loads(json.dumps(state, default=str)))
+        self.save_state(state)
         state["_fresh"] = fresh
         state["_rec"] = rec
         state["_rollout_inputs"] = (bd, tm, by_team, my_roster)
         if fresh:
             self._roll_gen += 1  # any rollout still running was computed for a board that has moved
         return state
+
+    def safe_tick(self, *args, **kwargs) -> dict | None:
+        """tick(), but a DB error (the live DB busy past its timeout) is one line on screen and None, never the end
+        of the watcher mid-draft. The picks not yet logged stay unseen, so the next tick logs them again."""
+        try:
+            return self.tick(*args, **kwargs)
+        except db.DBError as e:
+            print(f"[{datetime.now():%H:%M:%S}] DB error, picks not logged yet ({e.__class__.__name__}: {e}); "
+                  "retrying next tick", flush=True)
+            return None
+
+    def save_state(self, state: dict):
+        """Write the state to the league's draft_states row when it changed (its clock stamp aside): a tick
+        comes about once a second, against the live DB the API writes too. A failed write is one line on
+        screen, never the end of the watcher: the next tick sees a state not yet written and tries again."""
+        doc = json.loads(json.dumps(state, default=str))  # plain JSON, numpy scalars and the like as strings
+        same = {k: v for k, v in doc.items() if k != "ts"}
+        if same == self._written:
+            return
+        try:
+            db.put_draft_state(self.ref, doc)
+        except db.DBError as e:
+            print(f"[{datetime.now():%H:%M:%S}] draft state not saved ({e.__class__.__name__}); retrying next tick",
+                  flush=True)
+            return
+        self._written = same
 
     def print_board(self, state: dict):
         rec = state["_rec"]
@@ -697,8 +723,9 @@ def run_socket():
             if feed.offset:
                 print(f"   {feed.offset} still unaccounted for — those players will show as "
                       f"available. Cross-check the room before trusting a recommendation.", flush=True)
-        w.print_board(w.tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock_now(),
-                             offset=feed.offset))
+        state = w.safe_tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock_now(), offset=feed.offset)
+        if state is not None:
+            w.print_board(state)
         while True:
             if not feed.pump(1000):  # CDP link dropped (tab reloaded, Chrome restarted)
                 print(f"[{datetime.now():%H:%M:%S}] lost the draft tab; reattaching…", flush=True)
@@ -710,8 +737,10 @@ def run_socket():
                 except Exception as e:
                     print(f"  reattach failed: {e}", flush=True)
                 continue
-            state = w.tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock_now(),
-                           done=len(feed.picks) + feed.offset >= total, offset=feed.offset)
+            state = w.safe_tick(numbered(feed.picks, n_teams, feed.offset), feed.on_clock_now(),
+                                done=len(feed.picks) + feed.offset >= total, offset=feed.offset)
+            if state is None:
+                continue
             if state["_fresh"]:
                 w.print_board(state)
             if state["drafted"]:
@@ -736,7 +765,10 @@ def run(once: bool = False):
             time.sleep(POLL_S)
             continue
         picks = sorted(d["picks"], key=lambda p: p.get("overallPickNumber", 0))
-        state = w.tick(picks, done=bool(d["drafted"]))
+        state = w.safe_tick(picks, done=bool(d["drafted"]))
+        if state is None:
+            time.sleep(POLL_S)
+            continue
         if state["_fresh"] or once or not printed:
             w.print_board(state)
             printed = True
