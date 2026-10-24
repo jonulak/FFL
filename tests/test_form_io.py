@@ -201,7 +201,7 @@ def test_free_agent_pool_carries_my_roster_with_the_same_figures(monkeypatch):
     assert any(p["slot"] == "IR" for p in mine), "IR players stay in: a drop is a drop"
 
 
-# --- STRATEGY.md "Usage-adjusted ROS": the I/O side -------------------------------------------
+# --- the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): the I/O side -------------------------------------------
 
 def test_apply_form_weighs_each_game_against_that_weeks_position_reference():
     games = {1: [espn_season.game_from_stats(1, week_stats(10, 8, rushingAttempts=10), "RB", True),

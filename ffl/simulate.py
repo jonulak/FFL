@@ -5,7 +5,7 @@
     uv run python -m ffl.simulate all --rounds 6  # every slot, one line per pick of mine
 
 Opponents take the best player left by 2QB ADP; I take the board's top candidate. That makes it
-a check on our own logic — does the lineup fill, do the QBs land in STRATEGY.md's window, does
+a check on our own logic — does the lineup fill, do the QBs land in the window of the league's strategy (`uv run python -m ffl.strategy show`), does
 the heads-up (two picks out) agree with the on-clock table — not a prediction of who will be
 there. Reads the same inputs as the watcher; writes nothing.
 """
@@ -16,6 +16,7 @@ import argparse
 import pandas as pd
 
 from . import board as board_mod
+from . import strategy
 from .draft_watch import (my_team_id, opponent_demand, recommend, roster_counts, snake_order,
                           turn_math)
 
@@ -29,7 +30,7 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
              rollout_sims: int = 100, pick_by: str = "score") -> dict:
     from . import rollout as _ro
     rollout_mod = _ro if _ro.enabled() else None
-    qb_pace = _ro.qb_pace()
+    qb_pace = strategy.qb_pace()
     order = order_for_slot(settings, me, slot)
     n = len(order)
     full = snake_order(order, settings["roster_size"])
@@ -62,7 +63,7 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
                                              n_sims=rollout_sims, time_budget_s=8.0, seed=p)
                 if pick_by == "rollout" and res["rows"]:
                     # let the rollout draft, unfiltered by the hard rules: the test of whether
-                    # it reaches STRATEGY.md's deadlines on its own
+                    # it reaches the strategy's deadlines on its own
                     lead = res["rows"][0]
                     top = next((r for r in rec["top"] if int(r["player_id"]) == lead["player_id"]), None) or {
                         **{k: lead.get(k) for k in ("player_id", "name", "pos", "proj")},
@@ -96,7 +97,7 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
             pick = with_adp.iloc[0] if len(with_adp) else avail.sort_values("proj", ascending=False).iloc[0]
             picks.append({"teamId": team, "playerId": int(pick.player_id), "overallPickNumber": p})
     pos_counts = pd.Series([m["pos"] for m in mine]).value_counts().to_dict()
-    # STRATEGY.md's hard rule: two of the top-twenty QBs. The twentieth's ADP is where the
+    # The hard rule in the league's strategy (`uv run python -m ffl.strategy show`): two of the top-twenty QBs. The twentieth's ADP is where the
     # last of them comes off the board, so a second QB taken after it is a rule violation.
     qb_pool = board_mod.build(settings, players, adp)
     qb20 = qb_pool[qb_pool.pos == "QB"].nlargest(20, "proj").adp.max()
@@ -105,7 +106,7 @@ def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: b
     if len(qb_picks) < 2 or qb_picks[1] > qb20:
         warnings.append(f"QB2 at {qb_picks[1] if len(qb_picks) > 1 else 'never'} is past the "
                         f"twentieth QB's ADP ({qb20:.0f})")
-    for pos, cap in (("TE", 2), ("QB", 3)):
+    for pos, cap in strategy.caps().items():
         if pos_counts.get(pos, 0) > cap:
             warnings.append(f"{pos_counts[pos]} {pos}s rostered (cap {cap})")
     return {"slot": slot, "mine": mine, "pos_counts": pos_counts, "disagreements": disagreements,

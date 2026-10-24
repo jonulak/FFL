@@ -12,7 +12,7 @@ export function TrendArrow({ trend, className = "" }: { trend: Trend | undefined
 
 export type Fact = { key: string; label: string; value: string; title?: string; trend?: Trend };
 
-// A row of facts as label/value pairs on one line (STRATEGY.md "Recent form"; the ROS figures in
+// A row of facts as label/value pairs on one line (the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`); the ROS figures in
 // the player dialog): condensed small-caps label, the number in medium ink beside it. Each pair stays on
 // one line; the line wraps between pairs. Nothing here is a verdict.
 export function FactStrip({ items, className = "" }: { items: Fact[]; className?: string }) {

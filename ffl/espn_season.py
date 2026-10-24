@@ -87,7 +87,7 @@ def flatten_box_player(bp, season_proj: float | None = None) -> dict:
             "season_proj": float(season_proj if season_proj is not None else getattr(bp, "projected_total_points", 0) or 0),
             "ros_proj": None, "ros_n": None,
             "ros_spread": None, "return_week": None, "injury_note": None,
-            # STRATEGY.md "Usage-adjusted ROS": years in the league (apply_exp) and the hurt
+            # the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): years in the league (apply_exp) and the hurt
             # teammates at his position (apply_injuries) — the two stories the blend cannot price
             "exp": None, "ahead": [],
             "opponent": None if bye or opp in (None, "None") else opp,
@@ -242,7 +242,7 @@ def apply_home(players: list[dict], home: dict[str, bool]) -> list[dict]:
     return players
 
 
-# --- recent form (STRATEGY.md, "Recent form") ---------------------------------------------------
+# --- recent form (the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`)) ---------------------------------------------------
 
 OPPORTUNITY = {"K": ("attemptedFieldGoals", "attemptedExtraPoints"),
                "QB": ("passingAttempts", "rushingAttempts", "receivingTargets")}
@@ -525,7 +525,7 @@ def source_values(p: dict, sources: dict[str, dict]) -> dict[str, float]:
 
 
 def merge_weekly(players: list[dict], sources: dict[str, dict]) -> list[dict]:
-    """One weekly projection per player (STRATEGY.md "Lineup"): the consensus of every source that has
+    """One weekly projection per player (the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`)): the consensus of every source that has
     him (consensus.combine). ESPN's own number is an input only and leaves the dict here; each source's
     number rides along in proj_src (highest first) for the projection dialog."""
     out = []
@@ -544,7 +544,7 @@ def merge_weekly(players: list[dict], sources: dict[str, dict]) -> list[dict]:
 def projection_rows_for(players: list[dict], sources: dict, lookup: dict[int, dict], now: datetime,
                         ros_ahead: bool) -> tuple[list[dict], list[dict]]:
     """Each source's number per player for projection_rows: weekly rows while his game is ahead; ROS
-    rows likewise, or all of them while the ROS week is ahead of ESPN's (STRATEGY.md "Waivers")."""
+    rows likewise, or all of them while the ROS week is ahead of ESPN's (the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`))."""
     def ahead(p):
         return p.get("kickoff") is not None and datetime.fromisoformat(p["kickoff"]) > now
     week = [{"player_id": p["player_id"], "source": s, "points": v}
@@ -619,7 +619,7 @@ ROS_SOURCES = {"cbs": cbs.fetch_ros, "sharks": sharks.fetch_ros}
 def merge_season(espn_rows: list[dict], sleeper, ros: dict[str, dict] | None = None) -> dict[int, dict]:
     """Season and rest-of-season projections by ESPN player id.
 
-    Season: ESPN and Sleeper averaged like board.merge_sleeper. ROS (STRATEGY.md "Waivers"): the
+    Season: ESPN and Sleeper averaged like board.merge_sleeper. ROS (the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`)): the
     consensus (consensus.combine) of every ROS source that has him — Sleeper's remaining weeks summed,
     CBS's and FantasySharks' rest-of-season pages — None when none does (season.ros_proj then scales
     the season number). `ros_src` keeps each source's number for the recorder; apply_season never
@@ -1479,7 +1479,7 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
     lg = fresh_league()
     settings = load()
     week = week or lg.current_week
-    # STRATEGY.md "Waivers": ROS starts from the first week whose games are not all played
+    # the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`): ROS starts from the first week whose games are not all played
     rw = ros_week_for(lg, week)
     week_over = rw > week
     me = my_team_id(lg)
@@ -1749,7 +1749,7 @@ def with_sits(rows: list[dict], sat: set[int]) -> list[dict]:
 def roster_state(week: int | None = None, sources: dict | None = None, season: dict | None = None,
                  injuries: dict | None = None, snaps: dict | None = None, flags: dict | None = None) -> dict:
     """My roster as cards (season.roster_cards) for the Roster page. Same enrichment as week_state,
-    plus `form` (STRATEGY.md, "Recent form") on every card. `flags` is an mRoster read the caller
+    plus `form` (the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`)) on every card. `flags` is an mRoster read the caller
     already has (POST /lineup's, with the moves applied); without it the read is made here."""
     lg = fresh_league()
     settings = load()

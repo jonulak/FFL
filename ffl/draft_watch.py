@@ -15,7 +15,7 @@ Who decides: this module computes the facts nobody can work out in 90 seconds �
 I hold, the pick math for the drawn slot, value over the live pool, the cost of waiting until my
 next turn, who survives that long, what the teams in between still need, bye clashes, injury
 status. It emits a candidate table with all of that as columns. The call is made by a person (or
-Claude) reading that table against STRATEGY.md; the `score` order is a default, not a verdict.
+Claude) reading that table against the league's strategy (`uv run python -m ffl.strategy show`); the `score` order is a default, not a verdict.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 
 from . import board as board_mod
-from . import config, db, leagues
+from . import config, db, leagues, strategy
 from .config import DATA, raw_league_get
 
 POLL_S = 5
@@ -47,10 +47,6 @@ DEFAULT_ADP_SD = 8.0
 # Positions nobody takes as a spare early: a team picking before my next turn only takes one of
 # these if it still has the slot open, so "likely gone" there is capped by that demand.
 DEMAND_CAPPED = {"QB", "TE"}
-# Roster-construction rules (STRATEGY.md): never more than this many at a position. QB4 and a
-# second K/D/ST are handled by the blacklists in recommend(); TE needs an explicit cap because
-# it is flex-eligible and would otherwise fill the bench.
-MAX_ROSTERED = {"TE": 2}
 INJURY_SHORT = {"ACTIVE": "", "QUESTIONABLE": "Q", "DOUBTFUL": "D", "OUT": "OUT", "DAY_TO_DAY": "DTD",
                 "INJURY_RESERVE": "IR", "SUSPENSION": "SUSP"}
 
@@ -282,7 +278,7 @@ def survival(adp, sd, at_pick: int) -> np.ndarray:
 
 def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_until_me: int,
               my_picks_left: int | None = None, horizon: int | None = None,
-              opp_demand: dict[str, int] | None = None) -> dict:
+              opp_demand: dict[str, int] | None = None, caps: dict[str, int] | None = None) -> dict:
     """The candidate table for the pick I am choosing for.
 
     picks_until_me: picks by others before that pick (0 = I am on the clock).
@@ -290,7 +286,11 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
         survive if I pass on him. Defaults to picks_until_me for callers that predate it.
     opp_demand: per position, how many picks in that horizon belong to teams that can still start
         the position (see `opponent_demand`).
+    caps: how many I may roster at each position (a position missing is uncapped); None reads the
+        current league's (`strategy.caps`).
     """
+    if caps is None:
+        caps = strategy.caps()
     avail = bd[~bd.drafted].copy()
     counts = my_roster.pos.value_counts().to_dict() if len(my_roster) else {}
     left = open_slots(settings, counts)
@@ -362,7 +362,7 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     # VORP still floated to the top — draft 6 spent rounds 12 and 13 on a kicker and a defense.
     # The gap between the best D/ST and the tenth is 23 points, about 1.3 a week, and the
     # eleventh is on waivers all season; a round-13 dart on a role player is worth more. So they
-    # are off the board entirely until the run-in, which is what STRATEGY.md has always said.
+    # are off the board entirely until the run-in, which is what the strategy has always said.
     if my_picks_left is not None and my_picks_left > unfilled:
         avail.loc[avail.pos.isin(["K", "D/ST"]), "score"] = -999.0
     # A second backup at a position that cannot flex is dead weight: with a QB3 already
@@ -372,13 +372,15 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     extra_backup = [p not in flex_pos and backups_held(settings, counts, p) >= 1
                     for p in avail.pos]
     avail.loc[extra_backup, "score"] = -999.0
-    # The same rule for tight ends, who dodge it by being flex-eligible. Once the starters are
-    # set, a leftover TE keeps a small positive VORP (the pool is thin, so replacement sits at
-    # TE14) while every RB and WR left has gone negative, and a small positive number beats a
-    # negative one however hard it is discounted: a full 17-round replay ended with six or
-    # seven tight ends from every slot. A third TE never starts over the RB/WR already in the
-    # flex; a roster rule, stated in STRATEGY.md, not a weight.
-    at_cap = [counts.get(p, 0) >= MAX_ROSTERED.get(p, 99) for p in avail.pos]
+    # The league's caps (league data: `ffl.leagues caps`, seeded from the strategy's suggested
+    # caps). TE is why they exist: tight ends dodge the rule above by being flex-eligible. Once the
+    # starters are set, a leftover TE keeps a small positive VORP (the pool is thin, so replacement
+    # sits at TE14) while every RB and WR left has gone negative, and a small positive number beats
+    # a negative one however hard it is discounted: a full 17-round replay ended with six or seven
+    # tight ends from every slot. A roster rule, not a weight. The two rules above stay beside the
+    # caps: they follow the lineup (a second K/D/ST, a second non-flex backup) where a cap is a
+    # fixed count, so in the home league they bind exactly where its QB 3, K 1 and D/ST 1 do.
+    at_cap = [counts.get(p, 0) >= caps.get(p, 99) for p in avail.pos]
     avail.loc[at_cap, "score"] = -999.0
     # Late on, everything left is at or below replacement and scores collapse to a tie at 0 or
     # below. Raw projection then decided the order — and it is not comparable across positions,

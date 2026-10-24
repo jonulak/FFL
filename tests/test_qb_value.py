@@ -1,6 +1,6 @@
 """Replacement level must reflect how many QBs the league actually rosters.
 
-STRATEGY.md: "Have two QBs by the end of round 5, no exceptions." That only happens if the
+the league's strategy (`uv run python -m ffl.strategy show`): "Have two QBs by the end of round 5, no exceptions." That only happens if the
 board values QBs the way a 2QB room does. Bench depth used to be a flat league-wide count of
 3 backup QBs — a 1QB assumption — which put replacement at ~QB23 instead of ~QB28 and made
 every QB look ~47 points cheaper than he is.

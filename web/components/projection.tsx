@@ -9,7 +9,7 @@ import { BAND_CLOSE, PlayerHeader } from "./player-header";
 
 // The week's projection is one number, the consensus of every source that has him (ffl/consensus.py),
 // and `spread` says how far apart they were. Every board shows it as `±spread` beside the number,
-// amber from 3 points (STRATEGY.md's close call); a tap on the number opens the sources behind it.
+// amber from 3 points (the close call in the league's strategy (`uv run python -m ffl.strategy show`)); a tap on the number opens the sources behind it.
 
 export const SOURCE_LABEL: Record<string, string> = {
   espn: "ESPN", sleeper: "Sleeper", cbs: "CBS", sharks: "FantasySharks", fleaflicker: "FleaFlicker",

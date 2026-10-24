@@ -28,7 +28,7 @@ so drops and the flex rule are judged from the same output.
 | where | `ME` + slot; owner's team + slot; `FA`. Slot `BE` is benched production, `IR` is the IR slot, `FLEX` is the flex (ESPN's `RB/WR/TE`, as `--json` keeps it), which the write-up calls "flex" |
 | ppg / beat | points a game over the window; over ESPN's weekly projection for those games. `beat` can be negative on a row the model has low: "on projection, model behind him", not a breakout |
 | pace | ppg × games left − model ROS. Two hot games times fifteen is a big number: rank by it, judge by the rest |
-| ros → adj | model ROS (consensus of Sleeper, CBS, FantasySharks) → usage-adjusted ROS (STRATEGY.md) |
+| ros → adj | model ROS (consensus of Sleeper, CBS, FantasySharks) → usage-adjusted ROS (the league's strategy, `uv run python -m ffl.strategy show`) |
 | snap | offensive snap share over the window |
 | opp / tr | touches + targets a game (pass attempts for a QB); `tr` is the last game's opp minus the mean of the earlier games, a difference in touches |
 | tsn / ypt | targets per snap and yards a target. Lead WRs and TEs run about .20 tsn; .10 is a third option. ypt under 8 with a high beat is touchdowns, not usage |
@@ -51,4 +51,4 @@ Do not name a cause the table does not show. Do not name a player who is not on 
 
 Rules that come up every week: in a 2-QB league a bench QB is normal, so a benched QB is not
 cheap; a second TE is a flex only if his adjusted ROS beats my WR3's on the roster block;
-STRATEGY.md's QB4 and TE3 blacklists apply to every snipe.
+The QB4 and TE3 rules in the league's strategy (`uv run python -m ffl.strategy show`), which are the league's caps (`uv run python -m ffl.leagues caps <key>`), apply to every snipe.

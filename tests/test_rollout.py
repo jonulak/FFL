@@ -6,6 +6,7 @@ import pytest
 from ffl import board as board_mod
 from ffl import draft_watch as dw
 from ffl import rollout as ro
+from ffl import strategy
 
 from .test_board import EMPTY_ADP, make_players
 
@@ -159,7 +160,7 @@ def test_rollout_finishes_every_simulated_roster_legally():
         counts = Counter(pool.pos[i] for i in mine)
         assert counts["QB"] >= 2 and counts["TE"] >= 1 and counts["K"] == 1 and counts["D/ST"] == 1
         assert counts["RB"] >= 2 and counts["WR"] >= 2
-        for p, cap in ro.ROSTER_CAP.items():
+        for p, cap in strategy.caps().items():
             assert counts[p] <= cap, counts
         for t, team in teams.items():
             assert team.picks_left == 0
@@ -278,3 +279,26 @@ def test_plan_takes_the_position_whose_wait_is_dearest():
     st = {"team_count": 2, "starters": {"RB": 1, "WR": 1}, "roster_size": 2, "name": "t", "season": 2026}
     team = ro.Team({}, picks_left=2)
     assert ro.plan_position(pool, np.zeros(len(pool), bool), team, st, [5, 25]) == "RB"
+
+
+def test_rollout_reads_league_caps(monkeypatch):
+    """caps QB=2: no simulated roster of mine holds three QBs (under the league's QB 3 they do)."""
+    from collections import Counter
+    from ffl import strategy
+    players, adp = _real_shaped_inputs()
+    bd = board_mod.build(SETTINGS_2QB, players, adp)
+    rec, full, decide, my_roster = _rec_and_order(bd, SETTINGS_2QB, me=7, slot=5)
+    qbs = []
+    orig = ro.season_points
+
+    def spy(proj, pos, bye, settings):
+        qbs.append(Counter(pos)["QB"])
+        return orig(proj, pos, bye, settings)
+    monkeypatch.setattr(ro, "season_points", spy)
+    tm = {"decide": decide}
+    ro.from_state(bd, SETTINGS_2QB, full, 7, tm, {}, my_roster, rec, n_sims=10, seed=2)
+    assert max(qbs) == 3, "fixture never reaches a QB3 under the default caps, so it cannot show the cap"
+    qbs.clear()
+    ro.from_state(bd, SETTINGS_2QB, full, 7, tm, {}, my_roster, rec, n_sims=10, seed=2,
+                  caps={**strategy.caps(), "QB": 2})
+    assert qbs and max(qbs) <= 2, f"a simulated roster of mine held {max(qbs)} QBs under QB=2"

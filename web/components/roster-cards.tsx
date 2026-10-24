@@ -230,7 +230,7 @@ export function InjuryMark({ c, week }: { c: Card; week?: number }) {
 }
 
 // The call as one chip, with the accent ring when ESPN has him where the call would not. A START names the slot the
-// call puts him in (RB, FLEX, ...; STRATEGY.md, Slot by kickoff), still on the lime. A close call is an amber
+// call puts him in (RB, FLEX, ...; the league's strategy (`uv run python -m ffl.strategy show`), Slot by kickoff), still on the lime. A close call is an amber
 // mark inside it; with `split` (the roster row) it becomes its own CLOSE CALL chip from md, where the call column
 // holds both. An IR or OUT call on an injured man carries his return week when `week` is given.
 export function CallChip({ c, week, split = false }: { c: Card; week?: number; split?: boolean }) {

@@ -1,4 +1,4 @@
-"""STRATEGY.md "Usage-adjusted ROS": K is a guess about noise, checked here rather than trusted.
+"""the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): K is a guess about noise, checked here rather than trusted.
 
 The pool builder writes one snapshot per ROS week (the DB's calibration tables: what the blend
 read for every player — the model, l3, the snap-weighted game count, the games left). This module
@@ -157,7 +157,7 @@ SHRINK_WEEKS = 4   # a fit from n weeks is (n * fitted + 4 * equal) / (n + 4)
 
 def fit_weights(pairs: list[dict], shrink: int = SHRINK_WEEKS) -> dict[str, dict]:
     """Per position: each source's MAE and inverse-MSE weight against what happened, normalised and
-    shrunk toward equal by the weeks behind it (STRATEGY.md "Lineup": weights are fitted, then
+    shrunk toward equal by the weeks behind it (the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`): weights are fitted, then
     approved by hand)."""
     by: dict[str, dict[str, list[float]]] = {}
     weeks: dict[str, set] = {}
@@ -317,7 +317,7 @@ def main(argv: list[str]) -> None:
             n = sum(rows[i]["players"] for rows in per_snap)
             mae = round(sum(rows[i]["mae"] * rows[i]["players"] for rows in per_snap if rows[i]["mae"] is not None) / n, 2) if n else None
             print(f"  K={k:>6g}  MAE {mae if mae is not None else '—':>5}  over {n}")
-    print(f"K in STRATEGY.md is {S.K_PRIOR}; change it there first, then season.K_PRIOR")
+    print(f"K in the league's strategy is {S.K_PRIOR}; change it in a new strategy version (a migration) first, then season.K_PRIOR")
 
 
 if __name__ == "__main__":

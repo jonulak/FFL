@@ -35,7 +35,7 @@ done, 2026-09-07, from slot 5). The web UI's Draft page is now a recap surface.
 
 Not a general fantasy app. Every number is scored to *this* league's settings (2-QB, PPR, 4-pt
 pass TD) and averaged across ESPN and Sleeper, which neither source does for a 2-QB league. The
-decision rules are written down in `STRATEGY.md` and the code computes facts against them; the
+decision rules are written down in the league's strategy (`uv run python -m ffl.strategy show`) and the code computes facts against them; the
 UI shows the rule that fired, not a black-box grade. Nothing needs to be persuasive or general:
 it is the one manager's own instrument.
 
@@ -51,7 +51,7 @@ it is the one manager's own instrument.
 ## Capabilities and Constraints
 
 - **Lineup call** (`season.roster_cards`): start = in the optimal lineup by this week's averaged projection; byes and OUT/IR/SUSP at zero. A **close call** flag when the gap to the alternative is under 2 points or the sources disagree by 3+. QUESTIONABLE/DOUBTFUL keep the projection call and say the status is decided by hand on practice-report news.
-- **Waiver ranking:** one composite column, `add`, in projected season points gained (formula in STRATEGY.md "Waivers"); raw `delta_roster` and `delta_pool` stay visible beside it. No bye term, no contest term yet ("who else wants him" is planned as its own column when manager models land).
+- **Waiver ranking:** one composite column, `add`, in projected season points gained (formula in the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`)); raw `delta_roster` and `delta_pool` stay visible beside it. No bye term, no contest term yet ("who else wants him" is planned as its own column when manager models land).
 - **Terminology in use:** start / bench / close call; `add`, ROS (rest of season), VORP, ADP, spread (source disagreement), replacement level; QB/RB/WR/TE/FLEX/D/ST/K; IR stash; bye.
 - **Hard constraints:** the UI reports the tree's call and the reason; new judgment is not encoded as weights. Injury news overrides the tree by hand, so surfacing status and the healthy alternative matters more than a verdict.
 - **Stack:** Next 16 + React 19, Tailwind 4, shadcn (base-ui), lucide icons, react-markdown; Geist / Geist Mono; dark mode follows the system (no toggle yet, `.dark` hook kept). pnpm. Vitest for the web, pytest via `uv run` for Python.
@@ -66,7 +66,7 @@ no voice guide. No visual constraints were volunteered; none are recorded here.
 
 - Real league data via ESPN and Sleeper APIs (regenerated into gitignored `data/`).
 - Real season record in the SQLite DB (`data/ffl.db`: decisions, transactions, weekly results, draft picks; standings read live from ESPN), with the pre-DB prose history in `journal/`.
-- Strategy and the formulas that drive every number: `STRATEGY.md`.
+- Strategy and the formulas that drive every number: the league's strategy (`uv run python -m ffl.strategy show`).
 - Absent, and not to be fabricated: other users, testimonials, comparisons to other apps, historical seasons before 2026.
 
 ## Product Principles

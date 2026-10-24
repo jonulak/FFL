@@ -1,4 +1,4 @@
-"""Projection sources beyond ESPN's box score and Sleeper (STRATEGY.md "Lineup" / "Waivers"): one
+"""Projection sources beyond ESPN's box score and Sleeper (the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`) / "Waivers"): one
 module per site, each a pure parse_* seam and a fetch through Cached. Every source is optional: a
 failed or thin scrape serves the last good data for that key, else {} (the consensus runs on whoever
 answered), and its health is kept in STATUS and the DB (`source_status`) for GET /sources/status and

@@ -1,5 +1,5 @@
 """Who is beating his projection, league-wide: every rostered player and the free-agent pool, ranked by
-pace over the model's rest-of-season number (STRATEGY.md "Recent form": `pace_gap`), with the columns
+pace over the model's rest-of-season number (the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`): `pace_gap`), with the columns
 the write-up reads beside it — where he sits (owner and slot), snap share, targets, years in, hurt
 teammates ahead, and how stingy his two opponents were. The Tuesday scan for snipes and trade targets;
 the write-up rules are in `.claude/skills/pace-report/SKILL.md`.

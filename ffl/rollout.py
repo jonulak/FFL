@@ -7,7 +7,7 @@ candidate by the season points of my best legal lineup at the end, bye weeks inc
 
 This replaces nothing. `recommend()`'s `score` stays the default ordering; the rollout is
 printed beside it (`FFL_ROLLOUT=1`) so the two can be read against each other. Where they
-disagree, STRATEGY.md's hard rules and the human decide. It is pure over its inputs and
+disagree, the hard rules in the league's strategy (`uv run python -m ffl.strategy show`) and the human decide. It is pure over its inputs and
 writes nothing.
 
 Why a rollout at all: the table estimates survival one player at a time and prices the cost
@@ -25,12 +25,14 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .draft_watch import DEFAULT_ADP_SD, MAX_ROSTERED, POSITIONS, SEASON_WEEKS, _is_flex
+from . import strategy
+from .draft_watch import DEFAULT_ADP_SD, POSITIONS, SEASON_WEEKS, _is_flex
 
-# Roster caps the opponents (and my own later picks) respect. QB4 and TE3 are STRATEGY.md's
-# blacklists; K/D/ST are one each; RB/WR are a sanity cap so a simulated team cannot draft
-# nine running backs when the ADP noise happens to line up that way.
-ROSTER_CAP = {"QB": 3, "TE": MAX_ROSTERED.get("TE", 2), "K": 1, "D/ST": 1, "RB": 7, "WR": 7}
+# The roster caps the opponents (and my own later picks) respect are the league's (`strategy.caps`,
+# read once per rollout and handed to every Team): in the home league QB 3 and TE 2 are the
+# strategy's blacklists, K/D/ST one each, and RB/WR 7 a sanity cap so a simulated team cannot
+# draft nine running backs when the ADP noise happens to line up that way. Opponents get my caps
+# too: theirs are unknown.
 # Nobody in a human room takes a kicker or defense before their last few picks. Mirrors the
 # recommender's own gate (off the board until the remaining picks only cover empty slots),
 # with a little slack because humans are not that disciplined.
@@ -71,7 +73,7 @@ class Pool:
         # QB with this at 0 (measured 2026-09-07); a league where every manager hurries a QB3
         # is faster, and nothing measures by how much until the real draft. Applied to the
         # opponents' draw order and to my own plan's survival expectations alike.
-        pace = qb_pace()
+        pace = strategy.qb_pace()
         if pace:
             qb = avail.pos == "QB"
             avail.loc[qb, "adp"] = (avail.loc[qb, "adp"] - pace).clip(lower=1.0)
@@ -97,6 +99,11 @@ class Pool:
 class Team:
     counts: dict[str, int]
     picks_left: int
+    caps: dict[str, int] | None = None     # per position, a missing one uncapped; None: the league's
+
+    def __post_init__(self):
+        if self.caps is None:
+            self.caps = strategy.caps()
 
 
 def starter_slots(settings: dict) -> tuple[dict[str, int], int, set[str]]:
@@ -173,7 +180,7 @@ def allowed_positions(team: Team, settings: dict) -> set[str]:
         return {p for p, n in left.items() if n > 0}
     ok = set()
     for p in POSITIONS:
-        if team.counts.get(p, 0) >= ROSTER_CAP.get(p, 99):
+        if team.counts.get(p, 0) >= team.caps.get(p, 99):
             continue
         if p in ("K", "D/ST") and team.picks_left > KDST_PICKS_LEFT + left.get(p, 0) - 1:
             continue
@@ -409,15 +416,19 @@ def my_pick(taken: np.ndarray, pool: Pool, mine: list[int], team: Team, settings
 def _anyone_left(taken: np.ndarray, pool: Pool, team: Team) -> int:
     """Nothing usable is left: the best projection under the caps, else anyone at all."""
     under_cap = [i for i in np.argsort(-pool.proj) if not taken[i]
-                 and team.counts.get(pool.pos[i], 0) < ROSTER_CAP.get(pool.pos[i], 99)]
+                 and team.counts.get(pool.pos[i], 0) < team.caps.get(pool.pos[i], 99)]
     if under_cap:
         return int(under_cap[0])
     left = np.flatnonzero(~taken)
     return int(left[0]) if len(left) else -1
 
 
-def candidate_indices(pool: Pool, rec: dict, my_counts: dict[str, int], settings: dict, n_top: int = 8) -> list[int]:
-    """The score top-N plus the best available at every position with an open starting slot."""
+def candidate_indices(pool: Pool, rec: dict, my_counts: dict[str, int], settings: dict, n_top: int = 8,
+                      caps: dict[str, int] | None = None) -> list[int]:
+    """The score top-N plus the best available at every position with an open starting slot
+    (caps: the league's when None)."""
+    if caps is None:
+        caps = strategy.caps()
     id_to_idx = {int(pid): i for i, pid in enumerate(pool.ids)}
     out: list[int] = []
     for r in rec["top"][:n_top]:
@@ -431,7 +442,7 @@ def candidate_indices(pool: Pool, rec: dict, my_counts: dict[str, int], settings
     for p, n in left.items():
         # the flex adds every flex position, including one already at its roster cap (a
         # third TE via the flex is how a rollout-drafted slot 4 ended with three tight ends)
-        if n <= 0 or p in ("K", "D/ST") or my_counts.get(p, 0) >= ROSTER_CAP.get(p, 99):
+        if n <= 0 or p in ("K", "D/ST") or my_counts.get(p, 0) >= caps.get(p, 99):
             continue
         for i in pool.by_pos.get(p, []):
             if i not in out:
@@ -443,12 +454,13 @@ def candidate_indices(pool: Pool, rec: dict, my_counts: dict[str, int], settings
 def rollout(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, decide: int,
             rosters: dict[int, dict[str, int]], my_roster: pd.DataFrame, rec: dict, n_sims: int = 300,
             time_budget_s: float | None = None, seed: int | None = None,
-            candidates: list[int] | None = None) -> dict:
+            candidates: list[int] | None = None, caps: dict[str, int] | None = None) -> dict:
     """Score each candidate for my pick at overall number `decide` by the roster it leads to.
 
     rosters: position counts per team id for everyone drafted so far (mine included).
     my_roster: the board rows of the players I already hold (they are off the pool, so their
         projections and byes ride in here for the final evaluation).
+    caps: the roster caps every simulated team respects; None reads the league's (`strategy.caps`).
     Returns {"rows": [...sorted by roll desc...], "n_sims": achieved, "elapsed": seconds}.
     Each row: player_id, name, pos, roll (mean season lineup points), roll_se, next_pos and
     next_proj (what my following pick most often is, and its mean projection) — the reason
@@ -456,9 +468,11 @@ def rollout(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, de
     """
     pool = Pool.from_board(bd)
     rng = np.random.default_rng(seed)
+    if caps is None:
+        caps = strategy.caps()
     my_counts = dict(rosters.get(me, {}))
     if candidates is None:
-        cand = candidate_indices(pool, rec, my_counts, settings)
+        cand = candidate_indices(pool, rec, my_counts, settings, caps=caps)
     else:
         id_to_idx = {int(pid): i for i, pid in enumerate(pool.ids)}
         cand = [id_to_idx[c] for c in candidates if c in id_to_idx]
@@ -485,7 +499,7 @@ def rollout(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, de
         order = np.argsort(pool.adp + noise, kind="stable")
         for c in cand:
             taken = np.zeros(len(pool), dtype=bool)
-            teams = {t: Team(dict(rosters.get(t, {})), n) for t, n in picks_left.items()}
+            teams = {t: Team(dict(rosters.get(t, {})), n, caps) for t, n in picks_left.items()}
             mine: list[int] = []
             for k, t in enumerate(remaining):
                 team = teams[t]
@@ -548,18 +562,10 @@ def enabled() -> bool:
     return os.environ.get("FFL_ROLLOUT", "") == "1"
 
 
-def qb_pace() -> float:
-    """FFL_QB_PACE: picks earlier than FFC ADP that this room takes its QBs (default 0)."""
-    import os
-    try:
-        return float(os.environ.get("FFL_QB_PACE") or 0.0)
-    except ValueError:
-        return 0.0
-
-
 def from_state(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, tm: dict,
                by_team: dict[int, dict[str, int]], my_roster: pd.DataFrame, rec: dict,
-               n_sims: int = 300, time_budget_s: float | None = 12.0, seed: int | None = None) -> dict:
+               n_sims: int = 300, time_budget_s: float | None = 12.0, seed: int | None = None,
+               caps: dict[str, int] | None = None) -> dict:
     """The rollout for the pick `turn_math` says I am choosing for. Empty when I have none left.
 
     FFL_ROLLOUT_SIMS overrides the simulation count (fewer on a slow machine; tests use 20).
@@ -569,7 +575,7 @@ def from_state(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int,
         return {"rows": [], "n_sims": 0, "elapsed": 0.0}
     n_sims = int(os.environ.get("FFL_ROLLOUT_SIMS") or n_sims)
     return rollout(bd, settings, full_order, me, tm["decide"], by_team, my_roster, rec,
-                   n_sims=n_sims, time_budget_s=time_budget_s, seed=seed)
+                   n_sims=n_sims, time_budget_s=time_budget_s, seed=seed, caps=caps)
 
 
 def rollout_lines(res: dict, rec: dict, n: int = 3) -> list[str]:

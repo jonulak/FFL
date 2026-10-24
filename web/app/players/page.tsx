@@ -112,7 +112,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
       </div>
       {/* The definition is a laptop read; on the phone the first screen belongs to the table. */}
       <p className={`hidden max-w-[72ch] text-xs leading-relaxed text-muted-foreground ${watch ? "" : "md:block"}`}>
-        add = projected points gained this season by adding him (STRATEGY.md, Waivers; on a rostered player, what he&apos;d be worth to me, blank on my own).
+        add = projected points gained this season by adding him (the league&apos;s strategy, Waivers; on a rostered player, what he&apos;d be worth to me, blank on my own).
         ROS = the models&apos; per-game rate shrunk toward his last three games by their snap
         share. beat and pace = his last three games against the projection, per game and over the
         rest of the season; opp and snap = his usage. START marks a player who would go straight into

@@ -18,7 +18,7 @@ down_revision: Union[str, Sequence[str], None] = '0014'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# my caps in the home league (STRATEGY.md's roster rules), seeded with its import
+# my caps in the home league (the roster rules in the league's strategy, `uv run python -m ffl.strategy show`), seeded with its import
 HOME_MY_CAP = {"QB": 3, "RB": 7, "WR": 7, "TE": 2, "K": 1, "D/ST": 1}
 
 

@@ -7,7 +7,7 @@ Watches the watcher's `draft_state.json`; when it says I am on the clock it draf
 player in the queue who is still available, falling back to the candidate table's own order.
 `ffl.draft_pick` does the clicking and verifies against the socket feed.
 
-**This is not judgment.** The queue is written by a person (or Claude) against STRATEGY.md
+**This is not judgment.** The queue is written by a person (or Claude) against the league's strategy (`uv run python -m ffl.strategy show`)
 between turns; this module only clicks. Nothing here ranks players — the fallback is
 `recommend()`'s existing order, unchanged. See CLAUDE.md: no new weights in code.
 
@@ -74,7 +74,8 @@ def candidates(state: dict, queue: list[tuple[int, str]]) -> list[tuple[int, str
     gone = drafted_ids()
     out = [(pid, nm) for pid, nm in queue if pid not in gone]
     for r in state.get("recommend", {}).get("top", []):
-        # -999 is recommend()'s blacklist (a 4th QB, a 2nd K/DST, a 3rd TE, K/DST too early)
+        # -999 is recommend()'s blacklist (a position at the league's cap, a 2nd K/DST or non-flex backup,
+        # K/DST too early)
         if r["score"] > -900 and r["player_id"] not in gone:
             entry = (r["player_id"], r["name"])
             if entry not in out:

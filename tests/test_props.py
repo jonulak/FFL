@@ -1,4 +1,4 @@
-"""STRATEGY.md "Lineup", props trial: player props rescored to the league as a third weekly source,
+"""the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`), props trial: player props rescored to the league as a third weekly source,
 recorded (not used) in weeks 4-6 and scored against ESPN/Sleeper by a bar fixed in advance."""
 import math
 

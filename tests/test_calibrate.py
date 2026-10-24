@@ -1,4 +1,4 @@
-"""STRATEGY.md "Usage-adjusted ROS": K is checked, not trusted. The pool builder snapshots what the
+"""the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): K is checked, not trusted. The pool builder snapshots what the
 blend saw each ROS week; the scorer says which K would have missed least since."""
 import pytest
 

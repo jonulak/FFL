@@ -26,7 +26,7 @@ export type Player = {
   // rest of season: the consensus of Sleeper's remaining weeks, CBS's and FantasySharks' ROS pages,
   // null when none has him (the API then scales season_proj); ros_n counts the sources
   ros_proj: number | null; ros_spread: number | null; ros_n: number | null;
-  // STRATEGY.md "Usage-adjusted ROS": the two stories the blend cannot price, shown beside it —
+  // the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): the two stories the blend cannot price, shown beside it —
   // years in the league (0 = rookie; null when Sleeper has no record) and the hurt teammates
   // at his position on ESPN's injury report
   exp: number | null; ahead: Ahead[];
@@ -36,7 +36,7 @@ export type Player = {
   stat_line?: string; // his box-score line, once a stat that scores has happened (live.stat_line)
   box?: BoxItem[]; // the line items behind his points (live.box_score); Matchup payload only
   volume?: Volume; // his targets / carries / pass attempts this week, beside the box (live.volume)
-  form?: Form | null; // his last three games (STRATEGY.md "Recent form"); Roster cards and Waiver rows
+  form?: Form | null; // his last three games (the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`)); Roster cards and Waiver rows
 };
 // season.recent_form: the last three games he played, facts beside `add`, never inside it.
 // Null columns are the ones his position has no number for (snaps for a K, targets for a QB),
@@ -114,7 +114,7 @@ export type Card = Player & {
   play_proj: number; locked: boolean; ros_adj: number;
   // his place in ESPN's roster entries: a slot's starters stand in this order (season._card_sort_key)
   espn_order: number;
-  // the slot a START puts him in (STRATEGY.md, Slot by kickoff): the chip names it; null on any other call
+  // the slot a START puts him in (the league's strategy (`uv run python -m ffl.strategy show`), Slot by kickoff): the chip names it; null on any other call
   call_slot: string | null;
   outlook: OutlookBullet[] | null; outlook_at: string | null; outlook_stale: boolean;
   // a rewrite of this card alone is running (POST /outlook/{id}); the last one's failure, if it failed
@@ -184,7 +184,7 @@ export type NflGamePage = { week: number; live: boolean; game: NflGame; marked: 
 export type WinProb = { me: number; opp: number; sigma_source: "calibrated" | "fallback" };
 export type Week = { week: number; live: boolean; mine: boolean; slots?: string[]; me: Side; opp: Side | null; win_prob?: WinProb | null; plays: Play[]; stale_since: string | null };
 // ros_proj is the model mean (resolved: the season formula when no source has him); ros_adj the
-// usage-adjusted number `add` and the deltas run on (STRATEGY.md "Usage-adjusted ROS").
+// usage-adjusted number `add` and the deltas run on (the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`)).
 // add and the deltas are "worth to me": on another team's player, what he'd add if I traded for
 // him; null on my own (measuring him against my weakest is circular). owner null = free agent.
 export type Owner = { team_id: number; name: string | null; abbrev: string | null };

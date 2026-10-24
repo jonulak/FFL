@@ -23,6 +23,7 @@ uv run python -m ffl.draft_watch       # LIVE: picks off the draft room socket; 
 uv run python -m ffl.advise            # LIVE: the candidate table, recomputed from the raw pick feed
 uv run python -m ffl.avail WR 8        # LIVE: who is left at a position, by projection (the table hides replacement-level players)
 uv run python -m ffl.simulate 7        # dry-run the draft from a slot (opponents pick to 2QB ADP); `all` for every slot
+uv run python -m ffl.strategy show     # the league's strategy, the prose to advise from (--league KEY; `list`: presets and versions)
 FFL_ROLLOUT=1 uv run python -m ffl.<mod>  # draft_watch / advise / simulate: add the Monte Carlo rollout (second opinion)
 uv run python -m ffl.replay journal/draft/practice-8-slot4.csv   # a finished draft through score + rollout, from my seat
 uv run python -m ffl.ffc fetch         # FantasyFootballCalculator 10-team 2QB draft logs -> data/ffc/ (replay --human)
@@ -34,7 +35,7 @@ uv run python -m ffl.playbook backfill 1-6   # finished weeks' NFL plays from ES
 uv run python -m ffl.newsdesk run      # one news-desk run (collect, tag, write, queue pushes); seed / status (launchd POSTs /news/run every 10 min)
 uv run python -m ffl.newsdesk bench    # replay frozen news (`bench freeze` first) through tagging with saved Jev answers, against ffl/newsdesk/bench_cases.py; --player grupe, --write (Haiku too), --refresh
 uv run python -m ffl.decisions list --open   # decisions still needing a rationale or outcome; add / outcome / rationale / show / export
-uv run python -m ffl.calibrate         # in-season: score STRATEGY.md's K (usage-adjusted ROS) against the weekly snapshots in the DB (calibration_*)
+uv run python -m ffl.calibrate         # in-season: score the K of the league's strategy (`uv run python -m ffl.strategy show`) (usage-adjusted ROS) against the weekly snapshots in the DB (calibration_*)
 uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (sigma_fits) + Brier; launchd runs `calibrate wednesday` (winprob, then sources) Wed 07:00
 uv run python -m ffl.pace              # in-season: who is beating his projection, every roster + the wire (write-up rules: .claude/skills/pace-report)
 uv run python -m ffl.sources compare   # old (ESPN+Sleeper) vs consensus projection for every rostered player; status: source health
@@ -62,7 +63,7 @@ Mock/practice runs: `LEAGUE_ID=<mock id> FFL_DATA_DIR=data-mock uv run python -m
 real board and pick log untouched.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
 `data/` is gitignored, and everything in it is regenerable except `data/ffl.db` (the season's data; see Persistence), which is backed up nightly to Drive, not by git.
-`journal/` and `STRATEGY.md` are the durable prose and are committed.
+`journal/` is the durable prose and is committed. The strategy is not a file: presets live in the DB's `strategies` table (added and versioned only by migrations; 0016 holds the old strategy file's text as `2qb-10team` v1) and `uv run python -m ffl.strategy show` prints the league's.
 
 ## Architecture notes
 - `ffl/config.py` owns env + the `League` singleton; `raw_league_get(view, ...)` hits ESPN views directly.
@@ -78,9 +79,12 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   with FLEX/OP slots split across positions (see `FLEX_SPLIT`).
 - `ffl/draft_watch.py::recommend()` returns a **candidate table, not a verdict**: `score` is the default
   ordering; the decision is made on the columns beside it (`survive_prob`, `opp_demand`, `urgency`,
-  `bye_risk`, `spread`, `injury`) against STRATEGY.md's hard rules. Do not encode new judgment as weights —
-  seven practice drafts of that is how the board came to disagree with STRATEGY.md. Roster rules that are
-  genuinely hard (QB4, K2, TE3) are blacklists; everything else is a rule in STRATEGY.md.
+  `bye_risk`, `spread`, `injury`) against the hard rules in the league's strategy (`uv run python -m ffl.strategy show`). Do not encode new judgment as weights —
+  seven practice drafts of that is how the board came to disagree with the strategy. Roster rules that are
+  genuinely hard are the league's caps (`strategy.caps`: league data, seeded from the preset's `suggested_caps` on
+  first read, then owned and changed with `ffl.leagues caps`; QB 3, TE 2, K 1, D/ST 1, RB/WR 7 at home), which
+  `recommend(caps=)` and the rollout read, beside the lineup blacklists (a second K/D/ST, a second non-flex backup,
+  K/D/ST before the run-in); everything else is a rule in the strategy.
 - **The draft order is drawn at draft start.** `settings.json` holds ESPN's placeholder (teams in id order)
   until then; `FFL_PICK_ORDER` overrides it and `learn_order()` rebuilds it from round 1's picks. Never
   hard-code a slot. `turn_math()` owns all pick-number maths and is shared by the watcher, `advise` and
@@ -113,13 +117,13 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   `w` is the **ROS week** (`espn_season.ros_week_for` → `season.ros_week`): ESPN's scoring period, or the
   next one once every kickoff in it is four hours old (off the pro-schedule document) — ESPN rolls its week
   some time Tuesday, and until then the sum would count a game already played. The week term is zero then.
-- The ROS that `add` and the deltas run on is **usage-adjusted** (`season.ros_adj`, STRATEGY.md "Usage-adjusted
-  ROS"): the model's per-game rate shrunk toward his window's `l3` by the window's snap-weighted game count
+- The ROS that `add` and the deltas run on is **usage-adjusted** (`season.ros_adj`, the league's strategy, "Usage-adjusted
+  ROS" (`uv run python -m ffl.strategy show`)): the model's per-game rate shrunk toward his window's `l3` by the window's snap-weighted game count
   (`form["weight"]`, each game = snap share ÷ that week's `season.snap_reference` median for the position's lead
   players, capped at one), the prior worth `season.K_PRIOR` (4) games. `ros_proj` stays the sources' consensus beside
   it. K is checked, not tuned: every pool build snapshots what the blend read (`ffl/calibrate.py`,
   the `calibration_snapshots`/`calibration_rows` tables, once per ROS week: the first build stands) and `ffl.calibrate` scores the Ks against what happened.
-- Recent form (STRATEGY.md "Recent form"): `season.recent_form` is pure over a player's weekly game rows
+- Recent form (the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`)): `season.recent_form` is pure over a player's weekly game rows
   (`espn_season.game_from_stats` off espn-api's per-week `stats`; every rostered player's earlier weeks come from
   each earlier form week's box scores (`_roster_games`, so the replacement line runs on adjusted ROS too; a week he was on no
   fantasy roster, a pickup's free-agent weeks, from one `kona_player_info` call per such week by ids, `_gap_games`, kept in memory and the `gap_games` table, re-read by the
@@ -170,7 +174,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   week's board reads its feed from the `plays` table) and expires the pages built on it. `expire_everything` and the pregame pull keep finished weeks.
 - **Season UI** (`web/`, Next 16 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
   components fetching the API through a `/api/*` rewrite; `ffl/season.py` is pure (lineup-optimal,
-  waiver deltas, `add` — formula in STRATEGY.md "Waivers"), `ffl/espn_season.py` is the I/O. Production
+  waiver deltas, `add` — formula in the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`)), `ffl/espn_season.py` is the I/O. Production
   runs from the main checkout under launchd (`launchd/`), on :3300, exposed tailnet-only via
   `tailscale serve` at https://macbook-pro.tailnet.ts.net:3300. Ports 3000/8000 are other projects'.
 - **Players page** (`/players`, was Waivers; `/waivers` redirects with its query): `GET /players?preset=&pos=&fa=&cols=&f=&sort=&q=`.
@@ -317,7 +321,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   keeps one arrival ledger over the whole game (not per drive or per filter) so only plays that land after the page opened
   slide in, each only the first time it is on screen. The payloads' `live` is true from 15 minutes before kickoff (`nfl.is_live`) so a
   pregame page starts polling; the week picker offers `api.NFL_WEEKS` (18), not the fantasy 14. A junk club 404s before any fetch. A game line (`GameLink`, `gameLinkFor`; 40px tap target) on Matchup, League boards, Team and Roster opens the game.
-- **Win probability** (`season.win_prob`, pure; STRATEGY.md "Lineup": context, never an input to the call):
+- **Win probability** (`season.win_prob`, pure; the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`): context, never an input to the call):
   each side's starters as posted points plus projection × the game left (`season.game_left`: the feed's quarter
   and clock, else ESPN's game_played; a starter with points and no clock carries the rest of his projection),
   variance σ_pos² × left, P = Φ(margin/σ). σ per position from the latest `sigma_fits` row
@@ -325,7 +329,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `season.SIGMA_FALLBACK`. The Week payload's `win_prob` and each League row's (over the side's `starters`, the
   board's merged players, whose sum is now the tile's `proj`) are re-priced by `live.overlay_week`/`overlay_league`
   on every push. UI: `web/components/win-meter.tsx` on Base UI's Meter.
-- **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (STRATEGY.md "Lineup"), pure; a START
+- **Roster page** (`/roster`): `season.roster_cards` is the start/bench call (the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`)), pure; a START
   carries `call_slot`, the slot `optimal_lineup` places him in (`_place_by_kickoff`: same starters, latest kickoffs in
   flex, a started game kept in place), and the chip names it;
   `ffl/outlook.py` writes labelled bullets under each card (Injury, Usage, Depth, Team, Take; each cites

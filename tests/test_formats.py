@@ -204,3 +204,42 @@ def test_migration_imports_settings_json(tmp_path, monkeypatch):
     assert home.name == "2026 Fantasy Football"
     assert home.lineup_format == formats.lineup_key(formats.lineup_from_settings(fixture()))
     assert formats.league_table(home)["QB"]["pass_int"] == -2.0
+
+
+def test_store_is_one_transaction(monkeypatch):
+    """The settings rows and the registry's lineup link are written together: one write transaction, and a
+    failure in its last statement leaves the registry row (written first) unlinked and no settings."""
+    real_write, real_upsert = db._write, db._upsert
+    writes = []
+
+    def counted():
+        writes.append(1)
+        return real_write()
+    monkeypatch.setattr(db, "_write", counted)
+    formats.store(leagues.home(), fixture())
+    assert len(writes) == 1, f"store took {len(writes)} write transactions"
+
+    other = other_league()
+    def last_write_fails(table, rows, keys, update):   # the caps upsert is the transaction's last statement
+        if table is db.league_caps:
+            raise RuntimeError("caps write failed")
+        return real_upsert(table, rows, keys, update)
+    monkeypatch.setattr(db, "_upsert", last_write_fails)
+    with pytest.raises(RuntimeError):
+        formats.store(other, {**fixture(), "league_id": 999})
+    monkeypatch.undo()
+    assert db.league_settings_doc(other.key, 2026) is None, "settings stored though the transaction failed"
+    assert leagues.get(other.key).lineup_format is None, "the registry link survived a failed store"
+
+
+def test_load_without_a_lineup_link_names_the_league():
+    formats.store(leagues.home(), fixture())
+    t = db.leagues_table
+    with db._write() as c:
+        c.execute(sa.update(t).where(t.c.key == HOME).values(lineup_format=None))
+    with pytest.raises(SystemExit, match=HOME):
+        settings.load()
+    with db._write() as c:   # a link to a lineup format that is not stored
+        c.execute(sa.update(t).where(t.c.key == HOME).values(lineup_format="ln-gone"))
+    with pytest.raises(SystemExit, match=HOME):
+        settings.load()

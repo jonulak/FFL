@@ -25,7 +25,7 @@ describe("mismatch", () => {
     expect(isMismatch({ group: "starter", call: "SIT" })).toBe(true);
     expect(isMismatch({ group: "bench", call: "SIT" })).toBe(false);
   });
-  it("a starter in another slot than the call's (STRATEGY.md, Slot by kickoff)", () => {
+  it("a starter in another slot than the call's (the league's strategy (`uv run python -m ffl.strategy show`), Slot by kickoff)", () => {
     expect(isMismatch({ group: "starter", call: "START", slot: "RB", call_slot: "RB/WR/TE" })).toBe(true);
     expect(isMismatch({ group: "starter", call: "START", slot: "RB/WR/TE", call_slot: "RB/WR/TE" })).toBe(false);
   });

@@ -167,7 +167,9 @@ def rows_for(league: str, season: int, doc: dict, now: str | None = None) -> dic
 
 def assemble(ref_key: str, stored: dict) -> dict:
     """db.league_settings_doc's rows -> the dict settings.json used to be, plus first_week and league_key."""
-    doc, lineup = stored["doc"], stored["lineup"] or {}
+    doc, lineup = stored["doc"], stored["lineup"]
+    if lineup is None:   # the registry row links no lineup format, or links one that is not stored
+        raise SystemExit(f"no lineup format linked to {ref_key}: run `uv run python -m ffl.settings {ref_key}`")
     limits = {p: c["provider_limit"] for p, c in stored["caps"].items() if c["provider_limit"] is not None}
     out = {}
     for k in doc["_keys"]:
@@ -183,12 +185,14 @@ def assemble(ref_key: str, stored: dict) -> dict:
 
 
 def store(ref, settings_doc: dict):
-    """Upsert the league's formats, settings row and provider caps (my caps kept), and link the registry row."""
+    """Upsert the league's formats, settings row and provider caps (my caps kept), and link the registry row,
+    in one transaction."""
     from . import db, leagues
     rows = rows_for(ref.key, ref.season, settings_doc)
-    db.put_league_settings(rows)
     cur = next((r for r in leagues.all_leagues() if r.key == ref.key), ref)
-    return leagues.register(replace(cur, lineup_format=rows["lineup_key"], name=rows["name"] or cur.name))
+    cur = replace(cur, lineup_format=rows["lineup_key"], name=rows["name"] or cur.name)
+    db.put_league_settings(rows, {k: getattr(cur, k) for k in leagues._FIELDS})
+    return leagues.get(ref.key)
 
 
 def league_table(ref) -> dict[str, dict[str, float]]:

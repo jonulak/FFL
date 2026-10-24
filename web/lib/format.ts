@@ -50,7 +50,7 @@ export function oppTrend(f: Form): Trend {
   return f.opp_trend == null || f.opp_trend === 0 ? null : f.opp_trend > 0 ? "up" : "down";
 }
 
-// The seven form columns (STRATEGY.md "Recent form"), each with its hover definition, in the
+// The seven form columns (the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`)), each with its hover definition, in the
 // order the eye reads them: what he scored, against what was projected, the usage behind it,
 // and where that pace lands against ROS. Nothing here is a verdict.
 export const FORM_COLUMNS: { key: keyof Form; label: string; title: string }[] = [

@@ -1,4 +1,4 @@
-"""One projection from several sources (STRATEGY.md "Lineup" / "Waivers"): FantasyFootballAnalytics'
+"""One projection from several sources (the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`) / "Waivers"): FantasyFootballAnalytics'
 robust average, the Hodges-Lehmann estimator — the median of the Walsh averages (each value and every
 pairwise mean). With one or two sources it is the mean, so the two-source number is the old one.
 

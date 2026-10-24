@@ -1,4 +1,4 @@
-"""STRATEGY.md "Recent form": the last three games he played, as facts beside `add`."""
+"""the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`): the last three games he played, as facts beside `add`."""
 from ffl import season
 
 
@@ -88,7 +88,7 @@ def test_games_left_takes_his_bye_out_only_when_it_is_still_ahead():
     assert season.games_left(18, 7) == 1 and season.games_left(19, None) == 0
 
 
-# --- STRATEGY.md "Usage-adjusted ROS": each game weighs its snap share against the position ---
+# --- the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): each game weighs its snap share against the position ---
 
 def test_snap_reference_is_the_median_share_of_the_lead_players_at_each_position():
     # (name, pos) -> (snaps, team snaps): five RBs are all "lead" players; the median of five is the third

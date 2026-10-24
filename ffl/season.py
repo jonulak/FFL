@@ -34,7 +34,7 @@ NFL_WEEKS = 18
 # fallback for a player that feed has no date for: OUT is usually one game, IR a four-game minimum.
 GAMES_OUT = {"OUT": 1, "INJURY_RESERVE": 4, "SUSPENSION": 4}
 INJURY_FACTOR = {"QUESTIONABLE": 0.85, "DOUBTFUL": 0.7}
-# STRATEGY.md, "Lineup": a starter within CLOSE_GAP points of his bench alternative, or a player
+# the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`): a starter within CLOSE_GAP points of his bench alternative, or a player
 # whose two sources disagree by CLOSE_SPREAD or more, is a close call — flagged, not re-decided.
 CLOSE_GAP = 2.0
 CLOSE_SPREAD = 3.0
@@ -157,7 +157,7 @@ def _kick_key(p: dict) -> float:
 
 
 def _place_by_kickoff(lineup: list[dict], by_id: dict[int, dict]) -> list[dict]:
-    """STRATEGY.md "Slot by kickoff": the same starters re-placed so the latest games hold the flex spots. A started
+    """the league's strategy, "Slot by kickoff" (`uv run python -m ffl.strategy show`): the same starters re-placed so the latest games hold the flex spots. A started
     game keeps the slot ESPN has him in; then, earliest kickoff first, each takes his position's own slot while one is
     open, else the narrowest flex that takes him. Ties keep projection order. Empty slots stay as they are."""
     filled = [e for e in lineup if e["player_id"] is not None]
@@ -267,7 +267,7 @@ def empty_slots(roster: list[dict], settings: dict) -> list[str]:
 
 
 def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
-    """STRATEGY.md, "Lineup": one card per rostered player with the call and its reason, grouped by
+    """the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`): one card per rostered player with the call and its reason, grouped by
     ESPN's slot; the call is optimal_lineup's and shows as the chip.
 
     The call is optimal_lineup's; the card adds the gap that decides it (starter vs the best bench
@@ -331,7 +331,7 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
                       "ros_adj": ros_adj(p, week), "play_proj": 0.0 if sat else playable_proj(p),
                       "locked": bool(p.get("locked")),
                       "espn_order": p.get("espn_order", i),
-                      # the slot a START puts him in (STRATEGY.md "Slot by kickoff"); the chip names it
+                      # the slot a START puts him in (the league's strategy, "Slot by kickoff" (`uv run python -m ffl.strategy show`)); the chip names it
                       "call_slot": slot_of.get(p["player_id"]) if call == "START" else None})
     return sorted(cards, key=_card_sort_key)
 
@@ -346,7 +346,7 @@ def ros_from_sources(p: dict) -> bool:
 
 
 def ros_proj(p: dict, week: int) -> float:
-    """His rest-of-season points by the models (STRATEGY.md, "Waivers"): the sources' number when any
+    """His rest-of-season points by the models (the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`)): the sources' number when any
     has him (already net of the games he misses), else the season projection scaled by the weeks left
     and, OUT/IR, counting only the games from his return week. The haircut lives here, on ROS, so
     every delta runs on it: scaling a delta instead pulled a negative one toward zero (ffl-piy)."""
@@ -356,7 +356,7 @@ def ros_proj(p: dict, week: int) -> float:
     return round(float(p.get("season_proj") or 0.0) * ros_fraction(week) * avail, 1) + 0.0
 
 
-# STRATEGY.md, "Usage-adjusted ROS": the prior is worth K starter-share games. A guess about noise,
+# the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): the prior is worth K starter-share games. A guess about noise,
 # checked by ffl.calibrate against the weekly snapshots — change it there, not by eye.
 K_PRIOR = 4
 
@@ -438,7 +438,7 @@ def injury_terms(injury: str, week: int, games_out: int | None = None) -> tuple[
 
 
 def add_score(ros_delta: float, week_delta: float, injury: str) -> float:
-    """STRATEGY.md, "Waivers": add = (ros_delta + week_delta if he would start) × injury factor;
+    """the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`): add = (ros_delta + week_delta if he would start) × injury factor;
     OUT/IR get no week term and no factor (his ROS already counts only the games after return,
     see `ros_proj`). Never scale a delta: it cannot tell a worthless player from a neutral one."""
     if injury in GAMES_OUT:
@@ -489,7 +489,7 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
     return sorted(rows, key=lambda r: -r["add"])
 
 
-# STRATEGY.md, "Recent form": the window is his last FORM_GAMES games played, looked for within the
+# the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`): the window is his last FORM_GAMES games played, looked for within the
 # last FORM_WEEKS weeks (which bounds the per-week ESPN calls the pool builder makes).
 FORM_GAMES = 3
 FORM_WEEKS = 5
@@ -507,7 +507,7 @@ def _median(xs: list[float]) -> float:
     return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
 
 
-# STRATEGY.md, "Usage-adjusted ROS": the league's lead players at a position, by snaps — one RB,
+# the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): the league's lead players at a position, by snaps — one RB,
 # two WR, one TE and one QB per club. Their median snap share is what a game is weighed against.
 LEAD_PLAYERS = {"QB": 32, "RB": 32, "WR": 64, "TE": 32}
 
@@ -542,7 +542,7 @@ def games_left(week: int, bye_week: int | None) -> int:
 
 
 def recent_form(games: list[dict], pos: str, ros: float, games_left: int) -> dict | None:
-    """STRATEGY.md, "Recent form", over one player's weekly game rows (espn_season.game_from_stats).
+    """the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`), over one player's weekly game rows (espn_season.game_from_stats).
 
     A game is in the window when it is final and he was active in it (an opportunity, or any stat
     line for a D/ST); the last FORM_GAMES of those, in week order. Fewer than that carries its

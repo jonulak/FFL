@@ -31,7 +31,7 @@ export function accepts(slot: string): Set<string> {
 }
 
 // ESPN's lineup and the call disagree: the chip gets the accent. OUT/BYE/IR on the bench agree with it; a starter
-// in another slot than the call's (STRATEGY.md, Slot by kickoff) does not.
+// in another slot than the call's (the league's strategy (`uv run python -m ffl.strategy show`), Slot by kickoff) does not.
 export function isMismatch(c: Pick<Card, "group" | "call"> & Partial<Pick<Card, "slot" | "call_slot">>): boolean {
   if (c.group === "starter" && c.call === "START") return c.call_slot != null && c.slot !== c.call_slot;
   return c.group === "starter" || (c.group === "bench" && c.call === "START");

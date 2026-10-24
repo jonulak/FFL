@@ -420,7 +420,7 @@ def test_apply_injuries_without_week1_start_keeps_only_the_notes():
     assert out[0]["return_week"] is None and out[0]["injury_note"] is not None
 
 
-# --- STRATEGY.md "Usage-adjusted ROS": who is hurt ahead of him, and when the week is over ------
+# --- the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`): who is hurt ahead of him, and when the week is over ------
 
 def _inj_row(pid, name, pos, status, ret=None):
     return {"status": status, "shortComment": f"{name} note.",

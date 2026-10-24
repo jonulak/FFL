@@ -25,7 +25,7 @@ def test_migration_seeds_home_from_env(monkeypatch, tmp_path):
     db.reset()
     command.upgrade(db._alembic_config(), "head")
     db.reset()
-    assert leagues.home() == LeagueRef("espn:100000001", "espn", "100000001", 2026, "home", 7, True, None, None)
+    assert leagues.home() == LeagueRef("espn:100000001", "espn", "100000001", 2026, "home", 7, True, None, "2qb-10team")
     assert len(leagues.all_leagues()) == 1
 
 

@@ -1,4 +1,4 @@
-"""STRATEGY.md "Lineup", props trial (weeks 4-6): betting player props as a third weekly source.
+"""the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`), props trial (weeks 4-6): betting player props as a third weekly source.
 
 Recorded, not used: the Roster call stays on ESPN + Sleeper until `score` says the three-source mean
 beat it by the bar fixed before the trial (lower pooled MAE and better in two of the three weeks).
@@ -132,7 +132,7 @@ def sleeper_stat_lines(rows: list[dict]) -> dict[tuple[str, str], dict]:
 
 
 def baseline(players: list[dict], sleeper: dict[tuple[str, str], float]) -> list[dict]:
-    """The trial's bar is fixed against ESPN + Sleeper (STRATEGY.md "Props trial"): their mean as
+    """The trial's bar is fixed against ESPN + Sleeper (the league's strategy, "Props trial" (`uv run python -m ffl.strategy show`)): their mean as
     `proj`, each kept beside it, whatever the live board now averages."""
     from .espn_season import source_key
     out = []

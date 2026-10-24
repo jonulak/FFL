@@ -49,8 +49,20 @@ leagues_table = sa.Table(
     sa.Column("team_id", sa.Integer),                    # mine in that league; NULL until known
     sa.Column("home", sa.Boolean, nullable=False, default=False),
     sa.Column("lineup_format", sa.String),
-    sa.Column("strategy", sa.String),
+    sa.Column("strategy", sa.String),                    # strategies.key; the league plays its latest version
     sa.Column("added_at", sa.String, nullable=False),
+)
+
+# Strategy presets (ffl/strategy.py): shared, and not user-editable; only migrations add a key or a version.
+strategies = sa.Table(
+    "strategies", metadata,
+    sa.Column("key", sa.String, nullable=False),         # "2qb-10team"
+    sa.Column("version", sa.Integer, nullable=False),
+    sa.Column("name", sa.String, nullable=False),
+    sa.Column("prose", sa.String, nullable=False),       # markdown, what Claude reads while advising
+    sa.Column("constants", sa.JSON, nullable=False),     # {"qb_pace": float, "suggested_caps": {pos: n}}
+    sa.Column("added_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("key", "version"),
 )
 
 # Formats are shared: one row per distinct content (ffl/formats.py), linked per league.
@@ -259,7 +271,7 @@ sigma_fits = sa.Table(
     sa.PrimaryKeyConstraint("season", "fitted_at"),
 )
 
-# Each projection source's number per player (STRATEGY.md "Lineup" / "Waivers"): what the consensus read,
+# Each projection source's number per player (the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`) / "Waivers"): what the consensus read,
 # kept so `ffl.calibrate sources` can fit per-source weights. kind "week" (that week's game) or "ros" (the
 # ROS week's rest of season); written until his kickoff, then left alone (espn_season.record_projections).
 projection_rows_table = sa.Table(  # not `projection_rows`: that name is the reader below
@@ -630,19 +642,25 @@ def league_rows() -> list[dict]:
 
 def put_league(row: dict) -> None:
     """Upsert a league by key (added_at set on first insert only); a home row demotes every other."""
+    with _write() as c:
+        _put_league(c, row)
+
+
+def _put_league(c, row: dict) -> None:
     from datetime import datetime
     t = leagues_table
     row = {**row, "added_at": datetime.now().astimezone().isoformat(timespec="seconds")}
-    with _write() as c:
-        if row["home"]:
-            c.execute(sa.update(t).where(t.c.key != row["key"]).values(home=False))
-        c.execute(_upsert(t, [row], ["key"], [k for k in row if k not in ("key", "added_at")]))
+    if row["home"]:
+        c.execute(sa.update(t).where(t.c.key != row["key"]).values(home=False))
+    c.execute(_upsert(t, [row], ["key"], [k for k in row if k not in ("key", "added_at")]))
 
 
-def put_league_settings(rows: dict) -> None:
+def put_league_settings(rows: dict, league_row: dict) -> None:
     """Write formats.rows_for's rows in one transaction: formats insert-if-absent (a key is its content),
-    the league's links and settings replaced, its caps' provider limits replaced and my caps kept."""
+    the league's links and settings replaced, its caps' provider limits replaced and my caps kept, and its
+    registry row (`league_row`, linked to the lineup format) upserted as put_league does."""
     with _write() as c:
+        _put_league(c, league_row)
         c.execute(_upsert(scoring_formats, rows["scoring_formats"], ["key"], None))
         c.execute(_upsert(lineup_formats, rows["lineup_formats"], ["key"], None))
         c.execute(_upsert(league_scoring, rows["league_scoring"], ["league", "pos"], ["scoring_format", "unmapped"]))
@@ -684,6 +702,31 @@ def put_my_cap(league: str, pos: str, my_cap: int | None) -> None:
     with _write() as c:
         c.execute(_upsert(league_caps, [{"league": league, "pos": pos, "provider_limit": None, "my_cap": my_cap}],
                           ["league", "pos"], ["my_cap"]))
+
+
+def strategy_row(key: str) -> dict | None:
+    """The latest version of a strategy preset; None when the key has none."""
+    t = strategies
+    with _read() as c:
+        r = c.execute(sa.select(t).where(t.c.key == key).order_by(t.c.version.desc()).limit(1)).first()
+    return dict(r._mapping) if r else None
+
+
+def strategy_rows() -> list[dict]:
+    """Every preset's every version, by key then version."""
+    t = strategies
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(sa.select(t).order_by(t.c.key, t.c.version))]
+
+
+def seed_my_caps(league: str, caps: dict[str, int]) -> None:
+    """My cap at each position that has none yet, in one transaction (a set cap is never touched)."""
+    t = league_caps
+    with _write() as c:
+        c.execute(_upsert(t, [{"league": league, "pos": p, "provider_limit": None, "my_cap": None} for p in caps],
+                          ["league", "pos"], None))
+        for p, n in caps.items():
+            c.execute(sa.update(t).where(t.c.league == league, t.c.pos == p, t.c.my_cap.is_(None)).values(my_cap=n))
 
 
 def add_plays(rows: list[dict], season: int = SEASON) -> int:

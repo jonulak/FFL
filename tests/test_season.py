@@ -456,7 +456,7 @@ def test_roster_rows_resolve_ros_and_the_playable_week_and_sort_by_ros():
     assert rows[1]["ros_proj"] == season.ros_proj(rows[1], 1)
 
 
-# --- STRATEGY.md "Usage-adjusted ROS" -----------------------------------------------------------
+# --- the league's strategy, "Usage-adjusted ROS" (`uv run python -m ffl.strategy show`) -----------------------------------------------------------
 
 def form(l3, weight, games_left=15):
     return {"games": 2, "weeks": [1, 2], "l3": l3, "beat": 0.0, "opp": None, "opp_trend": None,
