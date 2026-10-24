@@ -311,11 +311,18 @@ def two_players():
 
 def test_mid_season_board_prices_rest_of_season():
     settings = {**SETTINGS, "first_week": 9}
-    lookup = {1: {"ros_proj": 60.0}, 2: {"ros_proj": 90.0}}
+    lookup = {1: {"ros_proj": 60.0}, 2: {"ros_proj": 100.0}}   # weeks 9..18 are ten NFL weeks, nine fantasy ones
     pl = board_mod.ros_players(two_players(), lookup, settings)
-    assert pl.set_index("name").proj.to_dict() == {"A": 60.0, "B": 90.0}
+    assert pl.set_index("name").proj.to_dict() == {"A": 54.0, "B": 90.0}
     bd = board_mod.build(settings, pl, EMPTY_ADP)
     assert list(bd.sort_values("vorp", ascending=False).name) == ["B", "A"]
+
+
+def test_sourced_and_fallback_players_cover_the_same_weeks():
+    settings = {**SETTINGS, "first_week": 9}
+    df = two_players().assign(proj=[170.0, 170.0])
+    pl = board_mod.ros_players(df, {1: {"ros_proj": 100.0}}, settings).set_index("name")
+    assert pl.proj["A"] == 90.0 and pl.proj["B"] == 90.0
 
 
 def test_ros_players_scales_a_player_the_sources_lack():
@@ -360,4 +367,4 @@ def test_mid_season_load_inputs_prices_through_this_league(espn, monkeypatch):
                         lambda settings, week, ref=None: seen.append((week, ref.key)) or {1001: {"ros_proj": 12.0}})
     s, pl, a = board_mod.load_inputs(home)
     assert seen == [(9, home.key)]
-    assert pl.set_index("player_id").proj[1001] == 12.0
+    assert pl.set_index("player_id").proj[1001] == 10.8   # 12 over weeks 9..18, scaled to the nine fantasy weeks

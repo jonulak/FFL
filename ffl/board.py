@@ -108,8 +108,12 @@ def ros_players(players: pd.DataFrame, lookup: dict[int, dict], settings: dict) 
     """`proj` on what is still to be played: the sources' rest-of-season consensus where a player has one,
     else the full-season figure scaled by the weeks left. proj_espn / proj_sleeper stay season totals."""
     from .draft_watch import SEASON_WEEKS
+    from .season import NFL_WEEKS
     df = players.copy()
     ros = pd.to_numeric(df.player_id.map(lambda pid: (lookup.get(int(pid)) or {}).get("ros_proj")), errors="coerce")
+    # a sourced ros_proj sums NFL weeks start..NFL_WEEKS; the fantasy season ends a week sooner, so
+    # scale it to the same weeks_left every fallback player covers
+    ros = ros * weeks_left(settings) / (NFL_WEEKS - start_week(settings) + 1)
     scaled = df.proj * weeks_left(settings) / SEASON_WEEKS
     df["proj"] = ros.fillna(scaled).round(1)
     return df
