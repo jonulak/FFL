@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from . import Cached, Thin
+from . import Cached, Thin, scoring_key
 from ..adp import norm_name
 from ..config import SEASON
 from ..season import NFL_WEEKS
@@ -81,7 +81,7 @@ def _fetch(seg: int, ks: dict) -> dict[tuple[str, str], float]:
 
 
 def fetch_week(week: int, ks: dict, ttl: float | None = None) -> dict[tuple[str, str], float]:
-    return _WEEK.get(week, lambda: _fetch(segment(week), ks), ttl=ttl)
+    return _WEEK.get(f"{week}:{scoring_key(ks)}", lambda: _fetch(segment(week), ks), ttl=ttl)
 
 
 def fetch_ros(ks: dict, week: int) -> dict[tuple[str, str], float]:
@@ -102,4 +102,4 @@ def fetch_ros(ks: dict, week: int) -> dict[tuple[str, str], float]:
             for k, v in d.items():
                 out[k] = out.get(k, 0.0) + v
         return {k: round(v, 1) for k, v in out.items()}
-    return _ROS.get(week, total)
+    return _ROS.get(f"{week}:{scoring_key(ks)}", total)

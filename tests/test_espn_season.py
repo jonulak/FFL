@@ -1216,7 +1216,7 @@ def test_concurrent_cold_sleeper_weeks_share_one_fetch(monkeypatch):
     calls = []
 
     def fake_week(week, ks):
-        park(espn_season._SL_FLIGHT, 4, 1)
+        park(espn_season._SL_FLIGHT, (4, espn_season.scoring_key(espn_season.key_scoring([]))), 1)
         calls.append(week)
         return {("jalen hurts", "QB"): 10.0}
 

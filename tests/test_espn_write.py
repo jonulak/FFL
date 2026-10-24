@@ -129,6 +129,7 @@ def test_live_submit_and_cancel_send_what_espn_expects(monkeypatch):
     W.cancel_claim("abc-123", 5)
     assert sent[0][1]["executionType"] == "EXECUTE" and sent[1][1]["executionType"] == "CANCEL"
     assert sent[1][1]["relatedTransactionId"] == "abc-123"
+    assert W.write_url() == "https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/100000001/transactions/"
     assert all(u == W.write_url() for u, _, _ in sent)
     assert sent[0][2]["x-fantasy-source"] == "kona" and sent[0][2]["x-fantasy-platform"] == "espn-fantasy-web"
 

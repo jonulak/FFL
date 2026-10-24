@@ -15,7 +15,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-from . import Cached
+from . import Cached, scoring_key
 from ..adp import norm_name
 from ..config import SEASON
 from ..sleeper import score
@@ -87,9 +87,9 @@ def _pages(url: str, ks: dict, **fmt) -> dict[tuple[str, str], dict]:
 
 def fetch_ros(ks: dict, week: int | None = None) -> dict[tuple[str, str], float]:
     """Every position's rest-of-season page rescored (week unused: the page is already the games left; sources.Cached: last good through an outage)."""
-    return _ROS.get("ros", lambda: {k: v["pts"] for k, v in _pages(URL, ks).items()})
+    return _ROS.get(f"ros:{scoring_key(ks)}", lambda: {k: v["pts"] for k, v in _pages(URL, ks).items()})
 
 
 def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
     """The week's pages rescored; a row with no game this week (gp 0: bye, ruled out) is left out."""
-    return _WEEK.get(week, lambda: {k: v["pts"] for k, v in _pages(WEEK_URL, ks, week=week).items() if v["games"] > 0})
+    return _WEEK.get(f"{week}:{scoring_key(ks)}", lambda: {k: v["pts"] for k, v in _pages(WEEK_URL, ks, week=week).items() if v["games"] > 0})

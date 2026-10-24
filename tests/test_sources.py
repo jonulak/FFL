@@ -226,3 +226,56 @@ def test_concurrent_cold_gets_share_one_failure(monkeypatch):
 
     assert race(2, lambda: c.get(5, down)) == [{}, {}]
     assert calls == [1]
+
+
+# rescored sources: the cache key carries the scoring, so two leagues never read each other's points
+KS_A = {"ppr": 1.0, "pass_td": 4}
+KS_B = {"ppr": 0.5, "pass_td": 6}
+
+
+def _by_scoring(calls):
+    """A fake scrape whose points are the scoring's ppr, so a value read under the wrong scoring shows."""
+    def fetch(ks):
+        calls.append(ks["ppr"])
+        return {("a", "QB"): float(ks["ppr"])}
+    return fetch
+
+
+@pytest.mark.parametrize("which", ["cbs-week", "cbs-ros", "sharks-week", "sharks-ros", "fleaflicker"])
+def test_rescored_sources_cache_per_scoring(monkeypatch, which):
+    from ffl.sources import cbs, fleaflicker, sharks
+    monkeypatch.setattr(sources, "MIN_ROWS", {"QB": 1})
+    monkeypatch.setattr(sharks, "NFL_WEEKS", 6)
+    calls: list = []
+    fake = _by_scoring(calls)
+    monkeypatch.setattr(cbs, "_pages", lambda url, ks, **fmt: {k: {"pts": v, "games": 1} for k, v in fake(ks).items()})
+    monkeypatch.setattr(sharks, "_fetch", lambda seg, ks: fake(ks))
+    monkeypatch.setattr(fleaflicker, "_position", lambda pos, ks, week: fake(ks) if pos == "QB" else {})
+    read = {"cbs-week": lambda ks: cbs.fetch_week(5, ks), "cbs-ros": lambda ks: cbs.fetch_ros(ks, 5),
+            "sharks-week": lambda ks: sharks.fetch_week(5, ks), "sharks-ros": lambda ks: sharks.fetch_ros(ks, 5),
+            "fleaflicker": lambda ks: fleaflicker.fetch_week(5, ks)}[which]
+    per = 2 if which == "sharks-ros" else 1     # sharks' ROS sums weeks 5..6
+    a = read(KS_A)
+    b = read(KS_B)
+    assert a[("a", "QB")] == per * 1.0 and b[("a", "QB")] == per * 0.5
+    assert len(calls) == 2 * per, "the second scoring is its own entry, fetched, not the first one's"
+    assert read(KS_A) == a and read(KS_B) == b and len(calls) == 2 * per, "each served from its own entry"
+    sources.reset()   # a process restart: memory gone, the source_cache rows stay
+    assert read(KS_B) == b and read(KS_A) == a and len(calls) == 2 * per, "restored per scoring after a restart"
+
+
+def test_scoring_key_is_short_and_order_free():
+    assert sources.scoring_key(KS_A) == sources.scoring_key(dict(reversed(list(KS_A.items()))))
+    assert sources.scoring_key(KS_A) != sources.scoring_key(KS_B) and len(sources.scoring_key(KS_A)) == 12
+
+
+def test_sleeper_weeks_cache_per_scoring(monkeypatch):
+    from ffl import espn_season
+    monkeypatch.setattr(espn_season, "_SL", {})
+    calls: list = []
+    monkeypatch.setattr(espn_season, "fetch_sleeper_week", lambda week, ks: _by_scoring(calls)(ks))
+    monkeypatch.setattr(espn_season, "key_scoring", lambda scoring: scoring[0])
+    a = espn_season._sleeper_for(5, {"scoring": [KS_A]})
+    b = espn_season._sleeper_for(5, {"scoring": [KS_B]})
+    assert a == {("a", "QB"): 1.0} and b == {("a", "QB"): 0.5} and calls == [1.0, 0.5]
+    assert espn_season._sleeper_for(5, {"scoring": [KS_A]}) == a and calls == [1.0, 0.5]

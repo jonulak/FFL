@@ -14,7 +14,7 @@ Things learned the hard way, encoded here:
   - The slot picker is a radio group, not buttons: `input[type=radio][value='4']`, and the
     label intercepts a real mouse click, so dispatch the click on the element itself.
   - The room opens in a NEW TAB. It keeps our real team id (7) but seats us at the chosen
-    slot in an otherwise shuffled order, so `settings.json`'s pick order is wrong for the
+    slot in an otherwise shuffled order, so the league's stored settings' pick order is wrong for the
     mock — let the watcher learn it (it did, across five refinements by pick 10).
   - espn_s2/SWID authenticate the API but not the web UI. If the window is logged out, log in
     at https://www.espn.com/login by hand: the form is in an iframe from

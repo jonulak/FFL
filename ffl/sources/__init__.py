@@ -6,6 +6,7 @@ the 24-hour notify detector. QB/RB/WR/TE only.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
@@ -28,6 +29,12 @@ STATUS: dict[str, dict] = {}
 _LOADED = False
 _ALL: list["Cached"] = []
 _LOCK = threading.RLock()   # STATUS is written by page builds, ticks and requests at once
+
+
+def scoring_key(ks: dict) -> str:
+    """A short digest of the scoring a source rescored with: every rescored entry's cache key carries it, so a
+    second league's scoring (a practice or other league's draft) never reads, or overwrites, the home league's points."""
+    return hashlib.sha1(json.dumps(ks, sort_keys=True).encode()).hexdigest()[:12]
 
 
 class Thin(Exception):

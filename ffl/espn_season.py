@@ -17,7 +17,7 @@ from datetime import date, datetime, timezone
 import requests
 
 from . import calibrate, consensus, db, espn_write, leagues
-from .sources import cbs, fleaflicker, sharks
+from .sources import cbs, fleaflicker, scoring_key, sharks
 from . import season as S
 from .adp import norm_name
 from .flight import Flight
@@ -45,8 +45,8 @@ _LEAGUE_BUILT_AT = 0.0
 # week, the Roster and Players pages on the ROS week (the next one once the week's games are played), and with
 # one slot each build evicted the other's 5-25 s lookup. An entry refetches only once it is CACHE_S old.
 _SEASON_CACHE: dict[tuple[str | None, int], tuple[float, dict]] = {}  # (league key or None, week)
-_SL: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper projections)
-_SL_FLIGHT = Flight()  # week -> its Sleeper fetch in flight, shared by the builds asking at once
+_SL: dict[tuple[int, str], tuple[float, dict]] = {}  # (week, sources.scoring_key) -> (expires_at, rescored sleeper projections)
+_SL_FLIGHT = Flight()  # (week, scoring) -> its Sleeper fetch in flight, shared by the builds asking at once
 _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
 _INJ: list = []  # [expires_at, data]
 
@@ -799,20 +799,22 @@ def apply_injuries(players: list[dict], injuries: dict[int, dict], week1_start: 
 
 
 def _sleeper_for(week: int, settings: dict) -> dict:
-    """Sleeper's weekly projections, cached for CACHE_S per week (POST /refresh clears _SL)."""
-    hit = _SL.get(week)
+    """Sleeper's weekly projections rescored to `settings`, cached for CACHE_S per week and scoring (POST /refresh clears _SL)."""
+    ks = key_scoring(settings["scoring"])
+    key = (week, scoring_key(ks))
+    hit = _SL.get(key)
     if hit and hit[0] > time.time():
         return hit[1]
 
     def fetch():
-        hit = _SL.get(week)
+        hit = _SL.get(key)
         if hit and hit[0] > time.time():  # the flight before this one landed it
             return hit[1]
-        data = fetch_sleeper_week(week, key_scoring(settings["scoring"]))
-        _SL[week] = (time.time() + CACHE_S, data)
+        data = fetch_sleeper_week(week, ks)
+        _SL[key] = (time.time() + CACHE_S, data)
         return data
 
-    return _SL_FLIGHT.do(week, fetch)
+    return _SL_FLIGHT.do(key, fetch)
 
 
 def _season_for(settings: dict, season: dict | None, week: int) -> dict:

@@ -12,7 +12,7 @@ uv run alembic upgrade head            # create / migrate the DB schema (deploy.
 uv run python -m ffl.db import         # one-time: old journal/ + data/ files into the DB (idempotent; done 2026-10-08, originals in data/pre-db/)
 uv run python -m ffl.db backup         # checked snapshot to Google Drive (launchd nightly 03:30)
 uv run python -m ffl.settings          # league settings from ESPN -> the DB (formats, league_settings, caps); prints the summary (run first)
-uv run python -m ffl.leagues list      # the registry: key, season, my team, home, formats
+uv run python -m ffl.leagues list      # the registry: key, season, my team, home, name
 uv run python -m ffl.leagues add espn <id> [--season N] [--home]   # register a league and store its settings, formats and caps (reads ESPN)
 uv run python -m ffl.leagues caps espn:100000001 QB=3   # my roster caps per league (never above the league's; no args: the table)
 uv run python -m ffl.players           # ESPN pool w/ league-scored projections -> espn_pools (per position scoring format; only what is missing, --refresh all)
@@ -102,7 +102,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   Judge it with `ffl.replay` on real logs, not by tuning it until a simulation looks right.
 - Projections: `proj` is the weekly **consensus** (`ffl/consensus.py`, Hodges-Lehmann; `spread` = trimmed range) of ESPN
   (`proj_espn`, league-scored by ESPN; an input only, 0 is a placeholder), Sleeper (raw stats rescored in `ffl/sleeper.py::score`),
-  CBS, FantasySharks and FleaFlicker. `ffl/sources/` holds cbs, sharks, fleaflicker (`Cached`: TTL + last good + thin guard; every good fetch written
+  CBS, FantasySharks and FleaFlicker. `ffl/sources/` holds cbs, sharks, fleaflicker (`Cached`: TTL + last good + thin guard; keyed by week (or ROS) and `sources.scoring_key` of the rescoring, as is `_sleeper_for`, so leagues never share rescored points; every good fetch written
   through to the `source_cache` table and restored on a source's first read after a restart, inside its TTL as fresh, past it as last good;
   without it a restart's cold Matchup build took ~27 s, ~3 s with it); health is
   `STATUS` / the `source_status` state, `GET /sources/status`, `ffl.sources status`, and a notice after 24 h failing. K and D/ST use

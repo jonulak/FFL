@@ -27,7 +27,7 @@ BENCH_SLOTS = {"BE", "IR"}
 # blank) the roster is illegal and ESPN allows no other move until he comes off IR. web/lib/lineup.ts mirrors these.
 IR_ENTRY = {"INJURY_RESERVE", "OUT"}
 NO_DESIGNATION = {"ACTIVE", "NORMAL", "", None}
-# ESPN's default when an older settings.json predates `ir_size` (this league has 1)
+# ESPN's default when the league's stored settings predate `ir_size` (this league has 1)
 IR_SIZE_DEFAULT = 1
 NFL_WEEKS = 18
 # ESPN's fantasy status carries no return date; the public injuries feed does. These are the
@@ -249,7 +249,7 @@ def ir_illegal(roster: list[dict]) -> list[dict]:
 
 def position_caps(roster: list[dict], limits: dict) -> list[dict]:
     """ESPN's per-position roster caps (settings `position_limits`) with how many of each I hold, IR included: an
-    add over a cap is refused. Empty when settings.json predates the key (re-run `ffl.settings`)."""
+    add over a cap is refused. Empty when the league's stored settings predate the key (re-run `ffl.settings`)."""
     held = Counter(p.get("pos") for p in roster)
     return [{"pos": pos, "n": held.get(pos, 0), "limit": cap} for pos, cap in limits.items()]
 

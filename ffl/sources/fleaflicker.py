@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from bs4 import BeautifulSoup
 
-from . import Cached, Idle
+from . import Cached, Idle, scoring_key
 from ..adp import norm_name
 from ..sleeper import score
 
@@ -103,4 +103,4 @@ def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
         return {k: v for part in parts if part for k, v in part.items()}
     # no per-position minimum: the header checks (week, groups, Opp) already reject reshaped or wrong-week
     # pages, and played games legitimately shrink the page as the week goes on
-    return _WEEK.get(week, fetch, min_rows={})
+    return _WEEK.get(f"{week}:{scoring_key(ks)}", fetch, min_rows={})

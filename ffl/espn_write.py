@@ -23,11 +23,13 @@ import requests
 from . import config
 
 
-
 def write_url() -> str:
-    """Looked up per call: the league's id comes from the registry, which an import must not need."""
-    return (f"https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/{config.SEASON}"
-            f"/segments/0/leagues/{config.LEAGUE_ID}/transactions/")
+    """Looked up per call: the home league's id and season come from the registry (as `config.league(ref)` reads
+    them), which an import must not need."""
+    from . import leagues
+    ref = leagues.home()
+    return (f"https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/{ref.season}"
+            f"/segments/0/leagues/{ref.provider_id}/transactions/")
 
 
 # The headers ESPN's own page sends on every write.
