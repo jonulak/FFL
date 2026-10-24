@@ -113,7 +113,7 @@ def test_pass_pushes_free_agent_once(pool):
     assert _rerun() == {"signals": 0, "queued": 0}
     rows = [n for n in db.unsent_notices() if n["kind"] == "watch"]
     assert [n["key"] for n in rows] == [f"watch:5:{api.notify.now()[:10]}"]
-    assert rows[0]["title"] == "Backup Back" and rows[0]["url"] == "/watch"
+    assert rows[0]["title"] == "Backup Back" and rows[0]["url"] == "/players?watch=1"
 
 
 def test_pass_never_pushes_rostered_elsewhere(pool):

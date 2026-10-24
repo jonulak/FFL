@@ -135,7 +135,7 @@ def notice_for(player: dict, signals: list[dict], day: str, at: str) -> dict:
     if len(body) > BODY_MAX:
         body = body[:BODY_MAX - 1] + "…"
     return {"key": f"watch:{player['player_id']}:{day}", "kind": "watch", "title": player["name"], "body": body,
-            "url": "/watch", "created_at": at}
+            "url": "/players?watch=1", "created_at": at}
 
 
 def page(rows: list[dict], signals: list[dict], now: datetime) -> dict:

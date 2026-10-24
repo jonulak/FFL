@@ -217,7 +217,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `usage_signal` (newest game vs the mean of his form window's earlier games: snaps +`SNAP_JUMP` 15, targets +3 for
   RB/WR/TE, red-zone looks +2), `bench_signal` (`delta_roster` crossing from ≤0 to >0, naming my weakest at the position),
   `available_signal` (owned at the last pass, free now), `news_signal` (a ▲ row at prob ≥ `NEWS_PROB` 0.5 with a
-  reason, unflagged). `notice_for` is a player's one push a day (key `watch:<id>:<day>`, kind `watch`, URL `/watch`);
+  reason, unflagged). `notice_for` is a player's one push a day (key `watch:<id>:<day>`, kind `watch`, URL `/players?watch=1`);
   `page` groups rows into moving (a signal in `MOVING_DAYS` 3, newest first), quiet (by add) and elsewhere (rostered),
   each with a chip per detector kind lit within the window, plus an `available` chip once one has fired. The pool (`free_agent_pool`) carries `watched`: every watched player
   as a Players row, one deeper than the lists read by id (`_watched_rows`, `kona_player_info` + `_gap_games`), never added
@@ -232,7 +232,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   cached pool; a player now mine is unwatched there), `GET /watch/ids`, `POST /watch/{id}` `{watched}` (a new id the
   cached pool lacks expires it, so `/watch` lists him once it rebuilds). Pref `watch` (default on). Nothing reaches ESPN
   or `decisions`. UI: `WatchProvider`/`useWatch` (`watch-context.tsx`, seeded by the layout from `/watch/ids`) behind every
-  `WatchStar` (Players rows, the player dialog's band); `/watch` (`watch-list.tsx`) follows the provider's ids, so an
+  `WatchStar` (Players rows, the player dialog's band); the Players page's Watch tab (`/players?watch=1`, after the positions; `/watch` redirects there; `watch-list.tsx`, a free agent's row carrying the claim button) follows the provider's ids, so an
   unwatch folds the row away with an undo, and an id starred in this browser session that `/watch` lacks stands under
   JUST ADDED while the page polls (8 s, 15 asks, none while hidden). `/watch` answers `ids` (after its unwatch of
   mine) and the page hands them to the provider's `sync`, so a server-side unwatch leaves the page.

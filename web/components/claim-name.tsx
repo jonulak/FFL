@@ -11,7 +11,10 @@ export function ClaimName({ id, className = "" }: { id: number; className?: stri
   const p = player(id);
   if (!p) return <span className={className}>player {id}</span>;
   return (
-    <PlayerTrigger p={{ player_id: id, name: p.name, pos: p.pos, team: p.team }} className={`max-w-full break-words text-left rounded-sm align-bottom ${NAME_LINK} ${className}`}>
+    <PlayerTrigger p={{
+      player_id: id, name: p.name, pos: p.pos, team: p.team, opponent: p.opponent, home: p.home, kickoff: p.kickoff, bye: p.bye,
+      game: p.game, injury: p.injury, injury_note: p.injury_note, return_week: p.return_week,
+    }} className={`max-w-full break-words text-left rounded-sm align-bottom ${NAME_LINK} ${className}`}>
       {p.name}
     </PlayerTrigger>
   );

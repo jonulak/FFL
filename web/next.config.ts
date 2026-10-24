@@ -11,7 +11,11 @@ const nextConfig: NextConfig = {
   experimental: { proxyTimeout: 300_000 },
   // the page was Waivers until week 5: old bookmarks and home-screen links land on Players, query kept
   async redirects() {
-    return [{ source: "/waivers", destination: "/players", permanent: true }];
+    // the Watch page is the Players page's Watch tab now; a push opened from an old notice still lands there
+    return [
+      { source: "/waivers", destination: "/players", permanent: true },
+      { source: "/watch", destination: "/players?watch=1", permanent: true },
+    ];
   },
   // the service worker must never be served from a cache, or a fix to it never reaches the phone
   async headers() {

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useState, useTransition, type ReactNode } from "react";
 import type { PlayerView, Preset, ResolvedView, ViewSort } from "@/lib/api";
-import { isModified, playersHref, POSITIONS } from "@/lib/player-view";
+import { isModified, playersHref, POSITIONS, WATCH } from "@/lib/player-view";
 import { PosTabs } from "./pos-tabs";
 
 // The Players view the page is showing (ffl-8iz): the preset it starts from, the view as the API applied
@@ -61,8 +61,10 @@ export function usePlayerView(): Ctx {
 }
 
 // The position strip on the Players page: ALL closes it, and a tab keeps the rest of the view (its
-// columns, filters, sort) while dropping the search, as a tab tap always has.
+// columns, filters, sort) while dropping the search, as a tab tap always has. Watch, last, opens the watch list in
+// the table's place and keeps the view for the tap back to a position.
 export function PlayerPosTabs({ active }: { active: string | null }) {
   const { presetId, preset, view } = usePlayerView();
-  return <PosTabs active={active} base="/players" positions={POSITIONS} hrefFor={(p) => playersHref("", presetId, { ...view, pos: p }, preset)} />;
+  const hrefFor = (p: string) => p === WATCH ? `${playersHref("", presetId, view, preset)}&watch=1` : playersHref("", presetId, { ...view, pos: p }, preset);
+  return <PosTabs active={active} base="/players" positions={[...POSITIONS, WATCH]} hrefFor={hrefFor} />;
 }

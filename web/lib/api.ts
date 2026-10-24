@@ -248,7 +248,7 @@ export type PoolStatus = "FREEAGENT" | "WAIVERS";
 export type ClaimPlayer = {
   name: string; pos: string; team: string; add: number | null; ros_adj: number | null; slot: string | null;
   status: PoolStatus | null; waiver_date: number | null; droppable: boolean | null; locked: boolean | null;
-};
+} & Partial<Pick<Player, "opponent" | "home" | "kickoff" | "bye" | "game" | "injury" | "injury_note" | "return_week">>; // the dialog header
 // ESPN's cap on one position (settings position_limits) and how many I hold, IR included.
 export type PositionCap = { pos: string; n: number; limit: number };
 // warnings: a group whose wins could pass a position cap (ESPN refuses the claim that would); they do not block a send.

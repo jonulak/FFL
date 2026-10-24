@@ -15,6 +15,7 @@ import type { WatchChip, WatchPage, WatchRow } from "@/lib/api";
 import { BOARD_CARD } from "@/lib/board";
 import { minutesSince, shortAge, signed } from "@/lib/format";
 import { NAME_LINK } from "@/lib/player-log";
+import { ClaimControl } from "./claim-control";
 import { useNow } from "./local-time";
 import { Presence } from "./motion";
 import { PlayerTrigger } from "./player-dialog";
@@ -96,9 +97,11 @@ function Row({ p, onToggle }: { p: WatchRow; onToggle: (on: boolean) => void }) 
         </div>
         <WatchStar id={p.player_id} name={p.name} onToggle={onToggle} />
       </div>
-      {/* what fired leads; the dim ones say what else was checked */}
-      <div className="col-span-2 col-start-2 flex flex-wrap gap-1.5">
+      {/* what fired leads; the dim ones say what else was checked. A free agent's claim button closes the line, as
+          on his Players row (nothing outside the Players page's claims plan) */}
+      <div className="col-span-2 col-start-2 flex flex-wrap items-center gap-1.5">
         {[...p.chips].sort((a, b) => Number(b.lit) - Number(a.lit)).map((c) => <Chip key={c.kind} c={c} />)}
+        {!elsewhere && <ClaimControl id={p.player_id} name={p.name} className="ml-auto" />}
       </div>
     </Item>
   );
@@ -200,7 +203,7 @@ export function WatchList({ initial }: { initial: WatchPage }) {
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-              <Link href="/players" className={buttonVariants({ variant: "outline", size: "sm" })}>Open Players</Link>
+              <Link href="/players" className={buttonVariants({ variant: "outline", size: "sm" })}>Browse players</Link>
             </EmptyContent>
           </Empty>
         </CardContent>

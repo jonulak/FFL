@@ -8,6 +8,8 @@ import { columnSpec } from "./player-columns";
 export const ALL = "ALL";
 export const FLEX = "FLEX";
 export const POSITIONS = ["QB", "RB", "WR", "TE", FLEX, "D/ST", "K", ALL];
+// the tab after the positions: the watch list (`?watch=1`, the page's own; the API never sees it)
+export const WATCH = "WATCH";
 // the tabs that span several positions (ffl/player_views.py GROUPS): their rows name the position
 export const isGroup = (pos: string | null) => pos === ALL || pos === FLEX;
 export const VIEW_FIELDS = ["pos", "fa", "cols", "filters", "sort"] as const;

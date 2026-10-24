@@ -494,7 +494,9 @@ def _players(groups, data):
     rows = {i: {**r, "droppable": None, "locked": None} for i, r in _rostered_rows(data).items()} | _pool_rows(data)
     roster = {r["player_id"]: r for r in data.get("roster", [])}
     want = {i for g in groups for i in g["targets"] + g["cuts"]} | set(roster)
-    keys = ("name", "pos", "team", "add", "ros_adj", "slot", "status", "waiver_date", "droppable", "locked")
+    # the schedule and injury fields are the player dialog's header (a claims-panel name opens it)
+    keys = ("name", "pos", "team", "add", "ros_adj", "slot", "status", "waiver_date", "droppable", "locked",
+            "opponent", "home", "kickoff", "bye", "injury", "injury_note", "return_week")
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
 
 

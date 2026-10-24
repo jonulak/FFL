@@ -8,7 +8,8 @@ import { recoverSubmit, SUBMIT_FLOOR_MS, submitFailure, type SubmitAnswer, type 
 export type { SubmitFailure };
 
 // The tab's rows as the panel needs them, so a target added from this tab has a name before the save returns.
-export type TabPlayer = Pick<FreeAgentRow, "player_id" | "name" | "pos" | "team" | "add" | "ros_adj" | "status" | "waiver_date">;
+export type TabPlayer = Pick<FreeAgentRow, "player_id" | "name" | "pos" | "team" | "add" | "ros_adj" | "status" | "waiver_date">
+  & Partial<Pick<FreeAgentRow, "opponent" | "home" | "kickoff" | "bye" | "game" | "injury" | "injury_note" | "return_week">>;
 
 type Ctx = {
   data: Claims;
@@ -70,8 +71,7 @@ export function ClaimsProvider({ initial, players, children }: { initial: Claims
   // (it has the roster and every target saved in any tab).
   const lookup = useMemo(() => {
     const m = new Map<number, ClaimPlayer>();
-    for (const r of players)
-      m.set(r.player_id, { name: r.name, pos: r.pos, team: r.team, add: r.add, ros_adj: r.ros_adj, slot: null, status: r.status, waiver_date: r.waiver_date, droppable: null, locked: null });
+    for (const { player_id, ...r } of players) m.set(player_id, { ...r, slot: null, droppable: null, locked: null });
     for (const [k, v] of Object.entries(data.players)) m.set(Number(k), v);
     return m;
   }, [players, data.players]);

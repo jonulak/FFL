@@ -125,7 +125,7 @@ def test_notice_body_capped_and_keyed_by_day():
     sigs = [{"text": "x" * 100}, {"text": "y" * 100}]
     n = watch.notice_for(p(), sigs, "2026-10-22", AT)
     assert n["key"] == "watch:10:2026-10-22" and n["kind"] == "watch" and n["title"] == "Kyle Pitts"
-    assert n["url"] == "/watch" and n["created_at"] == AT and len(n["body"]) <= notify.BODY_MAX
+    assert n["url"] == "/players?watch=1" and n["created_at"] == AT and len(n["body"]) <= notify.BODY_MAX
     assert watch.notice_for(p(), [{"text": "a"}, {"text": "b"}], "d", AT)["body"] == "a · b"
 
 
