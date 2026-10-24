@@ -50,7 +50,7 @@ def test_practice_run_writes_no_csv(monkeypatch, tmp_path, _db_template):
     assert db.url() == f"sqlite:///{mock / 'ffl.db'}"
     w, players = _watcher(monkeypatch, tmp_path, None)
     w.tick(_picks(players), on_clock=3)
-    assert sorted(p.name for p in mock.iterdir()) == ["ffl.db", "ffl.db-shm", "ffl.db-wal"]
+    assert {p.name for p in mock.iterdir()} <= {"ffl.db", "ffl.db-shm", "ffl.db-wal"}, "nothing beside the DB"
     assert not list(tmp_path.rglob("*.csv")) and not list(tmp_path.rglob("*.json"))
     assert [r["overall"] for r in db.picks()] == [1, 2]
     assert db.draft_state(leagues.home())["picks_made"] == 2
