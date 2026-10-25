@@ -531,3 +531,11 @@ def test_week_state_defaults_to_the_first_week(wired, monkeypatch):
     asked = _before_first_week(wired, monkeypatch)
     st = espn_season.week_state(ref=wired.other, **NOSRC)
     assert st["week"] == 5 and st["me"]["team_id"] == 3 and 5 in asked
+
+
+def test_team_state_defaults_to_the_first_week(wired, monkeypatch):
+    """Another team's page reads the league's first week too, or its players have no game (ESPN's week has none)."""
+    asked = _before_first_week(wired, monkeypatch)
+    st = espn_season.team_state(3, ref=wired.other, **NOSRC)
+    assert st["week"] == 5 and 5 in asked
+    assert espn_season.team_state(7, **NOSRC)["week"] == 3, "home: ESPN's week"

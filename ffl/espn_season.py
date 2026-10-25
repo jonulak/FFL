@@ -1481,7 +1481,7 @@ def team_state(team_id: int, week: int | None = None, sources: dict | None = Non
     if t is None:
         raise LookupError(f"no team {team_id}")
     settings = load(r)
-    week = week or lg.current_week
+    week = week or league_week(lg, ref=r)  # a league before its first week pages that week, as the board does
     src = sources if sources is not None else weekly_sources(week, settings)
     seas = _season_for(settings, season, week, ref=r)
     players = _boxes_by_team(lg, week, ref=r).get(team_id)
