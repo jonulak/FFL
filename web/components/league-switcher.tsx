@@ -7,7 +7,7 @@ import {
   DropdownMenuRadioItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { LeagueEntry } from "@/lib/api";
-import { LEAGUE_COOKIE, withLeague } from "@/lib/league";
+import { LEAGUE_ARRIVE, LEAGUE_COOKIE, withLeague } from "@/lib/league";
 
 // The wordmark is the league switcher (mockup A, ffl-soc.4.13): "FFL ▾" lists every league (name · provider · format),
 // the open one checked, each with a gear to its League settings. Picking one is a full page load, not router.push: the
@@ -16,6 +16,7 @@ import { LEAGUE_COOKIE, withLeague } from "@/lib/league";
 // forgets it. A league's settings open it the same way: its pages are under it.
 function go(l: LeagueEntry, path: string) {
   document.documentElement.dataset.leagueLeaving = ""; // the page left behind fades back while the next loads (globals.css)
+  try { sessionStorage.setItem(LEAGUE_ARRIVE, "1"); } catch { /* storage off: the next page arrives as any load does */ }
   document.cookie = l.home ? `${LEAGUE_COOKIE}=; path=/; max-age=0` : `${LEAGUE_COOKIE}=${encodeURIComponent(l.key)}; path=/; max-age=${365 * 86400}; samesite=lax`;
   window.location.assign(l.home ? path : withLeague(path, l.key));
 }
@@ -50,7 +51,7 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
           <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
           {shown && (
             <span key={shown.key} title={shown.name}
-                  className={`min-w-0 max-w-[16rem] truncate pb-px font-display text-[0.875rem] font-semibold uppercase leading-none tracking-[0.06em] text-foreground/75 sm:max-w-[9rem] lg:max-w-[13rem] ${pending ? "league-in league-wait" : ""}`}>
+                  className={`league-name min-w-0 max-w-[16rem] truncate pb-px font-display text-[0.875rem] font-semibold uppercase leading-none tracking-[0.06em] text-foreground/75 sm:max-w-[9rem] lg:max-w-[13rem] ${pending ? "league-in league-wait" : ""}`}>
               {shown.name}
             </span>
           )}

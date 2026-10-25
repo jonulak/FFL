@@ -5,6 +5,9 @@
 export const LEAGUE_PARAM = "league";
 export const LEAGUE_COOKIE = "ffl-league";
 export const LEAGUE_HEADER = "x-ffl-league";
+// sessionStorage: set by the switcher just before a league switch's full page load; the next document reads it before
+// its first paint (app/layout.tsx ARRIVE_SCRIPT) and plays the arrival (globals.css, "League switch").
+export const LEAGUE_ARRIVE = "ffl-league-arrive";
 
 // League data pages: opening one is "using" its league (the Matchup page "/" too, once it names one). NFL, News and
 // Settings are global and leave it alone.

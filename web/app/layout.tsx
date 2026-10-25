@@ -12,7 +12,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { WatchProvider } from "@/components/watch-context";
 import { headers } from "next/headers";
 import { apiGet, type DecisionPrefs, type LeagueEntry, type WatchIds } from "@/lib/api";
-import { LEAGUE_HEADER } from "@/lib/league";
+import { LEAGUE_ARRIVE, LEAGUE_HEADER } from "@/lib/league";
 import { DEFAULT_DECISION_PREFS } from "@/lib/decisions";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
@@ -24,6 +24,10 @@ export const metadata: Metadata = {
   title: "FFL", description: "2026 season cockpit",
   appleWebApp: { capable: true, title: "FFL", statusBarStyle: "default" },
 };
+
+// Before the first paint: a league switch's page (the switcher set LEAGUE_ARRIVE just before the load) is marked
+// arriving for the length of its arrival (globals.css, "League switch"), then unmarked; any other load is untouched.
+const ARRIVE_SCRIPT = `try{if(sessionStorage.getItem(${JSON.stringify(LEAGUE_ARRIVE)})){sessionStorage.removeItem(${JSON.stringify(LEAGUE_ARRIVE)});var d=document.documentElement;d.dataset.leagueArriving="";setTimeout(function(){delete d.dataset.leagueArriving},900)}}catch(e){}`;
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // every page renders under this layout: an API that cannot answer leaves the switches at their defaults, never an error
@@ -41,6 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // `--font-sans` has to be defined on the same element or above it.
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${barlow.variable}`} suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: ARRIVE_SCRIPT }} /></head>
       <body className="min-h-dvh bg-background text-foreground antialiased">
         <SwRegister />
         {/* the season modal: one dialog for the app, opened from any player row */}
