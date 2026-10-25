@@ -1241,3 +1241,24 @@ def test_concurrent_cold_box_scores_share_one_fetch(monkeypatch):
     lg.box_scores = fetch
     assert race(2, lambda: espn_season.box_scores(lg, 2)) == [["box"], ["box"]]
     assert calls == [2]
+
+
+def test_schedule_doc_shared_across_leagues(monkeypatch):
+    """The pro schedule is the NFL's, not a league's: two Leagues share one fetch, and refresh_league() drops it."""
+    espn_season.refresh_league()
+    fetched = []
+
+    def get():
+        fetched.append(1)
+        return PRO_SCHEDULE
+    lg_a = SimpleNamespace(espn_request=SimpleNamespace(get_pro_schedule=get))
+    lg_b = SimpleNamespace(espn_request=SimpleNamespace(get_pro_schedule=get))
+    espn_season.home_by_team(lg_a, 8)
+    espn_season.home_by_team(lg_b, 8)
+    espn_season.bye_by_team(lg_a)
+    espn_season.bye_by_team(lg_b)
+    espn_season.kickoffs_by_week(lg_b)
+    assert len(fetched) == 1
+    espn_season.refresh_league()
+    espn_season.bye_by_team(lg_b)
+    assert len(fetched) == 2

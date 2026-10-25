@@ -38,7 +38,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(api.outlook, "LAST",
                         {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None,
                          "last_failure": None, "pending": None})
-    monkeypatch.setattr(api, "sync_all", lambda: {"transactions": 0})
+    monkeypatch.setattr(api, "sync_all", lambda **k: {"transactions": 0})
     api.cache.clear()
     c = TestClient(api.app)
     c.calls = calls
@@ -74,27 +74,27 @@ def test_refresh_keeps_the_stale_fallback(client, monkeypatch):
 
 
 def test_refresh_502s_when_espn_is_down(client, monkeypatch):
-    monkeypatch.setattr(api, "sync_all", lambda: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(api, "sync_all", lambda **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     r = client.post("/refresh")
     assert r.status_code == 502 and r.json()["detail"] == {"source": "espn", "error": "espn down"}
 
 
 def test_transactions_sync_answers_the_new_count(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: "LG")
     monkeypatch.setattr(api, "load", lambda *a, **k: {})
-    monkeypatch.setattr(api, "sync_transactions", lambda lg: [{}, {}])
+    monkeypatch.setattr(api, "sync_transactions", lambda lg, **k: [{}, {}])
     results = []
-    monkeypatch.setattr(api, "sync_results", lambda lg, settings: results.append(lg))
+    monkeypatch.setattr(api, "sync_results", lambda lg, settings, **k: results.append(lg))
     r = client.post("/transactions/sync")
     assert r.status_code == 200 and r.json() == {"new": 2}
     assert results == ["LG"], "the hourly sync keeps the results table too"
-    monkeypatch.setattr(api, "sync_transactions", lambda lg: [])
+    monkeypatch.setattr(api, "sync_transactions", lambda lg, **k: [])
     assert client.post("/transactions/sync").json() == {"new": 0}
 
 
 def test_transactions_sync_502s_when_espn_is_down(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
-    monkeypatch.setattr(api, "sync_transactions", lambda lg: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: "LG")
+    monkeypatch.setattr(api, "sync_transactions", lambda lg, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     assert client.post("/transactions/sync").status_code == 502
 
 
@@ -103,12 +103,12 @@ def test_sync_all_rebuilds_the_league(monkeypatch):
     the results table truncated to whatever week the process booted in."""
     hits = {"refresh": 0, "fresh": 0}
     monkeypatch.setattr(api.espn_season, "refresh_league",
-                        lambda: hits.__setitem__("refresh", hits["refresh"] + 1))
+                        lambda *a, **k: hits.__setitem__("refresh", hits["refresh"] + 1))
     monkeypatch.setattr(api.espn_season, "fresh_league",
-                        lambda: (hits.__setitem__("fresh", hits["fresh"] + 1), "LG")[1])
+                        lambda *a, **k: (hits.__setitem__("fresh", hits["fresh"] + 1), "LG")[1])
     monkeypatch.setattr(api, "load", lambda *a, **k: {})
-    monkeypatch.setattr(api, "sync_transactions", lambda lg: None)
-    monkeypatch.setattr(api, "sync_results", lambda lg, s: None)
+    monkeypatch.setattr(api, "sync_transactions", lambda lg, **k: None)
+    monkeypatch.setattr(api, "sync_results", lambda lg, s, **k: None)
     assert api.sync_all() == {"transactions": True, "results": True}
     assert hits == {"refresh": 1, "fresh": 1}
 
@@ -1539,7 +1539,7 @@ def test_notify_tick_pulls_once_before_a_kickoff(client, monkeypatch):
     from datetime import datetime, timedelta, timezone
     monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
     kick = datetime.now(timezone.utc) + timedelta(minutes=60)
-    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: "LG")
     monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg: {6: [kick, kick]})
     client.get("/week/3")
     assert client.post("/notify/tick").json()["pregame"] == [kick.isoformat()]
@@ -1753,7 +1753,7 @@ def _corr(week, pid=1, team=7):
 
 
 def _stub_correct(monkeypatch, out):
-    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: "LG")
     monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None: {**out, "plays": list(out.get("plays", []))})
 
 

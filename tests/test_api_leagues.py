@@ -209,3 +209,55 @@ def test_decision_other_league_404(client, other):
                          "decision": "d", "rationale": None, "player_ids": []})
     assert client.post(f"/decisions/{i}?league=espn:999", json={"outcome": "ok"}).status_code == 404
     assert client.post(f"/decisions/{i}", json={"outcome": "ok"}).status_code == 200
+
+
+# sync and refresh per league, the home-only features refused (task 3)
+HOME_ONLY = [
+    ("get", "/claims", "claims"), ("post", "/claims", "claims"), ("post", "/claims/submit", "claims"),
+    ("get", "/claims/submit/tok", "claims"), ("post", "/lineup", "lineup"), ("post", "/roster/sit/1", "sit"),
+    ("get", "/outlook/1", "outlook"), ("post", "/outlook/1", "outlook"), ("get", "/waivers/outlook/1", "outlook"),
+    ("post", "/waivers/outlook/1", "outlook"), ("post", "/outlook/refresh", "outlook"),
+]
+
+
+@pytest.mark.parametrize("method,path,feature", HOME_ONLY)
+def test_home_only_routes_refuse_other_league(monkeypatch, client, other, method, path, feature):
+    called = []
+    for mod, name in ((api.espn_write, "pending_state"), (api.espn_write, "move_lineup"), (api.espn_write, "submit_claim"),
+                      (api.outlook, "start"), (api.outlook, "start_one")):
+        monkeypatch.setattr(mod, name, lambda *a, **k: called.append(name))
+    r = client.request(method.upper(), path, params={"league": "espn:999"}, json={})
+    assert r.status_code == 404
+    assert r.json()["detail"] == {"error": "not_for_league", "league": "espn:999", "feature": feature}
+    assert called == []
+
+
+def test_refresh_other_league(monkeypatch, client, other):
+    synced = []
+    monkeypatch.setattr(api, "sync_all", lambda *, ref=None: synced.append(ref) or {"transactions": True})
+    built = {"home": 0, "other": 0}
+
+    def build(who):
+        def fn():
+            built[who] += 1
+            return {"who": who}
+        return fn
+    api._serve("roster", build("home"))
+    api._serve("roster", build("other"), ref=other)
+    assert client.post("/refresh", params={"league": "espn:999"}).status_code == 200
+    assert synced == [other]
+    api._serve("roster", build("home"))
+    api._serve("roster", build("other"), ref=other)
+    assert built == {"home": 1, "other": 2}
+
+
+def test_transactions_sync_other_league(monkeypatch, client, other):
+    got = {}
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda ref=None, **k: f"LG:{ref.key}")
+    monkeypatch.setattr(api, "load", lambda ref=None, **k: {"for": ref.key})
+    monkeypatch.setattr(api, "sync_transactions", lambda lg, *, ref=None: got.update(tx=(lg, ref)) or [{}])
+    monkeypatch.setattr(api, "sync_results", lambda lg, settings, *, ref=None: got.update(res=(lg, settings, ref)))
+    r = client.post("/transactions/sync", params={"league": "espn:999"})
+    assert r.status_code == 200 and r.json() == {"new": 1}
+    assert got["tx"] == ("LG:espn:999", other)
+    assert got["res"] == ("LG:espn:999", {"for": "espn:999"}, other)

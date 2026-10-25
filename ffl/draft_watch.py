@@ -794,7 +794,7 @@ def store_espn_draft(ref) -> int:
     if not fetch_picks(ref)["drafted"]:
         raise SystemExit(f"{ref.key}: ESPN says the draft is not finished; nothing stored")
     picks = config.league(ref).draft
-    info = espn_season.tx_player_info({p.playerId for p in picks})
+    info = espn_season.tx_player_info({p.playerId for p in picks}, ref=ref)
     rows = [{"overall": i, "round": p.round_num, "pick": p.round_pick, "team_id": p.team.team_id,
              "team": p.team.team_name, "player_id": p.playerId, "player": p.playerName,
              "pos": info.get(p.playerId, {}).get("pos"), "nfl": info.get(p.playerId, {}).get("team"),

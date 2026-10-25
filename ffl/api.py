@@ -334,6 +334,13 @@ def _not_for_league(ref: LeagueRef, feature: str) -> None:
     """404 for a feature that is home's alone until its own task makes it per league."""
     if not ref.home:
         raise HTTPException(status_code=404, detail={"error": "not_for_league", "league": ref.key, "feature": feature})
+def home_only(feature: str):
+    """A route dependency refusing another league's request (404 not_for_league) before the body is read."""
+    def check(ref: LeagueRef = Depends(open_league)) -> None:
+        _not_for_league(ref, feature)
+    return Depends(check)
+
+
 # The pages a league move makes stale: the log, every roster (mine, a team's, the boards'), the pool, the live
 # starters, a player's card (owner, record). Logos, the draft and finished weeks' box scores never change.
 MOVE_KEYS = ("transactions", "roster", "waivers", "week", "league", "team", "starters", "player")
@@ -584,7 +591,7 @@ def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S):
             "players": _players(plan["groups"], data)}
 
 
-@app.get("/claims")
+@app.get("/claims", dependencies=[home_only("claims")])
 def claims_get(fresh: bool = False):
     # fresh=1 (the Submit dialog on open): statuses re-read from ESPN, so "Add now" is what Submit will run
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
@@ -593,7 +600,7 @@ def claims_get(fresh: bool = False):
     return _claims_payload(_load_plan(data["week"]), data, _fresh_status(data), JUST_READ_S)
 
 
-@app.post("/claims")
+@app.post("/claims", dependencies=[home_only("claims")])
 def claims_save(body: PlanIn):
     # a save during a submit would overwrite its record (or be overwritten by it)
     if not _SUBMIT.acquire(blocking=False):
@@ -614,7 +621,7 @@ def _keep_submit(token, answer):
         _SUBMITS.pop(next(iter(_SUBMITS)))
 
 
-@app.post("/claims/submit")
+@app.post("/claims/submit", dependencies=[home_only("claims")])
 def claims_submit(body: SubmitIn):
     if not body.token:
         return _claims_submit(body)
@@ -631,7 +638,7 @@ def claims_submit(body: SubmitIn):
     return res
 
 
-@app.get("/claims/submit/{token}")
+@app.get("/claims/submit/{token}", dependencies=[home_only("claims")])
 def claims_submit_answer(token: str):
     """A send's answer by the dialog's token: running, or the status and body the POST answered (404: never arrived)."""
     if token not in _SUBMITS:
@@ -753,7 +760,7 @@ def _espn_error(e: espn_write.WriteError) -> HTTPException:
     return HTTPException(502, {"source": "espn", "error": e.message})
 
 
-@app.post("/lineup")
+@app.post("/lineup", dependencies=[home_only("lineup")])
 def lineup(body: LineupIn):
     """Move players between ESPN slots (one transaction), then answer with the Roster page as ESPN now has it.
     Locks are re-read here, not trusted from the page: a game can kick off between the load and the tap."""
@@ -834,7 +841,7 @@ class SitIn(BaseModel):
     sat: bool
 
 
-@app.post("/roster/sit/{player_id:int}")
+@app.post("/roster/sit/{player_id:int}", dependencies=[home_only("sit")])
 def roster_sit(player_id: int, body: SitIn):
     """Sit him for the week, or stand him back up: the call is re-made without him (season.roster_cards) and the
     page answers at once. Nothing reaches ESPN. Under the lineup lock, so a move's read-back and a sit never land
@@ -1524,13 +1531,13 @@ def _roster_card(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict,
     raise HTTPException(status_code=404, detail=f"player {player_id} is not on the roster")
 
 
-@app.get("/outlook/{player_id:int}")
+@app.get("/outlook/{player_id:int}", dependencies=[home_only("outlook")])
 def card_outlook(player_id: int):
     card, week = _roster_card(player_id)
     return outlook.roster_entry(card, week)
 
 
-@app.post("/outlook/{player_id:int}", status_code=202)
+@app.post("/outlook/{player_id:int}", status_code=202, dependencies=[home_only("outlook")])
 def card_outlook_write(player_id: int):
     """One Roster card's outlook, rewritten in the background whether or not his facts moved; the card
     polls the GET until `outlook_running` clears. 409 while the full run holds the Roster file."""
@@ -1542,7 +1549,7 @@ def card_outlook_write(player_id: int):
     return {"started": True}
 
 
-@app.post("/outlook/refresh", status_code=202)
+@app.post("/outlook/refresh", status_code=202, dependencies=[home_only("outlook")])
 def outlook_refresh():
     try:
         state = espn_season.roster_state(None)
@@ -1566,13 +1573,13 @@ def _free_agent(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict, 
     raise HTTPException(status_code=404, detail=f"player {player_id} is not a free agent")
 
 
-@app.get("/waivers/outlook/{player_id}")
+@app.get("/waivers/outlook/{player_id}", dependencies=[home_only("outlook")])
 def waiver_outlook(player_id: int):
     row, week = _free_agent(player_id)
     return outlook.waiver_entry(row, week)
 
 
-@app.post("/waivers/outlook/{player_id}", status_code=202)
+@app.post("/waivers/outlook/{player_id}", status_code=202, dependencies=[home_only("outlook")])
 def waiver_outlook_write(player_id: int):
     """One free agent's outlook, written in the background (a minute or two of Opus with web search);
     the dialog polls the GET until `running` clears."""
@@ -1584,27 +1591,28 @@ def waiver_outlook_write(player_id: int):
     return {"started": True}
 
 
-def sync_all() -> dict:
+def sync_all(*, ref: LeagueRef | None = None) -> dict:
     # espn_api caches current_week and the records in League.__init__; a months-old League would
     # make sync_results upsert stale scores for the weeks it still knows about.
+    r = ref if ref is not None else leagues.home()
     espn_season.refresh_league()
-    lg = espn_season.fresh_league()
-    settings = load()
-    sync_transactions(lg)
-    sync_results(lg, settings)
+    lg = espn_season.fresh_league(r)
+    settings = load(r)
+    sync_transactions(lg, ref=r)
+    sync_results(lg, settings, ref=r)
     return {"transactions": True, "results": True}
 
 
 @app.post("/transactions/sync")
-def transactions_sync():
+def transactions_sync(ref: LeagueRef = Depends(open_league)):
     """The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
     the DB's transactions table, so the record keeps up with no page open, and the weekly results into
     `results` (the nav's Refresh did that until it went). Concurrent syncs are safe: the table's
     (season, id) key dedupes."""
     try:
-        lg = espn_season.fresh_league()
-        new = sync_transactions(lg)
-        sync_results(lg, load())
+        lg = espn_season.fresh_league(ref)
+        new = sync_transactions(lg, ref=ref)
+        sync_results(lg, load(ref), ref=ref)
     except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
     return {"new": len(new)}  # new rows already dropped the Transactions page (journal.ON_NEW_ROWS)
@@ -1959,15 +1967,15 @@ def watch_pass() -> dict:
 
 
 @app.post("/refresh")
-def refresh():
+def refresh(ref: LeagueRef = Depends(open_league)):
     """A forced pull by hand (curl; the nav button is gone, the notify tick's pregame_pull runs one before games).
     Waits for every page to rebuild."""
-    expire_everything()
+    expire_everything(ref=ref)
     try:
-        synced = sync_all()
+        synced = sync_all(ref=ref)
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001 — an ESPN failure is a 502, not a bare traceback
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
-    cache.rebuild_expired()
+    cache_for(ref).rebuild_expired()
     return {"synced": synced, "at": datetime.now().strftime("%H:%M")}

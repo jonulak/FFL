@@ -40,7 +40,7 @@ CACHE_S = 1800
 # standings and journal.sync_results' range forever. Every builder goes through fresh_league(),
 # which rebuilds it once an hour; POST /refresh forces it immediately.
 LEAGUE_TTL_S = 3600
-_LEAGUE_BUILT_AT = 0.0  # the newest League build of any league: the NFL-wide schedule caches key on it
+_LEAGUE_BUILT_AT = 0.0  # the newest League build of any league (the schedule caches no longer key on it)
 _BUILT: dict[str, float] = {}  # league key -> when fresh_league last rebuilt that league's League
 # week -> (fetched_at, lookup), every week asked for and none dropped: the Matchup board prices on the scoring
 # week, the Roster and Players pages on the ROS week (the next one once the week's games are played), and with
@@ -62,6 +62,7 @@ def refresh_league() -> None:
     global _LEAGUE_BUILT_AT
     _LEAGUE_BUILT_AT = 0.0
     _BUILT.clear()
+    _SCHED.clear()  # the NFL's schedule too, so POST /refresh re-reads it
     cache_clear = getattr(league, "cache_clear", None)  # None when tests stub `league`
     if cache_clear is not None:
         cache_clear()
@@ -137,7 +138,7 @@ def stat_row(bp, settings: dict) -> dict[str, float] | None:
     return out
 
 
-_HOME: dict[tuple[int, float], dict[str, bool]] = {}  # (week, league build) -> team -> hosts
+_HOME: dict[tuple[int, int], tuple[dict, dict[str, bool]]] = {}  # (week, id(doc)) -> (doc, team -> hosts)
 
 
 def parse_home_by_team(data: dict, week: int) -> dict[str, bool]:
@@ -153,37 +154,43 @@ def parse_home_by_team(data: dict, week: int) -> dict[str, bool]:
     return out
 
 
-_SCHED: dict[tuple[int, float], dict] = {}  # (League object, build) -> the proTeamSchedules_wl document
-_BYE: dict[float, dict[str, int]] = {}  # league build -> team -> bye week
+_SCHED: list = []  # [expires_at, doc]: the proTeamSchedules_wl document, the NFL's whichever League asked
+# The parses below key on the document itself (the entry holds it, so a freed document's id is never reused for a hit)
+_BYE: dict[int, tuple[dict, dict[str, int]]] = {}  # id(doc) -> (doc, team -> bye week)
 
 
 def _schedule_doc(lg) -> dict:
-    """ESPN's proTeamSchedules_wl view, fetched once per League object (venues and bye weeks both
-    read it). A stubbed league without a request object reads as an empty document, uncached."""
+    """ESPN's proTeamSchedules_wl view (venues, bye weeks and kickoffs all read it), fetched once per LEAGUE_TTL_S
+    whichever League asks; refresh_league() drops it. A stubbed league without a request object reads as an empty
+    document, uncached; a failed fetch is not cached."""
     req = getattr(lg, "espn_request", None)  # tests stub the league without one
     if req is None:
         return {}
-    key = (id(lg), _LEAGUE_BUILT_AT)
-    if key not in _SCHED:
+    if not _SCHED or time.time() >= _SCHED[0]:
         data = req.get_pro_schedule()
-        _SCHED.clear()
-        _SCHED[key] = data
-    return _SCHED[key]
+        _SCHED[:] = [time.time() + LEAGUE_TTL_S, data]
+    return _SCHED[1]
+
+
+def _parsed(cache: dict, doc: dict, key, parse):
+    """`parse(doc)` kept in `cache` under `key` + the document's identity; a new document drops the old parses."""
+    hit = cache.get((key, id(doc)))
+    if hit is None or hit[0] is not doc:
+        for k in [k for k, v in cache.items() if v[0] is not doc]:
+            del cache[k]
+        hit = cache[(key, id(doc))] = (doc, parse(doc))
+    return hit[1]
 
 
 def home_by_team(lg, week: int) -> dict[str, bool]:
     """parse_home_by_team over the live view, cached for the life of the League object. A failed
     fetch returns {} so every card shows the opponent without a venue rather than no page."""
-    key = (week, _LEAGUE_BUILT_AT)
-    if key not in _HOME:
-        try:
-            data = _schedule_doc(lg)
-        except Exception as e:  # noqa: BLE001 — venue is decoration, the call is not
-            print(f"pro schedule unavailable, venues unknown: {e}")
-            return {}  # not cached: the next request retries
-        _HOME.clear()
-        _HOME[key] = parse_home_by_team(data, week)
-    return _HOME[key]
+    try:
+        data = _schedule_doc(lg)
+    except Exception as e:  # noqa: BLE001 — venue is decoration, the call is not
+        print(f"pro schedule unavailable, venues unknown: {e}")
+        return {}  # not cached: the next request retries
+    return _parsed(_HOME, data, week, lambda d: parse_home_by_team(d, week))
 
 
 def parse_bye_by_team(data: dict) -> dict[str, int]:
@@ -201,15 +208,12 @@ def parse_bye_by_team(data: dict) -> dict[str, int]:
 def bye_by_team(lg) -> dict[str, int]:
     """parse_bye_by_team over the live view, cached like home_by_team. Without it, season.games_left
     counts a bye still ahead as a game, so pace_gap runs one game high for that player."""
-    if _LEAGUE_BUILT_AT not in _BYE:
-        try:
-            data = _schedule_doc(lg)
-        except Exception as e:  # noqa: BLE001
-            print(f"pro schedule unavailable, byes unknown: {e}")
-            return {}
-        _BYE.clear()
-        _BYE[_LEAGUE_BUILT_AT] = parse_bye_by_team(data)
-    return _BYE[_LEAGUE_BUILT_AT]
+    try:
+        data = _schedule_doc(lg)
+    except Exception as e:  # noqa: BLE001
+        print(f"pro schedule unavailable, byes unknown: {e}")
+        return {}
+    return _parsed(_BYE, data, None, parse_bye_by_team)
 
 
 def parse_kickoffs_by_week(data: dict) -> dict[int, list[datetime]]:
@@ -228,21 +232,18 @@ def parse_kickoffs_by_week(data: dict) -> dict[int, list[datetime]]:
     return out
 
 
-_KICKS: dict[float, dict[int, list[datetime]]] = {}  # league build -> week -> kickoffs
+_KICKS: dict[int, tuple[dict, dict[int, list[datetime]]]] = {}  # id(doc) -> (doc, week -> kickoffs)
 
 
 def kickoffs_by_week(lg) -> dict[int, list[datetime]]:
     """parse_kickoffs_by_week over the live view, cached like bye_by_team; {} on a failed fetch,
     which leaves the ROS week at ESPN's."""
-    if _LEAGUE_BUILT_AT not in _KICKS:
-        try:
-            data = _schedule_doc(lg)
-        except Exception as e:  # noqa: BLE001
-            print(f"pro schedule unavailable, ROS week is ESPN's: {e}")
-            return {}
-        _KICKS.clear()
-        _KICKS[_LEAGUE_BUILT_AT] = parse_kickoffs_by_week(data)
-    return _KICKS[_LEAGUE_BUILT_AT]
+    try:
+        data = _schedule_doc(lg)
+    except Exception as e:  # noqa: BLE001
+        print(f"pro schedule unavailable, ROS week is ESPN's: {e}")
+        return {}
+    return _parsed(_KICKS, data, None, parse_kickoffs_by_week)
 
 
 def ros_week_for(lg, week: int) -> int:

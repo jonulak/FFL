@@ -19,7 +19,7 @@ def _stub(monkeypatch, drafted=True):
     draft = [_pick(1, 1, 3, 11, "Josh Allen"), _pick(1, 2, 4, 12, "Bijan Robinson"), _pick(2, 1, 4, -16001, "Jets D/ST")]
     monkeypatch.setattr(draft_watch, "fetch_picks", lambda ref=None: {"in_progress": False, "drafted": drafted, "picks": []})
     monkeypatch.setattr(config, "league", lambda ref=None, fetch_league=True: NS(draft=draft))
-    monkeypatch.setattr(espn_season, "tx_player_info", lambda ids: {
+    monkeypatch.setattr(espn_season, "tx_player_info", lambda ids, **k: {
         11: {"pos": "QB", "team": "BUF"}, 12: {"pos": "RB", "team": "ATL"}, -16001: {"pos": "D/ST", "team": "NYJ"}})
 
 
