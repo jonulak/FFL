@@ -28,10 +28,10 @@ def owners() -> tuple[dict[int, dict], int]:
 def _queue(written: list) -> list[list]:
     """The revisions waiting for their push, this run's added; past notify.MAX_AGE they are let go."""
     at, t = notify.now(), datetime.now().astimezone()
-    pending = [p for p in db.get_state(PENDING, []) or [] if t - datetime.fromisoformat(p[2]) <= notify.MAX_AGE]
+    pending = [p for p in db.get_league_state(PENDING, []) or [] if t - datetime.fromisoformat(p[2]) <= notify.MAX_AGE]
     known = {(sid, rev) for sid, rev, _ in pending}
     pending += [[sid, rev, at] for sid, rev in written if (sid, rev) not in known]
-    db.put_state(PENDING, pending)
+    db.put_league_state(PENDING, pending)
     return pending
 
 
@@ -114,7 +114,7 @@ def notify_written(written: list, index: players.Index) -> dict:
     out += [watch.notice_for({"player_id": pid, "name": (index.by_id.get(pid) or {}).get("name") or f"Player {pid}"},
                              sigs, day, at) for pid, sigs in by_player.items() if pid not in carried and pid not in who and pid not in muted]
     n_queued = db.add_notices(out)
-    db.put_state(PENDING, [])
+    db.put_league_state(PENDING, [])
     return {"stories": len(pending), "queued": n_queued, "superseded": len(superseded), "watch": len(new)}
 
 

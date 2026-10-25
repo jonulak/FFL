@@ -828,3 +828,14 @@ def test_0021_upgrades_an_empty_db_with_no_home_league(tmp_path, monkeypatch):
     eng.dispose()
     command.upgrade(db._alembic_config(), "head")
     assert _schema(url)["results"]["pk"] == _PK_0021["results"]
+
+
+def test_state_functions_refuse_the_other_kind():
+    with pytest.raises(ValueError):
+        db.get_state("waiver_run")
+    with pytest.raises(ValueError):
+        db.put_state("watch_state", {})
+    with pytest.raises(ValueError):
+        db.put_league_state("source_status", {})
+    with pytest.raises(ValueError):
+        db.get_league_state("prefs")

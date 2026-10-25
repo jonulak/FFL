@@ -1579,7 +1579,14 @@ def recent_notices(limit: int = 20, season: int = SEASON, *, ref=None) -> list[d
         return [dict(r._mapping) for r in c.execute(q)]
 
 
+def _check_key(key: str, league: bool) -> None:
+    if (key in LEAGUE_STATE_KEYS) != league:
+        raise ValueError(f"state key {key!r} is {'not ' if league else ''}a league's: use "
+                         f"{'put/get_state' if league else 'put/get_league_state'}")
+
+
 def get_state(key: str, default=None, season: int = SEASON):
+    _check_key(key, False)
     q = sa.select(notify_state.c.value).where(notify_state.c.season == season, notify_state.c.key == key)
     with _read() as c:
         v = c.execute(q).scalar()
@@ -1587,11 +1594,13 @@ def get_state(key: str, default=None, season: int = SEASON):
 
 
 def put_state(key: str, value, season: int = SEASON) -> None:
+    _check_key(key, False)
     with _write() as c:
         c.execute(_upsert(notify_state, [{"season": season, "key": key, "value": value}], ["season", "key"], ["value"]))
 
 
 def get_league_state(key: str, default=None, season: int = SEASON, *, ref=None):
+    _check_key(key, True)
     t = league_state
     q = sa.select(t.c.value).where(t.c.league == _league_key(ref), t.c.season == season, t.c.key == key)
     with _read() as c:
@@ -1600,6 +1609,7 @@ def get_league_state(key: str, default=None, season: int = SEASON, *, ref=None):
 
 
 def put_league_state(key: str, value, season: int = SEASON, *, ref=None) -> None:
+    _check_key(key, True)
     league = _league_key(ref)
     with _write() as c:
         c.execute(_upsert(league_state, [{"league": league, "season": season, "key": key, "value": value}],

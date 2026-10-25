@@ -118,7 +118,7 @@ def test_final_plays_reads_a_game_once_final_half_an_hour_even_if_opened_mid_gam
     assert api.final_plays() == {} and recorded == [], "just final: ESPN's drives can lag the whistle"
     clock[0] += api.FINAL_PLAYS_AFTER
     assert api.final_plays() == {"6": 1} and recorded[0][1][0]["play_id"] == "9"
-    assert db.get_state("final_plays_done") == ["e1"]
+    assert db.get_league_state("final_plays_done") == ["e1"]
     clock[0] += 3600
     assert api.final_plays() == {} and len(recorded) == 1, "read once"
 

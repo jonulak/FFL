@@ -50,9 +50,9 @@ def client(pool):
 
 def _rerun():
     """The pass again within the hour: its gate cleared, its baselines kept, the pool rebuilt."""
-    st = db.get_state("watch_state", {})
+    st = db.get_league_state("watch_state", {})
     st.pop("last_pass", None)
-    db.put_state("watch_state", st)
+    db.put_league_state("watch_state", st)
     api.cache.clear()
     return api.watch_pass()
 
@@ -121,22 +121,22 @@ def test_pass_never_pushes_rostered_elsewhere(pool):
     assert api.watch_pass() == {"signals": 1, "queued": 0}
     assert [s["kind"] for s in db.watch_signals("")] == ["ahead"]
     assert not [n for n in db.unsent_notices() if n["kind"] == "watch"]
-    assert db.get_state("watch_state")["owner"] == {"5": THEM}
+    assert db.get_league_state("watch_state")["owner"] == {"5": THEM}
 
 
 def test_pass_available_pushes_on_drop(pool):
     db.put_watch(5, True)
-    db.put_state("watch_state", {"owner": {"5": THEM}, "bench": {"5": 1.0}, "above": {}})
+    db.put_league_state("watch_state", {"owner": {"5": THEM}, "bench": {"5": 1.0}, "above": {}})
     pool["watched"] = [_row(5, "Dropped")]
     assert api.watch_pass() == {"signals": 1, "queued": 1}
     n = next(n for n in db.unsent_notices() if n["kind"] == "watch")
     assert n["body"] == "available: dropped"
-    assert db.get_state("watch_state")["owner"] == {"5": None}
+    assert db.get_league_state("watch_state")["owner"] == {"5": None}
 
 
 def test_pass_bench_crossing(pool):
     db.put_watch(5, True)
-    db.put_state("watch_state", {"owner": {}, "bench": {"5": -2.0}, "above": {}})
+    db.put_league_state("watch_state", {"owner": {}, "bench": {"5": -2.0}, "above": {}})
     pool["watched"] = [_row(5, "Riser", delta=3.0)]
     assert api.watch_pass() == {"signals": 1, "queued": 1}
     assert db.watch_signals("")[0]["text"] == "passes Mine on your bench"
@@ -167,9 +167,9 @@ def test_notify_tick_reports_a_failed_pass(pool, monkeypatch):
 
 def test_unwatch_clears_state_no_false_available_on_rewatch(client, pool):
     db.put_watch(5, True)
-    db.put_state("watch_state", {"owner": {"5": THEM}, "bench": {"5": 1.0}, "above": {"5": ["lead back"]}})
+    db.put_league_state("watch_state", {"owner": {"5": THEM}, "bench": {"5": 1.0}, "above": {"5": ["lead back"]}})
     client.post("/watch/5", json={"watched": False})
-    st = db.get_state("watch_state")
+    st = db.get_league_state("watch_state")
     assert "5" not in st["owner"] and "5" not in st["bench"] and "5" not in st["above"]
     assert _rerun() == {"skipped": "none watched"}
     client.post("/watch/5", json={"watched": True})
@@ -183,10 +183,10 @@ def test_pass_prunes_state_to_watched_ids_not_priced_rows(pool):
     for pid in (5, 6):
         db.put_watch(pid, True)
     db.put_watch(9, False)
-    db.put_state("watch_state", {"owner": {"5": THEM, "6": THEM, "9": THEM}, "bench": {"9": 1.0}, "above": {"9": []}})
+    db.put_league_state("watch_state", {"owner": {"5": THEM, "6": THEM, "9": THEM}, "bench": {"9": 1.0}, "above": {"9": []}})
     pool["watched"] = [_row(5, "Priced", owner=THEM)]  # 6 is watched but this pool has no row for him
     api.watch_pass()
-    st = db.get_state("watch_state")
+    st = db.get_league_state("watch_state")
     assert st["owner"] == {"5": THEM, "6": THEM}  # 6's baseline survives a read that missed him; 9's is gone
     assert st["bench"] == {"5": 1.0} and st["above"] == {"5": []}
 

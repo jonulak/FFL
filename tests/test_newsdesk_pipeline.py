@@ -213,14 +213,14 @@ def test_live_rev2_not_qualifying_supersedes_rev1(stages):
 def test_no_index_leaves_the_written_revisions_waiting(stages, monkeypatch):
     _, written = stages
     sid = make([(1, "down", "injury")])
-    db.put_state(pipeline.PENDING, [[sid, 1, notify.now()]])  # written by a run whose notices stage failed
+    db.put_league_state(pipeline.PENDING, [[sid, 1, notify.now()]])  # written by a run whose notices stage failed
 
     def exits():
         raise SystemExit("no LEAGUE_ID in .env")
 
     monkeypatch.setattr(pipeline.players, "fetch_index", exits)
     assert pipeline.run()["notices"] == {"skipped": "no player index"}
-    assert keys() == [] and db.get_state(pipeline.PENDING)[0][:2] == [sid, 1]
+    assert keys() == [] and db.get_league_state(pipeline.PENDING)[0][:2] == [sid, 1]
     monkeypatch.setattr(pipeline.players, "fetch_index", lambda: INDEX)
     pipeline.run()
     assert [n["body"] for n in db.unsent_notices()] == ["▼ Jalen Hurts: A reason."]

@@ -320,10 +320,10 @@ def check_waivers(synced: bool = True) -> int:
     Nothing is touched when the run is unreadable, or when it is new and the log did not sync this tick (its
     WAIVER ADDED rows would be missing and every win would read as a loss): the next tick decides."""
     from . import espn_season, espn_write, season
-    run, prev = espn_write.last_waiver_run(), db.get_state("waiver_run")
+    run, prev = espn_write.last_waiver_run(), db.get_league_state("waiver_run")
     if run is None or (run != prev and not synced):
         return 0
-    pending = db.get_state("pending_claims", [])
+    pending = db.get_league_state("pending_claims", [])
     fresh = espn_write.pending_claims()   # before the notice, and a raise stores nothing: the next tick retries
     lg = espn_season.fresh_league()
     me = espn_season.my_team_id(lg)
@@ -331,8 +331,8 @@ def check_waivers(synced: bool = True) -> int:
                and (t := season.parse_tx_id(r["id"])) and t[1] == me and (prev is None or r["date"] > prev[:16])}
     names = {c["add"]: lg.player_map.get(c["add"]) for c in pending if isinstance(lg.player_map.get(c["add"]), str)}
     n = db.add_notices(waiver_notices(run, prev, pending, my_adds, names, now(), {c["id"] for c in fresh}))
-    db.put_state("waiver_run", run)
-    db.put_state("pending_claims", fresh)
+    db.put_league_state("waiver_run", run)
+    db.put_league_state("pending_claims", fresh)
     return n
 
 

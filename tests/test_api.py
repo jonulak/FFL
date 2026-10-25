@@ -1124,7 +1124,7 @@ def test_turning_the_decisions_page_off_turns_logging_off(lineup_env):
 def test_unreadable_decision_prefs_never_fail_a_move(lineup_env, monkeypatch, caplog):
     def broken(key, default=None):
         raise db.sa.exc.OperationalError("select", {}, Exception("disk I/O error"))
-    monkeypatch.setattr(api.db, "get_state", broken)
+    monkeypatch.setattr(api.db, "get_league_state", broken)
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 200 and r.json()["decision"] is not None and "defaults used" in caplog.text
 
@@ -2076,3 +2076,15 @@ def test_api_news_serves_untagged_when_owners_fail(news_client, monkeypatch):
     out = news_client.get("/news").json()
     assert out["owners_error"] == "no LEAGUE_ID in .env"
     assert out["stories"][0]["players"][0]["owner"] is None and out["stories"][0]["players"][0]["mine"] is False
+
+
+def test_cache_load_serves_rows_of_its_league():
+    from ffl import leagues
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    api.Cache(120, persist=True).get_or_build("roster", lambda: {"league": "home"})
+    api.Cache(120, persist=True, ref=other).get_or_build("roster", lambda: {"league": "other"})
+    after = api.Cache(120, persist=True, ref=other)
+    after.load()
+    assert {k: e.payload for k, e in after._d.items()} == {"roster": {"league": "other"}}
+    after.drop("roster")
+    assert [p["payload"] for p in db.pages()] == [{"league": "home"}] and db.pages(ref=other) == []

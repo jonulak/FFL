@@ -70,7 +70,7 @@ def test_unreadable_run_leaves_the_snapshot_alone(monkeypatch, lg):
     monkeypatch.setattr(espn_write, "pending_claims", lambda: next(snaps))
     assert notify.check_waivers() == 0                      # seeds r1 with claims [11]
     assert notify.check_waivers() == 0                      # unreadable: no state touched
-    assert db.get_state("pending_claims") == _claims(11)
+    assert db.get_league_state("pending_claims") == _claims(11)
     db.add_transactions(_adds((1791000000000, 7, 11, "2026-10-08T03:12")))
     assert notify.check_waivers() == 1
     assert [n for n in db.unsent_notices() if n["kind"] == "waivers"][0]["body"] == "Won Ray Davis."
@@ -84,7 +84,7 @@ def test_new_run_waits_for_the_log_to_sync(monkeypatch, lg):
     notify.check_waivers()
     db.add_transactions(_adds((1791000000000, 7, 11, "2026-10-08T03:12")))
     assert notify.check_waivers(synced=False) == 0
-    assert db.get_state("waiver_run") == "2026-10-01T03:10:00" and db.get_state("pending_claims") == _claims(11)
+    assert db.get_league_state("waiver_run") == "2026-10-01T03:10:00" and db.get_league_state("pending_claims") == _claims(11)
     assert notify.check_waivers(synced=True) == 1
     assert [n for n in db.unsent_notices() if n["kind"] == "waivers"][0]["body"] == "Won Ray Davis."
 
@@ -107,7 +107,7 @@ def test_a_run_that_leaves_my_claim_pending_sends_nothing(monkeypatch, lg):
     notify.check_waivers()
     assert notify.check_waivers() == 0                       # a run on another day did not process the claim
     assert [n for n in db.unsent_notices() if n["kind"] == "waivers"] == []
-    assert db.get_state("waiver_run") == "2026-10-02T03:10:00" and db.get_state("pending_claims") == _claims(11)
+    assert db.get_league_state("waiver_run") == "2026-10-02T03:10:00" and db.get_league_state("pending_claims") == _claims(11)
 
 
 def test_only_the_resolved_claim_is_reported(monkeypatch, lg):
@@ -120,7 +120,7 @@ def test_only_the_resolved_claim_is_reported(monkeypatch, lg):
     assert notify.check_waivers() == 1
     (w,) = [n for n in db.unsent_notices() if n["kind"] == "waivers"]
     assert w["title"] == "Waivers: 1 of 1 players won" and w["body"] == "Won Ray Davis."
-    assert db.get_state("pending_claims") == _claims(12)
+    assert db.get_league_state("pending_claims") == _claims(12)
 
 
 def test_pending_claims_raising_stores_nothing_and_the_next_tick_reports(monkeypatch, lg):
@@ -138,7 +138,7 @@ def test_pending_claims_raising_stores_nothing_and_the_next_tick_reports(monkeyp
     db.add_transactions(_adds((1791000000000, 7, 11, "2026-10-08T03:12")))
     with pytest.raises(espn_write.WriteError):
         notify.check_waivers()
-    assert db.get_state("waiver_run") == "2026-10-01T03:10:00" and db.get_state("pending_claims") == _claims(11)
+    assert db.get_league_state("waiver_run") == "2026-10-01T03:10:00" and db.get_league_state("pending_claims") == _claims(11)
     assert notify.check_waivers() == 1
     assert [n for n in db.unsent_notices() if n["kind"] == "waivers"][0]["body"] == "Won Ray Davis."
 

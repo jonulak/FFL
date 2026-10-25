@@ -84,7 +84,7 @@ class Cache:
     never cold. A drop deletes the rows too, so a page a league move dropped never comes back from the DB.
     """
 
-    def __init__(self, ttl: float, persist: bool = False):
+    def __init__(self, ttl: float, persist: bool = False, ref=None):
         self.ttl = ttl
         self._d: dict[str, Entry] = {}
         self._lock = threading.Lock()
@@ -94,6 +94,7 @@ class Cache:
         # so it hands its payload to its caller but never installs it
         self._gen = 0
         self._persist = persist
+        self._ref = ref  # the league whose page rows this cache reads and writes; None is the home league
         # held (before _lock, never inside it) across each DB write and each drop's pop + delete, so a write for an
         # entry a drop has popped can never land after the drop's delete
         self._db_lock = threading.Lock()
@@ -137,7 +138,7 @@ class Cache:
         if not self._persist:
             return
         try:
-            rows = db.pages()
+            rows = db.pages(ref=self._ref)
         except (db.DBError, db.SchemaError) as e:
             print(f"page cache load failed: {e}")
             return
@@ -167,7 +168,7 @@ class Cache:
                 if self._d.get(key) is not entry:
                     return  # dropped, or replaced by a newer install that writes its own row
             try:
-                db.put_page(key, entry.payload, entry.built_at)
+                db.put_page(key, entry.payload, entry.built_at, ref=self._ref)
             except (db.DBError, db.SchemaError) as e:
                 print(f"page cache write of {key} failed: {e}")
 
@@ -178,11 +179,11 @@ class Cache:
             return
         try:
             if keys is not None:
-                db.drop_pages(keys)
+                db.drop_pages(keys, ref=self._ref)
             elif prefixes:
-                db.drop_page_prefixes(prefixes)
+                db.drop_page_prefixes(prefixes, ref=self._ref)
             else:
-                db.clear_pages()
+                db.clear_pages(ref=self._ref)
         except (db.DBError, db.SchemaError) as e:
             print(f"page cache delete failed: {e}")
 
@@ -684,7 +685,7 @@ _LINEUP = threading.Lock()  # one move at a time: the answer is read back from E
 def _decision_prefs() -> dict:
     """The Settings switches; read after ESPN took a move, so a DB error falls back to the defaults, never a 500."""
     try:
-        return decisions_mod.merge_prefs(db.get_state("decision_prefs", {}), {})
+        return decisions_mod.merge_prefs(db.get_league_state("decision_prefs", {}), {})
     except (db.DBError, ValueError) as e:
         log.warning("decision prefs unreadable, defaults used: %s", e)
         return dict(decisions_mod.DEFAULT_PREFS)
@@ -863,11 +864,11 @@ def _prune_watch_state(ids: set[int], st: dict | None = None) -> dict:
     """The pass's baselines kept only for the watched ids, written back and returned: an unwatched player's old
     owner would read as a drop when he is watched again. By the watchlist, never by the rows a pass priced: a read
     that missed a watched player keeps his baselines."""
-    st = dict(st if st is not None else (db.get_state("watch_state", {}) or {}))
+    st = dict(st if st is not None else (db.get_league_state("watch_state", {}) or {}))
     keep = {str(i) for i in ids}
     for f in WATCH_BASELINES:
         st[f] = {k: v for k, v in (st.get(f) or {}).items() if k in keep}
-    db.put_state("watch_state", st)
+    db.put_league_state("watch_state", st)
     return st
 
 
@@ -1001,7 +1002,7 @@ def final_plays() -> dict:
     out: dict[str, int] = {}
     # its own record of the games read: a game opened on the NFL tab mid-game has ESPN rows for what had been
     # played, not ESPN's final word
-    done = set(db.get_state("final_plays_done", []))
+    done = set(db.get_league_state("final_plays_done", []))
     for week in (shown - 1, shown):
         if week < 1:
             continue
@@ -1019,7 +1020,7 @@ def final_plays() -> dict:
             _record_plays(week, entries)
             out[str(week)] = len(due)
             done |= {g["event_id"] for g in due}
-            db.put_state("final_plays_done", sorted(done))
+            db.put_league_state("final_plays_done", sorted(done))
     return out
 
 
@@ -1259,7 +1260,7 @@ _PRESETS = threading.Lock()  # one preset write at a time: each reads the store,
 
 
 def _player_presets() -> dict:
-    return player_views.load(db.get_state("player_presets"))
+    return player_views.load(db.get_league_state("player_presets"))
 
 
 @app.get("/players")
@@ -1312,7 +1313,7 @@ def _preset_write(change: Callable[[dict], dict]) -> dict:
             raise HTTPException(422, {"error": str(e)}) from e
         except KeyError as e:
             raise HTTPException(404, {"error": f"no preset {e.args[0]!r}"}) from e
-        db.put_state("player_presets", store)
+        db.put_league_state("player_presets", store)
         return store
 
 
@@ -1392,10 +1393,10 @@ def decision_prefs():
 def decision_prefs_set(body: dict):
     """Settings: `log` off stops the app recording its moves (and asking why); `page` off hides the Decisions page."""
     try:
-        merged = decisions_mod.merge_prefs(db.get_state("decision_prefs", {}), body)
+        merged = decisions_mod.merge_prefs(db.get_league_state("decision_prefs", {}), body)
     except ValueError as e:
         raise HTTPException(422, {"error": str(e)}) from e
-    db.put_state("decision_prefs", merged)
+    db.put_league_state("decision_prefs", merged)
     return merged
 
 
@@ -1825,7 +1826,7 @@ def pregame_pull(now: datetime | None = None) -> list[str]:
     """Once per kickoff time, inside season.PREGAME_PULL_MIN of it (the inactives are out): expire everything and
     rebuild the pages on a thread behind the tick. Answers the kickoffs pulled for."""
     kicks = [k for ks in espn_season.kickoffs_by_week(espn_season.fresh_league()).values() for k in ks]
-    pulled = set(db.get_state("pregame_pulls", []) or [])
+    pulled = set(db.get_league_state("pregame_pulls", []) or [])
     due = season.pregame_due(kicks, now or datetime.now(timezone.utc), pulled)
     if not due:
         return []
@@ -1834,7 +1835,7 @@ def pregame_pull(now: datetime | None = None) -> list[str]:
     with cache._lock:
         cache._threads["pregame"] = t
     t.start()
-    db.put_state("pregame_pulls", sorted(pulled | {k.isoformat() for k in due})[-40:])  # a season's kickoff times
+    db.put_league_state("pregame_pulls", sorted(pulled | {k.isoformat() for k in due})[-40:])  # a season's kickoff times
     return [k.isoformat() for k in due]
 
 
@@ -1848,7 +1849,7 @@ def watch_pass() -> dict:
     detectors compare against: who has stood ahead of him, his last worth to my roster, his last owner; it is kept
     only for the watched ids. Prices and signals come off the cached pool (up to an hour old); the pushes are gated
     on a fresh owners read, and a failed one queues nothing. Nobody watched: no pool build at all."""
-    st = db.get_state("watch_state", {}) or {}
+    st = db.get_league_state("watch_state", {}) or {}
     at = notify.now()
     t = datetime.fromisoformat(at)
     if st.get("last_pass") and t - datetime.fromisoformat(st["last_pass"]) < WATCH_EVERY:

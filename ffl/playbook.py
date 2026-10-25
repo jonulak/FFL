@@ -209,7 +209,7 @@ def backfill(weeks: list[int]) -> None:
     from . import db, espn_season, nfl, plays
     from .settings import load
     table = fc.scoring_table(load())
-    done = set(db.get_state("final_plays_done", []))  # the tick's record (api.final_plays): these need no read
+    done = set(db.get_league_state("final_plays_done", []))  # the tick's record (api.final_plays): these need no read
     for w in weeks:
         roster = plays.roster_index(espn_season.league_starters(w))
         store = plays.Store(w)
@@ -222,7 +222,7 @@ def backfill(weeks: list[int]) -> None:
             store.record(entries, roster, table)
             n += len(entries)
             done.add(g["event_id"])
-        db.put_state("final_plays_done", sorted(done))
+        db.put_league_state("final_plays_done", sorted(done))
         fixed = plays.old_revisions(store.rows)
         db.update_plays(fixed)
         print(f"week {w}: {len(games)} games, {n} plays, {len(store.called)} called back, {len(fixed)} old rows retagged")
