@@ -196,11 +196,12 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   (`FFL_BACKUP_DIR` overrides), keeping 14; `launchd/com.jonulak.ffl-backup` runs it nightly at 03:30. Tests run on a per-test
   copy of a session template DB built by `alembic upgrade head` (autouse fixture sets `FFL_DB_URL`), never `data/ffl.db`.
   A worktree gets its own `data/ffl.db`; a dev API there needs `uv run alembic upgrade head` once.
-- **Box scores** (`espn_season.box_scores`): a finished week is read from the `box_scores` table (ESPN only when it has no `final` row: one read after the week finished; the current week's last, maybe mid-game, read is not); the current
+- **Box scores** (`espn_season.box_scores(lg, week, *, ref=None)`; the caches and tables are per league): a week before the league's `first_week` (a mid-season draft: `espn:950458410` starts at 8) has no box scores and answers `[]` with no ESPN or DB read (settings unreadable: taken as 1), so `_roster_games` fills those form weeks from `_gap_games`, and `correct_boxes(lg, ref=)` runs `first_week..current-1`; a finished week is read from the `box_scores` table (ESPN only when it has no `final` row: one read after the week finished; the current week's last, maybe mid-game, read is not); the current
   week ESPN-first, a row under 60 s old (off `fetched_at`) counting as the hit and the row serving when ESPN fails; a league move
   (`forget_current_boxes` → `db.expire_live_boxes`, non-final rows only) expires it. The tick's `correct_boxes` (`api.correction_pass`) re-reads each unsettled finished week hourly
   (a short answer, fewer matchups or a stored player missing, keeps the stored doc unsettled), logs changed points to `box_score_corrections`, plays a starter's correction into his week's feed (match `correction`; a finished
   week's board reads its feed from the `plays` table) and expires the pages built on it. `expire_everything` and the pregame pull keep finished weeks.
+- **Season reads take `ref`** (`espn_season`, `journal`: every page builder, `fresh_league`, `box_scores`, `transactions_state`, `sync_*`; keyword `ref=None` = the home league, never `FFL_LEAGUE`): the League, my team, the box/gap/rank caches and the db rows are the league's own; a non-home league queues no push, fires no `ON_NEW_ROWS` listener and sees no fake lineup store until 4.4/4.5/4.8.
 - **Season UI** (`web/`, Next 16 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
   components fetching the API through a `/api/*` rewrite; `ffl/season.py` is pure (lineup-optimal,
   waiver deltas, `add` — formula in the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`)), `ffl/espn_season.py` is the I/O. Production

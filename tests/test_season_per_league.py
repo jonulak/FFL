@@ -188,7 +188,7 @@ def _fake_league(me, them, calls, tag):
     def free_agents(week, size, position):
         calls["fa"].append((tag, position))
         return [as_box({**season_roster()[0], "player_id": 1000 + len(calls["fa"]), "slot": "FA"})]
-    return SN(box_scores=lambda week: [m], scoreboard=lambda week: [m], free_agents=free_agents, current_week=1,
+    return SN(box_scores=lambda week: [m], scoreboard=lambda week: [m], free_agents=free_agents, current_week=3,
               teams=[_team(me, "a"), _team(them, "b")], standings=lambda: [_team(me, "a"), _team(them, "b")],
               _get_pro_schedule=lambda w: {}, _get_positional_ratings=lambda w: {}, tag=tag)
 
@@ -230,15 +230,15 @@ def _sat(side):
 
 
 def test_week_state_other_league(wired):
-    db.put_sit(1, 5, True)  # home's sit on player 5 ...
-    db.put_sit(1, 4, True, ref=wired.other)  # ... other's on player 4
-    st = espn_season.week_state(week=1, ref=wired.other, **NOSRC)
+    db.put_sit(3, 5, True)  # home's sit on player 5 ...
+    db.put_sit(3, 4, True, ref=wired.other)  # ... other's on player 4
+    st = espn_season.week_state(week=3, ref=wired.other, **NOSRC)
     assert st["mine"] is True and st["me"]["team_id"] == 3 and st["me"]["team"] == "other mine"
     assert st["opp"]["team"] == "other them"
     assert _sat(st["me"]) == {4}, "other's sit marks his player; home's sit on 5 does not"
     assert wired.calls["load"] and all(r.key == wired.other.key for r in wired.calls["load"])
     assert all(r.key == wired.other.key for r in wired.calls["team"])
-    home = espn_season.week_state(week=1, **NOSRC)
+    home = espn_season.week_state(week=3, **NOSRC)
     assert home["me"]["team_id"] == 7 and home["me"]["team"] == "home mine" and _sat(home["me"]) == {5}
 
 
@@ -246,7 +246,7 @@ def test_roster_state_other_league(wired, monkeypatch):
     seen = []
     real = db.seat_map
     monkeypatch.setattr(db, "seat_map", lambda *a, **k: seen.append(k.get("ref")) or real(*a, **k))
-    out = espn_season.roster_state(week=1, snaps={}, ref=wired.other, **NOSRC)
+    out = espn_season.roster_state(week=3, snaps={}, ref=wired.other, **NOSRC)
     assert out["cards"]
     assert ("mRoster", wired.other) in wired.calls["raw"], "the slots are read from other's mRoster"
     assert seen == [wired.other]
@@ -257,8 +257,8 @@ def test_roster_state_other_league_ignores_home_fake_slots(wired, monkeypatch):
     monkeypatch.setenv("FFL_WRITES", "0")
     monkeypatch.setitem(espn_write._FAKE_SLOTS, 1, "BE")  # home moved player 1 to the bench
     flags = {1: {"slot": "QB", "order": 0, "locked": False}}
-    mine = espn_season.roster_state(week=1, snaps={}, flags=flags, **NOSRC)
-    theirs = espn_season.roster_state(week=1, snaps={}, flags=flags, ref=wired.other, **NOSRC)
+    mine = espn_season.roster_state(week=3, snaps={}, flags=flags, **NOSRC)
+    theirs = espn_season.roster_state(week=3, snaps={}, flags=flags, ref=wired.other, **NOSRC)
 
     def slot(out):
         return next(c for c in out["cards"] if c["player_id"] == 1)["slot"]
@@ -269,7 +269,7 @@ def test_roster_state_other_league_ignores_home_fake_slots(wired, monkeypatch):
 def test_free_agent_pool_other_league(wired):
     db.put_watch(99, True, ref=wired.other)
     db.put_watch(98, True)
-    out = espn_season.free_agent_pool(week=1, snaps={}, ref=wired.other, **NOSRC)
+    out = espn_season.free_agent_pool(week=3, snaps={}, ref=wired.other, **NOSRC)
     assert out["roster"]
     assert {t for t, _ in wired.calls["fa"]} == {"other"}, "free agents are asked of other's League"
     assert db.snapshots(ref=wired.other) and not db.snapshots(), "the calibration snapshot is other's"
@@ -281,7 +281,7 @@ def test_free_agent_pool_other_league(wired):
 
 
 def test_league_state_other_league(wired):
-    st = espn_season.league_state(week=1, ref=wired.other)
+    st = espn_season.league_state(week=3, ref=wired.other)
     assert st["standings"][0]["team_id"] == 3 and st["standings"][0]["me"] is True
     assert (st["weeks"], st["playoff_teams"], st["playoff_weeks"], st["first_week"]) == (15, 4, [13, 14, 15], 3)
     home = espn_season.league_state(week=1)
@@ -432,3 +432,64 @@ def test_transactions_state_other_league(monkeypatch, other):
     assert fresh_asked == [other] and synced == [other] and tx_ref == [other] and set(loaded) == {other}
     assert len(got["moves"]) == 1 and got["moves"][0]["sides"][0]["team_id"] == 3
     assert db.transactions() == []
+
+
+def _first_week(monkeypatch, other, n):
+    monkeypatch.setattr(espn_season, "load", lambda ref=None: {**SETTINGS, "first_week": n if ref is not None and ref.key == other.key else 1})
+
+
+def test_week_before_first_week_reads_no_boxes(monkeypatch, other):
+    _first_week(monkeypatch, other, 8)
+
+    def boom(*a, **k):
+        raise AssertionError("ESPN was asked for a week before the league's first")
+    lg = NS(current_week=10, box_scores=boom, espn_request=NS(league_get=boom))
+    monkeypatch.setattr(espn_season, "_fetch_box_doc", boom)
+    assert espn_season.box_scores(lg, 6, ref=other) == []
+    assert db.box_weeks(ref=other) == {}
+
+
+def test_box_scores_survives_unreadable_settings_for_home(monkeypatch):
+    def broken(ref=None):
+        raise RuntimeError("no settings")
+    monkeypatch.setattr(espn_season, "load", broken)
+    lg, calls = _lg(["home box"])
+    assert espn_season.box_scores(lg, 5) == ["home box"] and calls == [5]
+
+
+def test_roster_games_before_first_week_come_from_gap_reads(monkeypatch, other):
+    _first_week(monkeypatch, other, 8)
+    asked = []
+
+    def fetch(w, ids, week, *, ref=None):
+        asked.append((w, sorted(ids), ref))
+        return {i: [{"week": w, "pts": 1.0}] for i in ids}
+
+    def boom(*a, **k):
+        raise AssertionError("no ESPN box read before the first week")
+    monkeypatch.setattr(espn_season, "_fetch_gap_rows", fetch)
+    monkeypatch.setattr(espn_season, "_fetch_box_doc", boom)
+    monkeypatch.setattr(espn_season, "form_weeks", lambda week: [6, 7, 8])
+    monkeypatch.setattr(espn_season, "player_games", lambda bp, weeks, week: [{"week": weeks[0], "pts": 2.0}])
+    lg = NS(current_week=8, box_scores=boom)
+    espn_season._BOXES[(other.key, 8)] = (float("inf"), lg, [])
+    games = espn_season._roster_games(lg, {3: [NS(playerId=11)]}, 8, ref=other)
+    assert asked == [(6, [11], other), (7, [11], other)]
+    assert [g["week"] for g in games[11]] == [6, 7, 8]
+
+
+def test_correct_boxes_starts_at_first_week(monkeypatch, other):
+    _first_week(monkeypatch, other, 8)
+    read = []
+
+    def doc(lg, w):
+        read.append(w)
+        raise RuntimeError("stop")
+    monkeypatch.setattr(espn_season, "_fetch_box_doc", doc)
+    monkeypatch.setattr(espn_season, "kickoffs_by_week", lambda lg: {})
+    lg = NS(current_week=10)
+    out = espn_season.correct_boxes(lg, ref=other)
+    assert read == [8, 9] and sorted(out["weeks"]) == [8, 9]
+    read.clear()
+    espn_season.correct_boxes(lg)
+    assert read == list(range(1, 10))

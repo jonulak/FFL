@@ -956,6 +956,16 @@ def _read_boxes(lg, week: int, finished: bool, epoch: int, ref: leagues.LeagueRe
     return _parse_box_doc(lg, doc), True, finished
 
 
+def _first_week(r: leagues.LeagueRef) -> int:
+    """The league's first scoring week (1 unless it was drafted mid-season). Settings that cannot be read
+    count as 1, so a league without them reads as it did before the guard."""
+    try:
+        return load(r).get("first_week") or 1
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — the guard must not add a failure path (load exits on missing settings)
+        logging.getLogger(__name__).warning("first_week of %s not read, taken as 1: %s", r.key, e)
+        return 1
+
+
 def box_scores(lg, week: int, *, ref: leagues.LeagueRef | None = None) -> list:
     """lg.box_scores(week), shared by every builder for BOXES_TTL_S.
 
@@ -963,7 +973,7 @@ def box_scores(lg, week: int, *, ref: leagues.LeagueRef | None = None) -> list:
     within the same minute or two; this is one 0.7 s ESPN call instead of four. Keyed on the
     League object itself, not its build time: tests stub a fresh League per case, and a rebuilt
     League (fresh_league after an hour, or POST /refresh) is a new source, fetched again.
-    A finished week (before the League's current one: the form window's earlier weeks) never
+    Weeks before the league's first_week (drafted mid-season) have no box scores: []. A finished week (before the League's current one: the form window's earlier weeks) never
     changes, so it is kept for the life of the process, whichever League asks (ffl-qf7), and is
     read from the box_scores table (ESPN only when it has no final row); finished weeks change only through
     the correction pass (ffl-7sq). Every cache is per league (`ref`, None: home): two leagues' week 5 never answer each other. The current week is a hit for BOXES_TTL_S off its row's fetched_at
@@ -971,6 +981,8 @@ def box_scores(lg, week: int, *, ref: leagues.LeagueRef | None = None) -> list:
     (a finished week's non-final row so served is kept BOXES_TTL_S only, never for the process).
     """
     r = _ref(ref)
+    if week < _first_week(r):  # the league had no matchups yet: nothing to read, store or cache
+        return []
     hit = _BOXES.get((r.key, week))
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):
         return hit[2]
@@ -1016,7 +1028,7 @@ def _points_by_player(boxes) -> dict[int, dict]:
     return out
 
 
-def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, plays: list) -> dict:
+def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, plays: list, *, ref: leagues.LeagueRef) -> dict:
     """One finished week's pass: raises on any ESPN or DB failure, leaving the stored row as it was.
     Only a final row (read after the week finished) is a baseline: a non-final one is the current week's last
     read, maybe mid-game, so the week is backfilled from this read instead. A short answer against a final row
@@ -1039,7 +1051,7 @@ def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, play
         if len(new_boxes) < len(old_boxes) or missing:
             log.warning("week %s: ESPN answered short (%s of %s matchups, %s stored players missing); "
                         "stored read kept, left unsettled", w, len(new_boxes), len(old_boxes), len(missing))
-            db.put_box_doc(w, row["doc"], row["hash"], now.timestamp(), settled=False, final=True)
+            db.put_box_doc(w, row["doc"], row["hash"], now.timestamp(), settled=False, final=True, ref=ref)
             return {"changed": 0, "settled": False}
         for pid, new in points.items():
             old = baseline.get(pid)
@@ -1056,10 +1068,10 @@ def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, play
                                    "play_id": None, "quarter": None, "clock": None, "game_id": None,
                                    "match": "correction"})
     gap_new, gap_corr = {}, []
-    ids = db.gap_ids(w)
+    ids = db.gap_ids(w, ref=ref)
     if ids:
-        gap_new = _fetch_gap_rows(w, ids, lg.current_week)
-        old_rows = db.gap_rows(w, ids)
+        gap_new = _fetch_gap_rows(w, ids, lg.current_week, ref=ref)
+        old_rows = db.gap_rows(w, ids, ref=ref)
         # a stored player answered with no rows is a short answer, not a correction: kept out (week unsettled)
         gap_new = {pid: rows for pid, rows in gap_new.items() if rows or not old_rows.get(pid)}
         for pid, rows in gap_new.items():
@@ -1076,17 +1088,17 @@ def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, play
         log.warning("week %s: gap rows missing for %s, left unsettled", w, sorted(set(ids) - set(gap_new)))
         settled = False
     if gap_new:  # before the box row: a failure here leaves the week unsettled and retried
-        db.add_box_corrections(gap_corr)
-        db.put_gap_rows(w, gap_new, now.timestamp())
+        db.add_box_corrections(gap_corr, ref=ref)
+        db.put_gap_rows(w, gap_new, now.timestamp(), ref=ref)
         for pid, rows in gap_new.items():
-            _GAP_GAMES[(leagues.home().key, pid, w)] = rows
-    db.put_box_doc(w, doc, box_hash(doc), now.timestamp(), settled=settled, corrections=corrections, final=True)
+            _GAP_GAMES[(ref.key, pid, w)] = rows
+    db.put_box_doc(w, doc, box_hash(doc), now.timestamp(), settled=settled, corrections=corrections, final=True, ref=ref)
     plays.extend(week_plays)
     return {"changed": len(corrections) + len(gap_corr), "settled": settled}
 
 
-def correct_boxes(lg, now: datetime | None = None) -> dict:
-    """The stat-correction pass (ffl-7sq): every finished week (1..current-1) without a settled row is read from
+def correct_boxes(lg, now: datetime | None = None, *, ref: leagues.LeagueRef | None = None) -> dict:
+    """The stat-correction pass (ffl-7sq): every finished week (first_week..current-1) without a settled row is read from
     ESPN again (never through box_scores(), which answers a finished week from memory or the table), at most
     hourly, and each starter or bench total that moved is logged to box_score_corrections; a starter's also
     becomes a play row (match "correction") in the result for the caller to write, since the live runner owns the
@@ -1098,28 +1110,29 @@ def correct_boxes(lg, now: datetime | None = None) -> dict:
     log = logging.getLogger(__name__)
     out = {"weeks": {}, "changed": [], "plays": []}
     try:
-        home_key = _ref(None).key  # the correction pass is home's until 4.7
-        stored = db.box_weeks()
+        r = _ref(ref)
+        first = _first_week(r)  # a league drafted mid-season had no matchups before it
+        stored = db.box_weeks(ref=r)
         kicks = kickoffs_by_week(lg)
     except Exception as e:  # noqa: BLE001
         log.warning("correction pass not run: %s", e)
         out["error"] = str(e)
         return out
-    for w in range(1, lg.current_week):
+    for w in range(first, lg.current_week):
         have = stored.get(w)
         # a non-final row (the current week's last read, maybe mid-game) is due now, unthrottled
         if have and have["final"] and (have["settled"] or now.timestamp() - have["fetched_at"] < CORRECTION_EVERY_S):
             continue
         try:
-            row = db.box_doc(w) if have else None
-            res = _correct_week(lg, w, now, row, kicks.get(w) or [], out["plays"])
+            row = db.box_doc(w, ref=r) if have else None
+            res = _correct_week(lg, w, now, row, kicks.get(w) or [], out["plays"], ref=r)
         except Exception as e:  # noqa: BLE001 — one week's ESPN or DB failure must not stop the others
             log.warning("correction pass: week %s failed: %s", w, e)
             out["weeks"][w] = {"error": str(e)}
             continue
         out["weeks"][w] = res
         if res["changed"] or not (have and have["final"]):  # a backfill replaced a non-final read too
-            _BOXES.pop((home_key, w), None)
+            _BOXES.pop((r.key, w), None)
         if res["changed"]:
             out["changed"].append(w)
     return out

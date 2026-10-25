@@ -240,6 +240,6 @@ def test_failed_gap_read_keeps_the_week_unsettled(env, monkeypatch):
     env.docs[6] = doc_of((11, 1, 10.0, "WR"))
     db.put_gap_rows(6, {21: [{"pts": 4.0}]}, NOW.timestamp() - 7200)
     # _fetch_gap_rows logs and answers {} when ESPN fails
-    monkeypatch.setattr(espn_season, "_fetch_gap_rows", lambda w, ids, week: {})
+    monkeypatch.setattr(espn_season, "_fetch_gap_rows", lambda w, ids, week, **k: {})
     out = espn_season.correct_boxes(env.lg, S.settle_at(KICK) + timedelta(minutes=1))
     assert out["weeks"][6]["settled"] is False and db.box_doc(6)["settled"] is False
