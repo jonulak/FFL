@@ -384,3 +384,27 @@ def test_submit_token_per_league(client, other, writes):
     assert client.get("/claims/submit/tok").status_code == 404
     got = client.get("/claims/submit/tok?league=espn:999").json()
     assert got == {"state": "done", "status": 200, "body": r.json()}
+
+
+def test_claims_submit_runs_the_real_fake_store_under_its_league(monkeypatch, client, other):
+    """FFL_WRITES=0, the real fake store: a plan with one free agent and one waiver target submits under other."""
+    monkeypatch.setenv("FFL_WRITES", "0")
+    monkeypatch.setenv("FFL_RECORD_FAKE", "1")
+    roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
+    pool = {"WR": [{"player_id": 101, "name": "Addison", "status": "WAIVERS"}, {"player_id": 102, "name": "Mims", "status": "FREEAGENT"}]}
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 6, "roster": roster, "positions": pool})
+    monkeypatch.setattr(api.espn_season, "pool_status", lambda **k: {r["player_id"]: {"status": r["status"], "waiver_date": None} for r in pool["WR"]})
+    monkeypatch.setattr(api, "_roster_size", lambda **k: 17)
+    monkeypatch.setattr(api, "_limits", lambda **k: {})
+    q = {"league": "espn:999"}
+    assert client.post("/claims", params=q, json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]}).status_code == 200
+    r = client.post("/claims/submit", params=q, json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
+    assert r.status_code == 200, r.text
+    fake, home = espn_write._fake(other), espn_write._fake(leagues.home())
+    assert fake.adds and fake.claims
+    assert not home.adds and not home.claims
+    assert len(db.decisions(ref=other)) == 2 and all(d["title"].startswith("[fake]") for d in db.decisions(ref=other))
+    assert db.decisions() == []
+    plan = db.claim_plan(6, ref=other)
+    assert plan["groups"] == [{"targets": [101], "cuts": [2], "open": 0}] and len(plan["submits"]) == 1
+    assert db.claim_plan(6) is None

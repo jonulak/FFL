@@ -791,10 +791,10 @@ def _espn_error(e: espn_write.WriteError) -> HTTPException:
 def lineup(body: LineupIn, ref: LeagueRef = Depends(open_league)):
     """Move players between ESPN slots (one transaction), then answer with the Roster page as ESPN now has it.
     Locks are re-read here, not trusted from the page: a game can kick off between the load and the tap."""
+    c = cache_for(ref)  # before the acquire: an error here must not leave the lock held
     lock = _lock("lineup", ref)
     if not lock.acquire(blocking=False):
         raise HTTPException(409, "a lineup move is already running")
-    c = cache_for(ref)
     try:
         data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
         # the two reads are independent: both in flight at once (0.45 s + 0.2 s, one after the other)
@@ -875,13 +875,13 @@ def roster_sit(player_id: int, body: SitIn, ref: LeagueRef = Depends(open_league
     """Sit him for the week, or stand him back up: the call is re-made without him (season.roster_cards) and the
     page answers at once. Nothing reaches ESPN. Under the lineup lock, so a move's read-back and a sit never land
     over each other."""
+    c = cache_for(ref)  # before the acquire: an error here must not leave the lock held
     lock = _lock("lineup", ref)
     if not lock.acquire(blocking=False):
         raise HTTPException(409, "a lineup move is running")
-    c = cache_for(ref)
     try:
         data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
-        before = next((c for c in data["cards"] if c["player_id"] == player_id), None)
+        before = next((card for card in data["cards"] if card["player_id"] == player_id), None)
         if before is None:
             raise HTTPException(404, f"player {player_id} is not on the roster")
         week = data["week"]
