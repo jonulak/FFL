@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuTrigger,
@@ -19,18 +20,37 @@ function go(l: LeagueEntry, path: string) {
 }
 
 export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open: LeagueEntry | null }) {
+  // the league picked while its first page loads (a full load, a second or more cold): its name is written in at once
+  // and waits, dimmed, so the pick reads as taken. A page restored from the back-forward cache drops it.
+  const [pending, setPending] = useState<LeagueEntry | null>(null);
+  useEffect(() => {
+    const back = (e: PageTransitionEvent) => { if (e.persisted) setPending(null); };
+    window.addEventListener("pageshow", back);
+    return () => window.removeEventListener("pageshow", back);
+  }, []);
   const pick = (key: string) => {
     const l = leagues.find((x) => x.key === key);
-    if (l && l.key !== open?.key) go(l, "/");
+    if (!l || l.key === open?.key) return;
+    setPending(l);
+    requestAnimationFrame(() => go(l, "/")); // one frame painted first: the menu closes and the name starts in
   };
-  // the open league's name beside the wordmark, home's too: the pages under it are that league's
+  // the open league's name beside the wordmark, home's too, set on its baseline as the wordmark's subtitle: the pages
+  // under it are that league's
+  const shown = pending ?? open;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger aria-label={`FFL, league: ${open?.name ?? "home"}. Switch league`}
-        className="-ml-1 flex min-h-11 min-w-0 max-w-full items-center gap-1 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
-        <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
-        {open && <span title={open.name} className="min-w-0 max-w-[16rem] truncate sm:max-w-[9rem] font-display text-sm font-semibold uppercase tracking-[0.08em] text-foreground/70">{open.name}</span>}
-        <ChevronDown aria-hidden className="size-4 text-foreground/55" />
+      <DropdownMenuTrigger aria-label={`FFL, league: ${shown?.name ?? "home"}. Switch league`} aria-busy={pending != null || undefined}
+        className="group -ml-1 flex min-h-11 min-w-0 max-w-full items-center gap-1 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
+          {shown && (
+            <span key={shown.key} title={shown.name}
+                  className={`min-w-0 max-w-[16rem] truncate pb-px font-display text-[0.875rem] font-semibold uppercase leading-none tracking-[0.06em] text-foreground/75 sm:max-w-[9rem] lg:max-w-[13rem] ${pending ? "league-in league-wait" : ""}`}>
+              {shown.name}
+            </span>
+          )}
+        </span>
+        <ChevronDown aria-hidden className="size-4 shrink-0 text-foreground/55 transition-transform duration-200 ease-(--ease-arrive) group-data-popup-open:rotate-180 motion-reduce:transition-none" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-auto min-w-64">
         <DropdownMenuGroup>
@@ -38,7 +58,7 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
           <DropdownMenuRadioGroup value={open?.key ?? ""} onValueChange={(v) => pick(v as string)}>
             {leagues.map((l) => (
               <div key={l.key} className="flex items-stretch gap-0.5">
-                <DropdownMenuRadioItem value={l.key} className="min-h-11 min-w-0 flex-1 py-1.5">
+                <DropdownMenuRadioItem value={l.key} closeOnClick className="min-h-11 min-w-0 flex-1 py-1.5">
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate font-medium">{l.name}</span>
                     <span className="text-xs text-muted-foreground">{[l.provider, l.format].filter(Boolean).join(" · ")}</span>

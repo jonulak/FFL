@@ -418,6 +418,13 @@ tr[data-fold="shut"] > td > .fold {
 .group-reveal { animation: group-reveal 280ms var(--ease-arrive) both; }
 @keyframes group-reveal { from { opacity: 0; translate: 0 -0.375rem; } }
 
+/* A league picked in the switcher (league-switcher.tsx): its name is written in beside the wordmark, left to right,
+   then breathes dimmed while its first page loads (a full page load). Only on a pick, never on a page load. */
+.league-in { animation: league-in 420ms var(--ease-arrive) both; }
+.league-in.league-wait { animation: league-in 420ms var(--ease-arrive) both, league-wait 1100ms ease-in-out 420ms infinite alternate; }
+@keyframes league-in { from { clip-path: inset(0 100% 0 0); } }
+@keyframes league-wait { to { opacity: 0.55; } }
+
 /* Reduced motion keeps what carries meaning (a new row still fades in, a scoring play still
    washes) and drops the travel: no sliding, no opening and folding. */
 @media (prefers-reduced-motion: reduce) {
@@ -431,6 +438,7 @@ tr[data-fold="shut"] > td > .fold {
   .stage-in { animation: log-fade 200ms ease-out both; }
   .stage-out { animation: stage-fade-out 120ms ease-out both; }
   .group-reveal { animation: log-fade 200ms ease-out both; }
+  .league-in, .league-in.league-wait { animation: log-fade 200ms ease-out both; opacity: 0.6; }
 }
 @keyframes stage-fade-out { to { opacity: 0; } }
 
