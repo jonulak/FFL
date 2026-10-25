@@ -424,14 +424,32 @@ async def lifespan(app: FastAPI):
     t.start()
     # One FastCast subscription per process; overlays live points on the cached payloads and
     # wakes /live. FFL_LIVE=0 keeps it off (tests, a second dev API).
-    runner = live.Runner(week_fn=lambda: cache.get_or_build("starters:current", lambda: espn_season.league_starters(None))[0]) \
-        if live.enabled() else None
+    runner = live.Runner(week_fn=lambda: cache.get_or_build("starters:current", lambda: espn_season.league_starters(None))[0],
+                         leagues=live_leagues()) if live.enabled() else None
     if runner:
         runner.start()
     app.state.runner = runner
     yield
     if runner:
         runner.stop.set()
+
+
+def _starters_fn(ref: LeagueRef) -> Callable[[], dict]:
+    return lambda: cache_for(ref).get_or_build("starters:current", lambda: espn_season.league_starters(None, ref=ref))[0]
+
+
+def live_leagues() -> list[tuple]:
+    """Every league but home as the runner takes it: (ref, settings, starters). One whose settings cannot be read is
+    left out (logged), never the reason home's feed does not start."""
+    out = []
+    for r in leagues.all_leagues():
+        if r.home:
+            continue
+        try:
+            out.append((r, load(r), _starters_fn(r)))
+        except (Exception, SystemExit) as e:  # noqa: BLE001 — load exits on missing settings
+            log.warning("live scoring off for %s: %s", r.key, e)
+    return out
 
 
 def warm() -> None:
@@ -1002,31 +1020,38 @@ def watch_page(ref: LeagueRef = Depends(open_league)):
             "ids": db.watched_ids(ref=ref), "stale_since": data["stale_since"]}
 
 
-def _live_for(week: int | None) -> bool:
+def _key(ref: LeagueRef | None) -> str | None:
+    """The live state's name for a league: None is home (live.State.points), any other its registry key."""
+    return None if ref is None or ref.home else ref.key
+
+
+def _live_for(week: int | None, ref: LeagueRef | None = None) -> bool:
     """Whether the feed's stored points belong to `week`. The state is tagged with the week the
-    runner scored (live.State.week); after Monday night it keeps last week's totals until the
-    next kickoff, while the week payload has already rolled over, so a plain "is this the
-    current week" check would lay last week's points on this week's zeros."""
-    return week is None or week == live.STATE.week
+    runner scored (live.State.week, a league's own in week_for); after Monday night it keeps last week's totals
+    until the next kickoff, while the week payload has already rolled over, so a plain "is this the
+    current week" check would lay last week's points on this week's zeros. A league before its first week pages
+    a week the feed has not reached, so it gets nothing either."""
+    return week is None or week == live.STATE.week_for(_key(ref))
 
 
-def _live_points(week: int | None) -> dict[int, float]:
-    """The live overlay for `week`: only the week the feed scored, only once it has scored something."""
-    if not live.STATE.points or not _live_for(week):
+def _live_points(week: int | None, ref: LeagueRef | None = None) -> dict[int, float]:
+    """The league's live overlay for `week`: only the week the feed scored, only once it has scored something."""
+    points = live.STATE.points_for(_key(ref))
+    if not points or not _live_for(week, ref):
         return {}
-    return live.STATE.points
+    return points
 
 
-def _live_games(week: int | None) -> dict[str, dict]:
-    """Game clocks for the overlay, gated like the points."""
-    if not live.STATE.games or not _live_for(week):
+def _live_games(week: int | None, ref: LeagueRef | None = None) -> dict[str, dict]:
+    """Game clocks for the overlay (the NFL's, one for every league), gated like the league's points."""
+    if not live.STATE.games or not _live_for(week, ref):
         return {}
     return live.STATE.games
 
 
-def _live_stats(week: int | None) -> dict[int, dict]:
-    """Raw stat rows for the overlay's stat lines, gated like the points."""
-    if not live.STATE.stats or not _live_for(week):
+def _live_stats(week: int | None, ref: LeagueRef | None = None) -> dict[int, dict]:
+    """Raw stat rows for the overlay's stat lines, gated like the league's points."""
+    if not live.STATE.stats or not _live_for(week, ref):
         return {}
     return live.STATE.stats
 
@@ -1056,7 +1081,7 @@ def _sigma() -> dict:
 FEED_ROWS = 5
 
 
-def _plays(data: dict, limit: int | None = None) -> list[dict]:
+def _plays(data: dict, limit: int | None = None, *, ref: LeagueRef | None = None) -> list[dict]:
     """The feed rows of one board's two teams, newest first, sided for that board. The runner's store is the
     week it last scored (after Tuesday's rollover still last week's); any other week reads its stored rows,
     the in-game plays it recorded and any stat correction after it."""
@@ -1065,29 +1090,40 @@ def _plays(data: dict, limit: int | None = None) -> list[dict]:
         return []
     teams = {s.get("team_id") for s in sides}
     try:
-        store = _play_store(data.get("week"))
+        store = _play_store(data.get("week"), ref=ref)
     except db.DBError as e:
         log.warning("plays for week %s not read: %s", data.get("week"), e)
         return []
     return plays_mod.for_board(store.latest(limit, teams=teams), sides[0].get("team_id"))
 
 
-def _play_store(week: int) -> plays_mod.Store:
-    """The runner's store when it holds `week`, else that week's rows, plays and called-back rows from the DB."""
+def _lane(ref: LeagueRef | None = None):
+    """The runner's lane of a league (week, store, roster, table); home's is the runner itself. None: no runner,
+    or one that does not score that league."""
     runner = getattr(app.state, "runner", None)
-    if runner is not None and runner.store is not None and runner.week == week:
-        return runner.store
-    return plays_mod.Store(week)
+    if runner is None or _key(ref) is None:
+        return runner
+    lane = getattr(runner, "lane", None)
+    return lane(ref.key) if lane else None
 
 
-def _record_plays(week: int, entries: list[dict]) -> int:
-    """NFL plays read off ESPN's drives into `week`'s feed store, with that week's starters; the number of
-    called-back rows the week holds after."""
-    runner = getattr(app.state, "runner", None)
-    live_week = runner is not None and runner.week == week and runner.roster
-    roster = runner.roster if live_week else plays_mod.roster_index(espn_season.league_starters(week))
-    table = runner.table if live_week else fastcast.scoring_table(load())
-    store = _play_store(week)
+def _play_store(week: int, *, ref: LeagueRef | None = None) -> plays_mod.Store:
+    """The runner's store of the league when it holds `week`, else that week's rows, plays and called-back rows
+    from the DB."""
+    lane = _lane(ref)
+    if lane is not None and lane.store is not None and lane.week == week:
+        return lane.store
+    return plays_mod.Store(week, ref=None if _key(ref) is None else ref)
+
+
+def _record_plays(week: int, entries: list[dict], *, ref: LeagueRef | None = None) -> int:
+    """NFL plays read off ESPN's drives into a league's `week` feed store, with that week's starters; the number
+    of called-back rows the week holds after."""
+    lane = _lane(ref)
+    live_week = lane is not None and lane.week == week and lane.roster
+    roster = lane.roster if live_week else plays_mod.roster_index(espn_season.league_starters(week, ref=ref))
+    table = lane.table if live_week else fastcast.scoring_table(load(ref or leagues.home()))
+    store = _play_store(week, ref=ref)
     store.record(entries, roster, table)
     return len(store.called)
 
@@ -1099,41 +1135,45 @@ _FINAL_SEEN: dict[str, float] = {}  # event id -> when the tick first saw it fin
 def final_plays() -> dict:
     """The tick's step: each finished game of the NFL tab's week and the one before whose plays ESPN's drives have
     not written yet, read once it has been final FINAL_PLAYS_AFTER, so every game's plays (and the plays called back
-    in it) are ESPN's final word whether or not anyone opened it on the NFL tab."""
+    in it) are ESPN's final word whether or not anyone opened it on the NFL tab. Into every league's feed, each
+    league keeping its own record of the games read; a game's drives are fetched once for all of them."""
     shown = nfl.scoreboard(None)[0]["week"]
     out: dict[str, int] = {}
     # its own record of the games read: a game opened on the NFL tab mid-game has ESPN rows for what had been
     # played, not ESPN's final word
-    done = set(db.get_league_state("final_plays_done", []))
+    done = {r.key: set(db.get_league_state("final_plays_done", [], ref=r)) for r in leagues.all_leagues()}
+    refs = {r.key: r for r in leagues.all_leagues()}
     for week in (shown - 1, shown):
         if week < 1:
             continue
         now, due = time.time(), []
         for g in nfl.scoreboard(week)[0]["games"]:
-            if g["status"] == "post" and g["event_id"] not in done \
+            if g["status"] == "post" and any(g["event_id"] not in d for d in done.values()) \
                     and now - _FINAL_SEEN.setdefault(g["event_id"], now) >= FINAL_PLAYS_AFTER:
                 due.append(g)
-        entries = []
+        entries: dict[str, list[dict]] = {}
         for g in due:
             clubs = (g["away"]["abbr"], g["home"]["abbr"])
             drives, _ = nfl.drives(g["event_id"], g["status"], {g["away"]["id"]: clubs[0], g["home"]["id"]: clubs[1]})
-            entries += playbook.from_drives(drives, g["event_id"], week, clubs)
-        if entries:
-            _record_plays(week, entries)
-            out[str(week)] = len(due)
-            done |= {g["event_id"] for g in due}
-            db.put_league_state("final_plays_done", sorted(done))
+            entries[g["event_id"]] = playbook.from_drives(drives, g["event_id"], week, clubs)
+        for key, d in done.items():
+            games = [g for g in due if g["event_id"] not in d]
+            plays_ = [e for g in games for e in entries[g["event_id"]]]
+            if not plays_:
+                continue
+            _record_plays(week, plays_, ref=refs[key])
+            out[str(week)] = max(out.get(str(week), 0), len(games))
+            d |= {g["event_id"] for g in games}
+            db.put_league_state("final_plays_done", sorted(d), ref=refs[key])
     return out
 
 
 def _week_payload(data: dict, ref: LeagueRef | None = None) -> dict:
-    """A board with the live points laid on and its feed riding along, so one live tick refreshes both. The live
-    points and the feed are home's: another league's board is the builder's own, with no plays."""
-    if ref is not None and not ref.home:
-        return {**data, "plays": []}
-    return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]),
-                                _scoring(), _sigma()),
-            "plays": _plays(data, FEED_ROWS)}
+    """A board with the league's live points laid on and its feed riding along, so one live tick refreshes both."""
+    wk = data["week"]
+    return {**live.overlay_week(data, _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref),
+                                _scoring(ref=ref), _sigma()),
+            "plays": _plays(data, FEED_ROWS, ref=ref)}
 
 
 def _board(n: int | None, team: int | None, *, ref: LeagueRef | None = None) -> dict:
@@ -1153,17 +1193,17 @@ def plays_(team: int | None = None, week: int | None = None, ref: LeagueRef = De
     """Every feed row of one game's week, newest first (the /plays page): mine, or with `team` that team's;
     `week` (a finished week's board links its own) else the current one. `me`/`opp` name the two sides the
     way the board does; `current` says whether the week is the current one (the way back is then `/`)."""
-    runner = getattr(app.state, "runner", None) if ref.home else None  # the runner scores home's league
+    runner = _lane(ref)
     current = _board(None, None, ref=ref)
     if team is None:
         data = current if week in (None, current["week"]) else _board(week, None, ref=ref)
     else:
         data = _board(week or (runner.week if runner and runner.week else None), team, ref=ref)
     club = lambda s: {k: s.get(k) for k in ("team_id", "team", "abbrev")} if s else None  # noqa: E731
-    return {"week": data["week"], "current": data["week"] == current["week"], "live": ref.home and season.is_live(),
+    return {"week": data["week"], "current": data["week"] == current["week"], "live": season.is_live(),
             "mine": data.get("mine", True),
-            "game_on": ref.home and live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"])),
-            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data) if ref.home else [],
+            "game_on": live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"], ref)),
+            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data, ref=ref),
             "stale_since": data.get("stale_since")}
 
 
@@ -1175,12 +1215,11 @@ def week(n: int, team: int | None = None, ref: LeagueRef = Depends(open_league))
 
 @app.get("/team/{team_id}")
 def team(team_id: int, ref: LeagueRef = Depends(open_league)):
-    """Any fantasy team's roster for the current week (the team page), live points laid on (home's league only)."""
+    """Any fantasy team's roster for the current week (the team page), the league's live points laid on."""
     data = _serve(f"team:{team_id}", lambda: espn_season.team_state(team_id, ref=ref), ref=ref)
-    if not ref.home:
-        return data
     wk = data["week"]
-    return {**data, "side": live.overlay_side(data["side"], _live_points(wk), _live_games(wk), _live_stats(wk), _scoring())}
+    return {**data, "side": live.overlay_side(data["side"], _live_points(wk, ref), _live_games(wk, ref),
+                                              _live_stats(wk, ref), _scoring(ref=ref))}
 
 
 def _nfl_board(week: int) -> dict | None:
@@ -1299,12 +1338,17 @@ def nfl_game(week: int, team: str):
     except Exception as e:  # noqa: BLE001 — cold outage on this game's feed
         raise HTTPException(502, {"source": "espn-nfl", "error": str(e)})
     runner = getattr(app.state, "runner", None)
-    # another week, or no starters read yet, waits for the tick: this page polls every 15 s
+    # another week, or no starters read yet, waits for the tick: this page polls every 15 s. Every league the
+    # runner scores that week gets the plays.
     if runner is not None and runner.store is not None and runner.week == week and runner.roster:
-        try:
-            _record_plays(week, playbook.from_drives(drives, game["event_id"], week, clubs))
-        except Exception as e:  # noqa: BLE001 — the page never fails on the play store
-            log.warning("plays of %s not recorded: %s", game["event_id"], e)
+        entries = playbook.from_drives(drives, game["event_id"], week, clubs)
+        for ln in getattr(runner, "lanes", [runner]):
+            if ln.store is None or ln.week != week or not ln.roster:
+                continue
+            try:
+                ln.store.record(entries, ln.roster, ln.table)
+            except Exception as e:  # noqa: BLE001 — the page never fails on the play store
+                log.warning("plays of %s not recorded for %s: %s", game["event_id"], getattr(ln, "key", None), e)
     sides = _nfl_sides(week)
     mine, opp = ([p for p in side if p.get("team") in clubs] for side in (sides or ([], [])))
     named = lambda ps: {p["player_id"]: p["name"] for p in ps if p["player_id"] > 0}  # noqa: E731
@@ -1455,9 +1499,7 @@ def player_preset_delete(pid: str, ref: LeagueRef = Depends(open_league)):
 @app.get("/league")
 def league_(week: int | None = None, ref: LeagueRef = Depends(open_league)):
     data = _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week, ref=ref), ref=ref)
-    if not ref.home:
-        return data
-    return live.overlay_league(data, _live_points(data["week"]), _live_games(data["week"]), _sigma())
+    return live.overlay_league(data, _live_points(data["week"], ref), _live_games(data["week"], ref), _sigma())
 
 
 LOGO_TTL = 24 * 3600.0
@@ -1568,10 +1610,11 @@ DRAFT_TTL = 24 * 3600.0  # the draft is over; the record does not move
 @app.get("/roster")
 def roster_(ref: LeagueRef = Depends(open_league)):
     data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
-    if not ref.home:  # no live points or outlooks of home's on another league's page: the cards as built
-        return {**data, "outlook_run": {"running": False}}
     # gated on the payload's week, as /week is: after the rollover the feed still holds last week's
-    data = live.overlay_roster(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring())
+    wk = data["week"]
+    data = live.overlay_roster(data, _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref), _scoring(ref=ref))
+    if not ref.home:  # outlooks are home's until 4.7: the cards as built
+        return {**data, "outlook_run": {"running": False}}
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
     return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"]), outlook.writing()),

@@ -169,18 +169,35 @@ def test_db_routes_serve_the_open_league(client, other):
     assert client.get("/decisions/prefs").json() == {"log": True, "page": True}
 
 
-def test_other_league_has_no_live_or_feed(client, two, monkeypatch):
+def test_other_league_scores_live_on_its_own_points_and_feed(client, two, monkeypatch):
     monkeypatch.setattr(api.live.STATE, "points", {11: 9.5})
     monkeypatch.setattr(api.live.STATE, "week", 3)
-    monkeypatch.setattr(api, "_plays", lambda data, limit=None: [{"delta": 1.0}])
+    monkeypatch.setattr(api.live.STATE, "others", {"espn:999": ({11: 4.0}, 3)})
+    monkeypatch.setattr(api, "_plays", lambda data, limit=None, *, ref=None: [{"delta": 2.0 if ref and not ref.home else 1.0}])
     theirs = client.get("/week?league=espn:999").json()
-    assert theirs["me"]["lineup"][0]["actual"] == 1.0 and theirs["plays"] == []
+    assert theirs["me"]["lineup"][0]["actual"] == 4.0 and theirs["plays"] == [{"delta": 2.0}]
     mine = client.get("/week").json()
     assert mine["me"]["lineup"][0]["actual"] == 9.5 and mine["plays"] == [{"delta": 1.0}]
-    feed = client.get("/plays?league=espn:999").json()
-    assert feed["plays"] == [] and feed["live"] is False
-    assert client.get("/team/3?league=espn:999").json()["side"]["lineup"][0]["actual"] == 1.0
+    assert client.get("/plays?league=espn:999").json()["plays"] == [{"delta": 2.0}]
+    assert client.get("/team/3?league=espn:999").json()["side"]["lineup"][0]["actual"] == 4.0
     assert client.get("/team/3").json()["side"]["lineup"][0]["actual"] == 9.5
+    assert client.get("/roster?league=espn:999").json()["cards"][0]["actual"] == 4.0
+
+
+def test_other_league_points_wait_for_its_own_week(client, two, monkeypatch):
+    """Before its first week the league's page week (its first) is past the NFL week the feed scores: no overlay."""
+    monkeypatch.setattr(api.live.STATE, "others", {"espn:999": ({11: 4.0}, 2)})
+    assert client.get("/week?league=espn:999").json()["me"]["lineup"][0]["actual"] == 1.0
+
+
+def test_play_store_is_the_runner_lane_of_the_league(monkeypatch, other):
+    home_store, their_store = object(), object()
+    lanes = {None: NS(week=3, store=home_store, roster={1: {}}), other.key: NS(week=3, store=their_store, roster={1: {}})}
+    runner = NS(week=3, store=home_store, lane=lambda key: lanes.get(key))
+    monkeypatch.setattr(api.app.state, "runner", runner, raising=False)
+    assert api._play_store(3) is home_store and api._play_store(3, ref=leagues.home()) is home_store
+    assert api._play_store(3, ref=other) is their_store
+    assert isinstance(api._play_store(2, ref=other), api.plays_mod.Store) and api._play_store(2, ref=other).ref == other
 
 
 def test_other_league_roster_has_no_outlooks(client, two, monkeypatch):
@@ -462,3 +479,14 @@ def test_leagues_survives_unreadable_settings(monkeypatch, client, other):
     monkeypatch.setattr(api.espn_season, "load", broken)
     rows = client.get("/leagues").json()
     assert [r["format"] for r in rows] == [None, None]
+
+
+def test_live_leagues_are_every_other_league_whose_settings_read(monkeypatch, other):
+    monkeypatch.setattr(api, "load", lambda ref: {"scoring": [], "who": ref.key})
+    [(ref, settings, fn)] = api.live_leagues()
+    assert ref == other and settings["who"] == "espn:999" and callable(fn)
+
+    def missing(ref):
+        raise SystemExit("no settings")
+    monkeypatch.setattr(api, "load", missing)
+    assert api.live_leagues() == []

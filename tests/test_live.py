@@ -476,3 +476,67 @@ def test_a_recovered_plays_load_clears_only_its_own_error(monkeypatch):
     r.week, r.state.error = None, "roster refresh failed: boom"  # a new week loads; an unrelated error stays
     r._refresh_roster()
     assert r.week == 1 and r.state.error == "roster refresh failed: boom"
+
+
+# --- every league off one socket (ffl-soc.4.6) -------------------------------------------------
+
+PPR = {"scoring": [{"stat_id": 42, "points": 0.1}, {"stat_id": 53, "points": 1.0}]}  # receiving yards, receptions
+STANDARD = {"scoring": [{"stat_id": 42, "points": 0.1}]}
+
+
+def _other(key="espn:999"):
+    from ffl import leagues
+    return leagues.LeagueRef(key, "espn", key.split(":")[1], 2026, "other", 3, False, None, None)
+
+
+def test_one_doc_scores_every_league_on_its_own_table(monkeypatch):
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    alone = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []})
+    alone._on_doc(copy.deepcopy(FIX))
+    other = _other()
+    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []},
+                    leagues=[(other, STANDARD, lambda: {"week": 7, "games": []})])
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.state.points == alone.state.points and r.state.week == 7, "home's points read exactly as with one league"
+    theirs = r.state.points_for(other.key)
+    assert theirs[4426515] == 7.4 and r.state.points[4426515] == 12.4, "74 receiving yards; five catches only in PPR"
+    assert r.state.week_for(other.key) == 7 and r.state.week_for(None) == 7
+    assert r.state.points_for(None) is r.state.points
+
+
+def test_each_league_keeps_its_own_week_and_feed(monkeypatch):
+    from ffl import plays
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    other = _other()
+    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []},
+                    leagues=[(other, STANDARD, lambda: {"week": 8, "games": []})])
+    r._on_doc(copy.deepcopy(FIX))
+    lane = r.lane(other.key)
+    assert lane.week == 8 and isinstance(lane.store, plays.Store) and lane.store.ref == other
+    assert r.week == 7 and r.store.ref is None and r.lane(None) is r.lanes[0]
+    assert r.state.week_for(other.key) == 8
+
+
+def test_a_league_whose_starters_fail_leaves_the_others_scoring(monkeypatch):
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    other = _other()
+
+    def boom():
+        raise RuntimeError("espn down")
+
+    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []},
+                    leagues=[(other, STANDARD, boom)])
+    r._on_doc(copy.deepcopy(FIX))
+    assert r.week == 7 and r.state.points[4426515] == 12.4
+    assert r.state.error == "espn:999: roster refresh failed: espn down"
+    assert r.state.points_for(other.key)[4426515] == 7.4, "its points still score; only its feed waits"
+
+
+def test_a_change_in_another_leagues_points_ticks_the_version():
+    st = live.State()
+    st.update({1: 2.0}, others={"espn:999": ({1: 1.0}, 7)})
+    v = st.version
+    st.update({1: 2.0}, others={"espn:999": ({1: 1.0}, 7)})
+    assert st.version == v
+    st.update({1: 2.0}, others={"espn:999": ({1: 1.5}, 7)})
+    assert st.version == v + 1 and st.points_for("espn:999") == {1: 1.5}

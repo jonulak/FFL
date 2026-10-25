@@ -840,3 +840,56 @@ def test_state_functions_refuse_the_other_kind():
         db.put_league_state("source_status", {})
     with pytest.raises(ValueError):
         db.get_league_state("prefs")
+
+
+def _at_0022(tmp_path, monkeypatch) -> str:
+    """A DB at 0022 with two called-back rows (one play, two players)."""
+    from alembic import command
+    url = _at_0021(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "0022")
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        for pid in (11, 12):
+            c.execute(sa.text("INSERT INTO called_back (season, play_id, player_id, week, body) "
+                              "VALUES (2026, 'p1', :pid, 6, '{}')"), {"pid": pid})
+    eng.dispose()
+    return url
+
+
+def test_0023_files_called_back_under_home(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0022(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "0023")
+    assert sorted(_rows(url, "SELECT league, season, play_id, player_id, week FROM called_back")) == [
+        ("espn:100000001", 2026, "p1", 11, 6), ("espn:100000001", 2026, "p1", 12, 6)]
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        ins = sa.inspect(c)
+        assert ins.get_pk_constraint("called_back")["constrained_columns"] == ["league", "season", "play_id", "player_id"]
+        assert [i["column_names"] for i in ins.get_indexes("called_back")] == [["league", "season", "week"]]
+    eng.dispose()
+
+
+def test_0023_downgrade_keeps_home(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0022(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "0023")
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        c.execute(sa.text("INSERT INTO called_back (league, season, play_id, player_id, week, body) "
+                          "VALUES ('espn:999', 2026, 'p1', 11, 6, '{}')"))
+    eng.dispose()
+    command.downgrade(db._alembic_config(), "0022")
+    assert sorted(_rows(url, "SELECT season, play_id, player_id FROM called_back")) == [(2026, "p1", 11), (2026, "p1", 12)]
+
+
+def test_called_back_rows_kept_per_league():
+    from ffl import leagues
+    home, other = leagues.home(), _other_league()
+    row = {"play_id": "p1", "player_id": 11, "week": 6}
+    db.put_called_back([{**row, "who": "home"}], [], ref=home)
+    db.put_called_back([{**row, "who": "other"}], [], ref=other)
+    assert db.called_back_rows(6, ref=home)[0]["who"] == "home" and db.called_back_rows(6, ref=other)[0]["who"] == "other"
+    assert db.called_back_rows(6) == db.called_back_rows(6, ref=home)
+    db.put_called_back([], [("p1", 11)], ref=other)        # another league dropping its row leaves home's alone
+    assert db.called_back_rows(6, ref=other) == [] and len(db.called_back_rows(6, ref=home)) == 1

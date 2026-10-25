@@ -110,7 +110,7 @@ def test_final_plays_reads_a_game_once_final_half_an_hour_even_if_opened_mid_gam
     monkeypatch.setattr(nfl, "scoreboard", lambda week: ({"week": 6, "games": [game] if week == 6 else []}, None))
     monkeypatch.setattr(nfl, "drives", lambda *a: ([{"plays": [{"id": 9, "team": "SF", "text": "x", "roles": []}]}], None))
     recorded = []
-    monkeypatch.setattr(api, "_record_plays", lambda week, entries: recorded.append((week, entries)))
+    monkeypatch.setattr(api, "_record_plays", lambda week, entries, **k: recorded.append((week, entries)))
     monkeypatch.setattr(api, "_FINAL_SEEN", {})
     db.put_nfl_plays([{**SCRAMBLE, "game_id": "e1", "week": 6}])  # the NFL tab wrote ESPN's rows in Q1
     clock = [1000.0]
@@ -121,6 +121,23 @@ def test_final_plays_reads_a_game_once_final_half_an_hour_even_if_opened_mid_gam
     assert db.get_league_state("final_plays_done") == ["e1"]
     clock[0] += 3600
     assert api.final_plays() == {} and len(recorded) == 1, "read once"
+
+
+def test_final_plays_records_every_league_once_each(monkeypatch):
+    from ffl import api, leagues, nfl
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    game = {"event_id": "e1", "status": "post", "away": {"abbr": "SF", "id": "25"}, "home": {"abbr": "ARI", "id": "22"}}
+    monkeypatch.setattr(nfl, "scoreboard", lambda week: ({"week": 6, "games": [game] if week == 6 else []}, None))
+    fetched = []
+    monkeypatch.setattr(nfl, "drives", lambda *a: fetched.append(a) or ([{"plays": [{"id": 9, "team": "SF", "text": "x",
+                                                                                   "roles": []}]}], None))
+    recorded = []
+    monkeypatch.setattr(api, "_record_plays", lambda week, entries, *, ref=None: recorded.append(ref.key))
+    monkeypatch.setattr(api, "_FINAL_SEEN", {"e1": 0.0})
+    db.put_league_state("final_plays_done", ["e1"], ref=leagues.home())   # home read it before the other league came
+    assert api.final_plays() == {"6": 1} and recorded == [other.key] and len(fetched) == 1
+    assert db.get_league_state("final_plays_done", ref=other) == ["e1"]
+    assert api.final_plays() == {} and recorded == [other.key], "read once in each league"
 
 
 def test_a_row_reads_the_wording_of_its_time_and_a_stat_fix_the_newest():

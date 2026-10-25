@@ -64,8 +64,20 @@ def test_store_appends_and_reloads_newest_first():
     assert plays.Store(2).latest() == [], "another week's feed is separate"
 
 
+def test_store_reads_and_writes_its_own_league():
+    from ffl import leagues
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    db.put_called_back([{"play_id": "p1", "player_id": 2, "week": 1, "who": "other"}], [], ref=other)
+    st = plays.Store(1, ref=other)
+    st.add([_row("a", 3, 1.0)])
+    assert [r["at"] for r in db.plays_rows(1, ref=other)] == ["a"] and db.plays_rows(1) == []
+    assert plays.Store(1).latest() == [], "home's feed is its own"
+    assert plays.Store(1, ref=other).called == {("p1", 2): {"play_id": "p1", "player_id": 2, "week": 1, "who": "other"}}
+    assert plays.Store(1).called == {}
+
+
 def test_store_keeps_rows_in_memory_when_the_db_write_fails(monkeypatch):
-    def boom(rows):
+    def boom(rows, **k):
         raise RuntimeError("locked")
     monkeypatch.setattr(db, "add_plays", boom)
     st = plays.Store(1)

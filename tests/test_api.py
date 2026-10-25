@@ -395,7 +395,7 @@ def test_plays_page_opens_the_week_it_was_linked_from(client, monkeypatch):
         "opp": {"team": "x", "team_id": 5, "abbrev": "R"}, "mine": team in (None, 7)})
     monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=_store([{"delta": 6.0, "team_id": 7}])),
                         raising=False)
-    monkeypatch.setattr(api.db, "plays_rows", lambda week: [{"delta": 2.0, "team_id": 7, "week": week}])
+    monkeypatch.setattr(api.db, "plays_rows", lambda week, **k: [{"delta": 2.0, "team_id": 7, "week": week}])
     past = client.get("/plays?week=5").json()
     assert past["week"] == 5 and past["current"] is False and [p["delta"] for p in past["plays"]] == [2.0]
     other = client.get("/plays?week=5&team=4").json()

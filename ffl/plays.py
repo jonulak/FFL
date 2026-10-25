@@ -264,15 +264,17 @@ class Store:
     """The week's events, newest last in memory (the live path reads it every few seconds),
     written through to the DB as they happen and reloaded from it at boot. Beside them the week's
     NFL plays (`book`, ffl/playbook.py), whose text a row on a play shows, and the plays called back
-    that cost a starter points (`called`, by play and player), merged into the feed by time."""
+    that cost a starter points (`called`, by play and player), merged into the feed by time. The rows and the
+    called-back rows are the league `ref` names (None: home); the plays are the NFL's, one copy for every league."""
 
-    def __init__(self, week: int):
-        self.week = week
+    def __init__(self, week: int, *, ref=None):
+        self.week, self.ref = week, ref
         self._lock = threading.Lock()
         self._record = threading.Lock()  # one record() at a time: the live feed, the NFL tab, the tick
-        self.rows: list[dict] = db.plays_rows(week)
+        self.rows: list[dict] = db.plays_rows(week, ref=ref)
         self.book: dict[str, dict] = {p["play_id"]: p for p in db.nfl_plays_rows(week)}
-        self.called: dict[tuple[str, int], dict] = {(r["play_id"], r["player_id"]): r for r in db.called_back_rows(week)}
+        self.called: dict[tuple[str, int], dict] = {(r["play_id"], r["player_id"]): r
+                                                      for r in db.called_back_rows(week, ref=ref)}
 
     def add(self, rows: list[dict]) -> None:
         """Rows on a stored play keep no text of their own: `latest` reads it from the play."""
@@ -281,7 +283,7 @@ class Store:
         with self._lock:
             rows = [{**r, "text": None} if r.get("play_id") and str(r["play_id"]) in self.book else r for r in rows]
             self.rows.extend(rows)  # memory first: the live baseline has moved on, so these must not be lost
-        db.add_plays(rows)  # outside the lock: a slow or failed write must not block readers; errors propagate
+        db.add_plays(rows, ref=self.ref)  # outside the lock: a slow or failed write must not block readers; errors propagate
 
     def latest(self, n: int | None = None, teams: set[int] | None = None) -> list[dict]:
         """Newest first; with `teams`, only the rows scored for those fantasy teams (one board). A row
@@ -330,7 +332,7 @@ class Store:
                 drop += [k for k in was if k not in now]
             if not put and not drop:
                 return
-            db.put_called_back(put, drop)
+            db.put_called_back(put, drop, ref=self.ref)
             with self._lock:
                 self.called.update({(r["play_id"], r["player_id"]): r for r in put})
                 for k in drop:

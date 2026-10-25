@@ -268,14 +268,15 @@ sa.Index("ix_nfl_plays_week", nfl_plays.c.season, nfl_plays.c.week)
 # the play or his feed rows on it change, gone when it no longer reads called back.
 called_back = sa.Table(
     "called_back", metadata,
+    _league(),
     _season(),
     sa.Column("play_id", sa.String, nullable=False),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("body", sa.JSON, nullable=False),         # a play-feed row, match "called_back"
-    sa.PrimaryKeyConstraint("season", "play_id", "player_id"),
+    sa.PrimaryKeyConstraint("league", "season", "play_id", "player_id"),
 )
-sa.Index("ix_called_back_week", called_back.c.season, called_back.c.week)
+sa.Index("ix_called_back_week", called_back.c.league, called_back.c.season, called_back.c.week)
 
 # Every week's box scores as ESPN answered them (espn_season.box_scores): the matchup schedule and the two maps
 # BoxScore takes, so a cold process parses them back without ESPN. fetched_at (epoch s) moves on every read; doc and
@@ -951,20 +952,22 @@ def nfl_plays_rows(week: int, season: int = SEASON) -> list[dict]:
         return list(c.execute(q).scalars())
 
 
-def put_called_back(put: list[dict], drop: list[tuple[str, int]], season: int = SEASON) -> None:
-    """Write called-back rows (by play and player) and delete the (play_id, player_id) pairs in `drop`."""
-    t = called_back
-    vals = [{"season": season, "play_id": r["play_id"], "player_id": r["player_id"], "week": r["week"], "body": r}
-            for r in put]
+def put_called_back(put: list[dict], drop: list[tuple[str, int]], season: int = SEASON, *, ref=None) -> None:
+    """Write a league's called-back rows (by play and player) and delete its (play_id, player_id) pairs in `drop`."""
+    t, league = called_back, _league_key(ref)
+    vals = [{"league": league, "season": season, "play_id": r["play_id"], "player_id": r["player_id"],
+             "week": r["week"], "body": r} for r in put]
     with _write() as c:
         for i in range(0, len(vals), CHUNK):
-            c.execute(_upsert(t, vals[i:i + CHUNK], ["season", "play_id", "player_id"], ["week", "body"]))
+            c.execute(_upsert(t, vals[i:i + CHUNK], ["league", "season", "play_id", "player_id"], ["week", "body"]))
         for play_id, player_id in drop:
-            c.execute(t.delete().where(t.c.season == season, t.c.play_id == play_id, t.c.player_id == player_id))
+            c.execute(t.delete().where(t.c.league == league, t.c.season == season, t.c.play_id == play_id,
+                                       t.c.player_id == player_id))
 
 
-def called_back_rows(week: int, season: int = SEASON) -> list[dict]:
-    q = sa.select(called_back.c.body).where(called_back.c.season == season, called_back.c.week == week)
+def called_back_rows(week: int, season: int = SEASON, *, ref=None) -> list[dict]:
+    t = called_back
+    q = sa.select(t.c.body).where(t.c.league == _league_key(ref), t.c.season == season, t.c.week == week)
     with _read() as c:
         return list(c.execute(q).scalars())
 
