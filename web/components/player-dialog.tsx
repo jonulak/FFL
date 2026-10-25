@@ -2,7 +2,7 @@
 
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ChevronDown } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { clientGet } from "@/app/api-client";
@@ -221,7 +221,6 @@ export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Loa
 // Decisions page (which closes the modal). Never decided on: no section.
 function Decisions({ rows }: { rows: Decision[] }) {
   const presets = usePresets();
-  const { home } = useOpenLeague();
   return (
     <section aria-labelledby="season-decisions" className="log-in space-y-1.5 px-4 pt-2 pb-5">
       <Heading id="season-decisions" title="Decisions" note={String(rows.length)} />
@@ -232,9 +231,7 @@ function Decisions({ rows }: { rows: Decision[] }) {
           return (
             <li key={d.id} className="flex items-start gap-3 py-2.5">
               <div className="min-w-0 flex-1">
-                {home
-                  ? <DialogClose nativeButton={false} render={<Link href={to} />} className={`block rounded-sm text-left font-medium leading-snug outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${NAME_LINK}`}>{d.title}</DialogClose>
-                  : <p className="font-medium leading-snug">{d.title}</p>}
+                <DialogClose nativeButton={false} render={<Link href={to} />} className={`block rounded-sm text-left font-medium leading-snug outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${NAME_LINK}`}>{d.title}</DialogClose>
                 {d.rationale == null
                   ? <Badge variant="warn" className="mt-0.5">Needs a reason</Badge>
                   : reason && <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{reason}</p>}
@@ -259,7 +256,7 @@ function History({ moves }: { moves: PlayerTx[] }) {
       <Heading id="season-moves" title="Transactions" note={String(moves.length)} />
       <ul className="divide-y divide-foreground/10">
         {moves.map((h) => {
-          const href = open.home ? teamHref(h.team_id) : null;
+          const href = teamHref(h.team_id);
           const detail = historyDetail(h);
           const name = <span className="truncate">{h.team.trim()}</span>;
           return (

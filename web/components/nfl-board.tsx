@@ -2,7 +2,7 @@
 
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ChevronRight, Triangle } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";

@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { clientPost } from "@/app/api-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";

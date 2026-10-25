@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { DialogClose, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -116,7 +116,7 @@ function RosteredOn({ r }: { r: Rostered }) {
   if (!r.owner) return <span className="ml-auto shrink-0 whitespace-nowrap">Free agent</span>;
   const o = r.owner;
   const name = o.name || o.abbrev || `Team ${o.team_id}`;
-  const href = open.home ? teamHref(o.team_id) : null;
+  const href = teamHref(o.team_id);
   const label = <span className="truncate">{name}</span>;
   return (
     <span className={`ml-auto flex min-w-0 max-w-[60%] items-center gap-1.5 ${r.mine ? "font-medium text-foreground" : ""}`}>

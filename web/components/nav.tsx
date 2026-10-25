@@ -7,8 +7,7 @@ import type { LeagueEntry } from "@/lib/api";
 // to the right edge. The header is the field at 92% over a blur so the cards slide under it; its bottom rule is
 // ink at 12%, the same hairline the section headings run. On the phone it is two rows (--nav-h, globals.css): the
 // switcher with the gear at the far end over the full-width tab strip, since the league's name and the tabs do not
-// share 360px; from `sm` the one 48px rule. Another league shows only its own tabs and no gear (Settings is home's
-// until 4.10).
+// share 360px; from `sm` the one 48px rule. Every league has every tab and the gear, each link carrying the open league.
 export function Nav({ leagues, league }: { leagues: LeagueEntry[]; league: LeagueEntry | null }) {
   const away = league != null && !league.home;
   return (
@@ -18,8 +17,8 @@ export function Nav({ leagues, league }: { leagues: LeagueEntry[]; league: Leagu
           <LeagueSwitcher leagues={leagues} open={league} />
         </div>
         <span aria-hidden className="my-3.5 hidden w-px shrink-0 bg-foreground/12 sm:block" />
-        <NavLinks className="order-last h-10 basis-full sm:order-none sm:h-auto sm:basis-auto" pages={away ? league.pages : null} league={away ? league.key : null} />
-        {!away && <div className="ml-auto flex h-11 shrink-0 items-center gap-0.5 sm:h-auto sm:pl-2"><SettingsLink /></div>}
+        <NavLinks className="order-last h-10 basis-full sm:order-none sm:h-auto sm:basis-auto" league={away ? league.key : null} />
+        <div className="ml-auto flex h-11 shrink-0 items-center gap-0.5 sm:h-auto sm:pl-2"><SettingsLink /></div>
       </div>
     </header>
   );

@@ -332,9 +332,6 @@ def open_league(league: str | None = Query(None)) -> LeagueRef:
         raise HTTPException(status_code=404, detail={"error": "unknown_league", "league": league}) from None
 
 
-# The pages another league opens until its features are generalized (ffl-soc.4.13; 4.9 opens the rest): the web
-# reads this, it decides nothing itself. None: every page (home).
-OTHER_LEAGUE_PAGES = ["roster", "players"]
 PROVIDERS = {"espn": "ESPN"}
 
 
@@ -465,9 +462,9 @@ def health():
 
 @app.get("/leagues")
 def league_list():
-    """Every registered league, home first: the switcher's rows (name · provider · format) and the pages each opens."""
+    """Every registered league, home first: the switcher's rows (name · provider · format)."""
     return [{"key": r.key, "name": r.name, "provider": PROVIDERS.get(r.provider, r.provider), "format": _league_format(r),
-             "home": r.home, "pages": None if r.home else OTHER_LEAGUE_PAGES} for r in leagues.all_leagues()]
+             "home": r.home} for r in leagues.all_leagues()]
 
 
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
@@ -1209,13 +1206,13 @@ def team(team_id: int, ref: LeagueRef = Depends(open_league)):
                                               _live_stats(wk, ref), _scoring(ref=ref))}
 
 
-def _nfl_board(week: int) -> dict | None:
-    """My Matchup board for `week`, live points laid on, for the NFL pages. The board failing (ESPN fantasy down)
-    answers None: the pages go unmarked, never unserved."""
+def _nfl_board(week: int, *, ref: LeagueRef | None = None) -> dict | None:
+    """My Matchup board in the open league for `week`, live points laid on, for the NFL pages. The board failing
+    (ESPN fantasy down) answers None: the pages go unmarked, never unserved."""
     try:
-        data = _week_payload(_board(None, None))
+        data = _week_payload(_board(None, None, ref=ref), ref)
         if data["week"] != week:
-            data = _week_payload(_board(week, None))
+            data = _week_payload(_board(week, None, ref=ref), ref)
     except HTTPException as e:
         log.warning("nfl marks off, no board for week %s: %s", week, e.detail)
         return None
@@ -1225,19 +1222,19 @@ def _nfl_board(week: int) -> dict | None:
     return data
 
 
-def _nfl_sides(week: int) -> tuple[list[dict], list[dict]] | None:
+def _nfl_sides(week: int, *, ref: LeagueRef | None = None) -> tuple[list[dict], list[dict]] | None:
     """My starters and my opponent's for `week` (the Matchup board's), for the NFL pages' marks. None when the
     board failed, and the game page says so rather than reading as "none of mine played"."""
-    data = _nfl_board(week)
+    data = _nfl_board(week, ref=ref)
     if data is None:
         return None
     return (data.get("me") or {}).get("lineup", []), (data.get("opp") or {}).get("lineup", [])
 
 
-def _nfl_teams(week: int) -> dict | None:
+def _nfl_teams(week: int, *, ref: LeagueRef | None = None) -> dict | None:
     """The two fantasy teams of my game in `week` (id, name, owner, mark, record), heading the game page's In this game table;
     `opp` None on a bye, the whole None when the board failed."""
-    data = _nfl_board(week)
+    data = _nfl_board(week, ref=ref)
     if data is None:
         return None
     keys = ("team_id", "team", "owner", "abbrev", "logo", "wins", "losses", "ties")
@@ -1245,16 +1242,16 @@ def _nfl_teams(week: int) -> dict | None:
     return {"me": club(data.get("me")), "opp": club(data.get("opp"))}
 
 
-def _nfl_starters(week: int) -> tuple[list[dict], list[dict]]:
+def _nfl_starters(week: int, *, ref: LeagueRef | None = None) -> tuple[list[dict], list[dict]]:
     """My starters and my opponent's for the scoreboard's per-club counts, which need only each one's club. The
     Matchup board's week reads its cached board; any other week reads the box scores' starters (league_starters,
     about a second cold) rather than pricing that week's board, which is 7-10 s cold. Failing, the scoreboard
     goes unmarked, never unserved."""
     try:
-        if _board(None, None)["week"] == week:
-            return _nfl_sides(week) or ([], [])
-        me = espn_season.my_team_id(espn_season.fresh_league())
-        for game in espn_season.league_starters(week)["games"]:
+        if _board(None, None, ref=ref)["week"] == week:
+            return _nfl_sides(week, ref=ref) or ([], [])
+        me = espn_season.my_team_id(espn_season.fresh_league(ref), ref)
+        for game in espn_season.league_starters(week, ref=ref)["games"]:
             if any(s["team_id"] == me for s in game):
                 return (next(s["lineup"] for s in game if s["team_id"] == me),
                         next((s["lineup"] for s in game if s["team_id"] != me), []))
@@ -1285,7 +1282,7 @@ def _by_club(players: list[dict]) -> dict[str, int]:
 
 
 @app.get("/nfl")
-def nfl_scoreboard(week: int | None = None):
+def nfl_scoreboard(week: int | None = None, ref: LeagueRef = Depends(open_league)):
     """Every NFL game of the week, live first then by kickoff window, my games first in each (the NFL tab)."""
     sb, stale = _nfl_scoreboard(week)
     if week is None:
@@ -1300,14 +1297,14 @@ def nfl_scoreboard(week: int | None = None):
     # games) and so do the marks.
     wk = sb["week"] or week
     games = nfl.overlay(sb["games"], _live_games(wk)) if wk is not None else sb["games"]
-    mine, opp = _nfl_starters(wk) if wk is not None else ([], [])
+    mine, opp = _nfl_starters(wk, ref=ref) if wk is not None else ([], [])
     return {"week": wk, "current": current, "weeks": NFL_WEEKS, "playoff_weeks": _playoff_weeks(),
             "live": any(nfl.is_live(g) for g in games),
             "sections": nfl.board(games, _by_club(mine), _by_club(opp)), "byes": sb["byes"], "stale_since": stale}
 
 
 @app.get("/nfl/{week}/{team}")
-def nfl_game(week: int, team: str):
+def nfl_game(week: int, team: str, ref: LeagueRef = Depends(open_league)):
     """One game, by either club: its header, the starters of mine and my opponent's in it, its scoring plays and
     every drive, plays marked for those starters. 404 for an unknown club or a bye."""
     abbr = nfl.club(team)
@@ -1336,7 +1333,7 @@ def nfl_game(week: int, team: str):
                 ln.store.record(entries, ln.roster, ln.table)
             except Exception as e:  # noqa: BLE001 — the page never fails on the play store
                 log.warning("plays of %s not recorded for %s: %s", game["event_id"], getattr(ln, "key", None), e)
-    sides = _nfl_sides(week)
+    sides = _nfl_sides(week, ref=ref)
     mine, opp = ([p for p in side if p.get("team") in clubs] for side in (sides or ([], [])))
     named = lambda ps: {p["player_id"]: p["name"] for p in ps if p["player_id"] > 0}  # noqa: E731
     dst = lambda ps: {p["team"]: p["name"] for p in ps if p["player_id"] < 0}  # noqa: E731
@@ -1345,7 +1342,7 @@ def nfl_game(week: int, team: str):
             "game": {**game, "mine": len(mine), "opp": len(opp)},
             "marked": sides is not None,  # False: the Matchup board failed, so no play could be marked
             "starters": {"me": mine, "opp": opp},  # whole board players: a tap opens the Matchup breakdown
-            "teams": _nfl_teams(week),
+            "teams": _nfl_teams(week, ref=ref),
             "scoring": nfl.scoring_plays(marked), "drives": marked, "stale_since": stale or stale2}
 
 
@@ -1874,12 +1871,13 @@ def news_run():
     return {"started": True}
 
 
-def _news_context() -> dict:
-    """What the feed is dressed with: owners (read now, never stored; a failure serves the feed untagged with
-    `owners_error`), the player index (names; a failure leaves them as ids with `index_error`) and the sources."""
+def _news_context(ref: LeagueRef | None = None) -> dict:
+    """What the feed is dressed with: the open league's owners (read now, never stored; a failure serves the feed
+    untagged with `owners_error`), the player index (names; a failure leaves them as ids with `index_error`) and the
+    sources. The stories are every league's; only whose they are is the league's."""
     ctx: dict = {"owners": {}, "me": -1, "extra": {}, "index": news_players.Index()}
     try:
-        ctx["owners"], ctx["me"] = pipeline.owners()
+        ctx["owners"], ctx["me"] = pipeline.owners() if _key(ref) is None else pipeline.owners(ref=ref)
     except (Exception, SystemExit) as e:  # noqa: BLE001 — no league config exits; the feed still reads
         ctx["extra"]["owners_error"] = str(e) or type(e).__name__
     try:
@@ -1909,16 +1907,16 @@ def _news_page(ctx: dict, limit: int, before: str | None, *, filter: str = "all"
 
 @app.get("/news")
 def news_get(filter: Literal["all", "mine", "fa", "others"] = "all", before: str | None = None,
-             limit: int = Query(30, ge=1, le=100)):
+             limit: int = Query(30, ge=1, le=100), ref: LeagueRef = Depends(open_league)):
     """The feed: the stories that move somebody; one in which every player is ● (no change) never shows."""
-    ctx = _news_context()
+    ctx = _news_context(ref)
     return {**_news_page(ctx, limit, before, filter=filter), **ctx["extra"]}
 
 
 @app.get("/news/story/{story_id}")
-def news_story(story_id: int):
+def news_story(story_id: int, ref: LeagueRef = Depends(open_league)):
     """One written story, shaped as the feed shapes it: a push's target, which the feed may hide (it moves nobody) or have paged past."""
-    ctx = _news_context()
+    ctx = _news_context(ref)
     raw = db.story(story_id)
     if raw is None or not raw.get("written_rev"):
         raise HTTPException(404, f"no story {story_id}")
@@ -1927,8 +1925,8 @@ def news_story(story_id: int):
 
 @app.get("/news/player/{player_id}")
 def news_player(player_id: int, days: int = Query(30, ge=1, le=366), before: str | None = None,
-                limit: int = Query(30, ge=1, le=100)):
-    ctx = _news_context()
+                limit: int = Query(30, ge=1, le=100), ref: LeagueRef = Depends(open_league)):
+    ctx = _news_context(ref)
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
     muted = player_id in {int(p) for p in db.get_state("news_mutes", []) or []}
     return {"player": news_feed.player_head(player_id, ctx["owners"], ctx["me"], ctx["index"]), "muted": muted,

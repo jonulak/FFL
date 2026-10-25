@@ -16,7 +16,7 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
     const l = leagues.find((x) => x.key === key);
     if (!l || l.key === open?.key) return;
     document.cookie = l.home ? `${LEAGUE_COOKIE}=; path=/; max-age=0` : `${LEAGUE_COOKIE}=${encodeURIComponent(l.key)}; path=/; max-age=${365 * 86400}; samesite=lax`;
-    window.location.assign(l.home ? "/" : withLeague(`/${l.pages?.[0] ?? "roster"}`, l.key));
+    window.location.assign(l.home ? "/" : withLeague("/", l.key));
   };
   // another league says so beside the wordmark: the pages under it are that league's
   const away = open && !open.home ? open : null;

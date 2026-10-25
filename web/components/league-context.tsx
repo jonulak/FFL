@@ -3,9 +3,8 @@
 import { createContext, useContext, type ReactNode } from "react";
 
 // The league this document is open on (ffl-soc.4.13), from the root layout. `key` is null for home. A switch is a
-// full page load (league-switcher.tsx), so the layout's value is always the page's. Another league (`home` false)
-// hides what is still home's alone: outlooks (the API refuses them), the NFL game page (marked against home's
-// lineups), the team pages and the Decisions page (not its tabs yet).
+// full page load (league-switcher.tsx), so the layout's value is always the page's. Every league opens every page
+// (4.9); `key` is what league-link.tsx carries onto every in-app link.
 type Open = { key: string | null; home: boolean };
 const C = createContext<Open>({ key: null, home: true });
 

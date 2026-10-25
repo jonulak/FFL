@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { useEffect, useOptimistic, useState, useTransition, ViewTransition } from "react";
 import { clientGet } from "@/app/api-client";
 import { Button } from "@/components/ui/button";

@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronLeft, FlaskConical, TriangleAlert, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { createContext, useCallback, useContext, useState, useTransition, type ReactNode } from "react";
 import type { PlayerView, Preset, ResolvedView, ViewSort } from "@/lib/api";
 import { withLeague } from "@/lib/league";

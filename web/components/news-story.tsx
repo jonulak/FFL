@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowUpRight, ChevronDown, MessageCircleQuestion } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";

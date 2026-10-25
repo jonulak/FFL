@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decide, leagueOf, START_URL, tabsFor, withLeague } from "./league";
+import { decide, leagueHref, leagueOf, START_URL, tabsFor, withLeague } from "./league";
 
 const PUB = "espn:950458410";
 
@@ -43,6 +43,11 @@ describe("decide (the proxy)", () => {
     expect(decide("/roster", "", PUB, true)).toEqual({ cookie: null });
     expect(decide("/team/3", "", null, true)).toEqual({});
   });
+  it("the Matchup page with a league is that league's page; plain it is the start page", () => {
+    expect(decide("/", `?league=${PUB}`, null, true)).toEqual({ cookie: PUB });
+    expect(decide("/", `?league=${PUB}`, PUB, true)).toEqual({});
+    expect(decide("/", "?week=3", PUB, true)).toEqual({ cookie: null });
+  });
   it("only a full page load counts: a prefetch or soft navigation neither redirects nor moves the last league", () => {
     expect(decide("/", "", PUB, false)).toEqual({});
     expect(decide("/roster", "", PUB, false)).toEqual({});
@@ -55,9 +60,24 @@ describe("decide (the proxy)", () => {
 
 describe("tabsFor", () => {
   const tabs = [["/", "Matchup"], ["/roster", "Roster"], ["/nfl", "NFL"], ["/players", "Players"]] as const;
-  it("home opens every tab; another league only its pages, each carrying the league", () => {
-    expect(tabsFor(tabs, null, null)).toEqual(tabs.map(([h, l]) => [h, l, h]));
-    expect(tabsFor(tabs, ["roster", "players"], PUB)).toEqual([
-      ["/roster", "Roster", withLeague("/roster", PUB)], ["/players", "Players", withLeague("/players", PUB)]]);
+  it("every league opens every tab; another league's each carry it (the global ones too, so the way back stays in it)", () => {
+    expect(tabsFor(tabs, null)).toEqual(tabs.map(([h, l]) => [h, l, h]));
+    expect(tabsFor(tabs, PUB)).toEqual(tabs.map(([h, l]) => [h, l, withLeague(h, PUB)]));
+  });
+});
+
+describe("leagueHref (every in-app link and router move)", () => {
+  it("carries the open league onto an in-app page", () => {
+    expect(leagueHref("/team/3", PUB)).toBe(withLeague("/team/3", PUB));
+    expect(leagueHref("/league/8/4?x=1", PUB)).toBe(withLeague("/league/8/4?x=1", PUB));
+  });
+  it("home leaves every link as it was", () => {
+    expect(leagueHref("/team/3", null)).toBe("/team/3");
+  });
+  it("never rewrites a link that names its own league, an API path, an outside or a relative link", () => {
+    expect(leagueHref("/roster?league=espn%3A1", PUB)).toBe("/roster?league=espn%3A1");
+    expect(leagueHref("/api/logo/3", PUB)).toBe("/api/logo/3");
+    expect(leagueHref("https://espn.com/x", PUB)).toBe("https://espn.com/x");
+    expect(leagueHref("#top", PUB)).toBe("#top");
   });
 });

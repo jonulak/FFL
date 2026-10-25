@@ -6,7 +6,8 @@ export const LEAGUE_PARAM = "league";
 export const LEAGUE_COOKIE = "ffl-league";
 export const LEAGUE_HEADER = "x-ffl-league";
 
-// League data pages: opening one is "using" its league. NFL, News and Settings are global and leave it alone.
+// League data pages: opening one is "using" its league (the Matchup page "/" too, once it names one). NFL, News and
+// Settings are global and leave it alone.
 const LEAGUE_PAGES = ["/roster", "/players", "/waivers", "/league", "/transactions", "/decisions", "/team"];
 
 // `href` naming `league` (replacing any league it named); null or "" is home: the href as it was.
@@ -18,6 +19,15 @@ export function withLeague(href: string, league: string | null): string {
   p.delete(LEAGUE_PARAM);
   p.set(LEAGUE_PARAM, league);
   return `${path}?${p}${hash ? `#${hash}` : ""}`;
+}
+
+// An in-app link or router move made from a page of `league` (components/league-link.tsx): it stays in that league.
+// A link that names a league already (a push's target, the switcher) keeps it; an API path, an outside or a relative
+// link is left alone. Home: every link as it was.
+export function leagueHref(href: string, league: string | null): string {
+  if (!league || !href.startsWith("/") || href.startsWith("//") || href.startsWith("/api/")) return href;
+  if (leagueOf(href.split("#", 1)[0].split("?", 2)[1] ?? "")) return href;
+  return withLeague(href, league);
 }
 
 // The league a query string names; null for home (none, or empty).
@@ -40,18 +50,14 @@ export function decide(path: string, search: string, cookie: string | null, docu
   const league = leagueOf(search);
   const start = (path === "/" && !search) || `${path}${search}` === START_URL;
   if (start) return cookie ? { redirect: withLeague("/roster", cookie) } : {};
-  if (path === "/") return {};
-  if (!LEAGUE_PAGES.some((p) => path === p || path.startsWith(`${p}/`))) return {};
+  if (path !== "/" && !LEAGUE_PAGES.some((p) => path === p || path.startsWith(`${p}/`))) return {};
   if ((league ?? null) === (cookie || null)) return {};
   return { cookie: league };
 }
 
-// The nav's tabs for the open league: home (pages null) all of them; another league the pages GET /leagues gives it,
-// each href carrying the league. [href the tab is matched on, label, href it links to].
-export function tabsFor<T extends readonly (readonly [string, string])[]>(
-  tabs: T, pages: string[] | null, league: string | null,
-): [string, string, string][] {
-  return tabs
-    .filter(([href]) => pages == null || pages.includes(href.replace(/^\//, "")))
-    .map(([href, label]) => [href, label, withLeague(href, league)]);
+// The nav's tabs for the open league: every tab in every league, another league's each href carrying it (the global
+// NFL and News too, so the next tab tapped from them is still that league's). [href the tab is matched on, label,
+// href it links to].
+export function tabsFor<T extends readonly (readonly [string, string])[]>(tabs: T, league: string | null): [string, string, string][] {
+  return tabs.map(([href, label]) => [href, label, withLeague(href, league)]);
 }

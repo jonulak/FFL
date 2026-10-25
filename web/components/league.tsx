@@ -1,6 +1,6 @@
 import { ChevronRight, Triangle } from "lucide-react";
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";

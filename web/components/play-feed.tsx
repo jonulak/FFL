@@ -1,7 +1,7 @@
 "use client";
 
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";

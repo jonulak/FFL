@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowUpRight } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { Badge } from "@/components/ui/badge";
 import { DialogClose } from "@/components/ui/dialog";
 import type { PlayerNews } from "@/lib/api";

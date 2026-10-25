@@ -1,6 +1,6 @@
 import { DecisionsView } from "@/components/decisions";
 import { ErrorCard } from "@/components/error-card";
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { apiGet, type DecisionPrefs, type Decisions, type Presets } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 

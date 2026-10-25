@@ -3,9 +3,8 @@ import { LEAGUE_HEADER, withLeague } from "./league";
 
 export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 
-// GET /leagues (ffl-soc.4.13): the switcher's rows, home first. `pages`: the tabs another league opens until its
-// features are generalized (null: every page); `format` null when its settings could not be read.
-export type LeagueEntry = { key: string; name: string; provider: string; format: string | null; home: boolean; pages: string[] | null };
+// GET /leagues (ffl-soc.4.13): the switcher's rows, home first; `format` null when its settings could not be read.
+export type LeagueEntry = { key: string; name: string; provider: string; format: string | null; home: boolean };
 
 // The API is loopback FastAPI; anything slower than this is a hung ESPN call, and a server
 // component must not hold the page open waiting for it.

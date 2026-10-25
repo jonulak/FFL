@@ -2,8 +2,8 @@
 
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ChevronDown } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import Link from "@/components/league-link";
+import { useRouter } from "@/components/league-link";
 import { useOptimistic, useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

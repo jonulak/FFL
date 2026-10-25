@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { notFound } from "next/navigation";
 import { ErrorCard } from "@/components/error-card";
 import { PlayerNewsView } from "@/components/news-feed";

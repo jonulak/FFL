@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ClientError, clientPost } from "@/app/api-client";
 import { toast } from "sonner";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { useEffect } from "react";
 import { movesStep } from "@/lib/notify";
 

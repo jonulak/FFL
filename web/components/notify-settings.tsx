@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { toast } from "sonner";
 import { clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";

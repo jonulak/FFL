@@ -4,7 +4,7 @@ import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, us
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Trash2, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { clientPost, ClientError } from "@/app/api-client";
 import { Button } from "@/components/ui/button";

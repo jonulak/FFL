@@ -488,10 +488,9 @@ def test_leagues_lists_every_league_home_first(monkeypatch, client, other):
     rows = client.get("/leagues").json()
     assert [r["key"] for r in rows] == [leagues.home().key, "espn:999"]
     home, them = rows
-    assert home["home"] is True and home["pages"] is None, "home opens every page"
+    assert home["home"] is True and "pages" not in home, "every league opens every page (4.9)"
     assert (home["provider"], home["format"]) == ("ESPN", "2QB · 10 teams")
-    assert them == {"key": "espn:999", "name": "other", "provider": "ESPN", "format": "1QB · 12 teams", "home": False,
-                    "pages": ["roster", "players"]}
+    assert them == {"key": "espn:999", "name": "other", "provider": "ESPN", "format": "1QB · 12 teams", "home": False}
 
 
 def test_leagues_survives_unreadable_settings(monkeypatch, client, other):
@@ -551,3 +550,13 @@ def test_notify_switches_follow_the_open_league(client, other):
     assert client.get("/notify/config?league=espn:999").json()["prefs"]["news"] is False
     assert client.get("/notify/config").json()["prefs"]["news"] is True
     assert client.post("/notify/prefs?league=espn:999", json={"quiet": ["bad"]}).status_code == 422
+
+
+
+def test_news_marks_whose_players_in_the_open_league(client, other, monkeypatch):
+    asked = []
+    monkeypatch.setattr(api.pipeline, "owners", lambda *, ref=None: asked.append(ref) or ({}, 3))
+    monkeypatch.setattr(api.news_players, "fetch_index", lambda: api.news_players.Index())
+    client.get("/news?league=espn:999")
+    client.get("/news")
+    assert asked == [other, None]

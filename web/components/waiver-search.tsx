@@ -2,7 +2,7 @@
 
 import { Search, X } from "lucide-react";
 import { Spinner as Spin } from "@/components/ui/spinner";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Kbd } from "@/components/ui/kbd";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";

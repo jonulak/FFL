@@ -1,7 +1,7 @@
 "use client";
 
 import { Settings } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { usePathname } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { Hint } from "./hint";

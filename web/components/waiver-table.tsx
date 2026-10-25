@@ -27,7 +27,6 @@ import { statusTag } from "@/lib/claims";
 import { SLOT_LABEL } from "@/lib/board";
 import { isFreeAgent, ownerLabel, rowKind } from "@/lib/players";
 import { TeamLink } from "./team-link";
-import { useOpenLeague } from "./league-context";
 import { useReorder } from "./motion";
 import { Hint } from "./hint";
 import { usePlayerView } from "./player-view-context";
@@ -196,18 +195,15 @@ function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
 
 // Another team's player, where a free agent's claim control sits: the team's abbreviation,
 // opening its roster. The full name rides the hover.
-// A free agent's outlook (and the dot before it): home's alone, the API refuses another league's (4.7).
+// A free agent's outlook (and the dot before it).
 function OutlookDot({ r, dot = false }: { r: Parameters<typeof WaiverOutlookButton>[0]["r"]; dot?: boolean }) {
-  const { home } = useOpenLeague();
-  if (!home) return null;
   return <>{dot && <span aria-hidden>·</span>}<WaiverOutlookButton r={r} /></>;
 }
 
 function OwnerChip({ owner }: { owner: Owner }) {
-  const { home } = useOpenLeague();
   return (
     <span title={owner.name ?? undefined}>
-      <TeamLink linked={home} id={owner.team_id} className="font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <TeamLink id={owner.team_id} className="font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {ownerLabel(owner)}
       </TeamLink>
     </span>

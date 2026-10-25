@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/league-link";
 import { Star } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -65,7 +65,6 @@ function Chip({ c }: { c: WatchChip }) {
 }
 
 function Row({ p, onToggle }: { p: WatchRow; onToggle: (on: boolean) => void }) {
-  const { home } = useOpenLeague();
   const elsewhere = p.owner != null;
   const up = !elsewhere && (p.add ?? 0) > 0;
   return (
@@ -86,7 +85,7 @@ function Row({ p, onToggle }: { p: WatchRow; onToggle: (on: boolean) => void }) 
             // the owner takes his own line on the phone, where it would wrap anyway
             <span className="whitespace-nowrap max-sm:basis-full">
               <span aria-hidden className="mr-1.5 max-sm:hidden">·</span>
-              <TeamLink linked={home} id={p.owner.team_id} className="text-foreground/80">{p.owner.name}</TeamLink>
+              <TeamLink id={p.owner.team_id} className="text-foreground/80">{p.owner.name}</TeamLink>
             </span>
           )}
         </p>

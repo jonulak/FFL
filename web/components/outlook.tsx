@@ -3,7 +3,7 @@
 import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner as Spin } from "@/components/ui/spinner";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/components/league-link";
 import { useEffect, useState } from "react";
 import { clientGet, clientPost } from "@/app/api-client";
 import type { Card, CardOutlook, OutlookBullet } from "@/lib/api";
@@ -11,7 +11,6 @@ import { minutesSince, shortAge } from "@/lib/format";
 import { Ago } from "./local-time";
 import { Presence, Swap } from "./motion";
 import { Hint } from "./hint";
-import { useOpenLeague } from "./league-context";
 
 // One block per label: the label as a small heading over its text, so the sentence gets the card's full
 // width, and the sources trailing it as small dotted links that open in a new tab. Each link keeps its
@@ -122,11 +121,6 @@ function RewriteButton({ c, running, runBusy, onClick }: { c: Card; running: boo
 // A Roster row's outlook. It sits in the row's detail, which is already opened on a tap, so it is shown
 // whole at every width rather than folded again on the phone.
 export function Outlook({ c, runBusy }: { c: Card; runBusy: boolean }) {
-  const { home } = useOpenLeague();
-  return home ? <HomeOutlook c={c} runBusy={runBusy} /> : null;
-}
-
-function HomeOutlook({ c, runBusy }: { c: Card; runBusy: boolean }) {
   const { running, fault, rewrite } = useRewrite(c);
   const { outlook: bullets, outlook_at: at, outlook_stale: stale, outlook_error: error } = c;
   const button = <RewriteButton c={c} running={running} runBusy={runBusy} onClick={rewrite} />;
@@ -178,9 +172,7 @@ const AGE_TONE = { fresh: "text-muted-foreground", stale: "text-close-foreground
 
 // The spinner and the age crossfade into each other; a new age (a minute on, a rewrite landed) fades in.
 export function OutlookAge({ c, now }: { c: Card; now: number }) {
-  const { home } = useOpenLeague();
   const a = outlookAge(c, now);
-  if (!home) return null;
   if (c.outlook_running) {
     return <Swap k="running" className="flex"><Spin aria-hidden role="presentation" className="size-3 stroke-[2.5] text-muted-foreground" /></Swap>;
   }
