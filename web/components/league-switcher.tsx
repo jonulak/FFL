@@ -18,14 +18,13 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
     document.cookie = l.home ? `${LEAGUE_COOKIE}=; path=/; max-age=0` : `${LEAGUE_COOKIE}=${encodeURIComponent(l.key)}; path=/; max-age=${365 * 86400}; samesite=lax`;
     window.location.assign(l.home ? "/" : withLeague("/", l.key));
   };
-  // another league says so beside the wordmark: the pages under it are that league's
-  const away = open && !open.home ? open : null;
+  // the open league's name beside the wordmark, home's too: the pages under it are that league's
   return (
     <DropdownMenu>
       <DropdownMenuTrigger aria-label={`FFL, league: ${open?.name ?? "home"}. Switch league`}
         className="-ml-1 flex min-h-11 min-w-0 max-w-full items-center gap-1 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
         <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
-        {away && <span title={away.name} className="min-w-0 max-w-[16rem] truncate sm:max-w-[9rem] font-display text-sm font-semibold uppercase tracking-[0.08em] text-foreground/70">{away.name}</span>}
+        {open && <span title={open.name} className="min-w-0 max-w-[16rem] truncate sm:max-w-[9rem] font-display text-sm font-semibold uppercase tracking-[0.08em] text-foreground/70">{open.name}</span>}
         <ChevronDown aria-hidden className="size-4 text-foreground/55" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-auto min-w-64">
