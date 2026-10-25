@@ -189,12 +189,12 @@ def test_state_dresses_sides_with_the_current_club(monkeypatch):
     from ffl import espn_season as E
     t6 = SimpleNamespace(team_id=6, team_name="Daejon Love Fan Club", team_abbrev="DLFC", logo_url="x.png",
                          wins=3, losses=1, ties=0)
-    monkeypatch.setattr(E, "journal_state", lambda: {"transactions": [
+    monkeypatch.setattr(E, "journal_state", lambda *a, **k: {"transactions": [
         row(1, 6, "FA ADDED", -16020, "Jets D/ST"), row(1, 9, "DROPPED", -16020, "Jets D/ST")]})
     monkeypatch.setattr(E, "fresh_league", lambda *a, **k: SimpleNamespace(teams=[t6], current_week=5))
     monkeypatch.setattr(E, "my_team_id", lambda lg, *a, **k: 7)
     monkeypatch.setattr(E, "load", lambda *a, **k: {"week1_start": "2026-09-08"})
-    monkeypatch.setattr("ffl.journal.sync_transactions", lambda lg: None)
+    monkeypatch.setattr("ffl.journal.sync_transactions", lambda lg, **k: None)
     got = E.transactions_state()
     assert got["me"] == 7 and got["current_week"] == 5
     sides = {m["sides"][0]["team_id"]: m["sides"][0] for m in got["moves"]}
@@ -207,7 +207,7 @@ def _state_env(monkeypatch, rows, log):
 
     from ffl import espn_season as E
     lg = SimpleNamespace(teams=[], current_week=5)
-    monkeypatch.setattr(E, "journal_state", lambda: log.append("read") or {"transactions": rows})
+    monkeypatch.setattr(E, "journal_state", lambda *a, **k: log.append("read") or {"transactions": rows})
     monkeypatch.setattr(E, "fresh_league", lambda *a, **k: lg)
     monkeypatch.setattr(E, "my_team_id", lambda lg, *a, **k: 7)
     monkeypatch.setattr(E, "load", lambda *a, **k: {"week1_start": "2026-09-08"})
@@ -220,7 +220,7 @@ def test_state_syncs_the_feed_before_reading_the_log(monkeypatch):
     from ffl import journal
     log = []
     E, lg = _state_env(monkeypatch, [], log)
-    monkeypatch.setattr(journal, "sync_transactions", lambda league: log.append(("sync", league)))
+    monkeypatch.setattr(journal, "sync_transactions", lambda league, **k: log.append(("sync", league)))
     E.transactions_state()
     assert log == [("sync", lg), "read"]
 
@@ -233,7 +233,7 @@ def test_state_serves_the_log_when_the_sync_fails(monkeypatch):
 
     E, _ = _state_env(monkeypatch, [row(1, 6, "FA ADDED", -16020, "Jets D/ST")], [])
     monkeypatch.setattr(journal, "sync_transactions", boom)
-    monkeypatch.setattr(E, "tx_player_info", lambda ids: INFO)
+    monkeypatch.setattr(E, "tx_player_info", lambda ids, **k: INFO)
     assert len(E.transactions_state()["moves"]) == 1
 
 
@@ -270,7 +270,7 @@ def test_current_week_box_scores_reconcile_the_log(monkeypatch):
     box = SimpleNamespace(home_team=t6, home_lineup=[SimpleNamespace(playerId=4241474)],
                           away_team=0, away_lineup=[])
     seen = []
-    monkeypatch.setattr(E, "reconcile_log", lambda lg, owners: seen.append(owners))
+    monkeypatch.setattr(E, "reconcile_log", lambda lg, owners, **k: seen.append(owners))
     lg = SimpleNamespace(current_week=5, box_scores=lambda week: [box])
     E.box_scores(lg, 5)
     E.box_scores(lg, 5)  # cached
@@ -282,7 +282,7 @@ def test_box_scores_stand_when_the_reconcile_fails(monkeypatch):
     from types import SimpleNamespace
 
     from ffl import espn_season as E
-    monkeypatch.setattr(E, "reconcile_log", lambda lg, owners: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(E, "reconcile_log", lambda lg, owners, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     lg = SimpleNamespace(current_week=5, box_scores=lambda week: ["box"])
     monkeypatch.setattr(E, "owners_in", lambda boxes: {})
     assert E.box_scores(lg, 5) == ["box"]
@@ -296,9 +296,9 @@ def test_reconcile_syncs_once_per_disagreement(monkeypatch):
     from ffl import espn_season as E
     from ffl import journal
     synced = []
-    monkeypatch.setattr(journal, "sync_transactions", lambda lg: synced.append(1))
-    monkeypatch.setattr(E, "journal_state", lambda: {"transactions": []})
-    monkeypatch.setattr(E, "draft_picks", lambda: [{"player_id": 101, "team_id": 1}])
+    monkeypatch.setattr(journal, "sync_transactions", lambda lg, **k: synced.append(1))
+    monkeypatch.setattr(E, "journal_state", lambda *a, **k: {"transactions": []})
+    monkeypatch.setattr(E, "draft_picks", lambda **k: [{"player_id": 101, "team_id": 1}])
     monkeypatch.setattr(E, "_RECONCILED", {})
     lg = SimpleNamespace()
     assert E.reconcile_log(lg, {101: 1}) is False and synced == []

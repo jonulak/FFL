@@ -319,3 +319,116 @@ def test_record_projections_other_league(wired, monkeypatch):
     out = espn_season.record_projections(ref=wired.other)
     assert out["week"] == 1 and got == [wired.other]
     assert db.projection_rows("week", ref=wired.other) and not db.projection_rows("week")
+
+
+# ---- transactions, results and the draft per league (task 3) ----
+
+def _act(team_id=3, pid=77, name="Some Guy"):
+    team = NS(team_id=team_id, team_name=f"Team {team_id}")
+    return NS(date=1788937502756, actions=[(team, "FA ADDED", NS(playerId=pid, name=name), 0)])
+
+
+def test_sync_other_league_no_notices_no_listeners(monkeypatch, other):
+    from ffl import journal
+    monkeypatch.setattr(journal, "_activities", lambda lg, size: [_act()])
+    heard = []
+    monkeypatch.setattr(journal, "ON_NEW_ROWS", [heard.append])
+    new = journal.sync_transactions(NS(), ref=other)
+    assert len(new) == 1
+    assert [r["player"] for r in db.transactions(ref=other)] == ["Some Guy"]
+    assert db.transactions() == []
+    assert db.unsent_notices(ref=other) == [] and db.unsent_notices() == []
+    assert heard == [], "no listener fires off another league"
+    # the same call with no ref is home's: it queues the notice and calls the listener
+    assert len(journal.sync_transactions(NS())) == 1
+    assert len(heard) == 1 and len(db.unsent_notices()) >= 1
+    assert db.unsent_notices(ref=other) == []
+
+
+def test_sync_results_from_first_week(monkeypatch, other):
+    from ffl import journal
+    me, opp = NS(team_id=3, team_name="Me"), NS(team_id=4, team_name="Them")
+    asked = []
+
+    def scoreboard(wk):
+        asked.append(wk)
+        return [NS(home_team=me, away_team=opp, home_score=100.0, away_score=90.0)]
+    lg = NS(current_week=10, teams=[me, opp], scoreboard=scoreboard)
+    seen = []
+    real = leagues.my_team_id
+
+    def my_team(settings, ref=None):
+        seen.append(ref)
+        return real(settings, ref)
+    monkeypatch.setattr(leagues, "my_team_id", my_team)
+    monkeypatch.setattr(config, "SWID", "{NOPE}")
+    journal.sync_results(lg, {**SETTINGS, "first_week": 8}, ref=other)
+    assert asked == [8, 9] and seen == [other]
+    assert [r["week"] for r in db.results_rows(ref=other)] == [8, 9]
+    assert db.results_rows() == []
+
+
+def test_draft_picks_other_league(monkeypatch, other):
+    rows = [{"overall": 1, "round": 1, "pick": 1, "team_id": 3, "team": "Team 3", "player_id": 11,
+             "player": "A", "pos": "QB", "nfl": "BUF", "ts": "t1"}]
+    db.put_picks(rows, ref=other)
+    assert espn_season.draft_picks(ref=other) == [
+        {"overall": 1, "round": 1, "pick": 1, "team_id": 3, "team": "Team 3", "player_id": 11, "at": "t1"}]
+    assert db.picks() == [], "home has none stored"
+    asked = []
+    pick = NS(round_num=1, round_pick=2, team=NS(team_id=4, team_name="Team 4"), playerId=12)
+
+    def fresh(ref=None):
+        asked.append(ref)
+        return NS(draft=[pick])
+    monkeypatch.setattr(espn_season, "fresh_league", fresh)
+    monkeypatch.setattr(db, "picks", lambda ref=None, season=None: [])
+    assert espn_season.draft_picks(ref=other)[0]["player_id"] == 12
+    assert asked == [other]
+
+
+def test_reconcile_per_league(monkeypatch, other):
+    from ffl import journal
+    synced = []
+    monkeypatch.setattr(journal, "sync_transactions", lambda lg, *, ref=None: synced.append(ref) or [])
+    seen = []
+    monkeypatch.setattr(espn_season, "draft_picks", lambda *, ref=None: seen.append(("picks", ref)) or [])
+    monkeypatch.setattr(espn_season, "journal_state", lambda *, ref=None: seen.append(("log", ref)) or {"transactions": []})
+    espn_season._RECONCILED.clear()
+    owners = {5: 1}
+    assert espn_season.reconcile_log(NS(), owners) is True
+    assert espn_season.reconcile_log(NS(), owners) is False, "home's drift synced once"
+    assert espn_season.reconcile_log(NS(), owners, ref=other) is True, "the same drift for other still syncs"
+    assert espn_season.reconcile_log(NS(), owners, ref=other) is False
+    assert synced == [leagues.home(), other]
+    assert ("picks", other) in seen and ("log", other) in seen
+    assert set(espn_season._RECONCILED) == {leagues.home().key, other.key}
+
+
+def test_fetch_boxes_reconciles_other_league(monkeypatch, other):
+    got = []
+    monkeypatch.setattr(espn_season, "_read_boxes", lambda lg, week, finished, epoch, ref: ([], True, False))
+    monkeypatch.setattr(espn_season, "owners_in", lambda boxes: {})
+    monkeypatch.setattr(espn_season, "reconcile_log", lambda lg, owners, *, ref=None: got.append(ref))
+    espn_season._fetch_boxes(NS(current_week=5), 5, other)
+    assert got == [other]
+
+
+def test_transactions_state_other_league(monkeypatch, other):
+    from ffl import journal
+    rows = [{"id": "1788937502756-3-FA ADDED-77", "date": "2026-09-09T10:00", "type": "FA ADDED", "team": "Team 3",
+             "player": "Some Guy", "action": "FA ADDED", "bid": 0, "reasoning": ""}]
+    db.add_transactions(rows, ref=other)
+    teams = [NS(team_id=3, team_name="Team 3", logo_url="", team_abbrev="T3")]
+    fresh_asked, synced, tx_ref, loaded = [], [], [], []
+    monkeypatch.setattr(espn_season, "fresh_league", lambda ref=None: fresh_asked.append(ref) or NS(teams=teams, current_week=9))
+    monkeypatch.setattr(journal, "sync_transactions", lambda lg, *, ref=None: synced.append(ref) or [])
+    monkeypatch.setattr(espn_season, "tx_player_info", lambda ids, *, ref=None: tx_ref.append(ref) or {77: {"pos": "WR", "team": "BUF"}})
+    monkeypatch.setattr(espn_season, "load", lambda ref=None: loaded.append(ref) or {**SETTINGS, "week1_start": "2026-09-10"})
+    monkeypatch.setattr(espn_season, "_club", lambda t: {"team": t.team_name, "abbrev": "T3", "logo": ""})
+    monkeypatch.setattr(config, "SWID", "{NOPE}")
+    got = espn_season.transactions_state(ref=other)
+    assert got["me"] == 3
+    assert fresh_asked == [other] and synced == [other] and tx_ref == [other] and set(loaded) == {other}
+    assert len(got["moves"]) == 1 and got["moves"][0]["sides"][0]["team_id"] == 3
+    assert db.transactions() == []

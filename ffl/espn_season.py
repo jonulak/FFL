@@ -990,11 +990,11 @@ def _fetch_boxes(lg, week: int, ref: leagues.LeagueRef | None = None) -> list:
     boxes, fresh, final = _read_boxes(lg, week, finished, epoch, ref)
     if finished or _BOXES_EPOCH[0] == epoch:  # a move during the fetch: these may be from before it
         _BOXES[(key, week)] = (math.inf if final else time.time() + BOXES_TTL_S, lg, boxes)
-    if fresh and week == getattr(lg, "current_week", None) and r.home:  # the log is home's until 4.4
+    if fresh and week == getattr(lg, "current_week", None):
         # every page's rosters come through here: a rostered man the record never saw taken (or a
         # drop it missed), seen by any page, syncs the transaction log
         try:
-            reconcile_log(lg, {pid: c["team_id"] for pid, c in owners_in(boxes).items()})
+            reconcile_log(lg, {pid: c["team_id"] for pid, c in owners_in(boxes).items()}, ref=r)
         except Exception as e:  # noqa: BLE001 — the record catching up is a side effect; the page stands without it
             print(f"transaction reconcile failed: {e}")
     return boxes
@@ -1918,8 +1918,8 @@ def league_state(week: int | None = None, *, ref: leagues.LeagueRef | None = Non
             "standings": standings, "scoreboard": board}
 
 
-def journal_state() -> dict:
-    return {"transactions": db.transactions()}
+def journal_state(*, ref=None) -> dict:
+    return {"transactions": db.transactions(ref=_ref(ref))}
 
 
 def parse_tx_players(payload: dict) -> dict[int, dict]:
@@ -1938,7 +1938,7 @@ def parse_tx_players(payload: dict) -> dict[int, dict]:
     return out
 
 
-def tx_player_info(ids: set[int]) -> dict[int, dict]:
+def tx_player_info(ids: set[int], *, ref=None) -> dict[int, dict]:
     """Position and NFL team of every player in the transaction log, in one call. A D/ST's id is
     -16000 less its club's id, so it needs no lookup; a failed read leaves the rest without (the
     page shows the name alone) rather than failing the page."""
@@ -1950,7 +1950,7 @@ def tx_player_info(ids: set[int]) -> dict[int, dict]:
     for i in range(0, len(people), TX_CHUNK):
         filt = {"players": {"filterIds": {"value": people[i:i + TX_CHUNK]}}}
         try:
-            info |= parse_tx_players(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}))
+            info |= parse_tx_players(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, ref=_ref(ref)))
         except Exception as e:  # noqa: BLE001 — positions and clubs are dressing; the moves stand without them
             print(f"transaction player info unavailable: {e}")
     return info
@@ -1962,55 +1962,58 @@ TX_CHUNK = 40
 _RECONCILED: dict[str, frozenset] = {}  # league key -> the disagreement last synced for, so one the feed cannot close syncs once
 
 
-def reconcile_log(lg, owners: dict[int, int]) -> bool:
+def reconcile_log(lg, owners: dict[int, int], *, ref=None) -> bool:
     """Sync the transaction log when ESPN's rosters (player_id -> team id) disagree with what the
     draft and the log say, so a move shows in the record as soon as any page sees its result. True
     when it synced. A disagreement the feed cannot close (a commissioner move it never reports)
     syncs once, not on every rebuild."""
     from . import journal
-    drift = frozenset(S.ownership_drift(owners, S.log_owners(draft_picks(), journal_state()["transactions"])))
-    key = leagues.home().key  # the log is home's until 4.4
+    r = _ref(ref)
+    drift = frozenset(S.ownership_drift(owners, S.log_owners(draft_picks(ref=r), journal_state(ref=r)["transactions"])))
+    key = r.key
     if not drift or drift == _RECONCILED.get(key):
         return False
     _RECONCILED[key] = drift
-    journal.sync_transactions(lg)
+    journal.sync_transactions(lg, ref=r)
     return True
 
 
-def transactions_state() -> dict:
+def transactions_state(*, ref=None) -> dict:
     """The Transactions page: the journal's log grouped into moves (season.group_transactions), each
     side dressed with its fantasy team as the League page shows it (current name: teams get
     renamed, and the log keeps the name at the time). The log is synced from ESPN's activity feed
     first: it otherwise grows only on Refresh, and a move made since would be missing here and from
     every player's record. A failed sync serves the log as it stands."""
     from . import journal
-    lg = fresh_league()
+    r = _ref(ref)
+    lg = fresh_league(r)
     try:
-        journal.sync_transactions(lg)
+        journal.sync_transactions(lg, ref=r)
     except Exception as e:  # noqa: BLE001 — the log on disk is still the record; ESPN down is not a blank page
         print(f"transaction sync failed, serving the log as it stands: {e}")
-    rows = journal_state()["transactions"]
+    rows = journal_state(ref=r)["transactions"]
     clubs = {t.team_id: _club(t) for t in lg.teams}
     ids = {p[3] for r in rows if (p := S.parse_tx_id(r.get("id", "")))}
-    moves = S.group_transactions(rows, tx_player_info(ids), date.fromisoformat(load()["week1_start"]))
+    moves = S.group_transactions(rows, tx_player_info(ids, ref=r), date.fromisoformat(load(r)["week1_start"]))
     for m in moves:
         m["sides"] = [{**s, **({k: v for k, v in clubs[s["team_id"]].items() if k in ("team", "abbrev", "logo")}
                                if s["team_id"] in clubs else {"abbrev": "", "logo": ""})} for s in m["sides"]]
-    return {"me": my_team_id(lg), "current_week": lg.current_week, "moves": moves,
+    return {"me": my_team_id(lg, r), "current_week": lg.current_week, "moves": moves,
             "teams": sorted(clubs.values(), key=lambda c: c["team"].lower())}
 
 
-def draft_picks() -> list[dict]:
+def draft_picks(*, ref=None) -> list[dict]:
     """Every pick of the draft: overall, round, pick in the round, team id and name, player id,
     and when (the log's stamp). The DB's draft_picks is the record; when it is empty, ESPN's own
     draft (League.draft, complete once the draft is done) stands in, in pick order, with no time
     (ESPN keeps none)."""
-    rows = db.picks(ref=leagues.home())
+    r = _ref(ref)
+    rows = db.picks(ref=r)
     if rows:
         return [{"overall": r["overall"], "round": r["round"], "pick": r["pick"], "team_id": r["team_id"],
                  "team": r["team"], "player_id": r["player_id"], "at": r["ts"]} for r in rows]
     return [{"overall": i, "round": p.round_num, "pick": p.round_pick, "team_id": p.team.team_id,
              "team": p.team.team_name, "player_id": p.playerId, "at": None}
-            for i, p in enumerate(fresh_league().draft, 1)]
+            for i, p in enumerate(fresh_league(r).draft, 1)]
 
 
