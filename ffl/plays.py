@@ -155,11 +155,14 @@ def revision(before: dict | None, after: dict | None, delta: float, play: dict |
     """How a points change that scored no new play reads (a new play moves a count): "reversed"
     when it erased one (a count fell: a catch called back; or yards fell on his newest play
     (`play`) and it drew a flag: trimmed back to the foul's spot), "adjusted" when only yards
-    moved (the ball re-spotted, 55 yards to 54, either way). None for a new play. A D/ST's yards
-    and points allowed move with no count, so only a count falling revises one."""
+    moved (the ball re-spotted, 55 yards to 54, either way). None for a new play. A count falling
+    with none rising is an erasure whichever way the points go: a fumble lost or interception
+    overturned gives them back. With one rising too, a frame held a new play, read by the points.
+    A D/ST's yards and points allowed move with no count, so only a count falling revises one."""
     before, after = before or {}, after or {}
     if any(_n(after.get(s)) < _n(before.get(s)) for s in COUNTERS):
-        return "reversed" if delta < 0 else None
+        rose = any(_n(after.get(s)) > _n(before.get(s)) for s in COUNTERS)
+        return "reversed" if delta < 0 or not rose else None
     if dst or any(_n(after.get(s)) != _n(before.get(s)) for s in COUNTERS):
         return None
     text = ((play or {}).get("text") or "").lower()
@@ -215,10 +218,13 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
         named = cache.play_for(game.get("id"), pid) if cache is not None else None
         kind = revision(stats_before.get(pid), row.get("stats"), new - (old or 0.0), named, who["pos"] == "D/ST") \
             if cache is not None and stats_before is not None else None
-        # no caption beats the next play's: it is what the feed shows when none is the play revised
+        # no caption beats the next play's: it is what the feed shows when none is the play revised.
+        # Points given back are a turnover overturned on review, his newest play: the REVERSED wording
+        # lands after the stats, and the row's play_id shows it then (playbook.wording)
         if kind == "reversed":
             flagged = named if "penalty on" in ((named or {}).get("text") or "").lower() else None
-            play, match = cache.called_back(game.get("id"), pid) or flagged or {}, "reversed"
+            given_back = named if new > (old or 0.0) else None
+            play, match = cache.called_back(game.get("id"), pid) or flagged or given_back or {}, "reversed"
         elif kind == "adjusted":
             play, match = named or {}, "adjusted"
         elif cache is not None and who["pos"] == "D/ST":

@@ -263,11 +263,30 @@ def test_a_loss_whose_yards_land_before_its_carry_is_a_loss_not_a_takeback():
     assert rows[0]["match"] == "player"
 
 
-def test_a_gain_is_never_a_takeback_even_when_a_stat_falls():
+# Shough, week 7: sacked and stripped, the fumble lost (-2) overturned on review ten seconds later. The
+# REVERSED wording lands some 40 s after the stats, so the caption is the play naming him, by its id.
+OVERTURNED = {"playId": "4018730111090", "text": "(Shotgun) T.Shough sacked at PIT 26 for -9 yards (T.Watt). FUMBLES "
+              "(T.Watt) [T.Watt], RECOVERED by PIT-T.Watt at PIT 26.", "period": 2, "clock": 673.0,
+              "players": [{"playerId": "1", "type": "passer"}]}
+
+
+def test_a_turnover_overturned_gives_points_back_as_a_takeback():
     cache = plays.PlayCache()
-    doc = _qb_doc(NEXT, [NEXT], {"0": 21.0, "20": 0.0})  # an interception overturned gives points back
+    doc = _qb_doc(OVERTURNED, [OVERTURNED], {"0": 21.0, "72": 0.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 1.96}, {1: 3.96}, doc, QB, AT, 7, cache, {1: {"0": 21.0, "72": 1.0}})
+    assert rows[0]["match"] == "reversed" and rows[0]["play_id"] == OVERTURNED["playId"]
+    doc = _qb_doc(NEXT, [NEXT], {"0": 21.0, "20": 0.0})  # an interception overturned to an incompletion
     cache.remember(doc)
     rows = plays.events_from({1: 16.0}, {1: 18.0}, doc, QB, AT, 3, cache, {1: {"0": 21.0, "20": 1.0}})
+    assert rows[0]["match"] == "reversed"
+
+
+def test_a_gain_with_a_count_rising_is_a_new_play_even_when_another_falls():
+    cache = plays.PlayCache()
+    doc = _qb_doc(LONG, [LONG], {"0": 22.0, "1": 16.0, "20": 0.0})  # one frame: an INT erased and a catch
+    cache.remember(doc)
+    rows = plays.events_from({1: 16.0}, {1: 20.0}, doc, QB, AT, 3, cache, {1: {"0": 21.0, "1": 15.0, "20": 1.0}})
     assert rows[0]["match"] == "player"
 
 
