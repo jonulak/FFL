@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
@@ -62,7 +63,7 @@ def refresh_league() -> None:
     global _LEAGUE_BUILT_AT
     _LEAGUE_BUILT_AT = 0.0
     _BUILT.clear()
-    _SCHED.clear()  # the NFL's schedule too, so POST /refresh re-reads it
+    _SCHED[0] = None  # the NFL's schedule too, so POST /refresh re-reads it
     cache_clear = getattr(league, "cache_clear", None)  # None when tests stub `league`
     if cache_clear is not None:
         cache_clear()
@@ -71,7 +72,7 @@ def refresh_league() -> None:
 def fresh_league(ref: leagues.LeagueRef | None = None):
     """config.league(ref) (None: home), rebuilt when that league's build is older than LEAGUE_TTL_S. Only its
     own League is evicted, so one league's hour running out never costs another its League; _LEAGUE_BUILT_AT
-    moves with any rebuild (the pro schedule is NFL-wide, and its caches key on it)."""
+    moves with any rebuild (nothing keys on it now: the pro schedule is NFL-wide, on its own clock)."""
     global _LEAGUE_BUILT_AT
     r = _ref(ref)
     now = time.time()
@@ -154,7 +155,7 @@ def parse_home_by_team(data: dict, week: int) -> dict[str, bool]:
     return out
 
 
-_SCHED: list = []  # [expires_at, doc]: the proTeamSchedules_wl document, the NFL's whichever League asked
+_SCHED: list = [None]  # [(expires_at, doc) or None]: the proTeamSchedules_wl document, the NFL's whichever League asked
 # The parses below key on the document itself (the entry holds it, so a freed document's id is never reused for a hit)
 _BYE: dict[int, tuple[dict, dict[str, int]]] = {}  # id(doc) -> (doc, team -> bye week)
 
@@ -166,20 +167,25 @@ def _schedule_doc(lg) -> dict:
     req = getattr(lg, "espn_request", None)  # tests stub the league without one
     if req is None:
         return {}
-    if not _SCHED or time.time() >= _SCHED[0]:
-        data = req.get_pro_schedule()
-        _SCHED[:] = [time.time() + LEAGUE_TTL_S, data]
-    return _SCHED[1]
+    held = _SCHED[0]  # one read: refresh_league() may set None at any moment
+    if held is None or time.time() >= held[0]:
+        held = (time.time() + LEAGUE_TTL_S, req.get_pro_schedule())
+        _SCHED[0] = held  # one assignment
+    return held[1]
+
+
+_PARSE_LOCK = threading.Lock()
 
 
 def _parsed(cache: dict, doc: dict, key, parse):
     """`parse(doc)` kept in `cache` under `key` + the document's identity; a new document drops the old parses."""
-    hit = cache.get((key, id(doc)))
-    if hit is None or hit[0] is not doc:
-        for k in [k for k, v in cache.items() if v[0] is not doc]:
-            del cache[k]
-        hit = cache[(key, id(doc))] = (doc, parse(doc))
-    return hit[1]
+    with _PARSE_LOCK:  # builds run on threads; the loop below must not race another's insert or delete
+        hit = cache.get((key, id(doc)))
+        if hit is None or hit[0] is not doc:
+            for k in [k for k, v in cache.items() if v[0] is not doc]:
+                del cache[k]
+            hit = cache[(key, id(doc))] = (doc, parse(doc))
+        return hit[1]
 
 
 def home_by_team(lg, week: int) -> dict[str, bool]:

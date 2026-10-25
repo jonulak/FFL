@@ -1262,3 +1262,45 @@ def test_schedule_doc_shared_across_leagues(monkeypatch):
     espn_season.refresh_league()
     espn_season.bye_by_team(lg_b)
     assert len(fetched) == 2
+
+
+def test_schedule_parses_survive_concurrent_builds(monkeypatch):
+    """Page builds run on threads: the shared parse caches must not raise while another thread inserts or evicts."""
+    import sys
+    import threading
+    docs = [{"settings": {"proTeams": PRO_SCHEDULE["settings"]["proTeams"]}} for _ in range(2)]
+    flip = [0]
+    monkeypatch.setattr(espn_season, "_schedule_doc", lambda lg: docs[flip[0] % 2])
+    errors = []
+
+    def work(i):
+        try:
+            for n in range(300):
+                flip[0] += 1
+                espn_season.home_by_team(None, (i + n) % 18 + 1)
+                espn_season.bye_by_team(None)
+                espn_season.kickoffs_by_week(None)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        threads = [threading.Thread(target=work, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        sys.setswitchinterval(old)
+    assert errors == []
+
+
+def test_refresh_league_mid_call_does_not_break_the_doc():
+    """refresh_league() landing mid-call leaves the call with its own document, never an IndexError."""
+    espn_season.refresh_league()
+
+    def get():
+        espn_season.refresh_league()  # a refresh lands while the fetch is in flight
+        return PRO_SCHEDULE
+    lg = SimpleNamespace(espn_request=SimpleNamespace(get_pro_schedule=get))
+    assert espn_season._schedule_doc(lg) is PRO_SCHEDULE

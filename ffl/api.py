@@ -36,7 +36,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from . import calibrate, db, espn_season, leagues, espn_write, live, nfl, notify, outlook, player_card, player_views, season, sources
+from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
 from . import fastcast, news, playbook, watch
 from . import claims as claims_mod
 from . import db
@@ -314,10 +314,12 @@ def cache_for(ref: LeagueRef | None) -> Cache:
         if ref.home:
             return caches.setdefault(ref.key, cache)
         c = caches.get(ref.key)
-        if c is None:
-            c = caches[ref.key] = Cache(TTL, persist=True, ref=ref)
-            c.load()
-        return c
+    if c is None:  # load reads the DB: never under _CACHES, which every home request takes
+        c = Cache(TTL, persist=True, ref=ref)
+        c.load()
+        with _CACHES:
+            c = caches.setdefault(ref.key, c)  # a duplicate that lost is dropped; load only reads
+    return c
 
 
 def open_league(league: str | None = Query(None)) -> LeagueRef:
@@ -334,6 +336,8 @@ def _not_for_league(ref: LeagueRef, feature: str) -> None:
     """404 for a feature that is home's alone until its own task makes it per league."""
     if not ref.home:
         raise HTTPException(status_code=404, detail={"error": "not_for_league", "league": ref.key, "feature": feature})
+
+
 def home_only(feature: str):
     """A route dependency refusing another league's request (404 not_for_league) before the body is read."""
     def check(ref: LeagueRef = Depends(open_league)) -> None:
