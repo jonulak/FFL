@@ -117,7 +117,5 @@ def _empty_api_cache():
     api = sys.modules.get("ffl.api")
     if api is not None:
         api.cache.join()
-        try:
-            api.cache.clear()
-        except SystemExit:                               # a migration test left a DB with no home league to name
-            pass
+        with api.cache._lock:                            # memory only: the test's DB is a throwaway copy
+            api.cache._d.clear()
