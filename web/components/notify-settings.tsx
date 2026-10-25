@@ -5,7 +5,7 @@ import { useRouter } from "@/components/league-link";
 import { toast } from "sonner";
 import { clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -29,7 +29,7 @@ function swReady(): Promise<ServiceWorkerRegistration> {
   ]);
 }
 
-export function NotifySettings({ config }: { config: NotifyConfig }) {
+export function NotifySettings({ config, league }: { config: NotifyConfig; league: string }) {
   const router = useRouter();
   const [prefs, setPrefs] = useState<NotifyPrefs>(config.prefs);
   // the browser's push capability: null on the server and the first client render, then fixed
@@ -123,7 +123,7 @@ export function NotifySettings({ config }: { config: NotifyConfig }) {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Notify me about</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Notify me about</CardTitle><CardDescription>In {league}. The device and quiet hours are every league&apos;s.</CardDescription></CardHeader>
         <CardContent className="space-y-3">
           {KINDS.map(([k, label, hint]) => (
             <Label key={k} className="flex items-center justify-between gap-4">

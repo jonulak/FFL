@@ -560,3 +560,32 @@ def test_news_marks_whose_players_in_the_open_league(client, other, monkeypatch)
     client.get("/news?league=espn:999")
     client.get("/news")
     assert asked == [other, None]
+
+
+def _limits(league: str, **limits):
+    import sqlalchemy as sa
+    with db._write() as c:
+        for pos, n in limits.items():
+            c.execute(db._upsert(db.league_caps, [{"league": league, "pos": pos.replace("DST", "D/ST"), "provider_limit": n,
+                                                   "my_cap": None}], ["league", "pos"], ["provider_limit"]))
+    assert sa  # the import is the table's
+
+
+def test_caps_are_the_open_leagues_and_never_above_its_limit(client, other):
+    from ffl import strategy
+    _limits("espn:999", QB=4, RB=8)
+    home_before = db.caps_rows(leagues.home().key)
+    body = client.get("/caps?league=espn:999").json()
+    assert body["league"] == "espn:999"
+    qb = next(r for r in body["rows"] if r["pos"] == "QB")
+    assert qb == {"pos": "QB", "provider_limit": 4, "my_cap": None, "cap": 4}
+    assert [r["pos"] for r in body["rows"]] == ["QB", "RB", "WR", "TE", "K", "D/ST"]
+    r = client.post("/caps?league=espn:999", json={"pos": "QB", "my_cap": 2})
+    assert r.status_code == 200 and next(x for x in r.json()["rows"] if x["pos"] == "QB")["cap"] == 2
+    assert leagues.caps(other)["QB"] == 2 and strategy.caps(other)["QB"] == 2, "the draft tools read the same rows"
+    over = client.post("/caps?league=espn:999", json={"pos": "QB", "my_cap": 5})
+    assert over.status_code == 422 and "at most 4" in over.json()["detail"]
+    assert client.post("/caps?league=espn:999", json={"pos": "XX", "my_cap": 1}).status_code == 422
+    assert db.caps_rows(leagues.home().key) == home_before, "home's rows are its own"
+    home_rows = client.get("/caps").json()
+    assert home_rows["league"] == leagues.home().key

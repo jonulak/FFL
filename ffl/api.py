@@ -467,6 +467,38 @@ def league_list():
              "home": r.home} for r in leagues.all_leagues()]
 
 
+def _caps(ref: LeagueRef) -> dict:
+    """The Settings page's caps table for a league: per position the league's limit, my cap and the cap the draft
+    tools use (the lower). Read through strategy.caps, so a position with no cap of mine takes the preset's
+    suggestion first, as the draft tools would."""
+    from . import strategy
+    strategy.caps(ref)
+    rows, eff = db.caps_rows(ref.key), leagues.caps(ref)
+    return {"league": ref.key, "name": ref.name, "rows": [{"pos": p, "provider_limit": rows.get(p, {}).get("provider_limit"),
+                                         "my_cap": rows.get(p, {}).get("my_cap"), "cap": eff.get(p)}
+                                        for p in leagues.CAP_POSITIONS]}
+
+
+class CapIn(BaseModel):
+    pos: str
+    my_cap: int
+
+
+@app.get("/caps")
+def caps_get(ref: LeagueRef = Depends(open_league)):
+    return _caps(ref)
+
+
+@app.post("/caps")
+def caps_set(body: CapIn, ref: LeagueRef = Depends(open_league)):
+    """My cap at one position of the open league (`ffl.leagues caps`' rows): never above the league's limit (422)."""
+    try:
+        leagues.set_cap(ref, body.pos, body.my_cap)
+    except SystemExit as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _caps(ref)
+
+
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
 
 _SUBMIT = threading.Lock()  # one submit at a time: it cancels and reposts ESPN's whole claim list (home's; see _lock)
