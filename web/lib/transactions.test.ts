@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlayerTx, TxMove, TxPlayer } from "./api";
-import { byWeek, filterMoves, historyDetail, historyWhen, pairs, stamp, weekLabel } from "./transactions";
+import { byWeek, filterMoves, firstMoves, historyDetail, historyWhen, pairs, stamp, weekLabel } from "./transactions";
 
 const p = (id: number): TxPlayer => ({ player_id: id, name: `P${id}`, pos: "WR", team: "ATL" });
 const side = (team_id: number, added: TxPlayer[] = [], dropped: TxPlayer[] = []) =>
@@ -23,6 +23,17 @@ describe("byWeek", () => {
   it("groups consecutive moves by week, in the order given", () => {
     const got = byWeek([move("a", "waiver", 3), move("b", "waiver", 3), move("c", "drop", 2)]);
     expect(got.map((g) => [g.week, g.moves.length])).toEqual([[3, 2], [2, 1]]);
+  });
+});
+
+describe("firstMoves", () => {
+  const weeks = byWeek([move("a", "waiver", 3), move("b", "waiver", 3), move("c", "drop", 2), move("d", "drop", 2), move("e", "free_agent", 1)]);
+  it("keeps the newest n moves, cutting a week part way, and each week's full count", () => {
+    const got = firstMoves(weeks, 3);
+    expect(got.map((g) => [g.week, g.moves.map((m) => m.id), g.count])).toEqual([[3, ["a", "b"], 2], [2, ["c"], 2]]);
+  });
+  it("keeps every week when n covers them", () => {
+    expect(firstMoves(weeks, 99).map((g) => [g.week, g.moves.length, g.count])).toEqual([[3, 2, 2], [2, 2, 2], [1, 1, 1]]);
   });
 });
 

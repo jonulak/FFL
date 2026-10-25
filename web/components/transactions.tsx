@@ -2,7 +2,7 @@
 
 import { Empty as EmptyState, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { ArrowLeftRight, Minus, Plus, UserRound } from "lucide-react";
-import { startTransition, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,7 +11,7 @@ import type { Transactions, TxMove, TxPlayer, TxSide } from "@/lib/api";
 import { BOARD_CARD, LABEL } from "@/lib/board";
 import { NAME_LINK } from "@/lib/player-log";
 import { clubLogoSrc, headshotArt } from "@/lib/teams";
-import { byWeek, filterMoves, KIND_LABEL, pairs, stamp, TX_FILTERS, weekLabel, type TxFilter } from "@/lib/transactions";
+import { byWeek, filterMoves, firstMoves, KIND_LABEL, pairs, stamp, TX_FILTERS, weekLabel, type TxFilter } from "@/lib/transactions";
 import { ClubLogo } from "./club-logo";
 import { PlayerTrigger } from "./player-dialog";
 import { TeamLogo, TeamPanel } from "./player-media";
@@ -164,13 +164,28 @@ function TradeRow({ m, me }: { m: TxMove; me: number }) {
   );
 }
 
+// The moves a tab tap draws before the skeleton goes; the rest follow STEP a frame once that one is on screen.
+// Drawing all of them at once (139 by week 7, ~7,800 nodes) froze the iPad for seconds behind the skeleton.
+const STEP = 30;
+
 export function TransactionsView({ data }: { data: Transactions }) {
   const [filter, setFilter] = useState<TxFilter>("all");
   const [mineOnly, setMineOnly] = useState(false);
+  const [limit, setLimit] = useState(STEP);
+  const total = data.moves.length;
+  useEffect(() => {
+    if (limit >= total) return;
+    // after the frame with the last batch has painted, as a transition, so a tap meanwhile still answers
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const raf = requestAnimationFrame(() => { t = setTimeout(() => startTransition(() => setLimit((l) => l + STEP)), 0); });
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  }, [limit, total]);
   // a filter change fades the new list in (Refade)
   const pick = (f: TxFilter) => startTransition(() => setFilter(f));
   const mine = (on: boolean) => startTransition(() => setMineOnly(on));
   const shown = filterMoves(data.moves, filter, mineOnly ? data.me : null);
+  const weeks = byWeek(shown);
+  const drawn = firstMoves(weeks, limit);
   const count = (f: TxFilter) => filterMoves(data.moves, f, mineOnly ? data.me : null).length;
   return (
     <div className="space-y-5">
@@ -213,9 +228,9 @@ export function TransactionsView({ data }: { data: Transactions }) {
           <EmptyHeader><EmptyDescription>{mineOnly ? "No moves of yours here yet." : "No moves of this kind yet."}</EmptyDescription></EmptyHeader>
         </EmptyState>
       ) : (
-        byWeek(shown).map(({ week, moves }) => (
+        drawn.map(({ week, moves, count: n }) => (
           <section key={week} className="space-y-3" aria-label={weekLabel(week, data.current_week)}>
-            <SectionHeading title={weekLabel(week, data.current_week)} count={moves.length} />
+            <SectionHeading title={weekLabel(week, data.current_week)} count={n} />
             <Card className={BOARD_CARD}>
               <CardContent className="px-0 sm:px-0">
                 {/* the column names belong to add/drop lines; a week of trades alone goes without */}
