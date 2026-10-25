@@ -138,7 +138,7 @@ adp_feeds = sa.Table(
 )
 
 transactions_table = sa.Table(  # not `transactions`: that name is the reader below
-    "transactions", metadata, _season(),
+    "transactions", metadata, _league(), _season(),
     sa.Column("id", sa.String, nullable=False),          # `{epoch ms}-{team_id}-{action}-{player_id}`, as journal.py keys it
     sa.Column("date", sa.String, nullable=False),        # ISO minutes, local
     sa.Column("type", sa.String, nullable=False),
@@ -148,9 +148,10 @@ transactions_table = sa.Table(  # not `transactions`: that name is the reader be
     sa.Column("action", sa.String, nullable=False),
     sa.Column("bid", sa.Integer, nullable=False, default=0),
     sa.Column("reasoning", sa.String, nullable=False, default=""),
-    sa.PrimaryKeyConstraint("season", "id"),
+    sa.PrimaryKeyConstraint("league", "season", "id"),
 )
-sa.Index("ix_transactions_player", transactions_table.c.season, transactions_table.c.player_id)
+sa.Index("ix_transactions_player", transactions_table.c.league, transactions_table.c.season,
+         transactions_table.c.player_id)
 
 draft_picks = sa.Table(
     "draft_picks", metadata, _league(), _season(),
@@ -225,17 +226,17 @@ props_raw = sa.Table(
 )
 
 results = sa.Table(
-    "results", metadata, _season(),
+    "results", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("opponent", sa.String, nullable=False),
     sa.Column("my_score", sa.Float, nullable=False),
     sa.Column("opp_score", sa.Float, nullable=False),
     sa.Column("result", sa.String(1), nullable=False),
-    sa.PrimaryKeyConstraint("season", "week"),
+    sa.PrimaryKeyConstraint("league", "season", "week"),
 )
 
 plays = sa.Table(
-    "plays", metadata,
+    "plays", metadata, _league(),
     sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
     _season(),
     sa.Column("week", sa.Integer, nullable=False),
@@ -244,9 +245,9 @@ plays = sa.Table(
     sa.Column("team_id", sa.Integer),
     sa.Column("total", sa.Float, nullable=False),
     sa.Column("body", sa.JSON, nullable=False),          # the whole row as plays.events_from made it
-    sa.UniqueConstraint("season", "week", "player_id", "at", "total", name="uq_plays_event"),
+    sa.UniqueConstraint("league", "season", "week", "player_id", "at", "total", name="uq_plays_event"),
 )
-sa.Index("ix_plays_week_team", plays.c.season, plays.c.week, plays.c.team_id)
+sa.Index("ix_plays_week_team", plays.c.league, plays.c.season, plays.c.week, plays.c.team_id)
 
 # Every NFL play, once (ffl/playbook.py): FastCast's as the live feed sees them, ESPN's core drives' (source "espn")
 # over them once read. A feed row links to its play by play_id and shows this text, so a play's later rewording
@@ -281,29 +282,29 @@ sa.Index("ix_called_back_week", called_back.c.season, called_back.c.week)
 # hash only when ESPN's answer changed. settled: the correction pass's last read (ffl-7sq); never fetched after it.
 # final: read after the week finished (week < ESPN's), so a baseline; a current-week (maybe mid-game) read is not.
 box_scores_table = sa.Table(
-    "box_scores", metadata, _season(),
+    "box_scores", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("doc", sa.JSON, nullable=False),
     sa.Column("hash", sa.String, nullable=False),
     sa.Column("fetched_at", sa.Float, nullable=False),
     sa.Column("settled", sa.Boolean, nullable=False, default=False, server_default=sa.text("0")),
     sa.Column("final", sa.Boolean, nullable=False, default=False, server_default=sa.text("0")),
-    sa.PrimaryKeyConstraint("season", "week"),
+    sa.PrimaryKeyConstraint("league", "season", "week"),
 )
 
 # A rostered player's game rows for an earlier week he sat on no fantasy roster (espn_season._gap_games).
 gap_games_table = sa.Table(
-    "gap_games", metadata, _season(),
+    "gap_games", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("rows", sa.JSON, nullable=False),
     sa.Column("fetched_at", sa.Float, nullable=False),
-    sa.PrimaryKeyConstraint("season", "week", "player_id"),
+    sa.PrimaryKeyConstraint("league", "season", "week", "player_id"),
 )
 
 # A finished week's points that changed between two reads (ESPN's stat corrections). team_id NULL: a gap-week row.
 box_score_corrections = sa.Table(
-    "box_score_corrections", metadata,
+    "box_score_corrections", metadata, _league(),
     sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
     _season(),
     sa.Column("week", sa.Integer, nullable=False),
@@ -315,25 +316,25 @@ box_score_corrections = sa.Table(
 )
 
 outlooks = sa.Table(
-    "outlooks", metadata, _season(),
+    "outlooks", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("kind", sa.String, nullable=False),        # outlook.ROSTER ("week") / outlook.WAIVERS ("waivers-week")
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("entry", sa.JSON, nullable=False),         # hash, card_hash, bullets, generated_at, error
     sa.Column("updated", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("season", "week", "kind", "player_id"),
+    sa.PrimaryKeyConstraint("league", "season", "week", "kind", "player_id"),
 )
 
 calibration_snapshots = sa.Table(
-    "calibration_snapshots", metadata, _season(),
+    "calibration_snapshots", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("k", sa.Float, nullable=False),
     sa.Column("taken_at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("season", "week"),
+    sa.PrimaryKeyConstraint("league", "season", "week"),
 )
 
 calibration_rows = sa.Table(
-    "calibration_rows", metadata, _season(),
+    "calibration_rows", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("name", sa.String, nullable=False),
@@ -342,8 +343,9 @@ calibration_rows = sa.Table(
     sa.Column("l3", sa.Float),
     sa.Column("weight", sa.Float, nullable=False),
     sa.Column("games_left", sa.Integer, nullable=False),
-    sa.PrimaryKeyConstraint("season", "week", "player_id"),
-    sa.ForeignKeyConstraint(["season", "week"], ["calibration_snapshots.season", "calibration_snapshots.week"]),
+    sa.PrimaryKeyConstraint("league", "season", "week", "player_id"),
+    sa.ForeignKeyConstraint(["league", "season", "week"], ["calibration_snapshots.league", "calibration_snapshots.season",
+                                                       "calibration_snapshots.week"]),
 )
 
 sigma_fits = sa.Table(
@@ -357,14 +359,14 @@ sigma_fits = sa.Table(
 # kept so `ffl.calibrate sources` can fit per-source weights. kind "week" (that week's game) or "ros" (the
 # ROS week's rest of season); written until his kickoff, then left alone (espn_season.record_projections).
 projection_rows_table = sa.Table(  # not `projection_rows`: that name is the reader below
-    "projection_rows", metadata, _season(),
+    "projection_rows", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("kind", sa.String, nullable=False),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("source", sa.String, nullable=False),
     sa.Column("points", sa.Float, nullable=False),
     sa.Column("taken_at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("season", "week", "kind", "player_id", "source"),
+    sa.PrimaryKeyConstraint("league", "season", "week", "kind", "player_id", "source"),
 )
 
 # Fitted per-source weights ({"week": {pos: {source: w}}, "ros": {...}, "report": {...}}); none applies
@@ -378,52 +380,52 @@ source_weights = sa.Table(
 )
 
 claim_plans = sa.Table(
-    "claim_plans", metadata, _season(),
+    "claim_plans", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("plan", sa.JSON, nullable=False),
     sa.Column("updated", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("season", "week"),
+    sa.PrimaryKeyConstraint("league", "season", "week"),
 )
 
 # The players sat by hand for a week (the Roster sheet's toggle): left out of the lineup call. A row is a sit and
 # the toggle off deletes it, so a new week starts with none.
 sits = sa.Table(
-    "sits", metadata, _season(),
+    "sits", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("season", "week", "player_id"),
+    sa.PrimaryKeyConstraint("league", "season", "week", "player_id"),
 )
 
 # The players on the watchlist (the Players page's eye toggle). A row is a watch; unwatching deletes it.
 watchlist = sa.Table(
-    "watchlist", metadata, _season(),
+    "watchlist", metadata, _league(), _season(),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("added_at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("season", "player_id"),
+    sa.PrimaryKeyConstraint("league", "season", "player_id"),
 )
 
 # What happened to a watched player (kind ahead/usage/news/bench/available), one row per `key`; unwatching keeps them.
 # Not `watch_signals`: that name is the reader below.
 watch_signals_table = sa.Table(
-    "watch_signals", metadata, _season(),
+    "watch_signals", metadata, _league(), _season(),
     sa.Column("key", sa.String, nullable=False),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("kind", sa.String, nullable=False),
     sa.Column("text", sa.String, nullable=False),
     sa.Column("at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("season", "key"),
-    sa.Index("ix_watch_signals_player", "season", "player_id"),
+    sa.PrimaryKeyConstraint("league", "season", "key"),
+    sa.Index("ix_watch_signals_player", "league", "season", "player_id"),
 )
 
 # Which row of a starting slot each player stands in (season.reseat): ESPN's two WR slots are one slot to it and it
 # lists them in roster-acquisition order, so a swap would jump rows. A player stands in `seat_id`'s place in that
 # order; one with no row stands in his own.
 seats = sa.Table(
-    "seats", metadata, _season(),
+    "seats", metadata, _league(), _season(),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("seat_id", sa.Integer, nullable=False),
-    sa.PrimaryKeyConstraint("season", "player_id"),
+    sa.PrimaryKeyConstraint("league", "season", "player_id"),
 )
 
 # Web Push: one row per installed device (the browser's PushSubscription). A 404/410 from the push service deletes it.
@@ -438,7 +440,7 @@ push_subscriptions = sa.Table(
 # The notification outbox (ffl/notify.py): every detector inserts if absent on key, so an event is one notice however
 # often it is seen, across restarts. sent_at stays NULL until the flush delivers it or marks it off/expired.
 notices = sa.Table(
-    "notices", metadata, _season(),
+    "notices", metadata, _league(), _season(),
     sa.Column("key", sa.String, nullable=False),         # move:<tx id> / injury:<week>:<pid>:<status> / waivers:<run>
     sa.Column("kind", sa.String, nullable=False),        # move / trade / injury / waivers
     sa.Column("title", sa.String, nullable=False),
@@ -447,9 +449,9 @@ notices = sa.Table(
     sa.Column("created_at", sa.String, nullable=False),
     sa.Column("sent_at", sa.String),
     sa.Column("outcome", sa.String),                     # sent / off / expired
-    sa.PrimaryKeyConstraint("season", "key"),
+    sa.PrimaryKeyConstraint("league", "season", "key"),
 )
-sa.Index("ix_notices_unsent", notices.c.season, notices.c.sent_at)
+sa.Index("ix_notices_unsent", notices.c.league, notices.c.season, notices.c.sent_at)
 
 # notify's prefs and detector memory (last waiver run, the pending-claims snapshot), one JSON value per key.
 notify_state = sa.Table(
@@ -464,7 +466,7 @@ notify_state = sa.Table(
 # lists it as open); a list of preset keys (ffl.decisions.PRESETS) otherwise. import_key is set only on rows the
 # one-time import made from the markdown file (`<heading>#<n>`), so re-running it inserts nothing.
 decisions_table = sa.Table(
-    "decisions", metadata,
+    "decisions", metadata, _league(),
     sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
     _season(),
     sa.Column("at", sa.String, nullable=False),          # ISO seconds with offset (app/session); YYYY-MM-DD (import)
@@ -484,9 +486,10 @@ decisions_table = sa.Table(
     sa.Column("body", sa.String),
     sa.Column("player_ids", sa.JSON(none_as_null=True)),
     sa.Column("import_key", sa.String),
-    sa.UniqueConstraint("season", "import_key", name="uq_decisions_import"),
+    sa.UniqueConstraint("league", "season", "import_key", name="uq_decisions_import"),
 )
-sa.Index("ix_decisions_week_kind", decisions_table.c.season, decisions_table.c.week, decisions_table.c.kind)
+sa.Index("ix_decisions_week_kind", decisions_table.c.league, decisions_table.c.season, decisions_table.c.week,
+         decisions_table.c.kind)
 
 # The API's page payloads (api.Cache), written through on every install and loaded expired at boot, so the first open
 # of a page after a restart is served at once while it rebuilds behind. A dropped page's row is deleted with it.
@@ -877,32 +880,45 @@ def put_adp_feed(fmt: str, teams: int, year: int, rows: list[dict], meta: dict, 
                           ["fmt", "teams", "year"], ["rows", "meta", "fetched_at"]))
 
 
-def add_plays(rows: list[dict], season: int = SEASON) -> int:
-    """Insert the play-feed rows not already stored (key: season, week, player, at, total). Returns how
+def _league_key(ref) -> str:
+    """The league key of a LeagueRef; None is the current league (`leagues.current()`). TRANSITIONAL (4.12 removes
+    the default). Resolved before a transaction opens: the registry read is a read of its own."""
+    if ref is not None:
+        return ref.key
+    from . import leagues  # here: leagues imports this module
+    return leagues.current().key
+
+
+def add_plays(rows: list[dict], season: int = SEASON, ref=None) -> int:
+    """Insert the play-feed rows not already stored (key: league, season, week, player, at, total). Returns how
     many were new."""
     if not rows:
         return 0
-    vals = [{"season": season, "week": r["week"], "at": r["at"], "player_id": r["player_id"],
+    league = _league_key(ref)
+    vals = [{"league": league, "season": season, "week": r["week"], "at": r["at"], "player_id": r["player_id"],
              "team_id": r.get("team_id"), "total": r["total"], "body": r} for r in rows]
     with _write() as c:
-        stmt = _upsert(plays, vals, ["season", "week", "player_id", "at", "total"], None).returning(plays.c.id)
+        stmt = _upsert(plays, vals, _KEYS["plays"], None).returning(plays.c.id)
         return len(c.execute(stmt).all())
 
 
-def plays_rows(week: int, season: int = SEASON) -> list[dict]:
+def plays_rows(week: int, season: int = SEASON, ref=None) -> list[dict]:
     """One week's play-feed rows, oldest first."""
-    q = sa.select(plays.c.body).where(plays.c.season == season, plays.c.week == week).order_by(plays.c.id)
+    t = plays
+    q = sa.select(t.c.body).where(t.c.league == _league_key(ref), t.c.season == season, t.c.week == week) \
+        .order_by(t.c.id)
     with _read() as c:
         return list(c.execute(q).scalars())
 
 
-def update_plays(rows: list[dict], season: int = SEASON) -> None:
+def update_plays(rows: list[dict], season: int = SEASON, ref=None) -> None:
     """Rewrite stored play-feed rows' bodies in place, each found by its key (week, player, at, total)."""
-    t = plays
+    t, league = plays, _league_key(ref)
     with _write() as c:
         for r in rows:
-            c.execute(t.update().where(t.c.season == season, t.c.week == r["week"], t.c.player_id == r["player_id"],
-                                       t.c.at == r["at"], t.c.total == r["total"]).values(body=r))
+            c.execute(t.update().where(t.c.league == league, t.c.season == season, t.c.week == r["week"],
+                                       t.c.player_id == r["player_id"], t.c.at == r["at"], t.c.total == r["total"])
+                      .values(body=r))
 
 
 CHUNK = 400  # rows per multi-row statement: SQLite caps a statement's bound variables
@@ -945,41 +961,43 @@ def called_back_rows(week: int, season: int = SEASON) -> list[dict]:
 _CORR_COLS = ("week", "player_id", "team_id", "old", "new", "at")
 
 
-def _corr_vals(rows, season: int) -> list[dict]:
-    return [{"season": season, **{k: r.get(k) for k in _CORR_COLS}} for r in rows]
+def _corr_vals(rows, season: int, league: str) -> list[dict]:
+    return [{"league": league, "season": season, **{k: r.get(k) for k in _CORR_COLS}} for r in rows]
 
 
-def box_doc(week: int, season: int = SEASON) -> dict | None:
+def box_doc(week: int, season: int = SEASON, ref=None) -> dict | None:
     """One week's stored box-score document: {doc, hash, fetched_at, settled, final}, or None."""
     t = box_scores_table
     q = sa.select(t.c.doc, t.c.hash, t.c.fetched_at, t.c.settled, t.c.final).where(
-        t.c.season == season, t.c.week == week)
+        t.c.league == _league_key(ref), t.c.season == season, t.c.week == week)
     with _read() as c:
         r = c.execute(q).first()
     return dict(r._mapping) if r else None
 
 
-def box_weeks(season: int = SEASON) -> dict[int, dict]:
+def box_weeks(season: int = SEASON, ref=None) -> dict[int, dict]:
     """Every stored week -> {fetched_at, settled, final}, without the documents."""
     t = box_scores_table
-    q = sa.select(t.c.week, t.c.fetched_at, t.c.settled, t.c.final).where(t.c.season == season)
+    q = sa.select(t.c.week, t.c.fetched_at, t.c.settled, t.c.final).where(t.c.league == _league_key(ref),
+                                                                          t.c.season == season)
     with _read() as c:
         return {r.week: {"fetched_at": r.fetched_at, "settled": r.settled, "final": r.final} for r in c.execute(q)}
 
 
 def put_box_doc(week: int, doc: dict, hash: str, fetched_at: float, settled: bool | None = None,
-                corrections=(), season: int = SEASON, final: bool = False) -> bool:
+                corrections=(), season: int = SEASON, final: bool = False, ref=None) -> bool:
     """Store a read of one week's box scores in one transaction: insert the row if absent; else always set
     fetched_at (the correction pass's throttle and the current week's 60 s hit read it) and final (the read
     decides: made after the week finished or not), doc and hash only when the hash differs, settled when not
     None. `corrections` go into box_score_corrections in the same transaction. Returns True when doc/hash
     were (re)written."""
-    t = box_scores_table
+    t, league = box_scores_table, _league_key(ref)
+    key = (t.c.league == league, t.c.season == season, t.c.week == week)
     with _write() as c:
-        old = c.execute(sa.select(t.c.hash).where(t.c.season == season, t.c.week == week)).first()
+        old = c.execute(sa.select(t.c.hash).where(*key)).first()
         if old is None:
-            c.execute(t.insert().values(season=season, week=week, doc=doc, hash=hash, fetched_at=fetched_at,
-                                        settled=bool(settled), final=final))
+            c.execute(t.insert().values(league=league, season=season, week=week, doc=doc, hash=hash,
+                                        fetched_at=fetched_at, settled=bool(settled), final=final))
             wrote = True
         else:
             vals: dict = {"fetched_at": fetched_at, "final": final}
@@ -988,60 +1006,66 @@ def put_box_doc(week: int, doc: dict, hash: str, fetched_at: float, settled: boo
                 vals.update(doc=doc, hash=hash)
             if settled is not None:
                 vals["settled"] = settled
-            c.execute(t.update().where(t.c.season == season, t.c.week == week).values(**vals))
+            c.execute(t.update().where(*key).values(**vals))
         if corrections:
-            c.execute(box_score_corrections.insert(), _corr_vals(corrections, season))
+            c.execute(box_score_corrections.insert(), _corr_vals(corrections, season, league))
     return wrote
 
 
-def expire_live_boxes(season: int = SEASON) -> None:
+def expire_live_boxes(season: int = SEASON, ref=None) -> None:
     """fetched_at = 0 on every non-final row: after a league move no stored current week counts as a 60 s hit.
     A final row keeps its fetched_at, the correction pass's hourly throttle."""
-    t = box_scores_table
+    t, league = box_scores_table, _league_key(ref)
     with _write() as c:
-        c.execute(t.update().where(t.c.season == season, t.c.final.is_(False)).values(fetched_at=0.0))
+        c.execute(t.update().where(t.c.league == league, t.c.season == season, t.c.final.is_(False))
+                  .values(fetched_at=0.0))
 
 
-def gap_rows(week: int, ids, season: int = SEASON) -> dict[int, list[dict]]:
+def gap_rows(week: int, ids, season: int = SEASON, ref=None) -> dict[int, list[dict]]:
     """The stored gap-week game rows of those players for a week (only the ones stored)."""
     ids = list(ids)
     if not ids:
         return {}
     t = gap_games_table
-    q = sa.select(t.c.player_id, t.c.rows).where(t.c.season == season, t.c.week == week, t.c.player_id.in_(ids))
+    q = sa.select(t.c.player_id, t.c.rows).where(t.c.league == _league_key(ref), t.c.season == season,
+                                                 t.c.week == week, t.c.player_id.in_(ids))
     with _read() as c:
         return {r.player_id: r.rows for r in c.execute(q)}
 
 
-def gap_ids(week: int, season: int = SEASON) -> list[int]:
+def gap_ids(week: int, season: int = SEASON, ref=None) -> list[int]:
     t = gap_games_table
-    q = sa.select(t.c.player_id).where(t.c.season == season, t.c.week == week).order_by(t.c.player_id)
+    q = sa.select(t.c.player_id).where(t.c.league == _league_key(ref), t.c.season == season, t.c.week == week) \
+        .order_by(t.c.player_id)
     with _read() as c:
         return list(c.execute(q).scalars())
 
 
-def put_gap_rows(week: int, rows: dict[int, list[dict]], fetched_at: float, season: int = SEASON) -> None:
-    """Upsert (season, week, player_id) -> rows, fetched_at."""
+def put_gap_rows(week: int, rows: dict[int, list[dict]], fetched_at: float, season: int = SEASON, ref=None) -> None:
+    """Upsert (league, season, week, player_id) -> rows, fetched_at."""
     if not rows:
         return
-    vals = [{"season": season, "week": week, "player_id": pid, "rows": r, "fetched_at": fetched_at}
+    league = _league_key(ref)
+    vals = [{"league": league, "season": season, "week": week, "player_id": pid, "rows": r, "fetched_at": fetched_at}
             for pid, r in rows.items()]
     with _write() as c:
-        c.execute(_upsert(gap_games_table, vals, ["season", "week", "player_id"], ["rows", "fetched_at"]))
+        c.execute(_upsert(gap_games_table, vals, ["league", "season", "week", "player_id"], ["rows", "fetched_at"]))
 
 
-def add_box_corrections(rows: list[dict], season: int = SEASON) -> None:
+def add_box_corrections(rows: list[dict], season: int = SEASON, ref=None) -> None:
     """Log gap-week corrections (team_id None)."""
     if not rows:
         return
+    league = _league_key(ref)
     with _write() as c:
-        c.execute(box_score_corrections.insert(), _corr_vals(rows, season))
+        c.execute(box_score_corrections.insert(), _corr_vals(rows, season, league))
 
 
-def box_corrections(season: int = SEASON, week: int | None = None) -> list[dict]:
+def box_corrections(season: int = SEASON, week: int | None = None, ref=None) -> list[dict]:
     """Logged corrections, oldest first: week, player_id, team_id, old, new, at."""
     t = box_score_corrections
-    q = sa.select(*[t.c[k] for k in _CORR_COLS]).where(t.c.season == season).order_by(t.c.id)
+    q = sa.select(*[t.c[k] for k in _CORR_COLS]).where(t.c.league == _league_key(ref), t.c.season == season) \
+        .order_by(t.c.id)
     if week is not None:
         q = q.where(t.c.week == week)
     with _read() as c:
@@ -1059,25 +1083,27 @@ def _tx_player_id(tx_id: str) -> int | None:
 _TX_COLS = ("id", "date", "type", "team", "player", "player_id", "action", "bid", "reasoning")
 
 
-def add_transactions(rows: list[dict], season: int = SEASON) -> list[dict]:
-    """Insert the rows not already logged (key: season, id). Returns the rows that were new, as
+def add_transactions(rows: list[dict], season: int = SEASON, ref=None) -> list[dict]:
+    """Insert the rows not already logged (key: league, season, id). Returns the rows that were new, as
     transactions() shapes them: found by RETURNING, since rowcount is unreliable for a multi-row
     ON CONFLICT DO NOTHING. notify queues a notice for each."""
     if not rows:
         return []
-    vals = [{"season": season, "id": r["id"], "date": r["date"], "type": r["type"], "team": r["team"],
-             "player": r["player"], "player_id": _tx_player_id(r["id"]), "action": r["action"],
+    league = _league_key(ref)
+    vals = [{"league": league, "season": season, "id": r["id"], "date": r["date"], "type": r["type"],
+             "team": r["team"], "player": r["player"], "player_id": _tx_player_id(r["id"]), "action": r["action"],
              "bid": int(r.get("bid") or 0), "reasoning": r.get("reasoning") or ""} for r in rows]
     t = transactions_table
     with _write() as c:
-        new = c.execute(_upsert(t, vals, ["season", "id"], None).returning(*[t.c[k] for k in _TX_COLS])).all()
+        new = c.execute(_upsert(t, vals, _KEYS["transactions"], None).returning(*[t.c[k] for k in _TX_COLS])).all()
     return [dict(r._mapping) for r in new]
 
 
-def transactions(season: int = SEASON) -> list[dict]:
+def transactions(season: int = SEASON, ref=None) -> list[dict]:
     t = transactions_table
     # rowid is SQLite-only (insert order = the CSV's row order); under Postgres order by date, id
-    q = sa.select(*[t.c[k] for k in _TX_COLS]).where(t.c.season == season).order_by(sa.text("rowid"))
+    q = sa.select(*[t.c[k] for k in _TX_COLS]).where(t.c.league == _league_key(ref), t.c.season == season) \
+        .order_by(sa.text("rowid"))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 
@@ -1085,16 +1111,19 @@ def transactions(season: int = SEASON) -> list[dict]:
 _RESULT_COLS = ("week", "opponent", "my_score", "opp_score", "result")
 
 
-def put_results(rows: list[dict], season: int = SEASON) -> None:
+def put_results(rows: list[dict], season: int = SEASON, ref=None) -> None:
     """Upsert per week. A stale League that knows fewer weeks only rewrites the ones it has."""
     if rows:
+        league = _league_key(ref)
         with _write() as c:
-            c.execute(_upsert(results, [{"season": season, **r} for r in rows], ["season", "week"],
+            c.execute(_upsert(results, [{"league": league, "season": season, **r} for r in rows], _KEYS["results"],
                               ["opponent", "my_score", "opp_score", "result"]))
 
 
-def results_rows(season: int = SEASON) -> list[dict]:
-    q = sa.select(*[results.c[k] for k in _RESULT_COLS]).where(results.c.season == season).order_by(results.c.week)
+def results_rows(season: int = SEASON, ref=None) -> list[dict]:
+    t = results
+    q = sa.select(*[t.c[k] for k in _RESULT_COLS]).where(t.c.league == _league_key(ref), t.c.season == season) \
+        .order_by(t.c.week)
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 
@@ -1251,21 +1280,23 @@ def props_raw_docs(week: int, kind: str) -> dict[str, object]:
                                                       .where(t.c.week == week, t.c.kind == kind))}
 
 
-def put_outlooks(week: int, kind: str, entries: dict[int, dict], season: int = SEASON) -> None:
+def put_outlooks(week: int, kind: str, entries: dict[int, dict], season: int = SEASON, ref=None) -> None:
     """Upsert each player's entry; never deletes."""
     if not entries:
         return
     from datetime import datetime
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    vals = [{"season": season, "week": week, "kind": kind, "player_id": int(pid), "entry": e, "updated": now}
-            for pid, e in entries.items()]
+    league = _league_key(ref)
+    vals = [{"league": league, "season": season, "week": week, "kind": kind, "player_id": int(pid), "entry": e,
+             "updated": now} for pid, e in entries.items()]
     with _write() as c:
-        c.execute(_upsert(outlooks, vals, ["season", "week", "kind", "player_id"], ["entry", "updated"]))
+        c.execute(_upsert(outlooks, vals, _KEYS["outlooks"], ["entry", "updated"]))
 
 
-def outlooks_for(week: int, kind: str, season: int = SEASON) -> dict[int, dict]:
-    q = sa.select(outlooks.c.player_id, outlooks.c.entry).where(
-        outlooks.c.season == season, outlooks.c.week == week, outlooks.c.kind == kind)
+def outlooks_for(week: int, kind: str, season: int = SEASON, ref=None) -> dict[int, dict]:
+    t = outlooks
+    q = sa.select(t.c.player_id, t.c.entry).where(
+        t.c.league == _league_key(ref), t.c.season == season, t.c.week == week, t.c.kind == kind)
     with _read() as c:
         return {pid: e for pid, e in c.execute(q)}
 
@@ -1273,27 +1304,28 @@ def outlooks_for(week: int, kind: str, season: int = SEASON) -> dict[int, dict]:
 _CAL_COLS = ("player_id", "name", "pos", "model", "l3", "weight", "games_left")
 
 
-def put_snapshot(week: int, k: float, rows: list[dict], season: int = SEASON) -> bool:
+def put_snapshot(week: int, k: float, rows: list[dict], season: int = SEASON, ref=None) -> bool:
     """The ROS week's snapshot, once: the parent row is DO NOTHING, and rows are written only when it was new."""
     from datetime import datetime
+    league = _league_key(ref)
     with _write() as c:
-        made = c.execute(_upsert(calibration_snapshots, [{"season": season, "week": week, "k": k,
+        made = c.execute(_upsert(calibration_snapshots, [{"league": league, "season": season, "week": week, "k": k,
                                  "taken_at": datetime.now().isoformat(timespec="seconds")}],
-                                 ["season", "week"], None).returning(calibration_snapshots.c.week)).all()
+                                 ["league", "season", "week"], None).returning(calibration_snapshots.c.week)).all()
         if made and rows:
-            c.execute(calibration_rows.insert(), [{"season": season, "week": week, **{x: r[x] for x in _CAL_COLS}}
-                                                  for r in rows])
+            c.execute(calibration_rows.insert(), [{"league": league, "season": season, "week": week,
+                                                   **{x: r[x] for x in _CAL_COLS}} for r in rows])
     return bool(made)
 
 
-def snapshots(season: int = SEASON) -> list[dict]:
+def snapshots(season: int = SEASON, ref=None) -> list[dict]:
     """Every week's snapshot, by week, in the shape the week JSON files had."""
+    cs, cr, league = calibration_snapshots, calibration_rows, _league_key(ref)
     with _read() as c:
         snaps = [{"week": w, "k": k, "rows": []} for w, k in c.execute(
-            sa.select(calibration_snapshots.c.week, calibration_snapshots.c.k)
-            .where(calibration_snapshots.c.season == season).order_by(calibration_snapshots.c.week))]
+            sa.select(cs.c.week, cs.c.k).where(cs.c.league == league, cs.c.season == season).order_by(cs.c.week))]
         by_week = {s["week"]: s for s in snaps}
-        for r in c.execute(sa.select(calibration_rows).where(calibration_rows.c.season == season)
+        for r in c.execute(sa.select(cr).where(cr.c.league == league, cr.c.season == season)
                            .order_by(sa.text("rowid"))):
             by_week[r.week]["rows"].append({x: getattr(r, x) for x in _CAL_COLS})
     return snaps
@@ -1312,23 +1344,24 @@ def latest_sigma(season: int = SEASON) -> dict | None:
         return c.execute(q).scalar()
 
 
-def put_projection_rows(week: int, kind: str, rows: list[dict], season: int = SEASON) -> int:
+def put_projection_rows(week: int, kind: str, rows: list[dict], season: int = SEASON, ref=None) -> int:
     """Upsert each source's points for each player (rows: player_id, source, points). Returns rows written."""
     if not rows:
         return 0
-    at = _now()
-    vals = [{"season": season, "week": week, "kind": kind, "player_id": r["player_id"], "source": r["source"],
-             "points": float(r["points"]), "taken_at": at} for r in rows]
+    at, league = _now(), _league_key(ref)
+    vals = [{"league": league, "season": season, "week": week, "kind": kind, "player_id": r["player_id"],
+             "source": r["source"], "points": float(r["points"]), "taken_at": at} for r in rows]
     with _write() as c:
-        c.execute(_upsert(projection_rows_table, vals, ["season", "week", "kind", "player_id", "source"],
+        c.execute(_upsert(projection_rows_table, vals, ["league", "season", "week", "kind", "player_id", "source"],
                           ["points", "taken_at"]))
     return len(vals)
 
 
-def projection_rows(kind: str, season: int = SEASON, week: int | None = None) -> list[dict]:
+def projection_rows(kind: str, season: int = SEASON, week: int | None = None, ref=None) -> list[dict]:
     t = projection_rows_table
     q = sa.select(t.c.week, t.c.player_id, t.c.source, t.c.points, t.c.taken_at).where(
-        t.c.season == season, t.c.kind == kind).order_by(t.c.week, t.c.player_id, t.c.source)
+        t.c.league == _league_key(ref), t.c.season == season, t.c.kind == kind) \
+        .order_by(t.c.week, t.c.player_id, t.c.source)
     if week is not None:
         q = q.where(t.c.week == week)
     with _read() as c:
@@ -1368,96 +1401,107 @@ def active_source_weights(season: int = SEASON) -> dict | None:
         return c.execute(q).scalar()
 
 
-def put_claim_plan(plan: dict, season: int = SEASON) -> None:
+def put_claim_plan(plan: dict, season: int = SEASON, ref=None) -> None:
     """The week's waiver claim plan, replaced whole (upsert by week)."""
     from datetime import datetime
+    league = _league_key(ref)
     with _write() as c:
-        c.execute(_upsert(claim_plans, [{"season": season, "week": plan["week"], "plan": plan,
+        c.execute(_upsert(claim_plans, [{"league": league, "season": season, "week": plan["week"], "plan": plan,
                                          "updated": datetime.now().isoformat(timespec="seconds")}],
-                          ["season", "week"], ["plan", "updated"]))
+                          _KEYS["claim_plans"], ["plan", "updated"]))
 
 
-def claim_plan(week: int, season: int = SEASON) -> dict | None:
-    q = sa.select(claim_plans.c.plan).where(claim_plans.c.season == season, claim_plans.c.week == week)
+def claim_plan(week: int, season: int = SEASON, ref=None) -> dict | None:
+    t = claim_plans
+    q = sa.select(t.c.plan).where(t.c.league == _league_key(ref), t.c.season == season, t.c.week == week)
     with _read() as c:
         return c.execute(q).scalar()
 
 
-def put_sit(week: int, player_id: int, sat: bool, season: int = SEASON) -> None:
+def put_sit(week: int, player_id: int, sat: bool, season: int = SEASON, ref=None) -> None:
     """Sit him for the week (a repeat is a no-op) or stand him back up (delete)."""
     from datetime import datetime
+    league = _league_key(ref)
     with _write() as c:
         if sat:
-            c.execute(_upsert(sits, [{"season": season, "week": week, "player_id": player_id,
+            c.execute(_upsert(sits, [{"league": league, "season": season, "week": week, "player_id": player_id,
                                       "at": datetime.now().astimezone().isoformat(timespec="seconds")}],
-                              ["season", "week", "player_id"], None))
+                              ["league", "season", "week", "player_id"], None))
         else:
-            c.execute(sa.delete(sits).where(sits.c.season == season, sits.c.week == week,
+            c.execute(sa.delete(sits).where(sits.c.league == league, sits.c.season == season, sits.c.week == week,
                                             sits.c.player_id == player_id))
 
 
-def watched_ids(season: int = SEASON) -> list[int]:
-    q = (sa.select(watchlist.c.player_id).where(watchlist.c.season == season)
-         .order_by(watchlist.c.added_at, watchlist.c.player_id))
+def watched_ids(season: int = SEASON, ref=None) -> list[int]:
+    t = watchlist
+    q = (sa.select(t.c.player_id).where(t.c.league == _league_key(ref), t.c.season == season)
+         .order_by(t.c.added_at, t.c.player_id))
     with _read() as c:
         return list(c.execute(q).scalars())
 
 
-def put_watch(player_id: int, watched: bool, season: int = SEASON) -> None:
+def put_watch(player_id: int, watched: bool, season: int = SEASON, ref=None) -> None:
     """Watch him (a repeat is a no-op) or stop (delete the watch; his signals stay)."""
+    t, league = watchlist, _league_key(ref)
     with _write() as c:
         if watched:
-            c.execute(_upsert(watchlist, [{"season": season, "player_id": player_id, "added_at": _now()}],
-                              ["season", "player_id"], None))
+            c.execute(_upsert(t, [{"league": league, "season": season, "player_id": player_id, "added_at": _now()}],
+                              ["league", "season", "player_id"], None))
         else:
-            c.execute(sa.delete(watchlist).where(watchlist.c.season == season, watchlist.c.player_id == player_id))
+            c.execute(sa.delete(t).where(t.c.league == league, t.c.season == season, t.c.player_id == player_id))
 
 
 _SIGNAL_COLS = ("key", "player_id", "kind", "text", "at")
 
 
-def add_watch_signals(rows: list[dict], season: int = SEASON) -> list[dict]:
-    """Store the signals not already known (key: season, key). Returns only the rows newly inserted."""
+def add_watch_signals(rows: list[dict], season: int = SEASON, ref=None) -> list[dict]:
+    """Store the signals not already known (key: league, season, key). Returns only the rows newly inserted."""
     if not rows:
         return []
-    t = watch_signals_table
+    t, league = watch_signals_table, _league_key(ref)
     with _write() as c:
-        known = set(c.execute(sa.select(t.c.key).where(t.c.season == season)).scalars())
+        known = set(c.execute(sa.select(t.c.key).where(t.c.league == league, t.c.season == season)).scalars())
         new = []
         for r in rows:
             if r["key"] not in known:
                 known.add(r["key"])
                 new.append({k: r[k] for k in _SIGNAL_COLS})
         if new:
-            c.execute(_upsert(t, [{"season": season, **v} for v in new], ["season", "key"], None))
+            c.execute(_upsert(t, [{"league": league, "season": season, **v} for v in new],
+                              ["league", "season", "key"], None))
     return new
 
 
-def watch_signals(since: str, season: int = SEASON) -> list[dict]:
+def watch_signals(since: str, season: int = SEASON, ref=None) -> list[dict]:
     """Signals with `at` >= since, newest first."""
     t = watch_signals_table
-    q = (sa.select(*[t.c[k] for k in _SIGNAL_COLS]).where(t.c.season == season, t.c.at >= since)
+    q = (sa.select(*[t.c[k] for k in _SIGNAL_COLS])
+         .where(t.c.league == _league_key(ref), t.c.season == season, t.c.at >= since)
          .order_by(t.c.at.desc(), t.c.key))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 
 
-def seat_map(season: int = SEASON) -> dict[int, int]:
+def seat_map(season: int = SEASON, ref=None) -> dict[int, int]:
+    q = sa.select(seats.c.player_id, seats.c.seat_id).where(seats.c.league == _league_key(ref), seats.c.season == season)
     with _read() as c:
-        return dict(c.execute(sa.select(seats.c.player_id, seats.c.seat_id).where(seats.c.season == season)).all())
+        return dict(c.execute(q).all())
 
 
-def put_seats(rows: dict[int, int], season: int = SEASON) -> None:
+def put_seats(rows: dict[int, int], season: int = SEASON, ref=None) -> None:
     """Upsert player -> seat in one transaction."""
     if not rows:
         return
+    league = _league_key(ref)
     with _write() as c:
-        c.execute(_upsert(seats, [{"season": season, "player_id": p, "seat_id": s} for p, s in rows.items()],
-                          ["season", "player_id"], ["seat_id"]))
+        c.execute(_upsert(seats, [{"league": league, "season": season, "player_id": p, "seat_id": s}
+                                  for p, s in rows.items()],
+                          ["league", "season", "player_id"], ["seat_id"]))
 
 
-def sat_ids(week: int, season: int = SEASON) -> set[int]:
-    q = sa.select(sits.c.player_id).where(sits.c.season == season, sits.c.week == week)
+def sat_ids(week: int, season: int = SEASON, ref=None) -> set[int]:
+    q = sa.select(sits.c.player_id).where(sits.c.league == _league_key(ref), sits.c.season == season,
+                                          sits.c.week == week)
     with _read() as c:
         return set(c.execute(q).scalars())
 
@@ -1484,37 +1528,41 @@ def subscriptions() -> list[dict]:
         return [dict(r._mapping) for r in c.execute(sa.select(push_subscriptions))]
 
 
-def add_notices(rows: list[dict], season: int = SEASON) -> int:
-    """Queue the notices not already known (key: season, key). Returns how many were new."""
+def add_notices(rows: list[dict], season: int = SEASON, ref=None) -> int:
+    """Queue the notices not already known (key: league, season, key). Returns how many were new."""
     if not rows:
         return 0
-    vals = [{"season": season, **{k: r[k] for k in ("key", "kind", "title", "body", "url", "created_at")}} for r in rows]
+    league = _league_key(ref)
+    vals = [{"league": league, "season": season, **{k: r[k] for k in ("key", "kind", "title", "body", "url", "created_at")}}
+            for r in rows]
     with _write() as c:
-        return len(c.execute(_upsert(notices, vals, ["season", "key"], None).returning(notices.c.key)).all())
+        return len(c.execute(_upsert(notices, vals, ["league", "season", "key"], None).returning(notices.c.key)).all())
 
 
 _NOTICE_COLS = ("key", "kind", "title", "body", "url", "created_at", "sent_at", "outcome")
 
 
-def unsent_notices(season: int = SEASON) -> list[dict]:
+def unsent_notices(season: int = SEASON, ref=None) -> list[dict]:
     t = notices
-    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(t.c.season == season, t.c.sent_at.is_(None))
+    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS])
+         .where(t.c.league == _league_key(ref), t.c.season == season, t.c.sent_at.is_(None))
          .order_by(t.c.created_at, t.c.key))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 
 
-def mark_notices(keys: list[str], outcome: str, at: str, season: int = SEASON) -> None:
+def mark_notices(keys: list[str], outcome: str, at: str, season: int = SEASON, ref=None) -> None:
     if not keys:
         return
+    t, league = notices, _league_key(ref)
     with _write() as c:
-        c.execute(sa.update(notices).where(notices.c.season == season, notices.c.key.in_(keys))
+        c.execute(sa.update(t).where(t.c.league == league, t.c.season == season, t.c.key.in_(keys))
                   .values(sent_at=at, outcome=outcome))
 
 
-def recent_notices(limit: int = 20, season: int = SEASON) -> list[dict]:
+def recent_notices(limit: int = 20, season: int = SEASON, ref=None) -> list[dict]:
     t = notices
-    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(t.c.season == season)
+    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(t.c.league == _league_key(ref), t.c.season == season)
          .order_by(t.c.created_at.desc(), t.c.key.desc()).limit(limit))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
@@ -1633,21 +1681,22 @@ def news_item_hashes(source_id: str, ext_ids: list[str], season: int = SEASON) -
         return {r.ext_id: (r.id, r.hash) for r in c.execute(q)}
 
 
-def notice_keys(prefix: str, season: int = SEASON) -> list[str]:
+def notice_keys(prefix: str, season: int = SEASON, ref=None) -> list[str]:
     """Keys of the notices already pushed (sent_at set, outcome sent) that start with `prefix`."""
     t = notices
-    q = (sa.select(t.c.key).where(t.c.season == season, t.c.sent_at.is_not(None), t.c.outcome == "sent",
-                                  t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
+    q = (sa.select(t.c.key).where(t.c.league == _league_key(ref), t.c.season == season, t.c.sent_at.is_not(None),
+                                  t.c.outcome == "sent", t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
     with _read() as c:
         return list(c.execute(q).scalars())
 
 
-def notices_since(prefix: str, since: str, season: int = SEASON) -> list[dict]:
+def notices_since(prefix: str, since: str, season: int = SEASON, ref=None) -> list[dict]:
     """{key, created_at, outcome} of the notices starting with `prefix` queued at or after `since`, any outcome (None
     = still waiting). Compared as text, so the caller passes a margin and re-checks the times."""
     t = notices
     q = (sa.select(t.c.key, t.c.created_at, t.c.outcome)
-         .where(t.c.season == season, t.c.created_at >= since, t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
+         .where(t.c.league == _league_key(ref), t.c.season == season, t.c.created_at >= since,
+                t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 
@@ -1903,58 +1952,67 @@ def news_feed(before: str | None, limit: int, player_id: int | None = None, sinc
 
 
 def _decision_out(r) -> dict:
-    # season is implied by the read and import_key is the import's own dedupe key: neither is part of a decision
-    return {k: v for k, v in r._mapping.items() if k not in ("season", "import_key")}
+    # league and season are implied by the read and import_key is the import's own dedupe key: none is part of a decision
+    return {k: v for k, v in r._mapping.items() if k not in ("league", "season", "import_key")}
 
 
-def add_decision(row: dict, season: int = SEASON) -> int:
+def add_decision(row: dict, season: int = SEASON, ref=None) -> int:
+    league = _league_key(ref)
     with _write() as c:
-        return c.execute(sa.insert(decisions_table).values({**row, "season": season}).returning(decisions_table.c.id)).scalar()
+        return c.execute(sa.insert(decisions_table).values({**row, "league": league, "season": season})
+                         .returning(decisions_table.c.id)).scalar()
 
 
-def put_week_claims(week: int, row: dict, season: int = SEASON) -> dict:
+def put_week_claims(week: int, row: dict, season: int = SEASON, ref=None) -> dict:
     """The app claims row of the week's plan generation (facts.gen, the plans the waiver run retired before it): a
     resubmit replaces what was sent, keeping the rationale and outcome given since. A plan started after Wednesday's
     run is the same ESPN week but a new decision, so it gets its own row and never inherits the run's reason."""
     t = decisions_table
     keep = {"rationale", "rationale_note", "outcome", "outcome_at"}
     gen = (row.get("facts") or {}).get("gen", 0)
+    league = _league_key(ref)
     with _write() as c:
         rows = c.execute(sa.select(t.c.id, t.c.rationale, t.c.facts).where(
-            t.c.season == season, t.c.week == week, t.c.kind == "claims", t.c.source == "app")).all()
+            t.c.league == league, t.c.season == season, t.c.week == week, t.c.kind == "claims",
+            t.c.source == "app")).all()
         old = next((r for r in rows if (r.facts or {}).get("gen", 0) == gen), None)
         if old is None:
-            i = c.execute(sa.insert(t).values({**row, "season": season, "week": week}).returning(t.c.id)).scalar()
+            i = c.execute(sa.insert(t).values({**row, "league": league, "season": season, "week": week})
+                          .returning(t.c.id)).scalar()
             return {"id": i, "needs_rationale": row.get("rationale") is None}
         c.execute(sa.update(t).where(t.c.id == old.id).values({k: v for k, v in row.items() if k not in keep}))
         return {"id": old.id, "needs_rationale": old.rationale is None}
 
 
-def update_decision(id: int, fields: dict, season: int = SEASON) -> dict | None:
-    t = decisions_table
+def update_decision(id: int, fields: dict, season: int = SEASON, ref=None) -> dict | None:
+    t, league = decisions_table, _league_key(ref)
     with _write() as c:
-        if not c.execute(sa.update(t).where(t.c.season == season, t.c.id == id).values(fields)).rowcount:
+        if not c.execute(sa.update(t).where(t.c.league == league, t.c.season == season, t.c.id == id)
+                         .values(fields)).rowcount:
             return None
         return _decision_out(c.execute(sa.select(t).where(t.c.id == id)).one())
 
 
-def decision(id: int, season: int = SEASON) -> dict | None:
+def decision(id: int, season: int = SEASON, ref=None) -> dict | None:
     t = decisions_table
+    q = sa.select(t).where(t.c.league == _league_key(ref), t.c.season == season, t.c.id == id)
     with _read() as c:
-        r = c.execute(sa.select(t).where(t.c.season == season, t.c.id == id)).first()
+        r = c.execute(q).first()
     return _decision_out(r) if r else None
 
 
-def decisions(season: int = SEASON) -> list[dict]:
+def decisions(season: int = SEASON, ref=None) -> list[dict]:
     t = decisions_table
+    q = sa.select(t).where(t.c.league == _league_key(ref), t.c.season == season).order_by(t.c.at.desc(), t.c.id.desc())
     with _read() as c:
-        return [_decision_out(r) for r in c.execute(sa.select(t).where(t.c.season == season).order_by(t.c.at.desc(), t.c.id.desc()))]
+        return [_decision_out(r) for r in c.execute(q)]
 
 
-_KEYS = {"transactions": ["season", "id"], "draft_picks": ["league", "season", "overall"], "results": ["season", "week"],
-         "plays": ["season", "week", "player_id", "at", "total"],
-         "outlooks": ["season", "week", "kind", "player_id"], "sigma_fits": ["season", "fitted_at"],
-         "claim_plans": ["season", "week"], "decisions": ["season", "import_key"]}
+# the natural key of each table the file import writes (ON CONFLICT DO NOTHING on it); sigma_fits stays global
+_KEYS = {"transactions": ["league", "season", "id"], "draft_picks": ["league", "season", "overall"],
+         "results": ["league", "season", "week"], "plays": ["league", "season", "week", "player_id", "at", "total"],
+         "outlooks": ["league", "season", "week", "kind", "player_id"], "sigma_fits": ["season", "fitted_at"],
+         "claim_plans": ["league", "season", "week"], "decisions": ["league", "season", "import_key"]}
 
 
 def insert_new(table_name: str, rows: list[dict]) -> int:
@@ -1969,10 +2027,14 @@ def insert_new(table_name: str, rows: list[dict]) -> int:
                    for i in range(0, len(rows), 500))
 
 
-def count(table_name: str, season: int = SEASON) -> int:
+def count(table_name: str, season: int = SEASON, ref=None) -> int:
+    """The season's rows in a table; in one league (`ref`, None the current one) when the table has the column."""
     t = metadata.tables[table_name]
+    q = sa.select(sa.func.count()).select_from(t).where(t.c.season == season)
+    if "league" in t.c:
+        q = q.where(t.c.league == _league_key(ref))
     with _read() as c:
-        return c.execute(sa.select(sa.func.count()).select_from(t).where(t.c.season == season)).scalar()
+        return c.execute(q).scalar()
 
 
 def main(argv: list[str]) -> int:

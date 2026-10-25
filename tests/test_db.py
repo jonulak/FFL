@@ -40,13 +40,15 @@ def test_existing_db_without_the_head_schema_raises(monkeypatch, tmp_path):
 
 def test_upsert_insert_then_update_then_nothing():
     t = db.results
-    row = {"season": 2026, "week": 1, "opponent": "A", "my_score": 1.0, "opp_score": 2.0, "result": "L"}
+    row = {"league": "espn:100000001", "season": 2026, "week": 1, "opponent": "A", "my_score": 1.0, "opp_score": 2.0,
+           "result": "L"}
+    key = ["league", "season", "week"]
     with db._write() as c:
-        c.execute(db._upsert(t, [row], ["season", "week"], ["opponent", "my_score", "opp_score", "result"]))
+        c.execute(db._upsert(t, [row], key, ["opponent", "my_score", "opp_score", "result"]))
     with db._write() as c:
-        c.execute(db._upsert(t, [{**row, "result": "W"}], ["season", "week"], ["result"]))
+        c.execute(db._upsert(t, [{**row, "result": "W"}], key, ["result"]))
     with db._write() as c:
-        c.execute(db._upsert(t, [{**row, "result": "T"}], ["season", "week"], None))
+        c.execute(db._upsert(t, [{**row, "result": "T"}], key, None))
     with db._read() as c:
         assert c.execute(sa.select(t.c.result)).scalars().all() == ["W"]
 
@@ -54,7 +56,8 @@ def test_upsert_insert_then_update_then_nothing():
 def test_write_rolls_back_on_error():
     with pytest.raises(ZeroDivisionError):
         with db._write() as c:
-            c.execute(db.results.insert().values(season=2026, week=9, opponent="x", my_score=0, opp_score=0, result="T"))
+            c.execute(db.results.insert().values(league="espn:100000001", season=2026, week=9, opponent="x", my_score=0,
+                                                 opp_score=0, result="T"))
             1 / 0
     with db._read() as c:
         assert c.execute(sa.select(sa.func.count()).select_from(db.results)).scalar() == 0
@@ -441,3 +444,264 @@ def test_migration_refuses_picks_with_no_home_league(tmp_path, monkeypatch):
     _at_0017(tmp_path, monkeypatch, seed_home=False)
     with pytest.raises(RuntimeError, match="home league"):
         command.upgrade(db._alembic_config(), "head")
+
+
+# 0021: one row in each league-data table at 0020, as the live data/ffl.db stands before it
+_SEED = {
+    "transactions": [{"season": 2026, "id": "b", "date": "d", "type": "t", "team": "T", "player": "P", "player_id": 1,
+                      "action": "a", "bid": 0, "reasoning": ""},
+                     {"season": 2026, "id": "a", "date": "d", "type": "t", "team": "T", "player": "P", "player_id": 2,
+                      "action": "a", "bid": 0, "reasoning": ""}],
+    "results": [{"season": 2026, "week": 1, "opponent": "X", "my_score": 1.0, "opp_score": 0.0, "result": "W"}],
+    "plays": [{"id": 7, "season": 2026, "week": 4, "at": "t", "player_id": 1, "team_id": 3, "total": 1.0, "body": "{}"}],
+    "box_scores": [{"season": 2026, "week": 4, "doc": "{}", "hash": "h", "fetched_at": 1.0}],
+    "gap_games": [{"season": 2026, "week": 3, "player_id": 1, "rows": "[]", "fetched_at": 1.0}],
+    "box_score_corrections": [{"id": 11, "season": 2026, "week": 3, "player_id": 1, "team_id": None, "old": 1.0,
+                               "new": 2.0, "at": "t"}],
+    "outlooks": [{"season": 2026, "week": 5, "kind": "week", "player_id": 1, "entry": "{}", "updated": "t"}],
+    "calibration_snapshots": [{"season": 2026, "week": 4, "k": 4.0, "taken_at": "t"}],
+    "calibration_rows": [{"season": 2026, "week": 4, "player_id": 1, "name": "A", "pos": "QB", "model": 1.0, "l3": None,
+                          "weight": 1.0, "games_left": 10}],
+    "projection_rows": [{"season": 2026, "week": 5, "kind": "week", "player_id": 1, "source": "cbs", "points": 1.0,
+                         "taken_at": "t"}],
+    "claim_plans": [{"season": 2026, "week": 5, "plan": "{}", "updated": "t"}],
+    "sits": [{"season": 2026, "week": 8, "player_id": 1, "at": "t"}],
+    "seats": [{"season": 2026, "player_id": 1, "seat_id": 2}],
+    "watchlist": [{"season": 2026, "player_id": 1, "added_at": "t"}],
+    "watch_signals": [{"season": 2026, "key": "k", "player_id": 1, "kind": "usage", "text": "x", "at": "t"}],
+    "notices": [{"season": 2026, "key": "waivers:r1", "kind": "waivers", "title": "t", "body": "b", "url": "/",
+                 "created_at": "t", "sent_at": None, "outcome": None}],
+    "decisions": [{"id": 9, "season": 2026, "at": "t", "week": 6, "kind": "note", "source": "session", "title": "t",
+                   "decision": "", "import_key": None}],
+}
+_PK_0021 = {"transactions": ["league", "season", "id"], "results": ["league", "season", "week"], "plays": ["id"],
+            "box_scores": ["league", "season", "week"], "gap_games": ["league", "season", "week", "player_id"],
+            "box_score_corrections": ["id"], "outlooks": ["league", "season", "week", "kind", "player_id"],
+            "calibration_snapshots": ["league", "season", "week"],
+            "calibration_rows": ["league", "season", "week", "player_id"],
+            "projection_rows": ["league", "season", "week", "kind", "player_id", "source"],
+            "claim_plans": ["league", "season", "week"], "sits": ["league", "season", "week", "player_id"],
+            "seats": ["league", "season", "player_id"], "watchlist": ["league", "season", "player_id"],
+            "watch_signals": ["league", "season", "key"], "notices": ["league", "season", "key"], "decisions": ["id"]}
+_UQ_0021 = {"plays": {"uq_plays_event": ["league", "season", "week", "player_id", "at", "total"]},
+            "decisions": {"uq_decisions_import": ["league", "season", "import_key"]}}
+_IX_0021 = {"transactions": {"ix_transactions_player": ["league", "season", "player_id"]},
+            "plays": {"ix_plays_week_team": ["league", "season", "week", "team_id"]},
+            "watch_signals": {"ix_watch_signals_player": ["league", "season", "player_id"]},
+            "notices": {"ix_notices_unsent": ["league", "season", "sent_at"]},
+            "decisions": {"ix_decisions_week_kind": ["league", "season", "week", "kind"]}}
+_IDS = {"plays": [7], "decisions": [9], "box_score_corrections": [11]}
+
+
+def _at_0020(tmp_path, monkeypatch, seed_home: bool = True) -> str:
+    """A DB at 0020 holding `_SEED`; with seed_home False, no leagues row at all."""
+    from alembic import command
+    from ffl import config
+    monkeypatch.setattr(config, "DATA", tmp_path)       # 0015 / 0017 / 0019 import files: there are none
+    monkeypatch.setattr(config, "JOURNAL", tmp_path)
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    monkeypatch.setenv("FFL_DB_URL", url)
+    monkeypatch.setenv("LEAGUE_ID", "100000001")
+    monkeypatch.setenv("SEASON", "2026")
+    monkeypatch.setenv("MY_TEAM_ID", "7")
+    db.reset()
+    command.upgrade(db._alembic_config(), "0020")
+    eng = sa.create_engine(url)                          # not db.engine(): it refuses a schema short of head
+    with eng.begin() as c:
+        if not seed_home:
+            c.execute(sa.text("DELETE FROM leagues"))
+        for t, rows in _SEED.items():
+            for r in rows:
+                cols = ", ".join(f'"{k}"' for k in r)
+                c.execute(sa.text(f"INSERT INTO {t} ({cols}) VALUES ({', '.join(':' + k for k in r)})"), r)
+    eng.dispose()
+    return url
+
+
+def _schema(url: str) -> dict:
+    """Per seeded table: columns, PK, uniques and indexes by name, FKs, row count, leagues and ids."""
+    eng = sa.create_engine(url)
+    out = {}
+    with eng.connect() as c:
+        ins = sa.inspect(c)
+        for t in _SEED:
+            out[t] = {"cols": [x["name"] for x in ins.get_columns(t)],
+                      "pk": ins.get_pk_constraint(t)["constrained_columns"],
+                      "uq": {u["name"]: u["column_names"] for u in ins.get_unique_constraints(t)},
+                      "ix": {i["name"]: i["column_names"] for i in ins.get_indexes(t)},
+                      "fk": ins.get_foreign_keys(t),
+                      "n": c.execute(sa.text(f"SELECT count(*) FROM {t}")).scalar()}
+            if "league" in out[t]["cols"]:
+                out[t]["leagues"] = list(c.execute(sa.text(f"SELECT DISTINCT league FROM {t}")).scalars())
+            if t in _IDS:
+                out[t]["ids"] = list(c.execute(sa.text(f"SELECT id FROM {t} ORDER BY id")).scalars())
+        out["tx_order"] = list(c.execute(sa.text("SELECT id FROM transactions ORDER BY rowid")).scalars())
+    eng.dispose()
+    return out
+
+
+def test_0021_files_every_row_under_home(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0020(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "head")
+    s = _schema(url)
+    for t, rows in _SEED.items():
+        assert s[t]["n"] == len(rows), t
+        assert s[t]["leagues"] == ["espn:100000001"], t
+        assert s[t]["cols"][0] == "league", t
+        assert s[t]["pk"] == _PK_0021[t], t
+        assert s[t]["uq"] == _UQ_0021.get(t, {}), t
+        assert s[t]["ix"] == _IX_0021.get(t, {}), t
+    for t, ids in _IDS.items():
+        assert s[t]["ids"] == ids, t
+    assert s["tx_order"] == ["b", "a"], "the log's insert order survives the rebuild"
+    [fk] = s["calibration_rows"]["fk"]
+    assert fk["constrained_columns"] == ["league", "season", "week"]
+    assert fk["referred_table"] == "calibration_snapshots"
+    assert fk["referred_columns"] == ["league", "season", "week"]
+
+
+def test_0021_downgrade_keeps_home_rows(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0020(tmp_path, monkeypatch)
+    before = _schema(url)
+    command.upgrade(db._alembic_config(), "head")
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        c.execute(sa.text("INSERT INTO results (league, season, week, opponent, my_score, opp_score, result) "
+                          "VALUES ('espn:999', 2026, 1, 'Y', 0, 0, 'L')"))
+    eng.dispose()
+    command.downgrade(db._alembic_config(), "0020")
+    after = _schema(url)
+    for t in _SEED:
+        assert after[t]["n"] == len(_SEED[t]), t
+        assert after[t]["cols"] == before[t]["cols"] and "league" not in after[t]["cols"], t
+        assert after[t]["pk"] == before[t]["pk"] == [c for c in _PK_0021[t] if c != "league"], t
+        assert after[t]["uq"] == before[t]["uq"], t
+        assert after[t]["ix"] == before[t]["ix"], t
+    assert after["tx_order"] == ["b", "a"]
+    [fk] = after["calibration_rows"]["fk"]
+    assert fk["constrained_columns"] == ["season", "week"] and fk["referred_table"] == "calibration_snapshots"
+
+
+def test_0021_refuses_rows_with_no_home_league(tmp_path, monkeypatch):
+    from alembic import command
+    _at_0020(tmp_path, monkeypatch, seed_home=False)
+    with pytest.raises(RuntimeError, match="home league"):
+        command.upgrade(db._alembic_config(), "head")
+
+
+def test_league_data_is_kept_per_league():
+    from ffl import leagues
+    home, other = leagues.home(), _other_league()
+    res = lambda opp: [{"week": 1, "opponent": opp, "my_score": 1.0, "opp_score": 0.0, "result": "W"}]
+    db.put_results(res("H"), ref=home)
+    db.put_results(res("O"), ref=other)
+    assert db.results_rows(ref=home)[0]["opponent"] == "H" and db.results_rows(ref=other)[0]["opponent"] == "O"
+    assert db.results_rows() == db.results_rows(ref=home)
+
+    db.put_sit(8, 1, True, ref=home)
+    db.put_sit(8, 2, True, ref=other)
+    assert db.sat_ids(8, ref=home) == {1} and db.sat_ids(8, ref=other) == {2} and db.sat_ids(8) == {1}
+    db.put_sit(8, 2, False, ref=home)                    # standing up home's absent row leaves other's sit alone
+    assert db.sat_ids(8, ref=other) == {2}
+
+    db.put_watch(1, True, ref=home)
+    db.put_watch(2, True, ref=other)
+    assert db.watched_ids(ref=home) == [1] and db.watched_ids(ref=other) == [2] and db.watched_ids() == [1]
+
+    db.put_seats({1: 5}, ref=home)
+    db.put_seats({1: 6}, ref=other)
+    assert db.seat_map(ref=home) == {1: 5} and db.seat_map(ref=other) == {1: 6} and db.seat_map() == {1: 5}
+
+    n = {"key": "waivers:r1", "kind": "waivers", "title": "t", "body": "b", "url": "/", "created_at": "t"}
+    assert db.add_notices([n], ref=home) == 1 and db.add_notices([n], ref=other) == 1
+    db.mark_notices(["waivers:r1"], "sent", "t", ref=other)
+    assert [r["key"] for r in db.unsent_notices(ref=home)] == ["waivers:r1"] and db.unsent_notices(ref=other) == []
+    assert db.unsent_notices() == db.unsent_notices(ref=home)
+
+    assert len(db.add_transactions([TX], ref=home)) == 1 and len(db.add_transactions([TX], ref=other)) == 1
+    db.add_transactions([{**TX, "id": "1788937502757-6-DROPPED-1"}], ref=other)
+    assert len(db.transactions(ref=home)) == 1 and len(db.transactions(ref=other)) == 2
+    assert db.transactions() == db.transactions(ref=home)
+
+    db.put_claim_plan({"week": 6, "who": "home"}, ref=home)
+    db.put_claim_plan({"week": 6, "who": "other"}, ref=other)
+    assert db.claim_plan(6, ref=home)["who"] == "home" and db.claim_plan(6, ref=other)["who"] == "other"
+    assert db.claim_plan(6) == db.claim_plan(6, ref=home)
+
+    db.put_box_doc(5, {"a": "home"}, "h", 1.0, ref=home)
+    db.put_box_doc(5, {"a": "other"}, "o", 2.0, ref=other)
+    assert db.box_doc(5, ref=home)["doc"] == {"a": "home"} and db.box_doc(5, ref=other)["doc"] == {"a": "other"}
+    assert db.box_doc(5) == db.box_doc(5, ref=home)
+    db.expire_live_boxes(ref=other)
+    assert db.box_weeks(ref=home)[5]["fetched_at"] == 1.0 and db.box_weeks(ref=other)[5]["fetched_at"] == 0.0
+
+
+def test_decisions_per_league():
+    from ffl import leagues
+    home, other = leagues.home(), _other_league()
+    i = db.add_decision(_row(), ref=other)
+    assert db.decisions() == [] and [r["id"] for r in db.decisions(ref=other)] == [i]
+    assert db.decision(i) is None and db.decision(i, ref=other)["title"].startswith("Week 6")
+    assert db.update_decision(i, {"outcome": "x"}, ref=home) is None
+    assert db.update_decision(i, {"outcome": "x"}, ref=other)["outcome"] == "x"
+    assert "league" not in db.decision(i, ref=other)
+    claims = _row(kind="claims", title="Week 6 waiver claims", facts={"gen": 0})
+    a, b = db.put_week_claims(6, claims, ref=home), db.put_week_claims(6, claims, ref=other)
+    assert a["id"] != b["id"], "one week's claims row per league"
+
+
+def test_plays_per_league():
+    from ffl import leagues
+    home, other = leagues.home(), _other_league()
+    assert db.add_plays([_play(1, 3.2)], ref=home) == 1
+    assert db.add_plays([_play(1, 3.2)], ref=other) == 1
+    assert db.add_plays([_play(2, 1.0)], ref=other) == 1
+    assert len(db.plays_rows(4, ref=home)) == 1 and len(db.plays_rows(4, ref=other)) == 2
+    db.update_plays([{**_play(1, 3.2), "text": "other's"}], ref=other)
+    assert db.plays_rows(4, ref=home)[0]["text"] == "x" and db.plays_rows(4, ref=other)[0]["text"] == "other's"
+
+
+def test_calibration_per_league():
+    from ffl import leagues
+    home, other = leagues.home(), _other_league()
+    assert db.put_snapshot(4, 4, [CAL], ref=home) is True
+    assert db.put_snapshot(4, 5, [CAL, {**CAL, "player_id": 2}], ref=other) is True
+    [snap] = db.snapshots(ref=other)
+    assert snap["k"] == 5 and len(snap["rows"]) == 2
+    assert db.snapshots() == db.snapshots(ref=home) == [{"week": 4, "k": 4, "rows": [CAL]}]
+
+
+def test_models_match_migration():
+    """The template DB is `alembic upgrade head`: every league-data table's columns and keys are db.metadata's."""
+    with db._read() as c:
+        ins = sa.inspect(c)
+        for name in _SEED:
+            t = db.metadata.tables[name]
+            assert [x["name"] for x in ins.get_columns(name)] == [x.name for x in t.columns], name
+            assert ins.get_pk_constraint(name)["constrained_columns"] == [x.name for x in t.primary_key.columns], name
+            assert {u["name"]: u["column_names"] for u in ins.get_unique_constraints(name)} == \
+                {u.name: [x.name for x in u.columns] for u in t.constraints if isinstance(u, sa.UniqueConstraint)}, name
+            assert {i["name"]: i["column_names"] for i in ins.get_indexes(name)} == \
+                {i.name: [x.name for x in i.columns] for i in t.indexes}, name
+            assert [f["constrained_columns"] for f in ins.get_foreign_keys(name)] == \
+                [[x.parent.name for x in f.elements] for f in t.foreign_key_constraints], name
+
+
+def test_0021_upgrades_an_empty_db_with_no_home_league(tmp_path, monkeypatch):
+    from alembic import command
+    from ffl import config
+    monkeypatch.setattr(config, "DATA", tmp_path)
+    monkeypatch.setattr(config, "JOURNAL", tmp_path)
+    url = f"sqlite:///{tmp_path / 'e.db'}"
+    monkeypatch.setenv("FFL_DB_URL", url)
+    monkeypatch.delenv("LEAGUE_ID", raising=False)
+    db.reset()
+    command.upgrade(db._alembic_config(), "0020")
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        c.execute(sa.text("DELETE FROM leagues"))
+    eng.dispose()
+    command.upgrade(db._alembic_config(), "head")
+    assert _schema(url)["results"]["pk"] == _PK_0021["results"]

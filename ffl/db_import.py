@@ -89,12 +89,12 @@ def _outlooks(data: Path, season: int):
     return source, rows
 
 
-def _calibration(data: Path, season: int):
+def _calibration(data: Path, season: int, home):
     source = made = 0
     for p in sorted((data / "calibration").glob("week-*.json")):
         doc = json.loads(p.read_text())
         source += len(doc["rows"])
-        if db.put_snapshot(doc["week"], doc["k"], doc["rows"], season):
+        if db.put_snapshot(doc["week"], doc["k"], doc["rows"], season, ref=home):
             made += len(doc["rows"])
     return source, made
 
@@ -125,22 +125,33 @@ def _decisions(journal: Path, data: Path, season: int):
     return len(rows), rows
 
 
+def _home():
+    from . import leagues
+    return leagues.home()
+
+
+# the tables run() files under the home league, whose the old files all are (_picks stamps its own; sigma_fits is global)
+_LEAGUE_TABLES = {"transactions", "results", "plays", "outlooks", "claim_plans", "decisions"}
+
+
 def run(journal: Path, data: Path, season: int) -> list[dict]:
-    report = []
+    report, home = [], _home()                      # rows are stamped and counted in the same (home) league
     for table, (source, rows) in [("transactions", _transactions(journal, season)), ("draft_picks", _picks(journal, season)),
                                   ("results", _results(journal, season)), ("plays", _plays(data, season)),
                                   ("outlooks", _outlooks(data, season)), ("sigma_fits", _sigma(data, season)),
                                   ("claim_plans", _plans(journal, season)), ("decisions", _decisions(journal, data, season))]:
+        if table in _LEAGUE_TABLES:
+            rows = [{"league": home.key, **r} for r in rows]
         # first row per key wins (DO NOTHING keeps it); source counts distinct keys, dupes the rows lost to a shared key
         distinct = {}
         for r in rows:
             distinct.setdefault(tuple(r[k] for k in db._KEYS[table]), r)
         new = db.insert_new(table, list(distinct.values()))
         report.append({"table": table, "source": len(distinct), "dupes": len(rows) - len(distinct),
-                       "in_db": db.count(table, season), "new": new})
-    source, made = _calibration(data, season)       # put_snapshot per week file; rows newly written
+                       "in_db": db.count(table, season, ref=home), "new": new})
+    source, made = _calibration(data, season, home)  # put_snapshot per week file; rows newly written
     report.append({"table": "calibration_rows", "source": source, "dupes": 0,
-                   "in_db": db.count("calibration_rows", season), "new": made})
+                   "in_db": db.count("calibration_rows", season, ref=home), "new": made})
     return report
 
 

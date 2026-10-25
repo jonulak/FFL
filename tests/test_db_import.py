@@ -62,6 +62,17 @@ def test_import_every_store_and_counts(tree):
     assert db.claim_plan(5)["week"] == 5
 
 
+def test_import_files_rows_under_home(tree):
+    import sqlalchemy as sa
+    db_import.run(*tree, 2026)
+    tables = ("transactions", "draft_picks", "results", "plays", "outlooks", "claim_plans", "decisions",
+              "calibration_snapshots", "calibration_rows")
+    with db._read() as c:
+        for t in tables:
+            assert c.execute(sa.text(f"SELECT count(*) FROM {t}")).scalar() > 0, t
+            assert list(c.execute(sa.text(f"SELECT DISTINCT league FROM {t}")).scalars()) == ["espn:100000001"], t
+
+
 def test_import_twice_is_a_no_op(tree):
     journal, data = tree
     db_import.run(journal, data, 2026)
@@ -115,7 +126,7 @@ def test_shared_key_in_picks_fails(tree, capsys):
 
 
 def test_insert_new_batches_past_the_bind_limit():
-    rows = [{"season": 2026, "week": 1, "at": f"t{i}", "player_id": i, "team_id": None, "total": 1.0, "body": {"i": i}}
+    rows = [{"league": "espn:100000001", "season": 2026, "week": 1, "at": f"t{i}", "player_id": i, "team_id": None, "total": 1.0, "body": {"i": i}}
             for i in range(1700)]
     assert db.insert_new("plays", rows) == 1700
     assert db.insert_new("plays", rows) == 0
@@ -125,7 +136,7 @@ def test_insert_new_batches_past_the_bind_limit():
 def test_main_exit_code_follows_counts(tree, monkeypatch):
     journal, data = tree
     assert db_import.main(journal, data, 2026) == 0
-    monkeypatch.setattr(db, "count", lambda table, season=2026: 0)
+    monkeypatch.setattr(db, "count", lambda table, season=2026, ref=None: 0)
     assert db_import.main(journal, data, 2026) == 1
 
 
