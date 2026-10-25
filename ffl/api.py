@@ -36,7 +36,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from . import calibrate, config, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, player_views, season, sources
+from . import calibrate, db, espn_season, espn_write, live, nfl, notify, outlook, player_card, player_views, season, sources
 from . import fastcast, news, playbook, watch
 from . import claims as claims_mod
 from . import db
@@ -1612,16 +1612,12 @@ class TraceIn(BaseModel):
     fields: dict = {}
 
 
-TRACE_PATH = config.DATA / "trace.jsonl"
-
-
 @app.post("/trace")
 def trace(body: TraceIn):
     """On-device trace of the push tap path (ffl-e9x.10): the worker and the page beacon each step here, and the
-    server stamps the time, since uvicorn's access log carries none. One JSON line per event in data/trace.jsonl."""
-    row = {"at": datetime.now().astimezone().isoformat(timespec="milliseconds"), "event": body.event, **body.fields}
-    with open(TRACE_PATH, "a") as f:
-        f.write(json.dumps(row) + "\n")
+    server stamps the time, since uvicorn's access log carries none. One row per event in the `traces` table
+    (`db.trace_rows()` reads them back as the old trace.jsonl lines)."""
+    db.add_trace(datetime.now().astimezone().isoformat(timespec="milliseconds"), {"event": body.event, **body.fields})
     return {"ok": True}
 
 

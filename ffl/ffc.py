@@ -1,8 +1,8 @@
 """FantasyFootballCalculator 10-team 2QB draft logs, as replay material.
 
-    uv run python -m ffl.ffc fetch            # newest completed drafts -> data/ffc/<id>.csv (cached)
+    uv run python -m ffl.ffc fetch            # newest completed drafts -> the DB's draft_logs (source ffc, kept)
     uv run python -m ffl.ffc fetch --n 60
-    uv run python -m ffl.ffc list             # what is cached, and how many human seats each has
+    uv run python -m ffl.ffc list             # what is stored, and how many human seats each has
 
 FFC runs live 2QB mock rooms — the same rooms its 2QB ADP is computed from — and publishes
 every completed draft pick by pick, with the seats people sat in labelled by username and the
@@ -10,10 +10,10 @@ rest marked Computer. They are mixed rooms (one to four humans is typical), and 
 seats draft to FFC's own ADP, which is the feed we use — so the human seats are the ones worth
 judging against, and the rest are only good for volume. `ffl.replay --human` honours that.
 
-Output has the watcher's pick-log shape so `ffl.replay` reads both: overall, round, pick,
+Rows have the watcher's pick-log shape so `ffl.replay` reads both (`ffc:<id>`): overall, round, pick,
 team_id (= slot), player_id (resolved to our player pool by name + position, D/ST by team),
 player, pos, nfl, human. Unresolved names keep player_id 0 and are skipped by the replay.
-Fetched politely, one page at a time with a pause, and never re-fetched once cached.
+Fetched politely, one page at a time with a pause, and never re-fetched once stored.
 """
 from __future__ import annotations
 
@@ -26,12 +26,13 @@ import requests
 from bs4 import BeautifulSoup
 
 from . import board as board_mod
-from .adp import norm_name
-from .config import DATA
+from . import db
+from .adp import norm_name, records
 
 BASE = "https://fantasyfootballcalculator.com"
 INDEX = BASE + "/mock-draft/results/format/2qb/teams/10"
-OUT = DATA / "ffc"
+SOURCE = "ffc"  # draft_logs.source
+COLUMNS = ["overall", "round", "pick", "team_id", "player_id", "player", "pos", "nfl", "human"]
 UA = {"User-Agent": "ffl-replay/1.0 (personal draft prep; one request per few seconds)"}
 PAUSE_S = 2.5
 
@@ -118,19 +119,19 @@ def resolve(picks: list[dict], players: pd.DataFrame) -> list[dict]:
 
 
 def fetch(n: int, pause: float = PAUSE_S) -> list[int]:
-    OUT.mkdir(parents=True, exist_ok=True)
     settings, players, _ = board_mod.load_inputs()
     r = requests.get(INDEX, headers=UA, timeout=30)
     r.raise_for_status()
     ids = index_ids(r.text)[:n]
+    stored = db.draft_log_ids(SOURCE)
     got = []
     for did in ids:
-        path = OUT / f"{did}.csv"
-        if path.exists():
+        if str(did) in stored:
             got.append(did)
             continue
         time.sleep(pause)
-        r = requests.get(f"{BASE}/draft/{did}", headers=UA, timeout=30)
+        url = f"{BASE}/draft/{did}"
+        r = requests.get(url, headers=UA, timeout=30)
         if r.status_code != 200:
             print(f"  {did}: HTTP {r.status_code}, skipped")
             continue
@@ -142,8 +143,8 @@ def fetch(n: int, pause: float = PAUSE_S) -> list[int]:
         picks = resolve(picks, players)
         for p in picks:
             p["human"] = bool(human[p["team_id"] - 1]) if p["team_id"] - 1 < len(human) else False
-        df = pd.DataFrame(picks)[["overall", "round", "pick", "team_id", "player_id", "player", "pos", "nfl", "human"]]
-        df.to_csv(path, index=False)
+        df = pd.DataFrame(picks)[COLUMNS]
+        db.put_draft_log(SOURCE, str(did), records(df), {"url": url, "human": [bool(h) for h in human]})
         unresolved = int((df.player_id == 0).sum())
         print(f"  {did}: {len(df)} picks, {sum(human)} human seat(s), {unresolved} unresolved name(s)")
         got.append(did)
@@ -152,12 +153,14 @@ def fetch(n: int, pause: float = PAUSE_S) -> list[int]:
 
 def list_cached():
     rows = []
-    for path in sorted(OUT.glob("*.csv")):
-        df = pd.read_csv(path)
-        rows.append({"draft": path.stem, "picks": len(df), "rounds": int(df["round"].max()),
-                     "human_seats": int(df[df.human].team_id.nunique()) if "human" in df.columns else 0,
+    for log in db.draft_logs_rows(SOURCE):
+        df = pd.DataFrame(log["rows"])
+        if not len(df):
+            continue
+        rows.append({"draft": log["log_id"], "picks": len(df), "rounds": int(df["round"].max()),
+                     "human_seats": int(df[df.human.astype(bool)].team_id.nunique()) if "human" in df.columns else 0,
                      "unresolved": int((df.player_id == 0).sum())})
-    print(pd.DataFrame(rows).to_string(index=False) if rows else "(nothing cached)")
+    print(pd.DataFrame(rows).to_string(index=False) if rows else "(nothing stored)")
 
 
 def main():
@@ -167,7 +170,7 @@ def main():
     a = ap.parse_args()
     if a.cmd == "fetch":
         got = fetch(a.n)
-        print(f"{len(got)} drafts in {OUT}")
+        print(f"{len(got)} drafts stored (replay them: uv run python -m ffl.replay ffc --human)")
     else:
         list_cached()
 

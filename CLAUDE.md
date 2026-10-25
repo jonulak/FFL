@@ -27,8 +27,8 @@ uv run python -m ffl.avail WR 8        # LIVE: who is left at a position, by pro
 uv run python -m ffl.simulate 7        # dry-run the draft from a slot (opponents pick to 2QB ADP); `all` for every slot
 uv run python -m ffl.strategy show     # the league's strategy, the prose to advise from (--league KEY; `list`: presets and versions)
 FFL_ROLLOUT=1 uv run python -m ffl.<mod>  # draft_watch / advise / simulate: add the Monte Carlo rollout (second opinion)
-uv run python -m ffl.replay journal/draft/practice-8-slot4.csv   # a finished draft through score + rollout, from my seat (--league KEY: its draft_picks)
-uv run python -m ffl.ffc fetch         # FantasyFootballCalculator 10-team 2QB draft logs -> data/ffc/ (replay --human)
+uv run python -m ffl.replay practice-8-slot4   # a stored draft log (draft_logs: practice:<name>, ffc:<id>) through score + rollout, from my seat (--league KEY: its draft_picks; --keep NAME --from data-mock/ffl.db --league KEY stores a practice run's)
+uv run python -m ffl.ffc fetch         # FantasyFootballCalculator 10-team 2QB draft logs -> draft_logs (source ffc; `list`); `ffl.replay --human` replays every human seat
 uv run python -m ffl.practice 4        # start a League Specific Practice Draft from slot 4 (see journal/PRACTICE_DRAFT.md)
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
@@ -42,7 +42,7 @@ uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per p
 uv run python -m ffl.pace              # in-season: who is beating his projection, every roster + the wire (write-up rules: .claude/skills/pace-report)
 uv run python -m ffl.sources compare   # old (ESPN+Sleeper) vs consensus projection for every rostered player; status: source health
 uv run python -m ffl.calibrate sources   # fit per-source weights (stored inactive); --activate <fitted_at> applies them
-uv run python -m ffl.props score       # props trial (weeks 4-6, ended 2026-10-21: failed): ESPN+Sleeper vs +props MAE and the verdict
+uv run python -m ffl.props score       # props trial (weeks 4-6, ended 2026-10-21: failed): ESPN+Sleeper vs +props MAE and the verdict, off props_snapshots
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
 curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (launchd does this hourly)
 curl -X POST 127.0.0.1:8300/notify/tick   # sync + injury/waiver checks + push flush + pre-game pull (launchd every 15 min)
@@ -172,7 +172,14 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
 every installed page payload in `api.PERSIST` that survives a JSON round-trip, written through under `_db_lock`; `load()` at boot takes them
 back expired with no builder, so the first open after a restart is served at once and rebuilt behind; `drop`/`drop_prefixes`/`clear`
 delete the rows; player cards older than 7 days pruned at load; a key's inline first build is single-flight (`ffl/flight.py`): callers arriving
-while it runs share its payload or its 502, as do concurrent cold reads of `sources.Cached`, `_sleeper_for` and `box_scores`); `decisions` ← `journal/DECISIONS.md` (frozen; `ffl.decisions` parses it on import; app rows carry `facts` and a rationale of preset keys, NULL = open). `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`). A write is one short `BEGIN IMMEDIATE` transaction, never held
+while it runs share its payload or its 502, as do concurrent cold reads of `sources.Cached`, `_sleeper_for` and `box_scores`); `decisions` ← `journal/DECISIONS.md` (frozen; `ffl.decisions` parses it on import; app rows carry `facts` and a rationale of preset keys, NULL = open);
+  migration 0019 (insert-if-absent from the files, which it leaves in place): `traces` ← `data/trace.jsonl` (`POST /trace`, `db.trace_rows()`);
+  `draft_logs` (source, log_id; `rows` the pick-log shape, `meta`) ← `data/ffc/<id>.csv` (source `ffc`, `ffl.ffc fetch`) and
+  the committed `journal/draft/*.csv` pick logs (source `practice`, the file stem; `ffl.replay` names a log `source:id`);
+  `props_snapshots` (week, kind) ← `data/props/week-<n>-<kind>.json` and `props_raw` (week, kind, event_id) ← `data/props/raw/`.
+  The news bench's index and last-run reports are rows in its own SQLite files (`bench.db`'s `bench_index`,
+  `jev-cache.sqlite`'s `last_runs`), and `claude -p` runs from `claude_cli.neutral_cwd` (`<tmp>/ffl-claude-cwd/<name>`, no CLAUDE.md
+  above it), so the app writes nothing under `data/` but SQLite. `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`; `draft_logs`, `traces` and the props tables carry none). A write is one short `BEGIN IMMEDIATE` transaction, never held
   across an ESPN call; the connect hook sets `busy_timeout` before `journal_mode=WAL`. `db.engine()` never creates tables: a
   missing or stale schema raises `SchemaError` (run `uv run alembic upgrade head`); a DB error on a page read 500s the page, only a missing
   row degrades to empty. Callers outside `db.py` catch `db.DBError`. Schema changes are new Alembic revisions
@@ -222,7 +229,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   is Declarative Web Push (`notify.payload_for`: `web_push` 8030, `notification.navigate` absolute off `FFL_APP_URL`):
   Safari shows and opens it without the worker, since iOS often never fires `notificationclick` for a backgrounded
   Home Screen app (WebKit bug 268797, ffl-e9x.10); the legacy fields beside it feed sw.js's push handler elsewhere.
-  The tap path is traced on-device (`POST /trace` → `data/trace.jsonl`, rows from sw.js and `SwRegister`).
+  The tap path is traced on-device (`POST /trace` → the `traces` table, rows from sw.js and `SwRegister`).
   After the tick, `api.pregame_pull`: once per kickoff time (`season.pregame_due`, inside `PREGAME_PULL_MIN` = 85 min,
   after the inactives are out; done ones in the `pregame_pulls` state) it expires every page and source cache and rebuilds
   on a thread. Refresh keeps a source entry fetched with a long TTL (FantasySharks' far weeks): re-scraping 14 weeks

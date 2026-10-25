@@ -37,6 +37,31 @@ def test_jev_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
     assert len(calls) == 3
 
 
+def test_index_lives_in_the_frozen_db(tmp_path):
+    tmp_path = tmp_path / "bench"                                  # apart from the test's own ffl.db
+    tmp_path.mkdir()
+    path = tmp_path / "bench.db"
+    assert bench.load_index(path) is None
+    idx = Index(by_id=dict(INDEX.by_id), by_club={"LAR": [GRUPE, ADAMS]}, by_full=dict(INDEX.by_full),
+                owned={GRUPE: 12.5}, names={SILLS: {"name": "David Sills", "pos": "WR", "team": None}})
+    bench.save_index(idx, path)
+    bench.save_index(idx, path)                                    # a second freeze replaces it
+    assert bench.load_index(path) == idx
+    assert [p.name for p in tmp_path.iterdir()] == ["bench.db"], "no JSON beside it"
+
+
+def test_last_runs_live_in_the_cache_db(tmp_path):
+    tmp_path = tmp_path / "bench"                                  # apart from the test's own ffl.db
+    cache = bench.Cache(tmp_path / "cache.sqlite")
+    assert cache.last_runs() == {}
+    cache.put_last("all", {"stories": 3, "cases": [{"id": "a", "status": "PASS"}]})
+    cache.put_last("all", {"stories": 4, "cases": []})
+    cache.put_last("all+write", {"stories": 1})
+    assert bench.Cache(tmp_path / "cache.sqlite").last_runs() == {"all": {"stories": 4, "cases": []},
+                                                                  "all+write": {"stories": 1}}
+    assert [p.name for p in tmp_path.iterdir()] == ["cache.sqlite"]
+
+
 def test_haiku_cache_keys_on_model_prompt_and_schema(tmp_path):
     calls = []
 

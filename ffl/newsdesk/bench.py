@@ -4,12 +4,14 @@
     uv run python -m ffl.newsdesk bench [--player NAME|ID ...] [--write] [--refresh]
 
 `freeze` copies the collected items (untagged) and the source registry out of `data/ffl.db`, read-only, into
-`data/bench/bench.db`, and the player index into `index.json`, so a later index change never moves a result. A run
+`data/bench/bench.db`, with the player index beside them in its `bench_index` table, so a later index change never
+moves a result. A run
 copies that to `run.db` and replays it as production would have seen it: each item released at its published time
 + DELAY, `tag.run` at every TICK (and `write.run` after it with --write). Jev's and Haiku's answers are kept in
 `jev-cache.sqlite` keyed by a hash of the question, so a rerun costs nothing and a changed question pays only for
 its own calls (--refresh asks again). The replay is then checked against bench_cases.CASES and diffed against the
-last run of the same scope (`last.json`). Production never reads any of it.
+last run of the same scope (the cache's `last_runs` table). Nothing but these SQLite files is written; production
+never reads any of it.
 """
 from __future__ import annotations
 
@@ -32,11 +34,9 @@ from . import bench_cases, jev, tag, write
 from .players import Index
 
 BENCH = DATA / "bench"
-FROZEN = BENCH / "bench.db"
-INDEX = BENCH / "index.json"
+FROZEN = BENCH / "bench.db"  # the slice, and its player index (bench_index)
 RUN = BENCH / "run.db"
-CACHE = BENCH / "jev-cache.sqlite"
-LAST = BENCH / "last.json"
+CACHE = BENCH / "jev-cache.sqlite"  # saved answers, and each scope's last report (last_runs)
 DELAY = timedelta(minutes=15)  # collected and queued: an item reaches tagging this long after it is published
 TICK = timedelta(minutes=10)  # launchd's pipeline interval
 HOLD = "1999-01-01T00:00:00+00:00"  # tagged_at of an item not yet released: untagged_items passes it over
@@ -57,6 +57,18 @@ class Cache:
         with closing(sqlite3.connect(path)) as c, c:
             c.execute("create table if not exists answers (key text primary key, model text not null, "
                       "answer text not null, usage text not null, at text not null)")
+            c.execute("create table if not exists last_runs (scope text primary key, doc text not null, "
+                      "at text not null)")
+
+    def last_runs(self) -> dict[str, dict]:
+        """{scope: the report of the last run of that scope}, what a run is diffed against."""
+        with closing(sqlite3.connect(self.path)) as c:
+            return {s: json.loads(d) for s, d in c.execute("select scope, doc from last_runs")}
+
+    def put_last(self, scope: str, doc: dict) -> None:
+        with closing(sqlite3.connect(self.path)) as c, c:
+            c.execute("insert or replace into last_runs values (?, ?, ?)",
+                      (scope, json.dumps(doc, ensure_ascii=False), datetime.now(timezone.utc).isoformat()))
 
     @staticmethod
     def _key(*parts) -> str:
@@ -147,12 +159,26 @@ def _day(s: str | None, end: bool) -> datetime | None:
     return d + timedelta(days=1) if end and len(s) <= 10 else d
 
 
-def save_index(index: Index, path: Path = INDEX) -> None:
-    path.write_text(json.dumps(asdict(index)))
+def save_index(index: Index, path: Path = FROZEN) -> None:
+    """The player index into the frozen slice's own DB (table bench_index, one row): it lives and dies with the
+    slice it was frozen beside."""
+    with closing(sqlite3.connect(path)) as c, c:
+        c.execute("create table if not exists bench_index (id integer primary key check (id = 1), doc text not null)")
+        c.execute("insert or replace into bench_index values (1, ?)", (json.dumps(asdict(index)),))
 
 
-def load_index(path: Path = INDEX) -> Index:
-    d = json.loads(path.read_text())
+def load_index(path: Path = FROZEN) -> Index | None:
+    """The index frozen into `path`; None when there is none (no slice, or one frozen before it lived there)."""
+    if not path.exists():
+        return None
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as c:
+        try:
+            row = c.execute("select doc from bench_index where id = 1").fetchone()
+        except sqlite3.OperationalError:  # no such table
+            return None
+    if row is None:
+        return None
+    d = json.loads(row[0])
     return Index(by_id={int(k): v for k, v in d["by_id"].items()}, by_club=d["by_club"], by_full=d["by_full"],
                  owned={int(k): v for k, v in d["owned"].items()}, names={int(k): v for k, v in d.get("names", {}).items()})
 
@@ -178,11 +204,11 @@ def freeze(src: Path, since: str | None = None, until: str | None = None, index:
                           [tuple(r[c] for c in cols) for r in rows])
             n[table] = len(rows)
         span = d.execute("select min(published_at), max(published_at) from news_items").fetchone()
+    save_index(index or players.fetch_index(), tmp)
     with closing(sqlite3.connect(tmp)) as d:
         d.execute("pragma journal_mode=delete")  # one file: the WAL folded in
     _fresh(FROZEN)
     os.replace(tmp, FROZEN)
-    save_index(index or players.fetch_index())
     return {**n, "from": span[0], "to": span[1]}
 
 
@@ -371,11 +397,11 @@ def _scope(selected: set[int] | None, do_write: bool) -> str:
 
 
 def run(selected_names: list[str], do_write: bool, refresh: bool, cases: list = bench_cases.CASES) -> int:
-    if not FROZEN.exists() or not INDEX.exists():
+    index = load_index()
+    if index is None:
         print("no frozen slice: run `uv run python -m ffl.newsdesk bench freeze` first")
         return 2
     t0 = time.time()
-    index = load_index()
     selected = resolve(selected_names, index) if selected_names else None
     cache = Cache(refresh=refresh)
     tot = replay(index, cache, selected, do_write)
@@ -398,14 +424,9 @@ def run(selected_names: list[str], do_write: bool, refresh: bool, cases: list = 
              f"{tot['haiku_usage']['output']} output tokens" if do_write else ""))
     if cache.missed and (j["hits"] or h["hits"]):
         print("  first misses: " + " | ".join(cache.missed))
-    try:
-        last = json.loads(LAST.read_text()) if LAST.exists() else {}
-    except ValueError:
-        last = {}
     scope = _scope(selected, do_write)
-    print(f"\nsince the last {scope} run: " + "; ".join(_diff(last.get(scope), results, summ)))
-    last[scope] = {"at": datetime.now(timezone.utc).isoformat(), "cases": results, **summ}
-    LAST.write_text(json.dumps(last, indent=1, ensure_ascii=False))
+    print(f"\nsince the last {scope} run: " + "; ".join(_diff(cache.last_runs().get(scope), results, summ)))
+    cache.put_last(scope, {"at": datetime.now(timezone.utc).isoformat(), "cases": results, **summ})
     print(f"{time.time() - t0:.1f}s")
     return 1 if tot["error"] or any(r["status"] == "FAIL" for r in results) else 0
 

@@ -6,6 +6,14 @@ import pytest
 from ffl import claude_cli
 
 
+def test_neutral_cwd_is_outside_the_repo_and_data_with_no_claude_md_above():
+    from ffl import config, outlook
+    from ffl.newsdesk import write
+    for d in (claude_cli.neutral_cwd("x"), outlook.OUTLOOK_DIR, write.CLAUDE_CWD):
+        assert not d.is_relative_to(config.ROOT) and not d.is_relative_to(config.DATA)
+        assert not any((p / "CLAUDE.md").exists() for p in (d, *d.parents))
+
+
 def test_parse_envelope_error_raises_reason():
     with pytest.raises(RuntimeError, match="Not logged in"):
         claude_cli.parse_envelope(json.dumps({"is_error": True, "result": "Not logged in"}))

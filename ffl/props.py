@@ -13,29 +13,26 @@ and, at the same moment, ESPN's and Sleeper's projections for every rostered QB/
 A player's props number is Sleeper's stat line with each stat a market prices replaced by the
 market's consensus (yardage and receptions at the median line; TDs through a Poisson mean off the
 devigged price), rescored to the league. Each game is judged off the last snapshot before its
-kickoff, so a Thursday game is read from Thursday's lines. Raw responses are kept under
-`data/props/raw/` so a different conversion can be scored later without spending credits.
+kickoff, so a Thursday game is read from Thursday's lines. Snapshots are the DB's `props_snapshots`, and the raw
+responses are kept in `props_raw` so a different conversion can be scored later without spending credits.
 
 Everything but `pull`, `score_main` and the two fetches is pure.
 """
 from __future__ import annotations
 
-import json
 import math
 import os
 import statistics
 import sys
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import requests
 
+from . import db
 from . import season as S
 from .adp import norm_name
-from .config import DATA
 from .sleeper import score as score_stats
 
-PROPS_DIR = DATA / "props"
 TRIAL_WEEKS = (4, 5, 6)
 ODDS = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
 # market -> the Sleeper stat it replaces ("any_td" is split into rush/rec by props_stats)
@@ -251,15 +248,12 @@ def pull(kind: str, force: bool = False) -> None:
     if week not in TRIAL_WEEKS:
         print(f"week {week} is outside the props trial {TRIAL_WEEKS}: nothing pulled")
         return
-    out = PROPS_DIR / f"week-{week}-{kind}.json"
-    if out.exists() and not force:
-        print(f"{out} exists (--force to spend the credits again)")
+    if db.props_snapshot_exists(week, kind) and not force:
+        print(f"week {week} {kind} is stored (--force to spend the credits again)")
         return
     now = datetime.now(timezone.utc)
     end = week_end(now)
     events = [e for e in fetch_events() if now < _when(e["commence_time"].replace("Z", "+00:00")) < end]
-    raw = PROPS_DIR / "raw" / f"week-{week}-{kind}"
-    raw.mkdir(parents=True, exist_ok=True)
     market: dict[str, dict[str, float]] = {}
     left = None
     for e in events:
@@ -267,7 +261,7 @@ def pull(kind: str, force: bool = False) -> None:
             print(f"stopping: {left} credits left, an event can cost {len(MARKETS)}")
             break
         data, left = fetch_event_props(e["id"])
-        (raw / f"{e['id']}.json").write_text(json.dumps(data))
+        db.put_props_raw(week, kind, e["id"], data)
         for who, stats in consensus(data).items():
             market.setdefault(who, {}).update(stats)
     settings = load()
@@ -278,12 +272,11 @@ def pull(kind: str, force: bool = False) -> None:
         players += [flatten_box_player(bp) | {"fantasy_team": tid} for bp in lineup]
     players = baseline(players, parse_sleeper_rows(sl_rows, ks))
     rows = snapshot_rows(players, sleeper_stat_lines(sl_rows), market, ks)
-    PROPS_DIR.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"week": week, "kind": kind, "taken_at": now.isoformat(), "events": len(events),
-                               "credits_left": left, "rows": rows}, indent=1))
+    db.put_props_snapshot(week, kind, {"week": week, "kind": kind, "taken_at": now.isoformat(),
+                                       "events": len(events), "credits_left": left, "rows": rows})
     lined = sum(r["proj_props"] is not None for r in rows)
     print(f"week {week} {kind}: {len(events)} games, {lined}/{len(rows)} rostered players with a line, "
-          f"{left} credits left -> {out}")
+          f"{left} credits left (stored)")
 
 
 def score_main() -> None:
@@ -291,11 +284,10 @@ def score_main() -> None:
     from .espn_season import fresh_league, my_team_id
     from .settings import load
     by_week: dict[int, list[dict]] = {}
-    for p in sorted(PROPS_DIR.glob("week-*.json")):
-        snap = json.loads(p.read_text())
+    for snap in db.props_snapshot_docs():
         by_week.setdefault(snap["week"], []).append(snap)
     if not by_week:
-        print(f"no snapshots in {PROPS_DIR}")
+        print("no props snapshots stored")
         return
     lg = fresh_league()
     me, settings = my_team_id(lg), load()

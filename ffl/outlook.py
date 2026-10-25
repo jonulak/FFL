@@ -18,11 +18,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 
 from . import claude_cli, db, news
-from .config import DATA
 
 HOOKS_OFF = claude_cli.HOOKS_OFF  # moved to claude_cli; still importable from here
 
-OUTLOOK_DIR = DATA / "outlook"  # only the neutral cwd for `claude -p` (the outlooks live in the DB)
+OUTLOOK_DIR = claude_cli.neutral_cwd("outlook")  # only the neutral cwd for `claude -p` (the outlooks live in the DB)
 # Sonnet over Opus (2026-10-20, the whole Week 7 roster through both): the same facts read right, ~11.6 s a card
 # against ~15.4 s, and Sonnet the clearer where sources disagreed
 MODEL = "sonnet"

@@ -1,11 +1,12 @@
 """Replay a finished draft through the recommender and the rollout, from one seat.
 
-    uv run python -m ffl.replay journal/draft/practice-8-slot4.csv            # my seat (team id from settings)
-    uv run python -m ffl.replay journal/draft/practice-9-slot1.csv --team 7
-    uv run python -m ffl.replay data/ffc/18509038.csv --team 3 --sims 100      # an FFC log, seat 3
-    uv run python -m ffl.replay data/ffc/*.csv --human                         # every human seat in every log
-    uv run python -m ffl.replay --league espn:100000001                       # a league's draft, off the DB's draft_picks
+    uv run python -m ffl.replay practice-8-slot4               # a stored log, my seat (team id from settings)
+    uv run python -m ffl.replay practice:practice-9-slot1 --team 7
+    uv run python -m ffl.replay ffc:18509038 --team 3 --sims 100  # an FFC log, seat 3
+    uv run python -m ffl.replay --human                          # every human seat in every stored FFC log
+    uv run python -m ffl.replay --league espn:100000001         # a league's draft, off the DB's draft_picks
     FFL_DATA_DIR=data-mock uv run python -m ffl.replay --league espn:<mock id>  # a practice draft (its own ffl.db)
+    uv run python -m ffl.replay --keep practice-14-slot2 --from data-mock/ffl.db --league espn:<mock id>  # keep it
 
 For every pick the chosen seat made, rebuild the board as it stood, run `recommend()` and the
 rollout, and report what the seat took, what each would have taken, and how the rollout scores
@@ -15,35 +16,78 @@ of the roster each choice leads to, opponents drafting to ADP), so "the human lo
 the two rankings part from each other and from people, and by how much.
 
 Log format: the watcher's pick log (`overall, round, pick, team_id, player_id, pos, ...`): the DB's
-draft_picks for `--league`, or a CSV in that shape (the committed journal/draft/ history). FFC logs
-come out of `ffl.ffc` in the same shape, with `human` marking the seats people sat in. The board is
-the league's (`--league`, else FFL_LEAGUE, else the home league).
+draft_picks for `--league`, or a stored log in the `draft_logs` table, named `<source>:<id>` (a bare id
+when only one source has it; a bare source, `ffc` or `practice`, is every log in it). Source `practice`
+holds the practice and mock drafts once kept as journal/draft/*.csv (their file stems), `ffc` what
+`ffl.ffc fetch` stored, with `human` marking the seats people sat in. The board is the league's
+(`--league`, else FFL_LEAGUE, else the home league).
 """
 from __future__ import annotations
 
 import argparse
-import glob
-import sys
 
 import pandas as pd
 
 from . import board as board_mod
+from . import adp as adp_mod
 from . import db, leagues, strategy
 from . import rollout as ro
 from .draft_watch import (my_team_id, opponent_demand, recommend, roster_counts, snake_order,
                           turn_math)
 
 
-def load_log(path: str | None = None, ref=None) -> pd.DataFrame:
-    """A pick log from a CSV at `path`, or from `ref`'s draft_picks."""
-    log = pd.read_csv(path) if path is not None else pd.DataFrame(db.picks(ref))
-    path = path or f"{ref.key} draft_picks"
+SOURCES = ("ffc", "practice")
+
+
+def resolve_logs(names: list[str]) -> list[tuple[str, str]]:
+    """Stored-log names -> (source, log_id): `source:id`, a bare source (every log in it), or a bare id that
+    only one source has."""
+    out = []
+    for name in names:
+        source, _, log_id = name.partition(":") if ":" in name else (None, "", name)
+        if source is None and log_id in SOURCES:
+            got = [(r["source"], r["log_id"]) for r in db.draft_logs_rows(log_id)]
+            if not got:
+                raise SystemExit(f"no stored log in source {log_id!r} (`uv run python -m ffl.ffc fetch` for FFC's)")
+            out += got
+            continue
+        hits = [(r["source"], r["log_id"]) for r in db.draft_logs_rows(source, log_id)]
+        if not hits:
+            raise SystemExit(f"{name}: no stored log by that name (`uv run python -m ffl.ffc list` shows FFC's)")
+        if len(hits) > 1:
+            raise SystemExit(f"{name}: more than one stored log has that id: "
+                             + ", ".join(f"{s}:{i}" for s, i in hits))
+        out += hits
+    return out
+
+
+def keep(name: str, path, league: str) -> None:
+    """Store `league`'s draft from another ffl.db (a practice run's `data-mock/ffl.db`) as the practice log `name`."""
+    rows = db.picks_in(path, league)
+    if not rows:
+        raise SystemExit(f"{path}: no picks for {league}")
+    if not db.put_draft_log("practice", name, rows, {"from": str(path), "league": league}):
+        raise SystemExit(f"practice:{name} is already stored; pick another name")
+    print(f"kept {len(rows)} picks as practice:{name} (uv run python -m ffl.replay practice:{name})")
+
+
+def load_log(name: str | None = None, ref=None) -> pd.DataFrame:
+    """A pick log: the stored log `name` (see resolve_logs; one log), or `ref`'s draft_picks. A stored log
+    reads back as the frame pd.read_csv gave from the file it once was."""
+    if name is not None:
+        [(source, log_id)] = resolve_logs([name])
+        rows = db.draft_logs_rows(source, log_id)[0]["rows"]
+        log = adp_mod.csv_frame(pd.DataFrame(rows)) if rows else pd.DataFrame()
+        name = f"{source}:{log_id}"
+    else:
+        log = pd.DataFrame(db.picks(ref))
+        name = f"{ref.key} draft_picks"
     if not len(log):
-        raise SystemExit(f"{path}: no picks")
+        raise SystemExit(f"{name}: no picks")
     need = {"overall", "round", "team_id", "player_id"}
     missing = need - set(log.columns)
     if missing:
-        raise SystemExit(f"{path}: missing columns {sorted(missing)}")
+        raise SystemExit(f"{name}: missing columns {sorted(missing)}")
     return log.sort_values("overall").reset_index(drop=True)
 
 
@@ -124,20 +168,27 @@ def replay(log: pd.DataFrame, me: int, settings: dict, players: pd.DataFrame, ad
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("logs", nargs="*", help="pick-log CSVs (globs allowed)")
+    ap.add_argument("logs", nargs="*", help="stored logs: source:id, a bare id, or a bare source (ffc, practice)")
     ap.add_argument("--league", default=None, help="replay this league's draft off the DB's draft_picks (a key)")
     ap.add_argument("--team", type=int, default=None, help="seat (team id) to replay; default my team")
-    ap.add_argument("--human", action="store_true", help="every seat marked human in the log")
+    ap.add_argument("--human", action="store_true", help="every seat marked human in the log (no logs named: every FFC log)")
     ap.add_argument("--sims", type=int, default=100)
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--keep", metavar="NAME", help="store --league's draft from the ffl.db at --from as practice:NAME")
+    ap.add_argument("--from", dest="src", metavar="DB", help="with --keep: the other ffl.db (e.g. data-mock/ffl.db)")
     a = ap.parse_args()
-    if not a.logs and not a.league:
-        ap.error("give pick-log CSVs or --league KEY")
+    if a.keep:
+        if not (a.src and a.league):
+            ap.error("--keep NAME needs --from DB and --league KEY")
+        keep(a.keep, a.src, a.league)
+        return
+    if not a.logs and not a.league and not a.human:
+        ap.error("name stored logs, or --league KEY, or --human for every FFC log")
     ref = leagues.get(a.league) if a.league else leagues.current()
     settings, players, adp = board_mod.load_inputs(ref)
     caps, qb_pace = strategy.caps(ref), strategy.qb_pace(ref)
-    paths = [p for g in a.logs for p in sorted(glob.glob(g))]
-    logs = [(path, load_log(path)) for path in paths]
+    names = [f"{s}:{i}" for s, i in resolve_logs(a.logs or (["ffc"] if a.human and not a.league else []))]
+    logs = [(name, load_log(name)) for name in names]
     if a.league:
         logs.append((f"{ref.key} draft_picks", load_log(ref=ref)))
     summary = []

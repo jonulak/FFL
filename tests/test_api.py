@@ -1550,13 +1550,13 @@ def test_notify_tick_pulls_once_before_a_kickoff(client, monkeypatch):
     assert client.post("/notify/tick").json()["pregame"] == {"error": "espn down"}
 
 
-def test_trace_appends_a_stamped_row(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(api, "TRACE_PATH", tmp_path / "trace.jsonl")
-    assert client.post("/trace", json={"event": "click", "fields": {"url": "/transactions"}}).status_code == 200
+def test_trace_stores_a_stamped_row(client):
+    assert client.post("/trace", json={"event": "click", "fields": {"url": "/transactions"}}).json() == {"ok": True}
     assert client.post("/trace", json={"event": "hello"}).status_code == 200
-    rows = [json.loads(line) for line in (tmp_path / "trace.jsonl").read_text().splitlines()]
+    rows = db.trace_rows()
     assert [r["event"] for r in rows] == ["click", "hello"]
     assert rows[0]["url"] == "/transactions" and rows[0]["at"][:4].isdigit()
+    assert not hasattr(api, "TRACE_PATH"), "nothing written beside the DB"
 
 
 # --- page payloads in SQL (ffl-iq3): no cold load after a restart ---

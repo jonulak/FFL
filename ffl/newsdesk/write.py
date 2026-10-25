@@ -14,12 +14,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .. import claude_cli, db
-from ..config import DATA
 from . import usage
 from .players import Index
 
 BATCH = 8
 MODEL = "haiku"
+CLAUDE_CWD = claude_cli.neutral_cwd("newsdesk")  # `claude -p` runs here: no CLAUDE.md in or above it
 TIMEOUT = 180
 HEADLINE = 90
 LINE = 140
@@ -145,7 +145,7 @@ def run(index: Index, run_cli=claude_cli.run) -> dict:
     for at in range(0, len(stories), BATCH):
         batch = stories[at:at + BATCH]
         try:
-            got = run_cli(prompt(batch, index, sources), model=MODEL, schema=SCHEMA, tools="", cwd=DATA / "newsdesk",
+            got = run_cli(prompt(batch, index, sources), model=MODEL, schema=SCHEMA, tools="", cwd=CLAUDE_CWD,
                           timeout=TIMEOUT)
         except Exception as e:  # noqa: BLE001 — any failure of the CLI stops the run, with its text
             out["failed"], out["error"] = True, str(e)

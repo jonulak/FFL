@@ -186,6 +186,44 @@ draft_states = sa.Table(
     sa.PrimaryKeyConstraint("league", "season"),
 )
 
+# Finished drafts kept as replay material (`ffl.replay`): FFC's public mock rooms (`ffl.ffc fetch`) and the practice
+# and mock drafts once written to journal/draft/*.csv. Every source's rows are the pick-log shape the watcher writes.
+draft_logs = sa.Table(
+    "draft_logs", metadata,
+    sa.Column("source", sa.String, nullable=False),      # "ffc" | "practice"
+    sa.Column("log_id", sa.String, nullable=False),      # FFC's draft id; a practice log's old file stem
+    sa.Column("meta", sa.JSON),
+    sa.Column("rows", sa.JSON, nullable=False),          # [{overall, round, pick, team_id, player_id, ...}] in pick order
+    sa.Column("added_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("source", "log_id"),
+)
+
+# The on-device trace of the push tap path (POST /trace, ffl-e9x.10). Debug only, never read by the app.
+traces = sa.Table(
+    "traces", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("at", sa.String, nullable=False),
+    sa.Column("doc", sa.JSON, nullable=False),           # {event, **fields}
+)
+
+# The props trial (ffl/props.py, weeks 4-6): each pull's snapshot, and The Odds API's raw answers per event.
+props_snapshots = sa.Table(
+    "props_snapshots", metadata,
+    sa.Column("week", sa.Integer, nullable=False),
+    sa.Column("kind", sa.String, nullable=False),        # "thu" | "sun"
+    sa.Column("doc", sa.JSON, nullable=False),           # {week, kind, taken_at, events, credits_left, rows}
+    sa.PrimaryKeyConstraint("week", "kind"),
+)
+
+props_raw = sa.Table(
+    "props_raw", metadata,
+    sa.Column("week", sa.Integer, nullable=False),
+    sa.Column("kind", sa.String, nullable=False),
+    sa.Column("event_id", sa.String, nullable=False),
+    sa.Column("doc", sa.JSON, nullable=False),
+    sa.PrimaryKeyConstraint("week", "kind", "event_id"),
+)
+
 results = sa.Table(
     "results", metadata, _season(),
     sa.Column("week", sa.Integer, nullable=False),
@@ -1127,6 +1165,90 @@ def draft_state(ref) -> dict | None:
     t = draft_states
     with _read() as c:
         return c.execute(sa.select(t.c.doc).where(t.c.league == league, t.c.season == season)).scalar()
+
+
+def picks_in(path, league: str) -> list[dict]:
+    """The league's latest-season draft log (the `_PICK_COLS`) in another SQLite file, opened read-only: a practice
+    run's own `FFL_DATA_DIR` DB, kept before it is deleted (`ffl.replay --keep`)."""
+    eng = sa.create_engine(f"sqlite:///file:{path}?mode=ro&uri=true")
+    t = draft_picks
+    try:
+        with eng.connect() as c:
+            season = c.execute(sa.select(sa.func.max(t.c.season)).where(t.c.league == league)).scalar()
+            q = sa.select(*[t.c[k] for k in _PICK_COLS]).where(t.c.league == league, t.c.season == season) \
+                .order_by(t.c.overall)
+            return [dict(r._mapping) for r in c.execute(q)] if season is not None else []
+    finally:
+        eng.dispose()
+
+
+def put_draft_log(source: str, log_id: str, rows: list[dict], meta: dict | None = None,
+                  added_at: str | None = None) -> bool:
+    """Store a finished draft's pick log unless (source, log_id) is already stored; True when it was added.
+    `rows` must be plain JSON (`adp.records` of a frame)."""
+    row = {"source": source, "log_id": str(log_id), "meta": meta, "rows": rows, "added_at": added_at or _now()}
+    with _write() as c:
+        return c.execute(_upsert(draft_logs, [row], ["source", "log_id"], None)).rowcount > 0
+
+
+def draft_log_ids(source: str) -> set[str]:
+    with _read() as c:
+        return set(c.execute(sa.select(draft_logs.c.log_id).where(draft_logs.c.source == source)).scalars())
+
+
+def draft_logs_rows(source: str | None = None, log_id: str | None = None) -> list[dict]:
+    """Stored draft logs ({source, log_id, meta, rows, added_at}) by source and id; None matches any."""
+    t = draft_logs
+    q = sa.select(t)
+    if source is not None:
+        q = q.where(t.c.source == source)
+    if log_id is not None:
+        q = q.where(t.c.log_id == str(log_id))
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q.order_by(t.c.source, t.c.log_id))]
+
+
+def add_trace(at: str, doc: dict) -> None:
+    with _write() as c:
+        c.execute(sa.insert(traces).values(at=at, doc=doc))
+
+
+def trace_rows() -> list[dict]:
+    """Every trace row in arrival order, as the old trace.jsonl line: {at, **doc}."""
+    with _read() as c:
+        return [{"at": r.at, **r.doc} for r in c.execute(sa.select(traces).order_by(traces.c.id))]
+
+
+def props_snapshot_exists(week: int, kind: str) -> bool:
+    t = props_snapshots
+    with _read() as c:
+        return c.execute(sa.select(t.c.week).where(t.c.week == week, t.c.kind == kind)).first() is not None
+
+
+def put_props_snapshot(week: int, kind: str, doc: dict) -> None:
+    """Replace the week's `kind` snapshot (a forced pull spends the credits again and overwrites it)."""
+    with _write() as c:
+        c.execute(_upsert(props_snapshots, [{"week": week, "kind": kind, "doc": doc}], ["week", "kind"], ["doc"]))
+
+
+def props_snapshot_docs() -> list[dict]:
+    t = props_snapshots
+    with _read() as c:
+        return list(c.execute(sa.select(t.c.doc).order_by(t.c.week, t.c.kind)).scalars())
+
+
+def put_props_raw(week: int, kind: str, event_id: str, doc) -> None:
+    row = {"week": week, "kind": kind, "event_id": event_id, "doc": doc}
+    with _write() as c:
+        c.execute(_upsert(props_raw, [row], ["week", "kind", "event_id"], ["doc"]))
+
+
+def props_raw_docs(week: int, kind: str) -> dict[str, object]:
+    """{event id: The Odds API's answer} of one pull."""
+    t = props_raw
+    with _read() as c:
+        return {r.event_id: r.doc for r in c.execute(sa.select(t.c.event_id, t.c.doc)
+                                                      .where(t.c.week == week, t.c.kind == kind))}
 
 
 def put_outlooks(week: int, kind: str, entries: dict[int, dict], season: int = SEASON) -> None:

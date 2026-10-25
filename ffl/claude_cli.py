@@ -9,9 +9,17 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 HOOKS_OFF = json.dumps({"disableAllHooks": True})
+
+
+def neutral_cwd(name: str) -> Path:
+    """A working directory for `claude -p` with no CLAUDE.md in it or above it: a folder under the system temp dir
+    (`ffl-claude-cwd/<name>`), never under the repo, where the CLI would load the project's CLAUDE.md into every
+    call (the prompt is meant to be the whole input). `run` creates it; nothing is ever written there."""
+    return Path(tempfile.gettempdir()) / "ffl-claude-cwd" / name
 
 
 class Structured(dict):
