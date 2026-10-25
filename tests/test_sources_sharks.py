@@ -14,27 +14,27 @@ KS = tables({"ppr": 1.0, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.
 
 
 def test_weekly_qb_rescored_from_raw_stats():
-    out = sharks.parse_csv((FIX / "sharks_888_qb.csv").read_text(), "QB", KS)
+    out = sources.scored(sharks.parse_csv((FIX / "sharks_888_qb.csv").read_text(), "QB"), KS)
     # Allen: 247 yds, 2.1 TD, 0.6 INT, 34 rush yds, 1.2 rush TD, 0.2 fum lost
     assert out[("josh allen", "QB")] == pytest.approx(247 * .04 + 2.1 * 4 - .6 * 2 + 3.4 + 1.2 * 6 - .2 * 2, abs=.05)
     assert len(out) >= 50
 
 
 def test_weekly_rb_rescored():
-    out = sharks.parse_csv((FIX / "sharks_888_rb.csv").read_text(), "RB", KS)
+    out = sources.scored(sharks.parse_csv((FIX / "sharks_888_rb.csv").read_text(), "RB"), KS)
     # Robinson: 92 rush yds, .7 TD, 3.7 rec, 33 rec yds, .2 rec TD, .1 fum lost
     assert out[("bijan robinson", "RB")] == pytest.approx(9.2 + 4.2 + 3.7 + 3.3 + 1.2 - .2, abs=.05)
 
 
 def test_ros_rb_reverses_last_first_with_a_suffix():
-    out = sharks.parse_csv((FIX / "sharks_877_rb.csv").read_text(), "RB", KS)
+    out = sources.scored(sharks.parse_csv((FIX / "sharks_877_rb.csv").read_text(), "RB"), KS)
     assert out[("kenneth walker", "RB")] == pytest.approx(111.3 + 7.4 * 6 + 30.1 + 22.8 + 3.1 * 6 - .4, abs=.05)
 
 
 def test_a_reshaped_file_is_nothing():
     text = (FIX / "sharks_888_rb.csv").read_text().replace("Rush Yds", "Rushing")
-    assert sharks.parse_csv(text, "RB", KS) == {}
-    assert sharks.parse_csv("", "RB", KS) == {}
+    assert sharks.parse_csv(text, "RB") == {}
+    assert sharks.parse_csv("", "RB") == {}
 
 
 def test_segments():
@@ -91,7 +91,7 @@ def test_future_weeks_are_refetched_every_six_hours_not_every_poll(monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(sources.time, "time", lambda: clock[0])
     asked = []
-    monkeypatch.setattr(sharks, "_fetch", lambda seg, ks: asked.append(seg) or {("a b", "WR"): 1.0})
+    monkeypatch.setattr(sharks, "_fetch", lambda seg: asked.append(seg) or {("a b", "WR"): {"rec": 1.0}})
     sharks.fetch_ros(KS, 17)
     now, future = sharks.segment(17), sharks.segment(18)
     assert sorted(asked) == [now, future]

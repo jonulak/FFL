@@ -4,7 +4,8 @@ season's base (874 for 2026, read off the page's Period list) + 8 + week. Rest o
 weekly projections summed over weeks w..18 (all weeks or nothing), like Sleeper's: the page's own
 "Rest of Year" segment (base + 3) covers only ~10 games, not the games left, so it is not used.
 Columns are read by header name; the TD-distance buckets are ignored (this league scores a TD
-the same at any distance). parse_csv is the pure seam.
+the same at any distance). parse_csv is the pure seam. A week is cached as stats, one download for every
+league, and scored at read; the ROS sum is cached per scoring (it downloads nothing of its own).
 """
 from __future__ import annotations
 
@@ -14,11 +15,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from . import Cached, Thin, scoring_key
+from . import Cached, Thin, scored, scoring_key
 from ..adp import norm_name
 from ..config import SEASON
 from ..season import NFL_WEEKS
-from ..sleeper import score
 
 URL = ("https://www.fantasysharks.com/apps/bert/forecasts/projections.php?csv=1&Sort=&League=-1"
        "&Position={code}&scoring=1&Segment={segment}&uid=4")
@@ -52,7 +52,8 @@ def _name(s: str) -> str:
     return norm_name(f"{first} {last}" if first else last)
 
 
-def parse_csv(text: str, pos: str, ks: dict) -> dict[tuple[str, str], float]:
+def parse_csv(text: str, pos: str) -> dict[tuple[str, str], dict]:
+    """{(name, pos): {stat: value}} off one position's CSV, the stats sleeper.score reads; {} for a reshaped file."""
     rows = list(csv.reader(io.StringIO(text)))
     if not rows:
         return {}
@@ -66,22 +67,26 @@ def parse_csv(text: str, pos: str, ks: dict) -> dict[tuple[str, str], float]:
     for r in rows[1:]:
         if len(r) != len(head):
             continue
-        st = {stat: _num(r[idx[h]]) for h, stat in COLS.items() if h in idx}
-        out[(_name(r[idx["Player Name"]]), pos)] = round(score(st, ks[pos]), 1)
+        out[(_name(r[idx["Player Name"]]), pos)] = {stat: _num(r[idx[h]]) for h, stat in COLS.items() if h in idx}
     return out
 
 
-def _fetch(seg: int, ks: dict) -> dict[tuple[str, str], float]:
-    data: dict[tuple[str, str], float] = {}
+def _fetch(seg: int) -> dict[tuple[str, str], dict]:
+    data: dict[tuple[str, str], dict] = {}
     for pos, code in POS_CODE.items():
         r = requests.get(URL.format(code=code, segment=seg), headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
         r.raise_for_status()
-        data.update(parse_csv(r.text, pos, ks))
+        data.update(parse_csv(r.text, pos))
     return data
 
 
+def week_stats(week: int, ttl: float | None = None) -> dict[tuple[str, str], dict]:
+    """The week's stat lines, one download for every league (keyed by week alone)."""
+    return _WEEK.get(str(week), lambda: _fetch(segment(week)), ttl=ttl)
+
+
 def fetch_week(week: int, ks: dict, ttl: float | None = None) -> dict[tuple[str, str], float]:
-    return _WEEK.get(f"{week}:{scoring_key(ks)}", lambda: _fetch(segment(week), ks), ttl=ttl)
+    return scored(week_stats(week, ttl), ks)
 
 
 def fetch_ros(ks: dict, week: int) -> dict[tuple[str, str], float]:

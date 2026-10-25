@@ -47,8 +47,9 @@ _BUILT: dict[str, float] = {}  # league key -> when fresh_league last rebuilt th
 # week, the Roster and Players pages on the ROS week (the next one once the week's games are played), and with
 # one slot each build evicted the other's 5-25 s lookup. An entry refetches only once it is CACHE_S old.
 _SEASON_CACHE: dict[tuple[str | None, int], tuple[float, dict]] = {}  # (league key or None, week)
-_SL: dict[tuple[int, str], tuple[float, dict]] = {}  # (week, sources.scoring_key) -> (expires_at, rescored sleeper projections)
-_SL_FLIGHT = Flight()  # (week, scoring) -> its Sleeper fetch in flight, shared by the builds asking at once
+_SL: dict[int, tuple[float, list]] = {}  # week -> (expires_at, Sleeper's raw weekly rows): one fetch for every league
+_SL_SCORED: dict[tuple[int, str], tuple[list, dict]] = {}  # (week, sources.scoring_key) -> (the raw rows it parsed, points)
+_SL_FLIGHT = Flight()  # week -> its Sleeper fetch in flight, shared by the builds asking at once
 _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
 _INJ: list = []  # [expires_at, data]
 
@@ -462,10 +463,6 @@ def fetch_sleeper_rows(week: int) -> list[dict]:
     return r.json()
 
 
-def fetch_sleeper_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
-    return parse_sleeper_rows(fetch_sleeper_rows(week), ks)
-
-
 def parse_sleeper_rows(rows: list[dict], ks: dict) -> dict[tuple[str, str], float]:
     """Sleeper's weekly rows keyed the way merge_weekly looks them up.
 
@@ -824,22 +821,33 @@ def apply_injuries(players: list[dict], injuries: dict[int, dict], week1_start: 
 
 
 def _sleeper_for(week: int, settings: dict) -> dict:
-    """Sleeper's weekly projections rescored to `settings`, cached for CACHE_S per week and scoring (POST /refresh clears _SL)."""
+    """Sleeper's weekly projections rescored to `settings`. The raw rows are fetched once for every league and kept
+    CACHE_S per week (POST /refresh clears _SL); each scoring's parse of them is kept until the rows are refetched."""
     ks = rescoring(settings)
+    rows = _sleeper_rows(week)
     key = (week, scoring_key(ks))
-    hit = _SL.get(key)
+    hit = _SL_SCORED.get(key)
+    if hit and hit[0] is rows:
+        return hit[1]
+    data = parse_sleeper_rows(rows, ks)
+    _SL_SCORED[key] = (rows, data)
+    return data
+
+
+def _sleeper_rows(week: int) -> list:
+    hit = _SL.get(week)
     if hit and hit[0] > time.time():
         return hit[1]
 
     def fetch():
-        hit = _SL.get(key)
+        hit = _SL.get(week)
         if hit and hit[0] > time.time():  # the flight before this one landed it
             return hit[1]
-        data = fetch_sleeper_week(week, ks)
-        _SL[key] = (time.time() + CACHE_S, data)
-        return data
+        rows = fetch_sleeper_rows(week)
+        _SL[week] = (time.time() + CACHE_S, rows)
+        return rows
 
-    return _SL_FLIGHT.do(key, fetch)
+    return _SL_FLIGHT.do(week, fetch)
 
 
 def _season_for(settings: dict, season: dict | None, week: int, *, ref: leagues.LeagueRef | None = None) -> dict:

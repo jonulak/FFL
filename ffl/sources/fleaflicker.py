@@ -12,9 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from bs4 import BeautifulSoup
 
-from . import Cached, Idle, scoring_key
+from . import Cached, Idle, scored
 from ..adp import norm_name
-from ..sleeper import score
 
 URL = "https://www.fleaflicker.com/nfl/leaders?statType=7&sortMode=7&position={code}&tableOffset={offset}"
 POS_CODE = {"QB": 4, "RB": 1, "WR": 2, "TE": 8}
@@ -37,8 +36,9 @@ def _num(s: str) -> float:
         return 0.0   # "—"
 
 
-def parse_page(html: str, pos: str, ks: dict, week: int) -> dict[tuple[str, str], float]:
-    """{} is a page that is not the projections table (broken); Idle is a valid one with nothing to project."""
+def parse_page(html: str, pos: str, week: int) -> dict[tuple[str, str], dict]:
+    """{(name, pos): {stat: value}}; {} is a page that is not the projections table (broken); Idle is a valid one with
+    nothing to project."""
     table = BeautifulSoup(html, "lxml").select_one("#body-center-main table")
     if table is None:
         return {}
@@ -73,22 +73,22 @@ def parse_page(html: str, pos: str, ks: dict, week: int) -> dict[tuple[str, str]
         # "Q Jaxon Smith-Njigba WR SEA": the link alone is his name
         link = cells[0].select_one(".player-name a.player-text")
         name = link.get_text(" ", strip=True) if link else m.group(1)
-        out[(norm_name(name), pos)] = round(score({stat: _num(tds[i]) for i, stat in cols}, ks[pos]), 1)
+        out[(norm_name(name), pos)] = {stat: _num(tds[i]) for i, stat in cols}
     if not out and played:
         raise Idle("every game played")
     return out
 
 
-def _position(pos: str, ks: dict, week: int) -> dict[tuple[str, str], float] | None:
+def _position(pos: str, week: int) -> dict[tuple[str, str], dict] | None:
     """None when every page was valid but had nothing to project (Idle)."""
-    out: dict[tuple[str, str], float] = {}
+    out: dict[tuple[str, str], dict] = {}
     idle = 0
     for page in range(PAGES[pos]):
         r = requests.get(URL.format(code=POS_CODE[pos], offset=20 * page),
                          headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
         r.raise_for_status()
         try:
-            out.update(parse_page(r.text, pos, ks, week))
+            out.update(parse_page(r.text, pos, week))
         except Idle:
             idle += 1
     return None if idle == PAGES[pos] else out
@@ -97,10 +97,11 @@ def _position(pos: str, ks: dict, week: int) -> dict[tuple[str, str], float] | N
 def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
     def fetch():
         with ThreadPoolExecutor(len(POS_CODE)) as pool:
-            parts = list(pool.map(lambda p: _position(p, ks, week), POS_CODE))
+            parts = list(pool.map(lambda p: _position(p, week), POS_CODE))
         if all(p is None for p in parts):
             raise Idle("nothing to project")
         return {k: v for part in parts if part for k, v in part.items()}
     # no per-position minimum: the header checks (week, groups, Opp) already reject reshaped or wrong-week
     # pages, and played games legitimately shrink the page as the week goes on
-    return _WEEK.get(f"{week}:{scoring_key(ks)}", fetch, min_rows={})
+    # cached as stats, one download for every league; each scores it at read
+    return scored(_WEEK.get(str(week), fetch, min_rows={}), ks)

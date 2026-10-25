@@ -32,9 +32,16 @@ _LOCK = threading.RLock()   # STATUS is written by page builds, ticks and reques
 
 
 def scoring_key(ks: dict) -> str:
-    """A short digest of the scoring a source rescored with: every rescored entry's cache key carries it, so a
-    second league's scoring (a practice or other league's draft) never reads, or overwrites, the home league's points."""
+    """A short digest of a league's rescoring, for what is cached already scored (sharks' ROS sum, the scored Sleeper
+    memo): two leagues' points never answer each other. The downloads themselves are cached as stats, for every league."""
     return hashlib.sha1(json.dumps(ks, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def scored(stats: dict[tuple[str, str], dict], ks: dict) -> dict[tuple[str, str], float]:
+    """A source's parsed stat lines as one league's points, each row rounded to 0.1 as the parsers always rounded
+    it: the cache holds stats (ffl-soc.4.16), so every league scores the one download with its own tables."""
+    from ..sleeper import score
+    return {k: round(float(score(st, ks[k[1]])), 1) for k, st in stats.items()}
 
 
 class Thin(Exception):

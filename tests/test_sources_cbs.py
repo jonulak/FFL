@@ -17,19 +17,19 @@ KS = tables({"ppr": 0.5, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.
 
 
 def test_parse_rb_page_rescores_raw_stats_to_league_scoring():
-    out = cbs.parse_page(RB, "RB", KS)
-    gibbs = out[("jahmyr gibbs", "RB")]
-    assert gibbs["games"] == 16
-    assert gibbs["pts"] == pytest.approx(1621 * 0.1 + 17 * 6 + 70 * 0.5 + 610 * 0.1 + 5 * 6 - 3 * 2, abs=0.05)
-    assert gibbs["pts"] != pytest.approx(418.4), "CBS's own fpts column is PPR, not this league"
-    sampson = out[("dylan sampson", "RB")]
-    assert sampson["games"] == 12, "games left, byes and injury weeks already out"
-    assert sampson["pts"] == pytest.approx(216 * 0.1 + 6 + 30 * 0.5 + 200 * 0.1 + 6, abs=0.05), "a dash reads as 0"
+    out = cbs.parse_page(RB, "RB")
+    pts = sources.scored(out, KS)
+    assert out[("jahmyr gibbs", "RB")]["gp"] == 16
+    gibbs = pts[("jahmyr gibbs", "RB")]
+    assert gibbs == pytest.approx(1621 * 0.1 + 17 * 6 + 70 * 0.5 + 610 * 0.1 + 5 * 6 - 3 * 2, abs=0.05)
+    assert gibbs != pytest.approx(418.4), "CBS's own fpts column is PPR, not this league"
+    assert out[("dylan sampson", "RB")]["gp"] == 12, "games left, byes and injury weeks already out"
+    assert pts[("dylan sampson", "RB")] == pytest.approx(216 * 0.1 + 6 + 30 * 0.5 + 200 * 0.1 + 6, abs=0.05), "a dash reads as 0"
 
 
 def test_parse_page_returns_empty_on_a_reshaped_page():
-    assert cbs.parse_page("<html><body>maintenance</body></html>", "RB", KS) == {}
-    assert cbs.parse_page(RB.replace("sortcol=rushing_yds", "sortcol=renamed"), "RB", KS) == {}, \
+    assert cbs.parse_page("<html><body>maintenance</body></html>", "RB") == {}
+    assert cbs.parse_page(RB.replace("sortcol=rushing_yds", "sortcol=renamed"), "RB") == {}, \
         "a column the scorer needs has gone: better nothing than a wrong number"
 
 
@@ -58,13 +58,13 @@ WEEK_RB = (FIX / "cbs_w5_rb.html").read_text()
 
 
 def test_weekly_page_parses_with_the_same_parser():
-    out = cbs.parse_page(WEEK_RB, "RB", KS)
+    out = cbs.parse_page(WEEK_RB, "RB")
     assert len(out) >= 60
-    assert all(v["games"] in (0, 1) for v in out.values())
-    gibbs = out[("jahmyr gibbs", "RB")]  # the fixture's first row: 88.6 rush yd, 1.1 TD, 4.5 rec, 42.7 rec yd, 0.4 TD, 0.1 fl
-    assert gibbs["games"] == 1
-    assert gibbs["pts"] == pytest.approx(88.6 * 0.1 + 1.1 * 6 + 4.5 * 0.5 + 42.7 * 0.1 + 0.4 * 6 - 0.1 * 2, abs=0.05)
-    assert gibbs["pts"] != pytest.approx(26.3), "CBS's own fpts column is PPR, not this league"
+    assert all(v["gp"] in (0, 1) for v in out.values())
+    assert out[("jahmyr gibbs", "RB")]["gp"] == 1
+    gibbs = sources.scored(out, KS)[("jahmyr gibbs", "RB")]  # the fixture's first row: 88.6 rush yd, 1.1 TD, 4.5 rec, 42.7 rec yd, 0.4 TD, 0.1 fl
+    assert gibbs == pytest.approx(88.6 * 0.1 + 1.1 * 6 + 4.5 * 0.5 + 42.7 * 0.1 + 0.4 * 6 - 0.1 * 2, abs=0.05)
+    assert gibbs != pytest.approx(26.3), "CBS's own fpts column is PPR, not this league"
 
 
 def test_fetch_week_skips_rows_without_a_game(monkeypatch):
@@ -72,17 +72,17 @@ def test_fetch_week_skips_rows_without_a_game(monkeypatch):
     monkeypatch.setattr(cbs.requests, "get", lambda url, **kw: SimpleNamespace(
         raise_for_status=lambda: None, text=WEEK_RB if "/RB/" in url else "<html></html>"))
     week = cbs.fetch_week(5, KS)
-    parsed = cbs.parse_page(WEEK_RB, "RB", KS)
-    assert set(week) == {k for k, v in parsed.items() if v["games"] > 0}
-    assert week[("jahmyr gibbs", "RB")] == parsed[("jahmyr gibbs", "RB")]["pts"]
+    parsed = cbs.parse_page(WEEK_RB, "RB")
+    assert set(week) == {k for k, v in parsed.items() if v["gp"] > 0}
+    assert week[("jahmyr gibbs", "RB")] == sources.scored(parsed, KS)[("jahmyr gibbs", "RB")]
 
 
 def test_fetch_week_leaves_out_a_row_with_no_game(monkeypatch):
     """The week-5 fixture has no gp-0 row, so make one: zero Gibbs's games on the page."""
     monkeypatch.setattr(sources, "MIN_ROWS", {"RB": 1})
-    parsed = cbs.parse_page(WEEK_RB, "RB", KS)
-    parsed[("jahmyr gibbs", "RB")]["games"] = 0
-    monkeypatch.setattr(cbs, "parse_page", lambda html, pos, ks: parsed if pos == "RB" else {})
+    parsed = cbs.parse_page(WEEK_RB, "RB")
+    parsed[("jahmyr gibbs", "RB")]["gp"] = 0
+    monkeypatch.setattr(cbs, "parse_page", lambda html, pos: parsed if pos == "RB" else {})
     monkeypatch.setattr(cbs.requests, "get", lambda url, **kw: SimpleNamespace(raise_for_status=lambda: None, text=""))
     week = cbs.fetch_week(5, KS)
     assert ("jahmyr gibbs", "RB") not in week and ("bijan robinson", "RB") in week

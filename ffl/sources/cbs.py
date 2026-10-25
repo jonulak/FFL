@@ -15,10 +15,9 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-from . import Cached, scoring_key
+from . import Cached, scored
 from ..adp import norm_name
 from ..config import SEASON
-from ..sleeper import score
 
 URL = "https://www.cbssports.com/fantasy/football/stats/{pos}/{season}/restofseason/projections/ppr/"
 WEEK_URL = "https://www.cbssports.com/fantasy/football/stats/{pos}/{season}/{week}/projections/ppr/"
@@ -44,8 +43,9 @@ def _num(text: str) -> float:
         return 0.0  # CBS writes "—" for a stat it does not project
 
 
-def parse_page(html: str, pos: str, ks: dict) -> dict[tuple[str, str], dict]:
-    """{(normalised name, pos): {"pts": points, "games": games left}} for one position page.
+def parse_page(html: str, pos: str) -> dict[tuple[str, str], dict]:
+    """{(normalised name, pos): {stat: value, ..., "gp": games left}} for one position page, the stats sleeper.score
+    reads (it ignores gp).
 
     The header row's sort links name the columns (`sortcol=rushing_yds`), so the parse follows the
     header, not positions. A page missing a column the scorer needs returns {}: a reshaped page
@@ -71,25 +71,26 @@ def parse_page(html: str, pos: str, ks: dict) -> dict[tuple[str, str], dict]:
         long = tds[0].select_one(".CellPlayerName--long a") or tds[0].find("a")
         if long is None:
             continue
-        pts = score({STATS[c]: v for c, v in row.items() if c in STATS}, ks[pos])
-        out[(norm_name(long.get_text(strip=True)), pos)] = {"pts": round(float(pts), 1), "games": int(row.get("gp", 0))}
+        out[(norm_name(long.get_text(strip=True)), pos)] = {**{STATS[c]: v for c, v in row.items() if c in STATS},
+                                                            "gp": int(row.get("gp", 0))}
     return out
 
 
-def _pages(url: str, ks: dict, **fmt) -> dict[tuple[str, str], dict]:
+def _pages(url: str, **fmt) -> dict[tuple[str, str], dict]:
     data: dict[tuple[str, str], dict] = {}
     for pos, page in PAGES.items():
         r = requests.get(url.format(pos=page, season=SEASON, **fmt), headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
         r.raise_for_status()
-        data.update(parse_page(r.text, pos, ks))
+        data.update(parse_page(r.text, pos))
     return data
 
 
 def fetch_ros(ks: dict, week: int | None = None) -> dict[tuple[str, str], float]:
-    """Every position's rest-of-season page rescored (week unused: the page is already the games left; sources.Cached: last good through an outage)."""
-    return _ROS.get(f"ros:{scoring_key(ks)}", lambda: {k: v["pts"] for k, v in _pages(URL, ks).items()})
+    """Every position's rest-of-season page rescored (week unused: the page is already the games left; sources.Cached: last good
+    through an outage). Cached as stats, one download for every league."""
+    return scored(_ROS.get("ros", lambda: _pages(URL)), ks)
 
 
 def fetch_week(week: int, ks: dict) -> dict[tuple[str, str], float]:
     """The week's pages rescored; a row with no game this week (gp 0: bye, ruled out) is left out."""
-    return _WEEK.get(f"{week}:{scoring_key(ks)}", lambda: {k: v["pts"] for k, v in _pages(WEEK_URL, ks, week=week).items() if v["games"] > 0})
+    return scored({k: st for k, st in _WEEK.get(str(week), lambda: _pages(WEEK_URL, week=week)).items() if st["gp"] > 0}, ks)

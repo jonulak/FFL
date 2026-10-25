@@ -529,13 +529,14 @@ def test_season_lookup_sums_the_remaining_sleeper_weeks_and_drops_them_on_a_fail
     espn_season._SL.clear()
     fetched = []
 
-    def fake_week(week, ks):
+    def fake_week(week):
         fetched.append(week)
         if week == 17:
             raise requests.ConnectionError("sleeper down")
-        return {("jalen hurts", "QB"): 10.0}
+        return [week]
 
-    monkeypatch.setattr(espn_season, "fetch_sleeper_week", fake_week)
+    monkeypatch.setattr(espn_season, "fetch_sleeper_rows", fake_week)
+    monkeypatch.setattr(espn_season, "parse_sleeper_rows", lambda rows, ks: {("jalen hurts", "QB"): 10.0})
     monkeypatch.setattr(espn_season, "fetch_pool", lambda: SEASON_ESPN)
     monkeypatch.setattr(espn_season, "fetch_sleeper_season", lambda: SEASON_SLEEPER)
     monkeypatch.setattr(espn_season, "ROS_SOURCES", {"cbs": lambda ks, week: {("jalen hurts", "QB"): 150.0}})
@@ -1216,12 +1217,13 @@ def test_concurrent_cold_sleeper_weeks_share_one_fetch(monkeypatch):
     monkeypatch.setattr(espn_season, "_SL", {})
     calls = []
 
-    def fake_week(week, ks):
-        park(espn_season._SL_FLIGHT, (4, espn_season.scoring_key(espn_season.rescoring({"scoring": []}))), 1)
+    def fake_week(week):
+        park(espn_season._SL_FLIGHT, 4, 1)
         calls.append(week)
-        return {("jalen hurts", "QB"): 10.0}
+        return [week]
 
-    monkeypatch.setattr(espn_season, "fetch_sleeper_week", fake_week)
+    monkeypatch.setattr(espn_season, "fetch_sleeper_rows", fake_week)
+    monkeypatch.setattr(espn_season, "parse_sleeper_rows", lambda rows, ks: {("jalen hurts", "QB"): 10.0})
     settings = {**TWO_QB, "scoring": []}
     assert race(2, lambda: espn_season._sleeper_for(4, settings)) == [{("jalen hurts", "QB"): 10.0}] * 2
     assert calls == [4]
