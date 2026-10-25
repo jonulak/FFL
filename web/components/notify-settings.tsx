@@ -5,7 +5,7 @@ import { useRouter } from "@/components/league-link";
 import { toast } from "sonner";
 import { clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -29,7 +29,9 @@ function swReady(): Promise<ServiceWorkerRegistration> {
   ]);
 }
 
-export function NotifySettings({ config, league }: { config: NotifyConfig; league: string }) {
+// The device and the quiet hours: every league's (the Settings page). Each league's switches are NotifySwitches, on its
+// League settings page.
+export function NotifySettings({ config }: { config: NotifyConfig }) {
   const router = useRouter();
   const [prefs, setPrefs] = useState<NotifyPrefs>(config.prefs);
   // the browser's push capability: null on the server and the first client render, then fixed
@@ -76,10 +78,6 @@ export function NotifySettings({ config, league }: { config: NotifyConfig; leagu
     setSubscribed(false);
   });
 
-  const save = (p: Partial<NotifyPrefs>) => run(async () => {
-    setPrefs(await clientPost<NotifyPrefs>("/notify/prefs", p));
-  });
-
   const saveQuiet = (quiet: [string, string]) => run(async () => {
     try {
       const p = await clientPost<NotifyPrefs>("/notify/prefs", { quiet });
@@ -123,18 +121,6 @@ export function NotifySettings({ config, league }: { config: NotifyConfig; leagu
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Notify me about</CardTitle><CardDescription>In {league}. The device and quiet hours are every league&apos;s.</CardDescription></CardHeader>
-        <CardContent className="space-y-3">
-          {KINDS.map(([k, label, hint]) => (
-            <Label key={k} className="flex items-center justify-between gap-4">
-              <span><span className="font-medium">{label}</span><span className="block text-xs text-muted-foreground">{hint}</span></span>
-              <Switch checked={prefs[k]} onCheckedChange={(v) => save({ [k]: v })} disabled={busy} />
-            </Label>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
         <CardHeader><CardTitle>Quiet hours</CardTitle></CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2 text-sm">
           {([0, 1] as const).map((i) => (
@@ -149,5 +135,35 @@ export function NotifySettings({ config, league }: { config: NotifyConfig; leagu
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// One league's push switches (its League settings page): what of its own news reaches this device. The open league
+// rides in the page URL, which clientPost names.
+export function NotifySwitches({ prefs: initial }: { prefs: NotifyPrefs }) {
+  const [prefs, setPrefs] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function save(p: Partial<NotifyPrefs>) {
+    setBusy(true); setMsg(null);
+    try { setPrefs(await clientPost<NotifyPrefs>("/notify/prefs", p)); }
+    catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Notify me about</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        {KINDS.map(([k, label, hint]) => (
+          <Label key={k} className="flex items-center justify-between gap-4">
+            <span><span className="font-medium">{label}</span><span className="block text-xs text-muted-foreground">{hint}</span></span>
+            <Switch checked={prefs[k]} onCheckedChange={(v) => save({ [k]: v })} disabled={busy} />
+          </Label>
+        ))}
+        {msg && <p key={msg} role="status" className="log-in text-sm">{msg}</p>}
+      </CardContent>
+    </Card>
   );
 }

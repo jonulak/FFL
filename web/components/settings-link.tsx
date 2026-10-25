@@ -8,7 +8,7 @@ import { Hint } from "./hint";
 
 // The gear at the nav's right edge: Settings is not a page tab. Full ink on its own page.
 export function SettingsLink() {
-  const active = usePathname().startsWith("/settings");
+  const active = usePathname() === "/settings"; // a league's own (/settings/league) opens from the switcher
   return (
     <Hint text="Settings">
       <Link href="/settings" aria-label="Settings" aria-current={active ? "page" : undefined}

@@ -173,3 +173,16 @@ def test_nfl_season():
     assert config.nfl_season(date(2026, 10, 24)) == 2026
     assert config.nfl_season(date(2027, 1, 20)) == 2026
     assert config.nfl_season(date(2027, 3, 1)) == 2027
+
+
+
+def test_rename_keeps_everything_but_the_name():
+    other = leagues.register(LeagueRef("espn:999", "espn", "999", 2026, "Indianapolis Pro H2H Points PPR League", 3,
+                                       False, None, "1qb-10team"))
+    out = leagues.rename(other, "  Indy  ")
+    assert out == LeagueRef("espn:999", "espn", "999", 2026, "Indy", 3, False, None, "1qb-10team")
+    assert leagues.get("espn:999").name == "Indy" and leagues.home().home
+    for bad in ("", "   ", "x" * 61):
+        with pytest.raises(ValueError):
+            leagues.rename(other, bad)
+    assert leagues.get("espn:999").name == "Indy"

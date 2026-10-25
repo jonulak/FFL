@@ -592,3 +592,14 @@ def test_caps_are_the_open_leagues_and_never_above_its_limit(client, other):
     assert db.caps_rows(leagues.home().key) == home_before, "home's rows are its own"
     home_rows = client.get("/caps").json()
     assert home_rows["league"] == leagues.home().key
+
+
+
+def test_rename_the_open_league(client, other):
+    r = client.post("/leagues/name?league=espn:999", json={"name": "Indy"})
+    assert r.status_code == 200 and r.json() == {"key": "espn:999", "name": "Indy"}
+    assert [x["name"] for x in client.get("/leagues").json()] == [leagues.home().name, "Indy"]
+    assert client.post("/leagues/name?league=espn:999", json={"name": " "}).status_code == 422
+    home_name = leagues.home().name
+    assert client.post("/leagues/name", json={"name": "Mine"}).json()["name"] == "Mine"
+    assert leagues.home().name == "Mine" != home_name

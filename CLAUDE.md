@@ -234,7 +234,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   scores, grouped like the board, with the club and its rank; live points through `live.overlay_side`).
 - **Push notifications** (`ffl/notify.py`): detectors (new transaction rows, my starters' injuries, waiver-run results) →
   `notices` outbox (`key` = dedupe) → `/notify/tick` flush (quiet hours, moves batched, 24 h drop; one tick at a time, 409
-  otherwise) → pywebpush → `web/public/sw.js`; `/settings` holds the device, switches and quiet window. The message
+  otherwise) → pywebpush → `web/public/sw.js`; `/settings` (the nav's gear) holds the device and quiet window, every league's; `/settings/league` (the gear beside each league in the switcher, `?league=`) holds that league's name (`POST /leagues/name`, `leagues.rename`: ESPN's until renamed, kept when `ffl.settings` re-runs), push switches, Decisions switches and roster caps (`GET/POST /caps`). The message
   is Declarative Web Push (`notify.payload_for`: `web_push` 8030, `notification.navigate` absolute off `FFL_APP_URL`):
   Safari shows and opens it without the worker, since iOS often never fires `notificationclick` for a backgrounded
   Home Screen app (WebKit bug 268797, ffl-e9x.10); the legacy fields beside it feed sw.js's push handler elsewhere.

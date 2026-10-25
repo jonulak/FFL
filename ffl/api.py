@@ -479,6 +479,20 @@ def _caps(ref: LeagueRef) -> dict:
                                         for p in leagues.CAP_POSITIONS]}
 
 
+class NameIn(BaseModel):
+    name: str
+
+
+@app.post("/leagues/name")
+def league_rename(body: NameIn, ref: LeagueRef = Depends(open_league)):
+    """Rename the open league (League settings). 422 on a blank or overlong name."""
+    try:
+        r = leagues.rename(ref, body.name)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"key": r.key, "name": r.name}
+
+
 class CapIn(BaseModel):
     pos: str
     my_cap: int

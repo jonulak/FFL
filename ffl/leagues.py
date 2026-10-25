@@ -66,6 +66,18 @@ def register(ref: LeagueRef) -> LeagueRef:
     return get(ref.key)
 
 
+NAME_MAX = 60
+
+
+def rename(ref: LeagueRef, name: str) -> LeagueRef:
+    """The league's name as the app shows it (the switcher, pushes, Settings): ESPN's until renamed. Re-reading its
+    settings keeps it; only `add` takes ESPN's again. ValueError on a blank name or one over NAME_MAX."""
+    clean = " ".join(name.split())
+    if not clean or len(clean) > NAME_MAX:
+        raise ValueError(f"a league's name is 1 to {NAME_MAX} characters")
+    return register(replace(ref, name=clean))
+
+
 def my_team_id(settings: dict, ref: LeagueRef | None = None) -> int:
     """Which team is mine, in the league `ref` names.
 
