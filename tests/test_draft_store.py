@@ -42,3 +42,37 @@ def test_refuses_an_undrafted_league(monkeypatch):
     with pytest.raises(SystemExit):
         draft_watch.store_espn_draft(other)
     assert db.picks(ref=other) == []
+
+
+def _no_espn(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("ESPN was read")
+    monkeypatch.setattr(draft_watch, "fetch_picks", boom)
+    monkeypatch.setattr(config, "league", boom)
+    monkeypatch.setattr(espn_season, "tx_player_info", boom)
+
+
+def _watched(team_id):
+    return {"overall": 1, "round": 1, "pick": 1, "team_id": team_id, "team": "Me", "player_id": 11,
+            "player": "Josh Allen", "pos": "QB", "nfl": "BUF", "adp_2qb": 3.5,
+            "board_rank_at_pick": 2, "proj": 301.2, "ts": "2026-08-30T12:00:00"}
+
+
+def test_refuses_the_home_league_and_keeps_its_watched_picks(monkeypatch):
+    home = leagues.home()
+    db.put_picks([_watched(7)], ref=home)
+    before = db.picks(ref=home)
+    _no_espn(monkeypatch)
+    with pytest.raises(SystemExit):
+        draft_watch.store_espn_draft(home)
+    assert db.picks(ref=home) == before
+
+
+def test_refuses_a_league_that_already_has_picks(monkeypatch):
+    other = _other()
+    db.put_picks([_watched(3)], ref=other)
+    before = db.picks(ref=other)
+    _no_espn(monkeypatch)
+    with pytest.raises(SystemExit):
+        draft_watch.store_espn_draft(other)
+    assert db.picks(ref=other) == before

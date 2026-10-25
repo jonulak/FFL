@@ -787,6 +787,10 @@ def store_espn_draft(ref) -> int:
     """Store a finished draft from ESPN's own record under `ref`, for a league drafted without the watcher.
     ESPN keeps no pick times and the board never saw it, so ts and the board columns stay None."""
     from . import espn_season
+    # put_picks overwrites every column of a pick it finds, which would wipe a watched draft's board columns
+    if ref.home or db.picks(ref=ref):
+        raise SystemExit(f"{ref.key}: refusing: the home league's draft is the watcher's, and a league with "
+                         "picks stored already has its record; nothing stored")
     if not fetch_picks(ref)["drafted"]:
         raise SystemExit(f"{ref.key}: ESPN says the draft is not finished; nothing stored")
     picks = config.league(ref).draft

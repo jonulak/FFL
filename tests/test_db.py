@@ -690,6 +690,7 @@ def test_0022_downgrade_keeps_home(tmp_path, monkeypatch):
         c.execute(sa.text("INSERT INTO league_state (league, season, key, value) VALUES ('espn:999', 2026, 'waiver_run', '{}')"))
         c.execute(sa.text("INSERT INTO page_cache (league, season, key, payload, built_at) "
                           "VALUES ('espn:999', 2026, 'other', '{}', 1.0)"))
+        c.execute(sa.text("INSERT INTO notify_state (season, key, value) VALUES (2026, 'waiver_run', '{\"run\": \"stale\"}')"))
     eng.dispose()
     command.downgrade(db._alembic_config(), "0021")
     assert _rows(url, "SELECT value FROM notify_state WHERE key = 'waiver_run'") == [('{"run": 1}',)]
