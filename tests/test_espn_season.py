@@ -266,14 +266,14 @@ def test_roster_state_carries_locks_empty_slots_and_the_writes_flag(monkeypatch,
     monkeypatch.setattr(espn_season, "league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
-    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {1: {"locked": True}})
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg, **k: {1: {"locked": True}})
     st = espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})
     locked = {c["player_id"]: c["locked"] for c in st["cards"]}
     assert locked[1] is True and locked[2] is False
     assert st["empty_slots"] == ["K"] and st["writes"] is False, "the suite runs under FFL_WRITES=0"
     monkeypatch.setenv("FFL_WRITES", "1")
     assert espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})["writes"] is True
-    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: 1 / 0)
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg, **k: 1 / 0)
     st = espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={})
     assert not any(c["locked"] for c in st["cards"]), "a failed flags read shows every row unlocked"
     assert "roster_flags read failed" in caplog.text, "and says so in the log"
@@ -288,11 +288,11 @@ def test_roster_state_takes_slots_from_the_fresh_read_not_the_box_score(monkeypa
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
     bench = next(p for p in matchup.home_lineup if p.slot_position == "BE")
-    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {bench.playerId: {"locked": False, "slot": "RB/WR/TE"}})
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg, **k: {bench.playerId: {"locked": False, "slot": "RB/WR/TE"}})
     kw = dict(week=1, sources={}, season={}, injuries={}, snaps={})
     card = next(c for c in espn_season.roster_state(**kw)["cards"] if c["player_id"] == bench.playerId)
     assert card["slot"] == "RB/WR/TE" and card["group"] == "starter", "the box score is a cache; ESPN's read is the page"
-    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: 1 / 0)
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg, **k: 1 / 0)
     card = next(c for c in espn_season.roster_state(**kw)["cards"] if c["player_id"] == bench.playerId)
     assert card["slot"] == "BE" and card["group"] == "bench", "a failed flags read keeps the box slot"
 
@@ -818,14 +818,14 @@ def _finished_week(monkeypatch, rows):
     monkeypatch.setattr(espn_season, "league", league)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
-    monkeypatch.setattr(espn_season.db, "projection_rows", lambda kind, week=None: [
+    monkeypatch.setattr(espn_season.db, "projection_rows", lambda kind, week=None, **k: [
         r for r in rows if r["week"] == week and r.get("kind", "week") == kind])
     saved = []
     monkeypatch.setattr(espn_season.db, "put_projection_rows",
-                        lambda week, kind, rs: saved.append((week, kind, rs)) or len(rs))
+                        lambda week, kind, rs, **k: saved.append((week, kind, rs)) or len(rs))
     monkeypatch.setattr(espn_season, "_SAVED_LATE", saved, raising=False)
     looked = []
-    monkeypatch.setattr(espn_season, "season_lookup", lambda settings, week: looked.append(week) or {})
+    monkeypatch.setattr(espn_season, "season_lookup", lambda settings, week, **k: looked.append(week) or {})
     _fallback_sigma(monkeypatch)
     return looked
 
@@ -950,7 +950,7 @@ def test_a_finished_weeks_scoreboard_reads_the_recorded_projections(monkeypatch)
     monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: {**TWO_QB, "reg_season_weeks": 14, "playoff_teams": 6})
-    monkeypatch.setattr(espn_season.db, "projection_rows", lambda kind, week=None: [
+    monkeypatch.setattr(espn_season.db, "projection_rows", lambda kind, week=None, **k: [
         {"week": 1, "player_id": 1, "source": "sleeper", "points": 30.0}] if (kind, week) == ("week", 1) else [])
     monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: pytest.fail("the week is recorded"))
     _fallback_sigma(monkeypatch)
@@ -1012,8 +1012,8 @@ def _pool_with_facts(monkeypatch, status, flags):
 
 def test_free_agent_pool_rows_carry_claim_facts(monkeypatch):
     first = season_roster()[0]["player_id"]
-    out = _pool_with_facts(monkeypatch, lambda: {1001: {"status": "FREEAGENT", "waiver_date": 5}},
-                           lambda lg: {first: {"droppable": False, "locked": True}})
+    out = _pool_with_facts(monkeypatch, lambda **k: {1001: {"status": "FREEAGENT", "waiver_date": 5}},
+                           lambda lg, **k: {first: {"droppable": False, "locked": True}})
     rows = [r for rs in out["positions"].values() for r in rs]
     assert all(set(r) >= {"status", "waiver_date"} for r in rows)
     assert {r["status"] for r in rows} <= {"FREEAGENT", None}
@@ -1050,8 +1050,8 @@ def _watched_pool(monkeypatch, matchup, get):
     monkeypatch.setattr(espn_season, "league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
-    monkeypatch.setattr(espn_season, "pool_status", lambda: {999: {"status": "WAIVERS", "waiver_date": 5}})
-    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {})
+    monkeypatch.setattr(espn_season, "pool_status", lambda **k: {999: {"status": "WAIVERS", "waiver_date": 5}})
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg, **k: {})
     monkeypatch.setattr(espn_season, "raw_league_get", get)
     return espn_season.free_agent_pool(week=1, sources={}, season={}, injuries={}, snaps={})
 
@@ -1062,7 +1062,7 @@ def test_pool_watched_includes_deep_free_agent(monkeypatch):
     db.put_watch(1001, True)  # the stub's first free agent: in the pool already, reused
     asked = []
 
-    def get(view, headers=None, **params):
+    def get(view, headers=None, *, ref=None, **params):
         flt = json.loads(headers["x-fantasy-filter"])["players"]
         asked.append((view, flt, params))
         return {"players": [_deep_doc(pid, params["scoringPeriodId"]) for pid in flt["filterIds"]["value"]]}
@@ -1202,7 +1202,7 @@ def test_projection_rows_for_freezes_at_kickoff():
 
 def test_a_finished_week_fetches_when_the_db_cannot_answer(monkeypatch):
     _finished_week(monkeypatch, [])
-    def down(kind, week=None):
+    def down(kind, week=None, **k):
         raise espn_season.db.DBError("locked")
     monkeypatch.setattr(espn_season.db, "projection_rows", down)
     fetched = []

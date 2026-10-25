@@ -77,7 +77,7 @@ def _no_claim_fact_reads(monkeypatch):
     (a test that wants the facts patches pool_status / roster_flags, or raw_league_get itself)."""
     from ffl import espn_season
     monkeypatch.setattr(espn_season, "raw_league_get", lambda *a, **k: {})
-    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: {})
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg, **k: {})
 
 
 @pytest.fixture(autouse=True)

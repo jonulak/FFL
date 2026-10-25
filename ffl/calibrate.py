@@ -55,10 +55,10 @@ def snapshot_rows(positions: dict[str, list[dict]], week: int) -> list[dict]:
     return rows
 
 
-def write_snapshot(week: int, rows: list[dict]) -> bool:
+def write_snapshot(week: int, rows: list[dict], *, ref=None) -> bool:
     """The week's snapshot, written once: the first build of the ROS week is the one that stands
-    (later builds of the same week have seen more of it). True when written."""
-    return db.put_snapshot(week, S.K_PRIOR, rows)
+    (later builds of the same week have seen more of it). True when written. `ref` is the league (None: home)."""
+    return db.put_snapshot(week, S.K_PRIOR, rows, ref=ref)
 
 
 def blend(model: float, l3: float | None, weight: float, games_left: int, k: float) -> float:

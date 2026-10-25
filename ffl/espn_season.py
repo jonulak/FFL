@@ -570,17 +570,19 @@ def projection_rows_for(players: list[dict], sources: dict, lookup: dict[int, di
     return week, ros
 
 
-def record_projections() -> dict:
+def record_projections(*, ref: leagues.LeagueRef | None = None) -> dict:
     """The notify tick's step (every 15 min): every rostered player's per-source numbers into
-    projection_rows, so `ffl.calibrate sources` can fit weights from what each source said."""
-    lg = fresh_league()
-    settings = load()
+    projection_rows, so `ffl.calibrate sources` can fit weights from what each source said.
+    `ref` is the league whose rosters and rows these are (None: home)."""
+    r = _ref(ref)
+    lg = fresh_league(r)
+    settings = load(r)
     week = lg.current_week
     rw = ros_week_for(lg, week)
-    players = [flatten_box_player(bp) for lineup in _boxes_by_team(lg, week).values() for bp in lineup]
-    wk, ros = projection_rows_for(players, weekly_sources(week, settings), season_lookup(settings, rw),
+    players = [flatten_box_player(bp) for lineup in _boxes_by_team(lg, week, ref=r).values() for bp in lineup]
+    wk, ros = projection_rows_for(players, weekly_sources(week, settings), season_lookup(settings, rw, ref=r),
                                   datetime.now().astimezone(), ros_ahead=rw > week)
-    return {"week": db.put_projection_rows(week, "week", wk), "ros": db.put_projection_rows(rw, "ros", ros)}
+    return {"week": db.put_projection_rows(week, "week", wk, ref=r), "ros": db.put_projection_rows(rw, "ros", ros, ref=r)}
 
 
 def my_team_id(lg, ref: leagues.LeagueRef | None = None) -> int:
@@ -833,8 +835,8 @@ def _sleeper_for(week: int, settings: dict) -> dict:
     return _SL_FLIGHT.do(key, fetch)
 
 
-def _season_for(settings: dict, season: dict | None, week: int) -> dict:
-    return season if season is not None else season_lookup(settings, week)
+def _season_for(settings: dict, season: dict | None, week: int, *, ref: leagues.LeagueRef | None = None) -> dict:
+    return season if season is not None else season_lookup(settings, week, ref=ref)
 
 
 def ros_source(lookup: dict[int, dict]) -> str:
@@ -978,7 +980,8 @@ def box_scores(lg, week: int, *, ref: leagues.LeagueRef | None = None) -> list:
 
 def _fetch_boxes(lg, week: int, ref: leagues.LeagueRef | None = None) -> list:
     """box_scores' fetch, once for every caller waiting on it: the read, the install and the log's reconcile."""
-    key = _ref(ref).key
+    r = _ref(ref)
+    key = r.key
     hit = _BOXES.get((key, week))
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):  # the flight before this one
         return hit[2]
@@ -987,7 +990,7 @@ def _fetch_boxes(lg, week: int, ref: leagues.LeagueRef | None = None) -> list:
     boxes, fresh, final = _read_boxes(lg, week, finished, epoch, ref)
     if finished or _BOXES_EPOCH[0] == epoch:  # a move during the fetch: these may be from before it
         _BOXES[(key, week)] = (math.inf if final else time.time() + BOXES_TTL_S, lg, boxes)
-    if fresh and week == getattr(lg, "current_week", None) and key == leagues.home().key:  # the log is home's until 4.4
+    if fresh and week == getattr(lg, "current_week", None) and r.home:  # the log is home's until 4.4
         # every page's rosters come through here: a rostered man the record never saw taken (or a
         # drop it missed), seen by any page, syncs the transaction log
         try:
@@ -1095,6 +1098,7 @@ def correct_boxes(lg, now: datetime | None = None) -> dict:
     log = logging.getLogger(__name__)
     out = {"weeks": {}, "changed": [], "plays": []}
     try:
+        home_key = _ref(None).key  # the correction pass is home's until 4.7
         stored = db.box_weeks()
         kicks = kickoffs_by_week(lg)
     except Exception as e:  # noqa: BLE001
@@ -1115,7 +1119,7 @@ def correct_boxes(lg, now: datetime | None = None) -> dict:
             continue
         out["weeks"][w] = res
         if res["changed"] or not (have and have["final"]):  # a backfill replaced a non-final read too
-            _BOXES.pop((leagues.home().key, w), None)  # the correction pass is home's until 4.7
+            _BOXES.pop((home_key, w), None)
         if res["changed"]:
             out["changed"].append(w)
     return out
@@ -1207,29 +1211,31 @@ def past_stats(season: int, player_id: int) -> list[dict]:
     return _PAST_STATS[key]
 
 
-def player_card(player_id: int) -> dict:
+def player_card(player_id: int, *, ref: leagues.LeagueRef | None = None) -> dict:
     """One player's game log, this season and every one ESPN has before it (player_card.player_log): the
     league call returns every week of this season and last, each earlier season is one more call,
     made side by side, with the opponent ranks and Sleeper's projection for every week left. A
     failed read drops what it carried (that season, its opponents, the ranks, a week's Sleeper
-    projection) rather than failing the log."""
+    projection) rather than failing the log. The league call, its ranks and its settings are `ref`'s (None: home)."""
     from . import player_card as card_log  # player_card imports this module
 
-    lg = fresh_league()
+    r = _ref(ref)
+    season = r.season
+    lg = fresh_league(r)
     filt = {"players": {"filterIds": {"value": [player_id]},
-                        "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": [f"00{SEASON}", f"10{SEASON}", f"11{SEASON}{lg.current_week}"]}}}
-    card = raw_league_get("kona_playercard", headers={"x-fantasy-filter": json.dumps(filt)})
+                        "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": [f"00{season}", f"10{season}", f"11{season}{lg.current_week}"]}}}
+    card = raw_league_get("kona_playercard", headers={"x-fantasy-filter": json.dumps(filt)}, ref=r)
     if not card.get("players"):
         raise LookupError(f"ESPN has no player {player_id}")
-    earlier = range(SEASON - 2, SEASON - HISTORY - 1, -1)
+    earlier = range(season - 2, season - HISTORY - 1, -1)
     p = card["players"][0]["player"]
     pos = card_log.POS.get(p.get("defaultPositionId"))
-    reads = {("sched", SEASON): lambda: _schedule_doc(lg), ("ranks", SEASON): opponent_ranks}
+    reads = {("sched", season): lambda: _schedule_doc(lg), ("ranks", season): lambda: opponent_ranks(ref=r)}
     if pos in POS_SLOT:
-        reads[("pos_ranks", SEASON)] = lambda: position_ranks(pos)
-    reads |= {("sched", yr): (lambda yr=yr: past_schedule(yr)) for yr in range(SEASON - 1, SEASON - HISTORY - 1, -1)}
+        reads[("pos_ranks", season)] = lambda: position_ranks(pos, ref=r)
+    reads |= {("sched", yr): (lambda yr=yr: past_schedule(yr)) for yr in range(season - 1, season - HISTORY - 1, -1)}
     reads |= {("stats", yr): (lambda yr=yr: past_stats(yr, player_id)) for yr in earlier}
-    settings = load()
+    settings = load(r)
     reads[("sources", lg.current_week)] = lambda: weekly_sources(lg.current_week, settings)
     reads |= {("sleeper", wk): (lambda wk=wk: _sleeper_for(wk, settings)) for wk in range(lg.current_week, S.NFL_WEEKS + 1)}
     if pos in S.SNAP_POSITIONS:  # his snaps each week this season, off the cached Sleeper stat rows
@@ -1259,25 +1265,25 @@ def player_card(player_id: int) -> dict:
             print(f"{kind} {yr} unavailable for player {player_id}: {e}")
     card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
     from .live import box_items
-    log = card_log.player_log(card, box_items(settings), schedules, lg.current_week, SEASON, HISTORY, ranks,
+    log = card_log.player_log(card, box_items(settings), schedules, lg.current_week, season, HISTORY, ranks,
                               sleeper=sleeper, pos_ranks=pos_ranks, snaps=snaps, current=current)
     return {**log, "playoff_weeks": settings.get("playoff_weeks", [])}  # this season's: the log flags its weeks
 
 
-def _boxes_by_team(lg, week: int) -> dict[int, list]:
+def _boxes_by_team(lg, week: int, *, ref: leagues.LeagueRef | None = None) -> dict[int, list]:
     """Every team's roster for the week, from a single box_scores call."""
     out: dict[int, list] = {}
-    for m in box_scores(lg, week):
+    for m in box_scores(lg, week, ref=ref):
         for t, lineup in ((m.home_team, m.home_lineup), (m.away_team, m.away_lineup)):
             if hasattr(t, "team_id"):
                 out[t.team_id] = lineup
     return out
 
 
-def _owners(lg, week: int) -> dict[int, dict]:
+def _owners(lg, week: int, *, ref: leagues.LeagueRef | None = None) -> dict[int, dict]:
     """player_id -> the fantasy team rostering him this week, off the same box_scores fetch:
     the Players page's owner chip."""
-    return owners_in(box_scores(lg, week))
+    return owners_in(box_scores(lg, week, ref=ref))
 
 
 def owners_in(boxes: list) -> dict[int, dict]:
@@ -1304,11 +1310,11 @@ def _box_players(boxes: list) -> list[dict]:
     return [flatten_box_player(bp) for m in boxes for lineup in (m.away_lineup, m.home_lineup) for bp in lineup or []]
 
 
-def recorded_sources(week: int, boxes: list) -> dict[str, dict[tuple[str, str], float]] | None:
+def recorded_sources(week: int, boxes: list, *, ref: leagues.LeagueRef | None = None) -> dict[str, dict[tuple[str, str], float]] | None:
     """A finished week's projections from projection_rows (the kickoff record, else the saved late fetch), keyed
     like weekly_sources for the week's box players. None when neither is there or the DB cannot answer."""
     try:
-        rows = db.projection_rows(KICKOFF, week=week) or db.projection_rows(LATE, week=week)
+        rows = db.projection_rows(KICKOFF, week=week, ref=ref) or db.projection_rows(LATE, week=week, ref=ref)
     except db.DBError as e:
         print(f"recorded projections for week {week} unreadable, fetching the sources: {e}")
         return None
@@ -1327,7 +1333,7 @@ def recorded_sources(week: int, boxes: list) -> dict[str, dict[tuple[str, str], 
 PLAYED_WEEK_SOURCES = ("sleeper", "sharks")
 
 
-def _fetch_and_keep(week: int, settings: dict, boxes: list) -> dict[str, dict[tuple[str, str], float]]:
+def _fetch_and_keep(week: int, settings: dict, boxes: list, *, ref: leagues.LeagueRef | None = None) -> dict[str, dict[tuple[str, str], float]]:
     """A finished week with nothing recorded: ask the sources that serve a played week, and keep what they said
     (kind LATE) for every box player of the week, so no later build asks again. Kept only when each answered: a
     source down today is asked again next time rather than missing from the week for good."""
@@ -1336,38 +1342,39 @@ def _fetch_and_keep(week: int, settings: dict, boxes: list) -> dict[str, dict[tu
         rows = [{"player_id": p["player_id"], "source": s, "points": v}
                 for p in _box_players(boxes) for s, v in source_values(p, src).items()]
         try:
-            db.put_projection_rows(week, LATE, rows)
+            db.put_projection_rows(week, LATE, rows, ref=ref)
         except db.DBError as e:
             print(f"week {week}'s fetched projections not saved: {e}")
     return src
 
 
-def week_sources(lg, week: int, settings: dict, boxes: list) -> dict[str, dict[tuple[str, str], float]]:
+def week_sources(lg, week: int, settings: dict, boxes: list, *, ref: leagues.LeagueRef | None = None) -> dict[str, dict[tuple[str, str], float]]:
     """The week's source projections as the Matchup board and the League scoreboard both price it. A finished
     week is priced as it stood at kickoff where the notify tick recorded it (else the late fetch, made once):
     refetching every source made a past board 9-15 s cold and a past scoreboard 7-9 s, and a source may
     rewrite a week once it is played."""
     if week < lg.current_week:
-        return recorded_sources(week, boxes) or _fetch_and_keep(week, settings, boxes)
+        return recorded_sources(week, boxes, ref=ref) or _fetch_and_keep(week, settings, boxes, ref=ref)
     return weekly_sources(week, settings)
 
 
 def week_state(week: int | None = None, sources: dict | None = None, season: dict | None = None,
-               injuries: dict | None = None, team: int | None = None) -> dict:
+               injuries: dict | None = None, team: int | None = None, *, ref: leagues.LeagueRef | None = None) -> dict:
     """The matchup board for `team`'s game (mine by default). `me` is the left side and `opp`
     the right: I stand on the left of my own game; any other game reads away then home, as the
-    League scoreboard stacks it. `mine` says which kind of board it is."""
-    lg = fresh_league()
-    settings = load()
+    League scoreboard stacks it. `mine` says which kind of board it is. `ref` is the league (None: home)."""
+    r = _ref(ref)
+    lg = fresh_league(r)
+    settings = load(r)
     week = week or lg.current_week
-    me = my_team_id(lg)
+    me = my_team_id(lg, r)
     team = team or me
-    boxes = box_scores(lg, week)
+    boxes = box_scores(lg, week, ref=r)
     # A finished week's ROS is today's (the lookup the current board already holds): building that week's ROS
     # was most of a cold past board
     finished = week < lg.current_week
-    src = sources if sources is not None else week_sources(lg, week, settings, boxes)
-    seas = _season_for(settings, season, lg.current_week if finished else week)
+    src = sources if sources is not None else week_sources(lg, week, settings, boxes, ref=r)
+    seas = _season_for(settings, season, lg.current_week if finished else week, ref=r)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     home = home_by_team(lg, week)
     for m in boxes:
@@ -1381,7 +1388,7 @@ def week_state(week: int | None = None, sources: dict | None = None, season: dic
         # a bye or placeholder side has no team to build; the real side takes the left
         sides = [s for s in sides if hasattr(s[0], "team_id")]
         # my players sat by hand this week stay out of my side's by-projection lineup, as on the Roster page
-        sat = db.sat_ids(week) if mine else set()
+        sat = db.sat_ids(week, ref=r) if mine else set()
         built = [build_side(t, with_sits(_side_players(lineup, settings, src, seas, inj, w1, home),
                                          sat if t.team_id == me else set()), settings)
                  for t, lineup in sides]
@@ -1398,13 +1405,14 @@ def week_state(week: int | None = None, sources: dict | None = None, season: dic
     raise RuntimeError(f"no matchup for team {me} in week {week}")
 
 
-def league_starters(week: int | None = None) -> dict:
+def league_starters(week: int | None = None, *, ref: leagues.LeagueRef | None = None) -> dict:
     """Every game's starters, the play feed's roster: {week, games: [[side, side], ...]}, each side
     {team_id, lineup: [{player_id, name, pos, team}]}. Bench and IR are left out; a bye slot too."""
-    lg = fresh_league()
+    r = _ref(ref)
+    lg = fresh_league(r)
     week = week or lg.current_week
     games = []
-    for m in box_scores(lg, week):
+    for m in box_scores(lg, week, ref=r):
         games.append([{"team_id": t.team_id,
                        "lineup": [{"player_id": bp.playerId, "name": bp.name, "pos": bp.position, "team": bp.proTeam}
                                   for bp in lineup or [] if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]}
@@ -1422,27 +1430,28 @@ def _side_players(lineup: list, settings: dict, src: dict, seas: dict, inj: dict
 
 
 def team_state(team_id: int, week: int | None = None, sources: dict | None = None, season: dict | None = None,
-               injuries: dict | None = None) -> dict:
+               injuries: dict | None = None, *, ref: leagues.LeagueRef | None = None) -> dict:
     """Any team's roster for the week (the team page): its side of the box scores, grouped
     starters / bench / IR as the board groups them, under the club as the League page shows it
     plus its standings rank. A team with no game this week (a playoff bye) is listed from its
-    roster, without points. Raises LookupError on an unknown team id."""
-    lg = fresh_league()
+    roster, without points. Raises LookupError on an unknown team id. `ref` is the league (None: home)."""
+    r = _ref(ref)
+    lg = fresh_league(r)
     t = next((t for t in lg.teams if t.team_id == team_id), None)
     if t is None:
         raise LookupError(f"no team {team_id}")
-    settings = load()
+    settings = load(r)
     week = week or lg.current_week
     src = sources if sources is not None else weekly_sources(week, settings)
-    seas = _season_for(settings, season, week)
-    players = _boxes_by_team(lg, week).get(team_id)
+    seas = _season_for(settings, season, week, ref=r)
+    players = _boxes_by_team(lg, week, ref=r).get(team_id)
     built = _side_players(players or getattr(t, "roster", []), settings, src, seas,
                           _injuries_for(injuries), _week1_start(settings), home_by_team(lg, week))
     if players is None:  # roster Players carry lineupSlot, not the box score's slot_position
         slots = {rp.playerId: getattr(rp, "lineupSlot", "BE") for rp in t.roster}
         built = [{**p, "slot": slots.get(p["player_id"], "BE")} for p in built]
     rank = next((i for i, s in enumerate(lg.standings(), 1) if s.team_id == team_id), None)
-    return {"week": week, "live": S.is_live(), "mine": team_id == my_team_id(lg),
+    return {"week": week, "live": S.is_live(), "mine": team_id == my_team_id(lg, r),
             "club": {**_club(t), "rank": rank}, "side": build_side(t, built, settings)}
 
 
@@ -1480,16 +1489,16 @@ def parse_roster_flags(doc: dict, team_id: int) -> dict[int, dict]:
 STATUS_LIMIT = 1000
 
 
-def pool_status() -> dict[int, dict]:
+def pool_status(*, ref: leagues.LeagueRef | None = None) -> dict[int, dict]:
     # filterStatus, not filterIds: ESPN 400s on "limit" beside filterIds (tx_player_info), and D/ST ids are negative.
     # This is the query the 2026-10-06 probe ran (limit 400 answered); it covers every pool row (60 per position).
     flt = {"players": {"filterStatus": {"value": ["FREEAGENT", "WAIVERS"]}, "limit": STATUS_LIMIT,
                        "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}}
-    return parse_pool_status(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(flt)}))
+    return parse_pool_status(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(flt)}, ref=ref))
 
 
-def roster_flags(lg) -> dict[int, dict]:
-    return parse_roster_flags(raw_league_get("mRoster"), my_team_id(lg))
+def roster_flags(lg, *, ref: leagues.LeagueRef | None = None) -> dict[int, dict]:
+    return parse_roster_flags(raw_league_get("mRoster", ref=ref), my_team_id(lg, ref))
 
 
 # How deep the Players page's free-agent half goes at each position, by ownership. Measured
@@ -1500,28 +1509,29 @@ POOL_SIZE = 150
 
 def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dict | None = None,
                     season: dict | None = None, injuries: dict | None = None,
-                    snaps: dict | None = None) -> dict:
+                    snaps: dict | None = None, *, ref: leagues.LeagueRef | None = None) -> dict:
     """The Players page's pool: `positions` holds the free agents ranked for a claim (claims, the
     waiver outlook and the calibration snapshot read it, so it never carries a rostered man);
-    `rostered` holds every rostered player priced the same way, tagged with his owner."""
-    lg = fresh_league()
-    settings = load()
+    `rostered` holds every rostered player priced the same way, tagged with his owner. `ref` is the league (None: home)."""
+    lr = _ref(ref)  # not `r`: the loops below name their rows that
+    lg = fresh_league(lr)
+    settings = load(lr)
     week = week or lg.current_week
     # the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`): ROS starts from the first week whose games are not all played
     rw = ros_week_for(lg, week)
     week_over = rw > week
-    me = my_team_id(lg)
+    me = my_team_id(lg, lr)
     src = sources if sources is not None else weekly_sources(week, settings)
-    seas = _season_for(settings, season, rw)
+    seas = _season_for(settings, season, rw, ref=lr)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
-    boxes = _boxes_by_team(lg, week)
+    boxes = _boxes_by_team(lg, week, ref=lr)
     if me not in boxes:
         raise RuntimeError(f"no box score for team {me} in week {week}")
     home = home_by_team(lg, week)  # so the Waivers page can say "at" when a free agent travels
     byes, weeks = bye_by_team(lg), form_weeks(week)
     snap_weeks = _snaps_for(weeks, snaps)
     refs, exp, usage = snap_refs(snap_weeks), _exp_for(weeks, snaps), _usage_for(weeks, snaps)
-    roster_games = _roster_games(lg, boxes, week)
+    roster_games = _roster_games(lg, boxes, week, ref=lr)
 
     def enrich(players: list[dict], games: dict[int, list[dict]]) -> list[dict]:
         return apply_form(apply_exp(apply_home(apply_injuries(apply_season(merge_weekly(players, src), seas), inj, w1), home), exp),
@@ -1551,19 +1561,19 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
         frees_by_pos[pos] = frees
     # what the blend read this ROS week, kept for ffl.calibrate; never a reason for the page to fail
     try:
-        calibrate.write_snapshot(rw, calibrate.snapshot_rows(out, rw))
+        calibrate.write_snapshot(rw, calibrate.snapshot_rows(out, rw), ref=lr)
     except db.DBError as e:
         print(f"calibration snapshot not written: {e}")
     roster = S.roster_rows(my_players, rw)
     # claim facts (ffl/claims.py): a failed read leaves the defaults, so nothing is ever added instantly
     # by mistake (unknown status counts as WAIVERS) and ESPN is left to refuse an undroppable cut
     try:
-        status = pool_status()
+        status = pool_status(ref=lr)
     except Exception as e:
         print(f"waiver status not read: {e}")
         status = {}
     try:
-        flags = roster_flags(lg)
+        flags = roster_flags(lg, ref=lr)
     except Exception as e:
         print(f"roster flags not read: {e}")
         flags = {}
@@ -1576,7 +1586,7 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
         r["droppable"], r["locked"] = f.get("droppable", True), f.get("locked", False)
     # the Players page: every rostered player, priced as a free agent would be (worth to me);
     # my own carry no worth, measuring a man against my weakest being circular
-    owners = _owners(lg, week)
+    owners = _owners(lg, week, ref=lr)
     rostered_out: dict[str, list[dict]] = {}
     for pos in positions:
         rows = S.waiver_deltas([p for p in rostered if p["pos"] == pos], my_players,
@@ -1590,12 +1600,12 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
     # the Watch page: every watched man priced as a Players row, a free agent deeper than the lists by id;
     # never added to `positions`, and a failed read costs the watch, not the page
     try:
-        watching = db.watched_ids()
+        watching = db.watched_ids(ref=lr)
     except db.DBError as e:
         print(f"watchlist not read: {e}")
         watching = []
     found = {r["player_id"]: r for rows in (*out.values(), *rostered_out.values()) for r in rows}
-    deep, games = _watched_rows(lg, [pid for pid in watching if pid not in found and pid > 0], week)
+    deep, games = _watched_rows(lg, [pid for pid in watching if pid not in found and pid > 0], week, ref=lr)
     deep = enrich(deep, games)
     for pos in positions:
         at = [{**p, "slot": "FA"} for p in deep if p["pos"] == pos]
@@ -1609,7 +1619,7 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
             "roster": roster, "watched": watched, "ros_source": ros_source(seas)}
 
 
-def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]]:
+def _roster_games(lg, boxes: dict[int, list], week: int, *, ref: leagues.LeagueRef | None = None) -> dict[int, list[dict]]:
     """Game rows for every rostered player: this week's off the box score (fresh every minute), the
     earlier form weeks off those weeks' box scores (one cached call a week). A Player on lg.teams
     rosters carries only the current scoring period's stats, so it cannot supply them (ffl-rns). A
@@ -1621,7 +1631,7 @@ def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]
     gaps: dict[int, list[int]] = {}
     for w in form_weeks(week)[:-1]:
         try:
-            by_team = _boxes_by_team(lg, w)
+            by_team = _boxes_by_team(lg, w, ref=ref)
         except Exception as e:  # noqa: BLE001 — one week's history is not worth the page (ffl-qf7)
             logging.getLogger(__name__).warning("week %s box scores not read; no form rows for it: %s", w, e)
             continue
@@ -1633,7 +1643,7 @@ def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]
                     earlier[bp.playerId] += player_games(bp, [w], week)
         for pid in earlier.keys() - seen:  # in any box score that week he was rostered (a bye there is no gap)
             gaps.setdefault(pid, []).append(w)
-    for pid, rows in _gap_games(gaps, week).items():
+    for pid, rows in _gap_games(gaps, week, ref=ref).items():
         earlier[pid] = sorted(earlier[pid] + rows, key=lambda g: g["week"])
     return {pid: earlier[pid] + g for pid, g in games.items()}
 
@@ -1720,7 +1730,7 @@ def _gap_games(gaps: dict[int, list[int]], week: int, *, ref: leagues.LeagueRef 
     return out
 
 
-def _watched_rows(lg, ids: list[int], week: int) -> tuple[list[dict], dict[int, list[dict]]]:
+def _watched_rows(lg, ids: list[int], week: int, *, ref: leagues.LeagueRef | None = None) -> tuple[list[dict], dict[int, list[dict]]]:
     """Watched free agents deeper than the pool's lists, flattened as a free agent is, with their game rows:
     one kona_player_info read by ids for this week (what free_agents(week) asks, filterIds in place of the
     ownership sort; no `limit`, ESPN 400s on it beside filterIds) wrapped in BoxPlayers the same way, and the
@@ -1733,7 +1743,7 @@ def _watched_rows(lg, ids: list[int], week: int) -> tuple[list[dict], dict[int, 
         return [], {}
     filt = {"players": {"filterIds": {"value": ids}}}
     try:
-        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=week)
+        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=week, ref=ref)
         sched, ranks = lg._get_pro_schedule(week), lg._get_positional_ratings(week)
     except Exception as e:  # noqa: BLE001 — a watched man is not worth the Players page
         log.warning("watched players %s not read: %s", ids, e)
@@ -1741,7 +1751,7 @@ def _watched_rows(lg, ids: list[int], week: int) -> tuple[list[dict], dict[int, 
     boxes = []
     for p in doc.get("players") or []:
         try:
-            b = BoxPlayer(p, sched, ranks, week, SEASON)
+            b = BoxPlayer(p, sched, ranks, week, _ref(ref).season)
         except Exception as e:  # noqa: BLE001
             log.warning("watched player info unreadable for %s: %s", p.get("id"), e)
             continue
@@ -1749,7 +1759,7 @@ def _watched_rows(lg, ids: list[int], week: int) -> tuple[list[dict], dict[int, 
             boxes.append(b)
     if missing := sorted(set(ids) - {b.playerId for b in boxes}):
         log.warning("watched players %s not in ESPN's answer", missing)
-    earlier = _gap_games({b.playerId: form_weeks(week)[:-1] for b in boxes}, week)
+    earlier = _gap_games({b.playerId: form_weeks(week)[:-1] for b in boxes}, week, ref=ref)
     games = {b.playerId: earlier.get(b.playerId, []) + player_games(b, [week], week) for b in boxes}
     return [flatten_box_player(b) for b in boxes], games
 
@@ -1776,19 +1786,21 @@ def with_sits(rows: list[dict], sat: set[int]) -> list[dict]:
 
 
 def roster_state(week: int | None = None, sources: dict | None = None, season: dict | None = None,
-                 injuries: dict | None = None, snaps: dict | None = None, flags: dict | None = None) -> dict:
+                 injuries: dict | None = None, snaps: dict | None = None, flags: dict | None = None,
+                 *, ref: leagues.LeagueRef | None = None) -> dict:
     """My roster as cards (season.roster_cards) for the Roster page. Same enrichment as week_state,
     plus `form` (the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`)) on every card. `flags` is an mRoster read the caller
-    already has (POST /lineup's, with the moves applied); without it the read is made here."""
-    lg = fresh_league()
-    settings = load()
+    already has (POST /lineup's, with the moves applied); without it the read is made here. `ref` is the league (None: home)."""
+    r = _ref(ref)
+    lg = fresh_league(r)
+    settings = load(r)
     week = week or lg.current_week
     rw = ros_week_for(lg, week)
-    me = my_team_id(lg)
+    me = my_team_id(lg, r)
     src = sources if sources is not None else weekly_sources(week, settings)
-    seas = _season_for(settings, season, rw)
+    seas = _season_for(settings, season, rw, ref=r)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
-    boxes = _boxes_by_team(lg, week)
+    boxes = _boxes_by_team(lg, week, ref=r)
     if me not in boxes:
         raise RuntimeError(f"no box score for team {me} in week {week}")
     weeks = form_weeks(week)
@@ -1796,16 +1808,16 @@ def roster_state(week: int | None = None, sources: dict | None = None, season: d
     players = apply_form(apply_exp(apply_home(apply_injuries(
         apply_season(merge_weekly([flatten_box_player(bp) for bp in boxes[me]], src), seas), inj, w1),
         home_by_team(lg, week)), _exp_for(weeks, snaps)),
-        _roster_games(lg, {me: boxes[me]}, week), snap_weeks, rw, bye_by_team(lg), snap_refs(snap_weeks),
+        _roster_games(lg, {me: boxes[me]}, week, ref=r), snap_weeks, rw, bye_by_team(lg), snap_refs(snap_weeks),
         _usage_for(weeks, snaps))
-    fake = espn_write.fake_slots()
+    fake = espn_write.fake_slots() if r.home else {}  # the fake lineup store is home's until 4.5 makes it per league
     if flags is None:
         try:
-            flags = roster_flags(lg)
+            flags = roster_flags(lg, ref=r)
         except Exception as e:  # noqa: BLE001 — a failed read shows every row unlocked; POST /lineup re-reads before writing
             logging.getLogger(__name__).warning("roster_flags read failed; every row shows unlocked: %s", e)
             flags = {}
-    players = with_sits(with_espn_slots(players, flags, fake, db.seat_map()), db.sat_ids(week))
+    players = with_sits(with_espn_slots(players, flags, fake, db.seat_map(ref=r)), db.sat_ids(week, ref=r))
     return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week),
             "empty_slots": S.empty_slots(players, settings), "position_caps": S.position_caps(players, settings.get("position_limits", {})),
             "writes": espn_write.writes()}
@@ -1819,11 +1831,11 @@ def _club(t) -> dict:
             "ties": getattr(t, "ties", 0)}
 
 
-def team_logo(team_id: int) -> tuple[bytes, str]:
+def team_logo(team_id: int, *, ref: leagues.LeagueRef | None = None) -> tuple[bytes, str]:
     """The bytes and content type of a fantasy team's logo. ESPN serves an owner's own upload
     (mystique-api.fantasy.espn.com) only with the league cookies, so the browser cannot load it
-    directly; the API fetches it on the UI's behalf. Raises on an unknown team or a bad fetch."""
-    lg = fresh_league()
+    directly; the API fetches it on the UI's behalf. Raises on an unknown team or a bad fetch. `ref` is the league (None: home)."""
+    lg = fresh_league(ref)
     t = next((t for t in lg.teams if t.team_id == team_id), None)
     url = getattr(t, "logo_url", "") if t else ""
     if not url:
@@ -1843,10 +1855,13 @@ def _streak(t) -> str:
 SCORE_STARTER = ("player_id", "pos", "team", "proj", "actual", "game_played", "bye", "injury", "kickoff")
 
 
-def league_state(week: int | None = None) -> dict:
-    lg = fresh_league()
-    settings = load()
-    me = my_team_id(lg)
+def league_state(week: int | None = None, *, ref: leagues.LeagueRef | None = None) -> dict:
+    """The League page: standings and the week's scoreboard of `ref`'s league (None: home); `first_week` is the
+    week its fantasy season starts (a mid-season league: later than 1), for the week picker."""
+    r = _ref(ref)
+    lg = fresh_league(r)
+    settings = load(r)
+    me = my_team_id(lg, r)
     current = lg.current_week
     week = week or current
     standings = [{"rank": i, **_club(t), "points_for": round(t.points_for, 2),
@@ -1858,7 +1873,7 @@ def league_state(week: int | None = None) -> dict:
     board = []
     src: dict | None = None  # the week's source projections, read once the first lineup needs them
     sigma, _ = calibrate.load_sigma()
-    boxes = box_scores(lg, week) if week <= current else []
+    boxes = box_scores(lg, week, ref=r) if week <= current else []
     for m in (boxes if week <= current else lg.scoreboard(week)):
         if not (hasattr(m.home_team, "team_id") and hasattr(m.away_team, "team_id")):
             continue  # a bye slot in a playoff round
@@ -1877,7 +1892,7 @@ def league_state(week: int | None = None) -> dict:
             if starters and src is None:
                 # the scoreboard stood without the sources before the odds: an outage leaves ESPN's numbers
                 try:
-                    src = week_sources(lg, week, settings, boxes)
+                    src = week_sources(lg, week, settings, boxes, ref=r)
                 except Exception:  # noqa: BLE001
                     src = {}
             players = merge_weekly([flatten_box_player(bp) for bp in starters], src) if starters else []
@@ -1897,7 +1912,8 @@ def league_state(week: int | None = None) -> dict:
         board.append({**row, "live": False, "final": S.matchup_final(row), "win_prob": odds})
     # the picker runs on through the playoffs, whose weeks have no pairings until the regular season ends
     playoffs = settings.get("playoff_weeks", [])
-    return {"week": week, "current_week": current, "weeks": max(playoffs, default=settings["reg_season_weeks"]),
+    return {"week": week, "current_week": current, "first_week": settings.get("first_week", 1),
+            "weeks": max(playoffs, default=settings["reg_season_weeks"]),
             "playoff_teams": settings["playoff_teams"], "playoff_weeks": playoffs, "live": S.is_live() and week == current,
             "standings": standings, "scoreboard": board}
 

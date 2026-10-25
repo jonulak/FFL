@@ -178,7 +178,7 @@ def test_roster_state_reads_earlier_weeks_off_those_weeks_box_scores(monkeypatch
     hist.game_played = 100
     now_boxes = espn_season._boxes_by_team
     monkeypatch.setattr(espn_season, "_boxes_by_team",
-                        lambda lg, w: now_boxes(lg, w) if w == 3 else {7: [_week_only(hist, w)]})
+                        lambda lg, w, **k: now_boxes(lg, w, **k) if w == 3 else {7: [_week_only(hist, w)]})
     monkeypatch.setattr(espn_season, "league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
@@ -235,7 +235,7 @@ def test_roster_games_read_earlier_weeks_off_those_weeks_box_scores(monkeypatch)
                                stats={w: week_stats(pts, 14.0, rushingAttempts=12)})
     past = {1: {7: [box(4, 1, 15.0)], 2: [box(1, 1, 20.0)]},
             2: {7: [box(4, 2, 11.0)], 2: [box(1, 2, 8.0)]}}
-    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w: past[w])
+    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w, **k: past[w])
     now = {7: [box(4, 3, 9.0), box(5, 3, 6.0)], 2: [box(1, 3, 7.0)]}  # 5 joined a roster this week
     games = espn_season._roster_games(SimpleNamespace(teams=[]), now, week=3)
     assert [g["week"] for g in games[4]] == [1, 2, 3]
@@ -254,7 +254,7 @@ def _info_doc(pid: int, w: int, pts: float, proj: float, carries: int) -> dict:
 
 def _info_by_week(docs: dict[tuple[int, int], dict], asked: list):
     """A raw_league_get stub: kona_player_info by ids and week, recording each ask as (week, ids)."""
-    def get(view, headers=None, **params):
+    def get(view, headers=None, *, ref=None, **params):
         assert view == "kona_player_info"
         ids = json.loads(headers["x-fantasy-filter"])["players"]["filterIds"]["value"]
         w = params["scoringPeriodId"]
@@ -272,7 +272,7 @@ def test_roster_games_fill_a_pickups_free_agent_weeks_off_that_weeks_player_info
     """ffl-iig: a week he sat on no fantasy roster comes off that week's player info, one call a week for
     every player missing from it, and is read once for the process."""
     past = {1: {7: [_rb_box(4, 1, 15.0)]}, 2: {7: [_rb_box(4, 2, 11.0)]}}
-    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w: past[w])
+    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w, **k: past[w])
     asked = []
     docs = {(5, 1): _info_doc(5, 1, 6.0, 4.0, 5), (5, 2): _info_doc(5, 2, 18.0, 5.0, 16),
             (6, 2): _info_doc(6, 2, 3.0, 2.0, 2)}
@@ -293,7 +293,7 @@ def test_roster_games_fill_a_pickups_free_agent_weeks_off_that_weeks_player_info
 def test_roster_games_ask_nothing_for_a_rostered_man_on_bye(monkeypatch):
     """In a lineup that week but without a game (a bye, a week out): rostered, so no gap and no call."""
     bye = SimpleNamespace(playerId=4, position="RB", game_played=100, stats={})
-    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w: {7: [bye]})
+    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w, **k: {7: [bye]})
     monkeypatch.setattr(espn_season, "raw_league_get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
     games = espn_season._roster_games(SimpleNamespace(teams=[]), {7: [_rb_box(4, 3, 9.0)]}, week=3)
     assert [g["week"] for g in games[4]] == [3]
@@ -301,10 +301,10 @@ def test_roster_games_ask_nothing_for_a_rostered_man_on_bye(monkeypatch):
 
 def test_roster_games_keep_the_box_weeks_when_the_player_info_read_fails(monkeypatch):
     past = {1: {7: [_rb_box(4, 1, 15.0)]}, 2: {7: [_rb_box(4, 2, 11.0)]}}
-    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w: past[w])
+    monkeypatch.setattr(espn_season, "_boxes_by_team", lambda lg, w, **k: past[w])
     asked = []
 
-    def get(view, headers=None, **params):
+    def get(view, headers=None, *, ref=None, **params):
         asked.append(params["scoringPeriodId"])
         if params["scoringPeriodId"] == 1:
             raise RuntimeError("ESPN 500")
@@ -319,7 +319,7 @@ def test_roster_games_keep_the_box_weeks_when_the_player_info_read_fails(monkeyp
 
 def test_roster_games_ask_no_player_info_for_a_week_whose_box_scores_failed(monkeypatch):
     """A failed week's box scores leave it empty for everyone: it is not filled from player info."""
-    def boxes(lg, w):
+    def boxes(lg, w, **k):
         if w == 1:
             raise RuntimeError("ESPN 500")
         return {7: [_rb_box(4, 2, 11.0)]}
@@ -383,7 +383,7 @@ def test_free_agent_pool_starts_ros_from_the_next_week_once_this_weeks_games_are
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
     monkeypatch.setattr(espn_season, "ros_week_for", lambda lg, week: 4)
     asked = []
-    monkeypatch.setattr(espn_season, "_season_for", lambda settings, season, week: asked.append(week) or {})
+    monkeypatch.setattr(espn_season, "_season_for", lambda settings, season, week, **k: asked.append(week) or {})
     pool = espn_season.free_agent_pool(week=3, sources={}, injuries={}, snaps={})
     assert pool["week"] == 3 and pool["ros_week"] == 4 and pool["week_over"] is True
     assert asked == [4], "the Sleeper sum starts from the ROS week"
@@ -434,7 +434,7 @@ def test_roster_state_drops_a_week_whose_box_scores_fail_instead_of_failing(monk
     hist.game_played = 100
     now_boxes = espn_season._boxes_by_team
 
-    def boxes(lg, w):
+    def boxes(lg, w, **k):
         if w == 1:
             raise RuntimeError("ESPN 500")
         return now_boxes(lg, w) if w == 3 else {7: [_week_only(hist, w)]}
@@ -453,7 +453,7 @@ def test_roster_state_uses_the_flags_it_is_handed(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
-    monkeypatch.setattr(espn_season, "roster_flags", lambda lg: (_ for _ in ()).throw(AssertionError("read again")))
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg, **k: (_ for _ in ()).throw(AssertionError("read again")))
     st = espn_season.roster_state(week=1, sources={}, season={}, injuries={}, snaps={}, flags={4: {"slot": "BE", "locked": True}})
     card = next(c for c in st["cards"] if c["player_id"] == 4)
     assert card["slot"] == "BE" and card["locked"] is True

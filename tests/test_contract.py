@@ -38,7 +38,7 @@ SCORE_STARTER = {"player_id", "pos", "team", "proj", "actual", "game_played", "b
 SCORE_ROW = {"home", "away", "live", "final", "win_prob"}
 # web/lib/api.ts: type Week / type League top level (stale_since is added by the API's cache)
 WEEK = {"week", "live", "mine", "slots", "me", "opp", "win_prob"}
-LEAGUE = {"week", "current_week", "weeks", "playoff_teams", "playoff_weeks", "live", "standings", "scoreboard"}
+LEAGUE = {"week", "current_week", "weeks", "first_week", "playoff_teams", "playoff_weeks", "live", "standings", "scoreboard"}
 
 
 def test_player_keys():
@@ -170,9 +170,9 @@ def test_player_card_io(monkeypatch):
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: json.loads((FX / "settings_scoring.json").read_text()))
     monkeypatch.setattr(espn_season, "_schedule_doc", down)
     monkeypatch.setattr(espn_season, "past_schedule", down)
-    monkeypatch.setattr(espn_season, "opponent_ranks", dict)  # its own test below
+    monkeypatch.setattr(espn_season, "opponent_ranks", lambda **k: {})  # its own test below
     asked = []
-    monkeypatch.setattr(espn_season, "position_ranks", lambda pos: asked.append(pos) or {"season": {3918298: 5}, "weeks": {}})
+    monkeypatch.setattr(espn_season, "position_ranks", lambda pos, **k: asked.append(pos) or {"season": {3918298: 5}, "weeks": {}})
     sleeper_weeks = []
 
     def sleeper_for(week, settings):

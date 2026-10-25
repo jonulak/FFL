@@ -161,3 +161,161 @@ def test_no_ref_is_home_even_with_ffl_league(monkeypatch, other):
     monkeypatch.setattr(espn_season, "load", lambda ref=None: seen.append(ref) or {"teams": []})
     monkeypatch.setattr(config, "SWID", "{NOBODY}")
     assert espn_season.my_team_id(None) == leagues.home().team_id and seen == [leagues.home()]
+
+
+# ---- the page builders take the league they read (ffl-soc.4.3, task 2) ----
+
+from types import SimpleNamespace as SN  # noqa: E402
+
+from ffl import espn_write  # noqa: E402
+from tests.test_espn_season import as_box, season_roster  # noqa: E402
+from tests.test_season import TWO_QB  # noqa: E402
+
+HOME_SET = {**TWO_QB, "scoring": [], "reg_season_weeks": 14, "playoff_teams": 6, "playoff_weeks": [15, 16], "first_week": 1}
+OTHER_SET = {**TWO_QB, "scoring": [], "reg_season_weeks": 12, "playoff_teams": 4, "playoff_weeks": [13, 14, 15], "first_week": 3}
+
+
+def _team(i, name):
+    return SN(team_id=i, team_name=name, wins=0, losses=0, ties=0, owners=[], points_for=0.0, points_against=0.0)
+
+
+def _fake_league(me, them, calls, tag):
+    """A League whose rosters are team `me`'s and `them`'s; every free-agent ask is logged with the League's tag."""
+    roster = [as_box(p) for p in season_roster()]
+    m = SN(home_team=_team(me, f"{tag} mine"), home_lineup=roster, home_score=0, home_projected=0,
+           away_team=_team(them, f"{tag} them"), away_lineup=roster[:3], away_score=0, away_projected=0)
+
+    def free_agents(week, size, position):
+        calls["fa"].append((tag, position))
+        return [as_box({**season_roster()[0], "player_id": 1000 + len(calls["fa"]), "slot": "FA"})]
+    return SN(box_scores=lambda week: [m], scoreboard=lambda week: [m], free_agents=free_agents, current_week=1,
+              teams=[_team(me, "a"), _team(them, "b")], standings=lambda: [_team(me, "a"), _team(them, "b")],
+              _get_pro_schedule=lambda w: {}, _get_positional_ratings=lambda w: {}, tag=tag)
+
+
+@pytest.fixture
+def wired(monkeypatch, other):
+    """Home (team 7) and other (team 3) each with their own League and settings; every load, raw read and
+    my_team_id is logged with the ref it got."""
+    calls = {"fa": [], "load": [], "raw": [], "team": []}
+    lgs = {leagues.home().key: _fake_league(7, 2, calls, "home"), other.key: _fake_league(3, 2, calls, "other")}
+
+    def league(ref=None, *a, **k):
+        return lgs[(ref or leagues.home()).key]
+
+    def load(ref=None):
+        calls["load"].append(ref)
+        return dict(OTHER_SET if ref is not None and ref.key == other.key else HOME_SET)
+
+    def raw(view, extend="", headers=None, *, ref=None, **params):
+        calls["raw"].append((view, ref))
+        return {}
+
+    def team(lg, ref=None):
+        calls["team"].append(ref)
+        return 3 if ref is not None and ref.key == other.key else 7
+    monkeypatch.setattr(espn_season, "league", league)
+    monkeypatch.setattr(espn_season, "load", load)
+    monkeypatch.setattr(espn_season, "raw_league_get", raw)
+    monkeypatch.setattr(espn_season, "my_team_id", team)
+    monkeypatch.setattr(espn_season, "roster_flags", lambda lg, *, ref=None: calls["raw"].append(("mRoster", ref)) or {})
+    return SN(calls=calls, lgs=lgs, other=other)
+
+
+NOSRC = dict(sources={}, season={}, injuries={})
+
+
+def _sat(side):
+    return {p["player_id"] for p in side["lineup"] + side["bench"] + side["ir"] if p.get("sat")}
+
+
+def test_week_state_other_league(wired):
+    db.put_sit(1, 5, True)  # home's sit on player 5 ...
+    db.put_sit(1, 4, True, ref=wired.other)  # ... other's on player 4
+    st = espn_season.week_state(week=1, ref=wired.other, **NOSRC)
+    assert st["mine"] is True and st["me"]["team_id"] == 3 and st["me"]["team"] == "other mine"
+    assert st["opp"]["team"] == "other them"
+    assert _sat(st["me"]) == {4}, "other's sit marks his player; home's sit on 5 does not"
+    assert wired.calls["load"] and all(r.key == wired.other.key for r in wired.calls["load"])
+    assert all(r.key == wired.other.key for r in wired.calls["team"])
+    home = espn_season.week_state(week=1, **NOSRC)
+    assert home["me"]["team_id"] == 7 and home["me"]["team"] == "home mine" and _sat(home["me"]) == {5}
+
+
+def test_roster_state_other_league(wired, monkeypatch):
+    seen = []
+    real = db.seat_map
+    monkeypatch.setattr(db, "seat_map", lambda *a, **k: seen.append(k.get("ref")) or real(*a, **k))
+    out = espn_season.roster_state(week=1, snaps={}, ref=wired.other, **NOSRC)
+    assert out["cards"]
+    assert ("mRoster", wired.other) in wired.calls["raw"], "the slots are read from other's mRoster"
+    assert seen == [wired.other]
+    assert {r.key for r in wired.calls["team"]} == {wired.other.key}
+
+
+def test_roster_state_other_league_ignores_home_fake_slots(wired, monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "0")
+    monkeypatch.setitem(espn_write._FAKE_SLOTS, 1, "BE")  # home moved player 1 to the bench
+    flags = {1: {"slot": "QB", "order": 0, "locked": False}}
+    mine = espn_season.roster_state(week=1, snaps={}, flags=flags, **NOSRC)
+    theirs = espn_season.roster_state(week=1, snaps={}, flags=flags, ref=wired.other, **NOSRC)
+
+    def slot(out):
+        return next(c for c in out["cards"] if c["player_id"] == 1)["slot"]
+    assert slot(mine) == "BE", "home shows its fake move"
+    assert slot(theirs) == "QB", "other keeps ESPN's slot"
+
+
+def test_free_agent_pool_other_league(wired):
+    db.put_watch(99, True, ref=wired.other)
+    db.put_watch(98, True)
+    out = espn_season.free_agent_pool(week=1, snaps={}, ref=wired.other, **NOSRC)
+    assert out["roster"]
+    assert {t for t, _ in wired.calls["fa"]} == {"other"}, "free agents are asked of other's League"
+    assert db.snapshots(ref=wired.other) and not db.snapshots(), "the calibration snapshot is other's"
+    assert ("kona_player_info", wired.other) in wired.calls["raw"] and ("mRoster", wired.other) in wired.calls["raw"]
+    assert all(ref is None or ref.key == wired.other.key for _, ref in wired.calls["raw"])
+    assert {r.key for r in wired.calls["team"]} == {wired.other.key}
+    # the watched ids are other's: 99 is read by id, home's 98 is not
+    assert ("kona_player_info", wired.other) in wired.calls["raw"]
+
+
+def test_league_state_other_league(wired):
+    st = espn_season.league_state(week=1, ref=wired.other)
+    assert st["standings"][0]["team_id"] == 3 and st["standings"][0]["me"] is True
+    assert (st["weeks"], st["playoff_teams"], st["playoff_weeks"], st["first_week"]) == (15, 4, [13, 14, 15], 3)
+    home = espn_season.league_state(week=1)
+    assert (home["weeks"], home["playoff_teams"], home["playoff_weeks"], home["first_week"]) == (16, 6, [15, 16], 1)
+    assert home["standings"][0]["team_id"] == 7 and home["standings"][0]["me"] is True
+
+
+def test_player_card_other_league(wired, monkeypatch):
+    from ffl import player_card as card_log
+    asked, seen = [], {}
+    p = {"fullName": "A B", "defaultPositionId": 2, "stats": []}
+    monkeypatch.setattr(espn_season, "raw_league_get", lambda view, extend="", headers=None, *, ref=None, **k:
+                        asked.append((view, ref)) or {"players": [{"player": p}]})
+    monkeypatch.setattr(espn_season, "opponent_ranks", lambda *, ref=None: asked.append(("ranks", ref)) or {})
+    monkeypatch.setattr(espn_season, "position_ranks", lambda pos, *, ref=None: asked.append(("pos", ref)) or {})
+    monkeypatch.setattr(espn_season, "past_schedule", lambda yr: {})
+    monkeypatch.setattr(espn_season, "past_stats", lambda yr, pid: [])
+    monkeypatch.setattr(espn_season, "_schedule_doc", lambda lg: {})
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda w, s: {})
+    monkeypatch.setattr(espn_season, "_sleeper_for", lambda w, s: {})
+    monkeypatch.setattr(espn_season, "_stats_rows", lambda w: [])
+    monkeypatch.setattr(card_log, "player_log", lambda *a, **k: seen.update(season=a[4]) or {"log": []})
+    out = espn_season.player_card(1, ref=wired.other)
+    refs = dict(asked)
+    assert refs["kona_playercard"] == refs["ranks"] == refs["pos"] == wired.other
+    assert out["playoff_weeks"] == [13, 14, 15] and seen["season"] == wired.other.season
+
+
+def test_record_projections_other_league(wired, monkeypatch):
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda w, s: {"sleeper": {}})
+    got = []
+    monkeypatch.setattr(espn_season, "season_lookup", lambda s, w, ref=None: got.append(ref) or {})
+    rows = [{"player_id": 1, "source": "sleeper", "points": 5.0}]
+    monkeypatch.setattr(espn_season, "projection_rows_for", lambda *a, **k: (rows, []))
+    out = espn_season.record_projections(ref=wired.other)
+    assert out["week"] == 1 and got == [wired.other]
+    assert db.projection_rows("week", ref=wired.other) and not db.projection_rows("week")
