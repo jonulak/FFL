@@ -55,12 +55,14 @@ function Unit({ fact, className = "" }: { fact: boolean; className?: string }) {
 
 // The scorebug: both clubs and their totals, the way a broadcast holds the score in the corner.
 // Before kickoff the projection is the number; once a game is on, the score takes the big slot
-// and the projection steps beneath it with how many starters are still to play. The club's mark
+// and the estimated final (sideTotals, the same figure as the totals line under the lineup) steps
+// beneath it with how many starters are still to play. The club's mark
 // stands at the outer edge of each side with the name beside it, so the two marks frame the bug.
 function Total({ side, now, end }: { side: Side; now: number; end: End }) {
   const { started: on, left } = sideState(side, now);
   const big = on ? side.actual_total : side.proj_total;
   const gain = side.optimal_total - side.proj_total;
+  const { estimate } = sideTotals(side.lineup, isIdle, now);
   const opp = end === "opp";
   // Three subgrid rows (name / number / note) so the two sides line up row for row even when
   // one team name wraps and the other does not. One shrinkable column: an auto one grows to the
@@ -97,7 +99,7 @@ function Total({ side, now, end }: { side: Side; now: number; end: End }) {
       </div>
       {/* Two facts, each on its own line, so they never read as one sentence. */}
       <p className={`mt-2 min-h-4 text-xs tabular-nums text-muted-foreground ${opp ? "sm:text-left" : "sm:text-right"}`}>
-        <Presence show={on}><span className="block whitespace-nowrap">proj {pts(side.proj_total)} <span aria-hidden>·</span> <Swap>{left > 0 ? `${left} to play` : "final"}</Swap></span></Presence>
+        <Presence show={on}><span className="block whitespace-nowrap">est <Ticker value={estimate} format={pts} /> <span aria-hidden>·</span> <Swap>{left > 0 ? `${left} to play` : "final"}</Swap></span></Presence>
         <Presence show={gain > 0.05}><span className="block"><span className="whitespace-nowrap">by projection <Ticker value={side.optimal_total} format={pts} /></span> <span className="whitespace-nowrap text-foreground/80">(<Ticker value={gain} format={signed} />)</span></span></Presence>
       </p>
     </div>
