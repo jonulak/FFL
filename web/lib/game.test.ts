@@ -29,6 +29,10 @@ describe("gamePhase", () => {
     const game = { status: "in" as const, quarter: 4, clock: "1:13", score: {} };
     expect(gamePhase(p({ game_played: 100, game }), T0 + 3.2 * 3_600_000)).toBe("live");
   });
+  it("is final once the feed calls the game over, though ESPN has not marked it played yet", () => {
+    const game = { status: "post" as const, quarter: 4, clock: "0:00", score: {} };
+    expect(gamePhase(p({ actual: 5.4, game }), T0 + 3 * 3_600_000)).toBe("final");
+  });
   it("a bye or an unscheduled player stays pending", () => {
     expect(gamePhase(p({ bye: true, kickoff: null }), T0 + 3_600_000)).toBe("pending");
     expect(gamePhase(p({ kickoff: null }), T0 + 3_600_000)).toBe("pending");
@@ -66,6 +70,16 @@ describe("sideTotals", () => {
   });
   it("a player mid-game who has passed his projection adds nothing more to come", () => {
     expect(sideTotals([p({ proj: 8, actual: 11.5 })], idle, T0 - 60_000)).toEqual({ scored: 11.5, toCome: 0, estimate: 11.5 });
+  });
+  it("a player mid-game adds his projection times the share of the game left on the feed's clock", () => {
+    const game = (quarter: number, clock: string) => ({ status: "in" as const, quarter, clock, score: {} });
+    // 2nd quarter, 7:30 left: 2.5 of 4 quarters to play
+    expect(sideTotals([p({ proj: 16, actual: 2, game: game(2, "7:30") })], idle, T0)).toEqual({ scored: 2, toCome: 10, estimate: 12 });
+    expect(sideTotals([p({ proj: 16, actual: 9, game: game(5, "8:00") })], idle, T0)).toEqual({ scored: 9, toCome: 0, estimate: 9 });
+  });
+  it("a game the feed calls over adds nothing more, though ESPN has not marked it played", () => {
+    const game = { status: "post" as const, quarter: 4, clock: "0:00", score: {} };
+    expect(sideTotals([p({ proj: 18.3, actual: 5.42, game })], idle, T0 + 3 * 3_600_000)).toEqual({ scored: 5.42, toCome: 0, estimate: 5.42 });
   });
   it("is all projection before kickoff and all points once final", () => {
     expect(sideTotals([p({ proj: 10 })], idle, T0 - 1)).toEqual({ scored: 0, toCome: 10, estimate: 10 });
