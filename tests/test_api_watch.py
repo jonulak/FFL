@@ -29,7 +29,7 @@ def pool(monkeypatch):
     monkeypatch.setattr(api.news, "fetch_depth", lambda: state["chart"])
     monkeypatch.setattr(api.espn_season, "fetch_injuries", lambda: state["injuries"])
 
-    def fake_owners():
+    def fake_owners(**k):
         """The fresh owners read: the pool rows' owners unless a test sets its own (or an exception to raise)."""
         if isinstance(state["owners"], BaseException):
             raise state["owners"]
@@ -158,10 +158,10 @@ def test_pass_drops_mine(pool):
 
 def test_notify_tick_reports_a_failed_pass(pool, monkeypatch):
     monkeypatch.setattr(api.notify, "tick", lambda: {})
-    monkeypatch.setattr(api, "correction_pass", lambda: {})
+    monkeypatch.setattr(api, "correction_pass", lambda **k: {})
     monkeypatch.setattr(api, "final_plays", lambda: {})
-    monkeypatch.setattr(api, "pregame_pull", lambda: [])
-    monkeypatch.setattr(api, "watch_pass", lambda: (_ for _ in ()).throw(RuntimeError("pool down")))
+    monkeypatch.setattr(api, "pregame_pull", lambda **k: [])
+    monkeypatch.setattr(api, "watch_pass", lambda **k: (_ for _ in ()).throw(RuntimeError("pool down")))
     assert TestClient(api.app).post("/notify/tick").json()["watch"] == {"error": "pool down"}
 
 

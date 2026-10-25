@@ -349,19 +349,6 @@ def _league_format(ref: LeagueRef) -> str | None:
         return None
 
 
-def _not_for_league(ref: LeagueRef, feature: str) -> None:
-    """404 for a feature that is home's alone until its own task makes it per league."""
-    if not ref.home:
-        raise HTTPException(status_code=404, detail={"error": "not_for_league", "league": ref.key, "feature": feature})
-
-
-def home_only(feature: str):
-    """A route dependency refusing another league's request (404 not_for_league) before the body is read."""
-    def check(ref: LeagueRef = Depends(open_league)) -> None:
-        _not_for_league(ref, feature)
-    return Depends(check)
-
-
 # The pages a league move makes stale: the log, every roster (mine, a team's, the boards'), the pool, the live
 # starters, a player's card (owner, record). Logos, the draft and finished weeks' box scores never change.
 MOVE_KEYS = ("transactions", "roster", "waivers", "week", "league", "team", "starters", "player")
@@ -1432,7 +1419,7 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
     rostered = data.get("rostered", {})  # absent from a pool cached before it existed
     # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
-    written = outlook.written(data["week"]) if ref.home else set()  # outlooks are home's until they go per league
+    written = outlook.written(data["week"], ref=_outlook_ref(ref))
     capped = False
     if q:
         found = [r for half in (data["positions"], rostered) for rows in half.values() for r in rows
@@ -1613,12 +1600,16 @@ def roster_(ref: LeagueRef = Depends(open_league)):
     # gated on the payload's week, as /week is: after the rollover the feed still holds last week's
     wk = data["week"]
     data = live.overlay_roster(data, _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref), _scoring(ref=ref))
-    if not ref.home:  # outlooks are home's until 4.7: the cards as built
-        return {**data, "outlook_run": {"running": False}}
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
-    return {**data, "cards": outlook.attach(data["cards"], outlook.load(data["week"]), outlook.writing()),
-            "outlook_run": {**outlook.LAST, "running": outlook.running()}}
+    o = _outlook_ref(ref)
+    return {**data, "cards": outlook.attach(data["cards"], outlook.load(wk, ref=o), outlook.writing(ref=o)),
+            "outlook_run": {**outlook.last(o), "running": outlook.running()}}
+
+
+def _outlook_ref(ref: LeagueRef | None) -> LeagueRef | None:
+    """The league as the outlook store takes it: home is None, as its calls were before every league had one."""
+    return None if ref is None or ref.home else ref
 
 
 def _roster_card(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict, int]:
@@ -1630,32 +1621,45 @@ def _roster_card(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict,
     raise HTTPException(status_code=404, detail=f"player {player_id} is not on the roster")
 
 
-@app.get("/outlook/{player_id:int}", dependencies=[home_only("outlook")])
-def card_outlook(player_id: int):
-    card, week = _roster_card(player_id)
-    return outlook.roster_entry(card, week)
+@app.get("/outlook/{player_id:int}")
+def card_outlook(player_id: int, ref: LeagueRef = Depends(open_league)):
+    card, week = _roster_card(player_id, ref=ref)
+    return outlook.roster_entry(card, week, ref=_outlook_ref(ref))
 
 
-@app.post("/outlook/{player_id:int}", status_code=202, dependencies=[home_only("outlook")])
-def card_outlook_write(player_id: int):
+@app.post("/outlook/{player_id:int}", status_code=202)
+def card_outlook_write(player_id: int, ref: LeagueRef = Depends(open_league)):
     """One Roster card's outlook, rewritten in the background whether or not his facts moved; the card
     polls the GET until `outlook_running` clears. 409 while the full run holds the Roster file."""
-    card, week = _roster_card(player_id)
+    card, week = _roster_card(player_id, ref=ref)
     try:
-        outlook.start_one(card, week, run=outlook.run_claude, kind=outlook.ROSTER)
+        outlook.start_one(card, week, run=outlook.run_claude, kind=outlook.ROSTER, ref=_outlook_ref(ref))
     except outlook.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"started": True}
 
 
-@app.post("/outlook/refresh", status_code=202, dependencies=[home_only("outlook")])
-def outlook_refresh():
+def _roster_job(ref: LeagueRef) -> Callable[[], tuple[list[dict], int]]:
+    """A league's (cards, week) for the outlook run, read when the run reaches it."""
+    def build():
+        state = espn_season.roster_state(None, ref=ref)
+        return state["cards"], state["week"]
+    return build
+
+
+@app.post("/outlook/refresh", status_code=202)
+def outlook_refresh(league: str | None = Query(None)):
+    """The hourly run (launchd/com.jonulak.ffl-outlook): every league in turn, one run, home's cards read first so
+    a failure to read them is this answer's 502; with ?league= only that league."""
+    first = open_league(league)
+    rest = [] if league else [r for r in leagues.all_leagues() if r.key != first.key]
     try:
-        state = espn_season.roster_state(None)
+        cards, week = _roster_job(first)()
     except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
         raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
+    jobs = [(_outlook_ref(first), lambda: (cards, week))] + [(_outlook_ref(r), _roster_job(r)) for r in rest]
     try:
-        outlook.start(state["cards"], state["week"], run=outlook.run_claude)
+        outlook.start_leagues(jobs, run=outlook.run_claude)
     except outlook.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
     # pending needs the news context, which is fetched in the run's thread; the page reads the count from outlook_run
@@ -1672,19 +1676,19 @@ def _free_agent(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict, 
     raise HTTPException(status_code=404, detail=f"player {player_id} is not a free agent")
 
 
-@app.get("/waivers/outlook/{player_id}", dependencies=[home_only("outlook")])
-def waiver_outlook(player_id: int):
-    row, week = _free_agent(player_id)
-    return outlook.waiver_entry(row, week)
+@app.get("/waivers/outlook/{player_id}")
+def waiver_outlook(player_id: int, ref: LeagueRef = Depends(open_league)):
+    row, week = _free_agent(player_id, ref=ref)
+    return outlook.waiver_entry(row, week, ref=_outlook_ref(ref))
 
 
-@app.post("/waivers/outlook/{player_id}", status_code=202, dependencies=[home_only("outlook")])
-def waiver_outlook_write(player_id: int):
+@app.post("/waivers/outlook/{player_id}", status_code=202)
+def waiver_outlook_write(player_id: int, ref: LeagueRef = Depends(open_league)):
     """One free agent's outlook, written in the background (a minute or two of Opus with web search);
     the dialog polls the GET until `running` clears."""
-    row, week = _free_agent(player_id)
+    row, week = _free_agent(player_id, ref=ref)
     try:
-        outlook.start_one(row, week, run=outlook.run_claude)
+        outlook.start_one(row, week, run=outlook.run_claude, ref=_outlook_ref(ref))
     except outlook.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"started": True}
@@ -1702,19 +1706,36 @@ def sync_all(*, ref: LeagueRef | None = None) -> dict:
     return {"transactions": True, "results": True}
 
 
+def _sync_league(ref: LeagueRef) -> int:
+    lg = espn_season.fresh_league(ref)
+    new = sync_transactions(lg, ref=ref)
+    sync_results(lg, load(ref), ref=ref)
+    return len(new)  # new rows already dropped the Transactions page (journal.ON_NEW_ROWS)
+
+
 @app.post("/transactions/sync")
-def transactions_sync(ref: LeagueRef = Depends(open_league)):
+def transactions_sync(league: str | None = Query(None)):
     """The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
     the DB's transactions table, so the record keeps up with no page open, and the weekly results into
     `results` (the nav's Refresh did that until it went). Concurrent syncs are safe: the table's
-    (season, id) key dedupes."""
+    (season, id) key dedupes. With ?league= that league alone; with none every league, home's answer at the top
+    (its failure the 502, as before) and each other's under `leagues` (a failure reported there)."""
+    first, others, failed = open_league(league), {}, None
     try:
-        lg = espn_season.fresh_league(ref)
-        new = sync_transactions(lg, ref=ref)
-        sync_results(lg, load(ref), ref=ref)
-    except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line
-        raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
-    return {"new": len(new)}  # new rows already dropped the Transactions page (journal.ON_NEW_ROWS)
+        n = _sync_league(first)
+    except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line, once the others ran
+        failed = e
+    for r in [] if league else leagues.all_leagues():
+        if r.key == first.key:
+            continue
+        try:
+            others[r.key] = {"new": _sync_league(r)}
+        except Exception as e:  # noqa: BLE001 — another league's outage is its own line, never home's 502
+            others[r.key] = {"error": str(e)}
+    more = {"leagues": others} if others else {}
+    if failed is not None:
+        raise HTTPException(status_code=502, detail={"source": "espn", "error": str(failed), **more})
+    return {"new": n, **more}
 
 
 # --- push notifications (ffl/notify.py): the 15-minute tick, the device subscriptions, the Settings page ---
@@ -1796,25 +1817,28 @@ def notify_tick():
         raise HTTPException(status_code=409, detail="a notify tick is already running")
     try:
         out = notify.tick()
-        try:
-            out["corrections"] = correction_pass()
-        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
-            out["corrections"] = {"error": str(e)}
-        try:
-            out["final_plays"] = final_plays()
-        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
-            out["final_plays"] = {"error": str(e)}
-        try:
-            out["watch"] = watch_pass()
-        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
-            out["watch"] = {"error": str(e)}
-        try:
-            out["pregame"] = pregame_pull()
-        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
-            out["pregame"] = {"error": str(e)}
+        # every league's own steps (home's in the answer's top level, as before; the others under `leagues`), the
+        # NFL's plays once for all of them
+        _tick_steps(out, (("corrections", correction_pass),))
+        _tick_steps(out, (("final_plays", final_plays),))
+        _tick_steps(out, (("watch", watch_pass), ("pregame", pregame_pull)))
+        for r in leagues.all_leagues():
+            if not r.home:
+                _tick_steps(out.setdefault("leagues", {}).setdefault(r.key, {}),
+                            (("corrections", correction_pass), ("watch", watch_pass), ("pregame", pregame_pull)), ref=r)
     finally:
         _NOTIFY.release()
     return out
+
+
+def _tick_steps(out: dict, steps, *, ref: LeagueRef | None = None) -> None:
+    """Each (name, step) into `out`, for home with no argument or for the league `ref`; one that raises is reported
+    in the answer like a tick step and never fails the tick."""
+    for name, fn in steps:
+        try:
+            out[name] = fn() if ref is None else fn(ref=ref)
+        except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
+            out[name] = {"error": str(e)}
 
 
 # --- the news desk (ffl/newsdesk/pipeline.py): launchd/com.jonulak.ffl-news every 10 minutes ---
@@ -1941,29 +1965,30 @@ def news_status():
             "haiku_usage": db.get_state(news_usage.HAIKU, {}) or {}, "jev_usage": db.get_state(news_usage.JEV, {}) or {}}
 
 
-def correction_pass() -> dict:
-    """The tick's stat-correction step (espn_season.correct_boxes): a starter's corrected points go to his week's
-    play feed (the runner's store when that is the week it holds, so the board sees it without a restart), and
-    every page built on a changed week rebuilds behind its next request."""
-    out = espn_season.correct_boxes(espn_season.fresh_league())
+def correction_pass(*, ref: LeagueRef | None = None) -> dict:
+    """The tick's stat-correction step for a league (home when `ref` is None; espn_season.correct_boxes): a
+    starter's corrected points go to his week's play feed (the runner's store when that is the week it holds, so
+    the board sees it without a restart), and every page built on a changed week rebuilds behind its next request."""
+    out = espn_season.correct_boxes(espn_season.fresh_league(ref), ref=ref)
     plays = out.pop("plays")
-    runner = getattr(app.state, "runner", None)
+    runner = _lane(ref)
+    cache_ = cache_for(ref)
     for w in sorted({p["week"] for p in plays}):
         rows = [p for p in plays if p["week"] == w]
         try:
             if runner and runner.store is not None and runner.week == w:
                 runner.store.add(rows)
             else:
-                db.add_plays(rows)
+                db.add_plays(rows, ref=ref)
         except db.DBError as e:
             log.warning("stat correction plays for week %s not saved: %s", w, e)
             out.setdefault("errors", []).append(f"plays week {w}: {e}")
     for w in out["changed"]:
         for key in (f"week:{w}", f"league:{w}"):
-            cache.expire(key)
+            cache_.expire(key)
     if out["changed"]:
         for key in ("roster", "waivers", "player", "team"):  # form rows and add read earlier weeks' points
-            cache.expire(key)
+            cache_.expire(key)
     return out
 
 
@@ -1981,42 +2006,45 @@ def expire_everything(*, ref: LeagueRef | None = None) -> None:
     nfl.expire_all()  # the NFL tab's scoreboard and feeds
 
 
-def pregame_pull(now: datetime | None = None) -> list[str]:
-    """Once per kickoff time, inside season.PREGAME_PULL_MIN of it (the inactives are out): expire everything and
-    rebuild the pages on a thread behind the tick. Answers the kickoffs pulled for."""
-    kicks = [k for ks in espn_season.kickoffs_by_week(espn_season.fresh_league()).values() for k in ks]
-    pulled = set(db.get_league_state("pregame_pulls", []) or [])
+def pregame_pull(now: datetime | None = None, *, ref: LeagueRef | None = None) -> list[str]:
+    """Once per kickoff time, inside season.PREGAME_PULL_MIN of it (the inactives are out): expire everything of the
+    league (home when `ref` is None) and rebuild its pages on a thread behind the tick. Answers the kickoffs pulled
+    for."""
+    kicks = [k for ks in espn_season.kickoffs_by_week(espn_season.fresh_league(ref)).values() for k in ks]
+    pulled = set(db.get_league_state("pregame_pulls", [], ref=ref) or [])
     due = season.pregame_due(kicks, now or datetime.now(timezone.utc), pulled)
     if not due:
         return []
-    expire_everything()
-    t = threading.Thread(target=cache.rebuild_expired, daemon=True, name="cache-pregame")
-    with cache._lock:
-        cache._threads["pregame"] = t
+    expire_everything(ref=ref)
+    c = cache_for(ref)
+    t = threading.Thread(target=c.rebuild_expired, daemon=True, name="cache-pregame")
+    with c._lock:
+        c._threads["pregame"] = t
     t.start()
-    db.put_league_state("pregame_pulls", sorted(pulled | {k.isoformat() for k in due})[-40:])  # a season's kickoff times
+    db.put_league_state("pregame_pulls", sorted(pulled | {k.isoformat() for k in due})[-40:], ref=ref)  # a season's kickoffs
     return [k.isoformat() for k in due]
 
 
 WATCH_EVERY = timedelta(hours=1)
 
 
-def watch_pass() -> dict:
+def watch_pass(*, ref: LeagueRef | None = None) -> dict:
     """The tick's watchlist step, at most once an hour: every detector over every watched player (whoever holds
     him), the new signals stored, and one push a day for a free agent with something new (`available` included:
     it fires only once he is free). A player on another roster is never pushed. `watch_state` holds what the
     detectors compare against: who has stood ahead of him, his last worth to my roster, his last owner; it is kept
     only for the watched ids. Prices and signals come off the cached pool (up to an hour old); the pushes are gated
-    on a fresh owners read, and a failed one queues nothing. Nobody watched: no pool build at all."""
-    st = db.get_league_state("watch_state", {}) or {}
+    on a fresh owners read, and a failed one queues nothing. Nobody watched: no pool build at all. One league's
+    pass (home when `ref` is None): its watchlist, pool, owners and pushes."""
+    st = db.get_league_state("watch_state", {}, ref=ref) or {}
     at = notify.now()
     t = datetime.fromisoformat(at)
     if st.get("last_pass") and t - datetime.fromisoformat(st["last_pass"]) < WATCH_EVERY:
         return {"skipped": "hourly"}
-    if not db.watched_ids():
+    if not db.watched_ids(ref=ref):
         return {"skipped": "none watched"}
     day = at[:10]
-    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
     chart = news.fetch_depth()
     # ESPN's feed by club and position (norm name -> status, and -> its name for the chip), laid over Sleeper's
     feed: dict[tuple, dict[str, str | None]] = {}
@@ -2028,7 +2056,7 @@ def watch_pass() -> dict:
             names.setdefault((row["team"], row["pos"]), {})[n] = row["name"]
     seen, bench, owner = st.get("above", {}) or {}, st.get("bench", {}) or {}, st.get("owner", {}) or {}
     found, rows = [], {}
-    for p in _watched(data):
+    for p in _watched(data, ref=ref):
         pid, k, club = p["player_id"], str(p["player_id"]), (p.get("team"), p["pos"])
         rows[pid] = p
         ahead, above = watch.ahead_signals(p, chart.get(p.get("team"), []), feed.get(club, {}),
@@ -2041,7 +2069,7 @@ def watch_pass() -> dict:
                               watch.available_signal(p, owner.get(k), day, at)) if s]
         seen[k], bench[k] = sorted(above), p.get("delta_roster")
         owner[k] = (p.get("owner") or {}).get("team_id")
-    new = db.add_watch_signals(found)
+    new = db.add_watch_signals(found, ref=ref)
     by_player: dict[int, list[dict]] = {}
     for s in new:
         by_player.setdefault(s["player_id"], []).append(s)
@@ -2049,7 +2077,7 @@ def watch_pass() -> dict:
     notices = []
     if by_player:
         try:
-            fresh, me = pipeline.owners()  # the pool's owners can be an hour old: one just added must not be pushed
+            fresh, me = pipeline.owners(ref=ref)  # the pool's owners can be an hour old: one just added must not be pushed
         except (Exception, SystemExit) as e:  # noqa: BLE001 — never fall back to the stale owner; the signals stand
             log.warning("watch pass: owners read failed, nothing queued: %s", e)
             out["owners"] = str(e)
@@ -2057,11 +2085,12 @@ def watch_pass() -> dict:
         for pid, sigs in by_player.items() if fresh is not None else ():
             holder = (fresh.get(pid) or {}).get("team_id")
             if holder is not None and holder == me:
-                db.put_watch(pid, False)  # mine now, like `_watched`
+                db.put_watch(pid, False, ref=ref)  # mine now, like `_watched`
             elif pid not in fresh and rows[pid].get("owner") is None:
                 notices.append(watch.notice_for(rows[pid], sigs, day, at))
-    out["queued"] = db.add_notices(notices)
-    _prune_watch_state(set(db.watched_ids()), {"last_pass": at, "above": seen, "bench": bench, "owner": owner})
+    out["queued"] = db.add_notices(notices, ref=ref)
+    _prune_watch_state(set(db.watched_ids(ref=ref)), {"last_pass": at, "above": seen, "bench": bench, "owner": owner},
+                       ref=ref)
     return out
 
 

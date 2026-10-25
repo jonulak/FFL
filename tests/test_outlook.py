@@ -469,3 +469,47 @@ def test_a_card_rewrite_and_the_full_run_never_overlap(outlook_dir, writing):
     gate.set()
     one.join(5)
     assert set(outlook.load(5)) == {1, 2}, "neither write lost the other's card"
+
+
+# --- every league (ffl-soc.4.7) ----------------------------------------------------------------
+
+def _other():
+    from ffl import leagues
+    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+
+
+def test_outlooks_are_kept_per_league(outlook_dir, writing):
+    other = _other()
+    gate = threading.Event()
+    mine = outlook.start_one(fa(), 5, run=lambda p: (gate.wait(5), [TAKE])[1])
+    theirs = outlook.start_one(fa(), 5, run=lambda p: [{**TAKE, "text": "Theirs."}], ref=other)  # the same player
+    assert outlook.waiver_entry(fa(), 5)["running"] is True
+    theirs.join(5)
+    assert outlook.waiver_entry(fa(), 5, ref=other)["bullets"][0]["text"] == "Theirs."
+    assert outlook.waiver_entry(fa(), 5)["bullets"] is None and outlook.written(5, ref=other) == {1}
+    gate.set()
+    mine.join(5)
+    assert outlook.written(5) == {1} and outlook.load(5, kind=outlook.WAIVERS, ref=other)[1]["bullets"][0]["text"] == "Theirs."
+    card_run = outlook.start_one(card(), 5, run=lambda p: (gate.clear(), gate.wait(5), [TAKE])[2], kind=outlook.ROSTER,
+                                 ref=other)
+    assert outlook.writing(ref=other) == {1} and outlook.writing() == set()
+    gate.set()
+    card_run.join(5)
+    assert outlook.roster_entry(card(), 5, ref=other)["outlook"] and outlook.load(5) == {}
+
+
+def test_start_leagues_writes_each_league_in_turn_and_keeps_each_ones_last(outlook_dir, monkeypatch):
+    other = _other()
+    monkeypatch.setattr(outlook, "LASTS", {})
+
+    def broken():
+        raise RuntimeError("espn down")
+    t = outlook.start_leagues([(None, broken), (other, lambda: ([card(player_id=2)], 5))], run=lambda p: [TAKE])
+    t.join(5)
+    assert outlook.load(5) == {} and set(outlook.load(5, ref=other)) == {2}
+    assert outlook.last()["error"] == "RuntimeError: espn down" and outlook.last() is outlook.LAST
+    assert outlook.last(other)["generated"] == 1 and outlook.last(other)["error"] is None, "the next league still ran"
+    assert not outlook.running()
+    t = outlook.start_leagues([(None, lambda: ([card()], 5))], run=lambda p: [TAKE])
+    t.join(5)
+    assert outlook.last()["generated"] == 1 and outlook.last()["error"] is None

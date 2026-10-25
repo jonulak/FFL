@@ -1540,13 +1540,13 @@ def test_notify_tick_pulls_once_before_a_kickoff(client, monkeypatch):
     monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
     kick = datetime.now(timezone.utc) + timedelta(minutes=60)
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: "LG")
-    monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg: {6: [kick, kick]})
+    monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg, **k: {6: [kick, kick]})
     client.get("/week/3")
     assert client.post("/notify/tick").json()["pregame"] == [kick.isoformat()]
     api.cache.join()
     assert client.calls["week"] == 2, "rebuilt behind the tick"
     assert client.post("/notify/tick").json()["pregame"] == [], "once per kickoff"
-    monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     assert client.post("/notify/tick").json()["pregame"] == {"error": "espn down"}
 
 
@@ -1754,7 +1754,7 @@ def _corr(week, pid=1, team=7):
 
 def _stub_correct(monkeypatch, out):
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: "LG")
-    monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None: {**out, "plays": list(out.get("plays", []))})
+    monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None, **k: {**out, "plays": list(out.get("plays", []))})
 
 
 def test_notify_tick_answers_with_the_corrections(client, monkeypatch):
@@ -1762,7 +1762,7 @@ def test_notify_tick_answers_with_the_corrections(client, monkeypatch):
     monkeypatch.setattr(api, "pregame_pull", lambda: [])
     _stub_correct(monkeypatch, {"weeks": {}, "changed": []})
     assert client.post("/notify/tick").json()["corrections"] == {"weeks": {}, "changed": []}
-    monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     r = client.post("/notify/tick")
     assert r.status_code == 200 and r.json()["corrections"] == {"error": "espn down"}
 

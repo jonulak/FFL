@@ -17,12 +17,14 @@ from . import collect, health, media, notices, players, seed, tag, write
 PENDING = "news_to_notify"
 
 
-def owners() -> tuple[dict[int, dict], int]:
-    """(player_id -> the fantasy team holding him this week, my team id): the one owner lookup, read fresh at
-    request time too, never stored. Raises (SystemExit with no league config) rather than guess everyone free."""
+def owners(*, ref=None) -> tuple[dict[int, dict], int]:
+    """(player_id -> the fantasy team holding him this week, my team id) in a league (None: home): the one owner
+    lookup, read fresh at request time too, never stored. Raises (SystemExit with no league config) rather than guess
+    everyone free. The week is the league's own (league_week): before its first week ESPN's has no matchups."""
     from .. import espn_season
-    lg = espn_season.fresh_league()
-    return espn_season.owners_in(espn_season.box_scores(lg, lg.current_week)), espn_season.my_team_id(lg)
+    lg = espn_season.fresh_league(ref)
+    return (espn_season.owners_in(espn_season.box_scores(lg, espn_season.league_week(lg, ref=ref), ref=ref)),
+            espn_season.my_team_id(lg, ref))
 
 
 def _queue(written: list) -> list[list]:

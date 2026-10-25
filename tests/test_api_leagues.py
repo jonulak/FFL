@@ -43,14 +43,6 @@ def test_unknown_league_404(client):
     assert r.json()["detail"] == {"error": "unknown_league", "league": "espn:404"}
 
 
-def test_not_for_league(other):
-    api._not_for_league(leagues.home(), "claims")
-    with pytest.raises(HTTPException) as e:
-        api._not_for_league(other, "claims")
-    assert e.value.status_code == 404
-    assert e.value.detail == {"error": "not_for_league", "league": "espn:999", "feature": "claims"}
-
-
 def test_empty_league_param_is_home(client, monkeypatch):
     seen = _stub_roster(monkeypatch)
     assert client.get("/roster?league=").status_code == 200
@@ -200,13 +192,15 @@ def test_play_store_is_the_runner_lane_of_the_league(monkeypatch, other):
     assert isinstance(api._play_store(2, ref=other), api.plays_mod.Store) and api._play_store(2, ref=other).ref == other
 
 
-def test_other_league_roster_has_no_outlooks(client, two, monkeypatch):
-    def attach(cards, *a, **k):
-        return [{**c, "outlook": {"bullets": ["x"]}} for c in cards]
-    monkeypatch.setattr(api.outlook, "attach", attach)
-    assert "outlook" in client.get("/roster").json()["cards"][0]
+def test_other_league_roster_attaches_its_own_outlooks(client, two, other, monkeypatch):
+    loaded = []
+    monkeypatch.setattr(api.outlook, "load", lambda week, kind="roster", *, ref=None: loaded.append(ref) or {})
+    monkeypatch.setattr(api.outlook, "attach", lambda cards, entries, writing: [{**c, "outlook": "x"} for c in cards])
     body = client.get("/roster?league=espn:999").json()
-    assert "outlook" not in body["cards"][0] and body["outlook_run"]["running"] is False
+    assert body["cards"][0]["outlook"] == "x" and body["outlook_run"]["running"] is False
+    assert loaded == [other]
+    client.get("/roster")
+    assert loaded[-1] in (None, leagues.home())
 
 
 def test_watch_per_league(client, two, other):
@@ -228,23 +222,33 @@ def test_decision_other_league_404(client, other):
     assert client.post(f"/decisions/{i}", json={"outcome": "ok"}).status_code == 200
 
 
-# sync and refresh per league, the home-only features refused (task 3)
-HOME_ONLY = [
-    ("get", "/outlook/1", "outlook"), ("post", "/outlook/1", "outlook"), ("get", "/waivers/outlook/1", "outlook"),
-    ("post", "/waivers/outlook/1", "outlook"), ("post", "/outlook/refresh", "outlook"),
-]
+# outlooks for every league (4.7)
+def test_outlook_routes_follow_the_open_league(client, two, other, monkeypatch):
+    es = api.espn_season
+    monkeypatch.setattr(es, "free_agent_pool", lambda *a, ref=None, **k: {"week": 3, "positions": {"RB": [
+        {"player_id": 7, "name": "A", "league": ref.key}]}, "watched": []})
+    started = []
+    monkeypatch.setattr(api.outlook, "start_one", lambda row, week, *a, ref=None, **k: started.append((row.get("league"), ref)))
+    monkeypatch.setattr(api.outlook, "waiver_entry", lambda row, week, *, ref=None: {"league": ref.key})
+    assert client.post("/waivers/outlook/7?league=espn:999").status_code == 202
+    assert started == [("espn:999", other)]
+    assert client.get("/waivers/outlook/7?league=espn:999").json() == {"league": "espn:999"}
+    monkeypatch.setattr(api.outlook, "roster_entry", lambda card, week, *, ref=None: {"league": ref.key})
+    assert client.get("/outlook/11?league=espn:999").json() == {"league": "espn:999"}
+    assert client.post("/outlook/11?league=espn:999").status_code == 202 and started[-1] == (None, other)
 
 
-@pytest.mark.parametrize("method,path,feature", HOME_ONLY)
-def test_home_only_routes_refuse_other_league(monkeypatch, client, other, method, path, feature):
-    called = []
-    for mod, name in ((api.espn_write, "pending_state"), (api.espn_write, "move_lineup"), (api.espn_write, "submit_claim"),
-                      (api.outlook, "start"), (api.outlook, "start_one")):
-        monkeypatch.setattr(mod, name, lambda *a, **k: called.append(name))
-    r = client.request(method.upper(), path, params={"league": "espn:999"}, json={})
-    assert r.status_code == 404
-    assert r.json()["detail"] == {"error": "not_for_league", "league": "espn:999", "feature": feature}
-    assert called == []
+def test_outlook_refresh_runs_every_league_unless_one_is_named(client, two, other, monkeypatch):
+    runs = []
+
+    def start_leagues(jobs, run=None):
+        runs.append([(ref.key if ref else None, build()) for ref, build in jobs])
+    monkeypatch.setattr(api.outlook, "start_leagues", start_leagues)
+    assert client.post("/outlook/refresh").status_code == 202
+    [(home_key, (cards, week)), (other_key, (their_cards, _))] = runs[-1]
+    assert home_key is None and other_key == "espn:999" and week == 3, "home's outlooks are stored as before: no ref"
+    assert client.post("/outlook/refresh?league=espn:999").status_code == 202
+    assert [k for k, _ in runs[-1]] == ["espn:999"]
 
 
 def test_refresh_other_league(monkeypatch, client, other):
@@ -276,6 +280,23 @@ def test_transactions_sync_other_league(monkeypatch, client, other):
     assert r.status_code == 200 and r.json() == {"new": 1}
     assert got["tx"] == ("LG:espn:999", other)
     assert got["res"] == ("LG:espn:999", {"for": "espn:999"}, other)
+
+
+def test_transactions_sync_with_no_league_syncs_every_league(monkeypatch, client, other):
+    synced = []
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda ref=None, **k: ref.key)
+    monkeypatch.setattr(api, "load", lambda ref=None, **k: {})
+    monkeypatch.setattr(api, "sync_results", lambda lg, settings, *, ref=None: None)
+
+    def sync(lg, *, ref=None):
+        synced.append(lg)
+        if lg == "espn:999":
+            raise RuntimeError("espn down")
+        return [{}, {}]
+    monkeypatch.setattr(api, "sync_transactions", sync)
+    r = client.post("/transactions/sync")
+    assert synced == [leagues.home().key, "espn:999"], "home's first; another league failing is no 502 of home's"
+    assert r.status_code == 200 and r.json() == {"new": 2, "leagues": {"espn:999": {"error": "espn down"}}}
 
 
 # the write routes (ffl-soc.4.5 task 2): lineup, sit and claims on the open league, one lock per league
@@ -490,3 +511,36 @@ def test_live_leagues_are_every_other_league_whose_settings_read(monkeypatch, ot
         raise SystemExit("no settings")
     monkeypatch.setattr(api, "load", missing)
     assert api.live_leagues() == []
+
+
+
+def test_notify_tick_does_each_leagues_steps_once_and_the_nfl_plays_once(client, other, monkeypatch):
+    calls = []
+    monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0, "leagues": {"espn:999": {"moves": 1}}})
+    for name in ("correction_pass", "watch_pass"):
+        monkeypatch.setattr(api, name, lambda *, ref=None, name=name: calls.append((name, ref)) or {name: True})
+    monkeypatch.setattr(api, "pregame_pull", lambda now=None, *, ref=None: calls.append(("pregame_pull", ref)) or [])
+    monkeypatch.setattr(api, "final_plays", lambda: calls.append(("final_plays", None)) or {})
+    out = client.post("/notify/tick").json()
+    for step in ("correction_pass", "watch_pass", "pregame_pull"):
+        assert [r for n, r in calls if n == step] == [None, other], step
+    assert [n for n, _ in calls].count("final_plays") == 1
+    assert out["corrections"] == {"correction_pass": True} and out["final_plays"] == {}
+    assert out["leagues"]["espn:999"] == {"moves": 1, "corrections": {"correction_pass": True},
+                                          "watch": {"watch_pass": True}, "pregame": []}
+
+
+def test_league_tick_steps_read_and_write_their_league(client, other, monkeypatch):
+    lgs = []
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda ref=None, **k: lgs.append(ref) or f"LG:{ref.key if ref else None}")
+    monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None, *, ref=None: {
+        "weeks": {}, "changed": [5], "plays": [{"week": 5, "player_id": 1, "at": "t", "total": 1.0, "team_id": 3}],
+        "lg": lg, "ref": ref.key})
+    api.cache_for(other).get_or_build("league:5", lambda: {"k": 1})
+    api.cache.get_or_build("league:5", lambda: {"k": 1})
+    out = api.correction_pass(ref=other)
+    assert out["lg"] == "LG:espn:999" and out["ref"] == "espn:999"
+    assert [r["player_id"] for r in db.plays_rows(5, ref=other)] == [1] and db.plays_rows(5) == []
+    assert api.cache_for(other)._d["league:5"].expires == 0.0 and api.cache._d["league:5"].expires > 0.0
+    db.put_watch(11, False, ref=other)
+    assert api.watch_pass(ref=other) == {"skipped": "none watched"}

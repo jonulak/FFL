@@ -304,54 +304,72 @@ def send_test(send=None) -> dict:
 
 # --- I/O: the tick (POST /notify/tick, every 15 min from launchd/com.jonulak.ffl-notify) ---
 
-def check_injuries() -> int:
-    """My starters off one fresh mRoster read; queues the ones OUT/Doubtful/IR before their lock."""
+def check_injuries(*, ref=None) -> int:
+    """My starters in the league `ref` names (None: home) off one fresh mRoster read; queues the ones
+    OUT/Doubtful/IR before their lock."""
     from . import espn_season
-    lg = espn_season.fresh_league()
-    doc = espn_season.raw_league_get("mRoster")
-    flags = espn_season.parse_roster_flags(doc, espn_season.my_team_id(lg))
+    lg = espn_season.fresh_league(ref)
+    doc = espn_season.raw_league_get("mRoster", ref=ref)
+    flags = espn_season.parse_roster_flags(doc, espn_season.my_team_id(lg, ref))
     week = int(doc.get("scoringPeriodId") or lg.current_week)
-    return db.add_notices(injury_notices(flags, week, now()))
+    return db.add_notices(injury_notices(flags, week, now()), ref=ref)
 
 
-def check_waivers(synced: bool = True) -> int:
+def check_waivers(synced: bool = True, *, ref=None) -> int:
     """Compare ESPN's last waiver run with the one seen before; on a new run, the claims pending at the last tick are
     won (my WAIVER ADDED rows after the previous run) or lost. Then remember this run and today's pending claims.
     Nothing is touched when the run is unreadable, or when it is new and the log did not sync this tick (its
-    WAIVER ADDED rows would be missing and every win would read as a loss): the next tick decides."""
+    WAIVER ADDED rows would be missing and every win would read as a loss): the next tick decides. Each league's
+    run is its own (its waiver day, its claims)."""
     from . import espn_season, espn_write, season
-    run, prev = espn_write.last_waiver_run(), db.get_league_state("waiver_run")
+    run, prev = espn_write.last_waiver_run(ref=ref), db.get_league_state("waiver_run", ref=ref)
     if run is None or (run != prev and not synced):
         return 0
-    pending = db.get_league_state("pending_claims", [])
-    fresh = espn_write.pending_claims()   # before the notice, and a raise stores nothing: the next tick retries
-    lg = espn_season.fresh_league()
-    me = espn_season.my_team_id(lg)
-    my_adds = {r["player_id"] for r in db.transactions() if r["action"] == "WAIVER ADDED"
+    pending = db.get_league_state("pending_claims", [], ref=ref)
+    fresh = espn_write.pending_claims(ref=ref)   # before the notice, and a raise stores nothing: the next tick retries
+    lg = espn_season.fresh_league(ref)
+    me = espn_season.my_team_id(lg, ref)
+    my_adds = {r["player_id"] for r in db.transactions(ref=ref) if r["action"] == "WAIVER ADDED"
                and (t := season.parse_tx_id(r["id"])) and t[1] == me and (prev is None or r["date"] > prev[:16])}
     names = {c["add"]: lg.player_map.get(c["add"]) for c in pending if isinstance(lg.player_map.get(c["add"]), str)}
-    n = db.add_notices(waiver_notices(run, prev, pending, my_adds, names, now(), {c["id"] for c in fresh}))
-    db.put_league_state("waiver_run", run)
-    db.put_league_state("pending_claims", fresh)
+    n = db.add_notices(waiver_notices(run, prev, pending, my_adds, names, now(), {c["id"] for c in fresh}), ref=ref)
+    db.put_league_state("waiver_run", run, ref=ref)
+    db.put_league_state("pending_claims", fresh, ref=ref)
     return n
 
 
-def tick() -> dict:
-    """Sync the log (moves queue themselves), check injuries and waivers, flush. A step that fails is reported and
-    the rest still run: an ESPN outage must not hold back notices already queued."""
-    from . import espn_season, journal
-    out: dict = {}
-    steps = (("moves", lambda: len(journal.sync_transactions(espn_season.fresh_league()))),
-             ("injuries", check_injuries),
-             ("waivers", lambda: check_waivers(synced=not isinstance(out.get("moves"), dict))),
-             ("projections", espn_season.record_projections),
-             ("sources", check_sources))
+def _steps(out: dict, steps) -> dict:
+    """Run each (name, fn) into `out`; a step that fails is reported there and the rest still run."""
     for name, fn in steps:
         try:
             out[name] = fn()
         except Exception as e:  # noqa: BLE001 — reported in the response, which is the launchd log line
             log.warning("notify: %s failed: %s", name, e)
             out[name] = {"error": str(e)}
+    return out
+
+
+def league_tick(ref=None) -> dict:
+    """One league's share of the tick (None: home): sync its log (moves queue themselves), check its injuries and
+    waivers, record its projections."""
+    from . import espn_season, journal
+    out: dict = {}
+    return _steps(out, (("moves", lambda: len(journal.sync_transactions(espn_season.fresh_league(ref), ref=ref))),
+                        ("injuries", lambda: check_injuries(ref=ref)),
+                        ("waivers", lambda: check_waivers(synced=not isinstance(out.get("moves"), dict), ref=ref)),
+                        ("projections", lambda: espn_season.record_projections(ref=ref))))
+
+
+def tick() -> dict:
+    """Every league's share (home's at the top of the answer, the others under `leagues`), then the global work
+    once: the sources' health, the flush. A step that fails is reported and the rest still run: an ESPN outage must
+    not hold back notices already queued, nor one league's another's."""
+    from . import leagues
+    out = league_tick()
+    others = {r.key: league_tick(r) for r in leagues.all_leagues() if not r.home}
+    if others:
+        out["leagues"] = others
+    _steps(out, (("sources", check_sources),))
     try:
         out["flush"] = flush()
     except db.DBError as e:

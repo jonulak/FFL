@@ -60,6 +60,21 @@ LOCK = threading.Lock()
 # the last generation run, shown on the Roster page beside the button
 LAST: dict = {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None, "last_failure": None,
               "pending": None}
+LASTS: dict[str, dict] = {}  # every other league's LAST, by registry key
+
+
+def _key(ref) -> str | None:
+    """A league's name in this module's maps: None is home (whose run is LAST), any other its registry key."""
+    return None if ref is None or ref.home else ref.key
+
+
+def last(ref=None) -> dict:
+    """The league's last generation run (home's is LAST)."""
+    k = _key(ref)
+    if k is None:
+        return LAST
+    return LASTS.setdefault(k, {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None,
+                                "last_failure": None, "pending": None})
 # calls in flight at once: a full rewrite is ~15 cards of ~15 s each, so the whole roster goes at once. Lower it if
 # the Claude plan starts refusing calls (they show as failures with the CLI's message in last_failure).
 WORKERS = 20
@@ -199,17 +214,17 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date, free_agent: bool =
 ROSTER, WAIVERS = "week", "waivers-week"
 
 
-def load(week: int, kind: str = ROSTER) -> dict[int, dict]:
-    """The week's entries by player id; a week with none is empty."""
-    return db.outlooks_for(week, kind)
+def load(week: int, kind: str = ROSTER, *, ref=None) -> dict[int, dict]:
+    """The league's week of entries by player id; a week with none is empty."""
+    return db.outlooks_for(week, kind, ref=ref)
 
 
-def save(week: int, entries: dict[int, dict], kind: str = ROSTER) -> None:
-    db.put_outlooks(week, kind, entries)
+def save(week: int, entries: dict[int, dict], kind: str = ROSTER, *, ref=None) -> None:
+    db.put_outlooks(week, kind, entries, ref=ref)
 
 
-def put(week: int, pid: int, entry: dict, kind: str = ROSTER) -> None:
-    db.put_outlooks(week, kind, {pid: entry})
+def put(week: int, pid: int, entry: dict, kind: str = ROSTER, *, ref=None) -> None:
+    db.put_outlooks(week, kind, {pid: entry}, ref=ref)
 
 
 def attach(cards: list[dict], entries: dict[int, dict], writing: set[int] = frozenset()) -> list[dict]:
@@ -272,13 +287,13 @@ def pending(cards: list[dict], entries: dict[int, dict], ctxs: dict[int, dict], 
 
 
 def generate(cards: list[dict], week: int, run=run_claude, gather=None, now: datetime | None = None,
-             today: date | None = None) -> dict:
+             today: date | None = None, *, ref=None) -> dict:
     """Write bullets for every pending card, WORKERS CLI calls at a time. Each finished card is saved
     at once, so a run that dies keeps what it wrote; a failed call keeps the old entry. `gather`
     defaults to news.gather, looked up here so a test can replace it."""
     today = today or date.today()
     ctxs = (gather or news.gather)(cards, week)
-    entries = load(week)
+    entries = load(week, ref=ref)
     todo = pending(cards, entries, ctxs, today)
     counts: dict = {"generated": 0, "skipped": len(cards) - len(todo), "failed": 0, "last_failure": None,
                     "pending": len(todo)}
@@ -291,7 +306,7 @@ def generate(cards: list[dict], week: int, run=run_claude, gather=None, now: dat
         with lock:
             entries[c["player_id"]] = {"hash": fact_hash(c, ctx, today), "card_hash": card_hash(c),
                                        "bullets": bullets, "generated_at": stamp}
-            put(week, c["player_id"], entries[c["player_id"]])
+            put(week, c["player_id"], entries[c["player_id"]], ref=ref)
             counts["generated"] += 1
 
     with ThreadPoolExecutor(WORKERS) as pool:
@@ -311,18 +326,25 @@ def running() -> bool:
     return LOCK.locked()
 
 
-def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
-    """Run generate() on a daemon thread under LOCK; Busy when one is already running.
+def start(cards: list[dict], week: int, run=run_claude, *, ref=None) -> threading.Thread:
+    """One league's run (`start_leagues` with its cards already read)."""
+    return start_leagues([(ref, lambda: (cards, week))], run=run)
+
+
+def start_leagues(jobs: list[tuple], run=run_claude) -> threading.Thread:
+    """Run generate() for each (ref, build) in turn on a daemon thread under LOCK; Busy when one is already
+    running. `build` reads the league's (cards, week) inside the thread; one that fails records its league's
+    error and the next league still runs.
 
     POST /outlook/refresh cannot wait: a week rollover is a roster of ~12 s calls, WORKERS at a time, and the
-    page's fetch gives up at twenty seconds. LAST carries the finished run's counts to the page.
+    page's fetch gives up at twenty seconds. A league's last() carries its finished run's counts to the page.
     """
     if not LOCK.acquire(blocking=False):
         raise Busy("outlook refresh already running")
     # generate() writes back the entries it loaded at its start, so a card written on its own
     # mid-run would be lost: the two never overlap (start_one refuses a card while LOCK is held)
     with _WLOCK:
-        if writing(ROSTER):
+        if any(k == ROSTER for k in _WRITING.values()):
             LOCK.release()
             raise Busy("a card's outlook is being written; try again when it lands")
 
@@ -330,10 +352,14 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
         # Nothing above this thread can see an exception it raises, so a run that dies has to leave
         # its own record: the counts stay at the last finished run's and `error` says this one failed.
         try:
-            counts = generate(cards, week, run=run)
-            LAST.update(counts, at=datetime.now().astimezone().isoformat(timespec="minutes"), error=None)
-        except Exception as e:  # noqa: BLE001 — the page needs the reason, not a lost traceback
-            LAST.update(at=datetime.now().astimezone().isoformat(timespec="minutes"), error=f"{type(e).__name__}: {e}")
+            for ref, build in jobs:
+                stamp = lambda: datetime.now().astimezone().isoformat(timespec="minutes")  # noqa: E731
+                try:
+                    cards, week = build()
+                    counts = generate(cards, week, run=run, ref=ref)
+                    last(ref).update(counts, at=stamp(), error=None)
+                except Exception as e:  # noqa: BLE001 — the page needs the reason, not a lost traceback
+                    last(ref).update(at=stamp(), error=f"{type(e).__name__}: {e}")
         finally:
             LOCK.release()
 
@@ -347,54 +373,56 @@ def start(cards: list[dict], week: int, run=run_claude) -> threading.Thread:
 
 
 # One player at a time, on a click: a free agent from the Waivers page, or a Roster card. Players being
-# written (to which store), and the lock that guards that map and each store's read-modify-write (the
-# calls run side by side, WORKERS at most).
-_WRITING: dict[int, str] = {}
+# written (to which store), by (league, player) as `_key` names the league, and the lock that guards that map and
+# each store's read-modify-write (the calls run side by side, WORKERS at most).
+_WRITING: dict[tuple[str | None, int], str] = {}
 _WLOCK = threading.Lock()
 
 
-def writing(kind: str = ROSTER) -> set[int]:
-    """The players whose one-off write into `kind`'s store is running."""
-    return {pid for pid, k in _WRITING.items() if k == kind}
+def writing(kind: str = ROSTER, *, ref=None) -> set[int]:
+    """The league's players whose one-off write into `kind`'s store is running."""
+    lk = _key(ref)
+    return {pid for (league, pid), k in _WRITING.items() if k == kind and league == lk}
 
 
-def roster_entry(card: dict, week: int) -> dict:
+def roster_entry(card: dict, week: int, *, ref=None) -> dict:
     """What a Roster card's rewrite polls: his outlook fields as /roster attaches them."""
-    a = attach([card], load(week), writing())[0]
+    a = attach([card], load(week, ref=ref), writing(ref=ref))[0]
     return {k: a[k] for k in ("outlook", "outlook_at", "outlook_stale", "outlook_running", "outlook_error")}
 
 
-def waiver_entry(row: dict, week: int) -> dict:
+def waiver_entry(row: dict, week: int, *, ref=None) -> dict:
     """What the Waivers dialog shows for him: the stored bullets, stale when his facts have moved, whether
     a write is running, and the last write's failure, which a good write clears."""
-    e = load(week, WAIVERS).get(row["player_id"])
+    e = load(week, WAIVERS, ref=ref).get(row["player_id"])
     e = e if isinstance(e, dict) else {}
     ok = isinstance(e.get("bullets"), list) and "card_hash" in e
     return {"bullets": e["bullets"] if ok else None, "at": e.get("generated_at") if ok else None,
-            "stale": ok and e["card_hash"] != card_hash(row), "running": row["player_id"] in _WRITING,
+            "stale": ok and e["card_hash"] != card_hash(row), "running": (_key(ref), row["player_id"]) in _WRITING,
             "error": e.get("error")}
 
 
-def written(week: int) -> set[int]:
-    """The free agents with bullets this week, for the Waivers table's button."""
-    return {pid for pid, e in load(week, WAIVERS).items() if isinstance(e, dict) and isinstance(e.get("bullets"), list)}
+def written(week: int, *, ref=None) -> set[int]:
+    """The league's free agents with bullets this week, for the Waivers table's button."""
+    return {pid for pid, e in load(week, WAIVERS, ref=ref).items() if isinstance(e, dict) and isinstance(e.get("bullets"), list)}
 
 
-def start_one(row: dict, week: int, run=run_claude, gather=None, kind: str = WAIVERS) -> threading.Thread:
+def start_one(row: dict, week: int, run=run_claude, gather=None, kind: str = WAIVERS, *, ref=None) -> threading.Thread:
     """Write one player's outlook on a daemon thread: a free agent (WAIVERS, the claim-framed sheet) or a
     Roster card (ROSTER, stored with the fact hash, so the hourly run skips him until his facts move). It
     always writes: the click is the ask. Busy when he is already being written, WORKERS calls are in
     flight, or — for a card — the full run holds the Roster entries. A failed call keeps the old bullets and
     records the reason on his entry."""
     pid = row["player_id"]
+    slot = (_key(ref), pid)
     with _WLOCK:
-        if pid in _WRITING:
+        if slot in _WRITING:
             raise Busy(f"{row['name']}'s outlook is already being written")
         if len(_WRITING) >= WORKERS:
             raise Busy(f"{WORKERS} outlooks are already being written")
         if kind == ROSTER and LOCK.locked():
             raise Busy("the full outlook run is writing; his card is part of it")
-        _WRITING[pid] = kind
+        _WRITING[slot] = kind
 
     def work():
         try:
@@ -409,18 +437,18 @@ def start_one(row: dict, week: int, run=run_claude, gather=None, kind: str = WAI
             entry = {"error": f"{type(e).__name__}: {e}"[:200]}
         with _WLOCK:
             try:
-                entries = load(week, kind)
+                entries = load(week, kind, ref=ref)
                 old = entries.get(pid) if isinstance(entries.get(pid), dict) else {}
                 entries[pid] = entry if "bullets" in entry else {**old, **entry}
-                put(week, pid, entries[pid], kind)
+                put(week, pid, entries[pid], kind, ref=ref)
             finally:
-                _WRITING.pop(pid, None)
+                _WRITING.pop(slot, None)
 
     t = threading.Thread(target=work, name=f"outlook-{pid}", daemon=True)
     try:
         t.start()
     except Exception:  # noqa: BLE001 — a thread that never ran would hold his slot forever
         with _WLOCK:
-            _WRITING.pop(pid, None)
+            _WRITING.pop(slot, None)
         raise
     return t
