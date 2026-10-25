@@ -911,31 +911,32 @@ def _prune_watch_state(ids: set[int], st: dict | None = None, *, ref: LeagueRef 
 
 
 @app.get("/watch/ids")
-def watch_ids():
-    return {"ids": db.watched_ids()}
+def watch_ids(ref: LeagueRef = Depends(open_league)):
+    return {"ids": db.watched_ids(ref=ref)}
 
 
 @app.post("/watch/{player_id:int}")
-def watch_set(player_id: int, body: WatchIn):
+def watch_set(player_id: int, body: WatchIn, ref: LeagueRef = Depends(open_league)):
     """Watch him or stop. Nothing reaches ESPN and nothing is a decision. A newly watched player the cached pool
     has no row for (a free agent deeper than its lists) rebuilds it behind the next request."""
-    was = player_id in db.watched_ids()
-    db.put_watch(player_id, body.watched)
+    was = player_id in db.watched_ids(ref=ref)
+    db.put_watch(player_id, body.watched, ref=ref)
     if not body.watched:
-        _prune_watch_state(set(db.watched_ids()))
+        _prune_watch_state(set(db.watched_ids(ref=ref)), ref=ref)
     if body.watched and not was:
-        cached = cache.peek("waivers")
+        c = cache_for(ref)
+        cached = c.peek("waivers")
         if cached is not None and player_id not in {r["player_id"] for r in cached.get("watched", [])}:
-            cache.expire("waivers")
-    return {"watched": body.watched, "ids": db.watched_ids()}
+            c.expire("waivers")
+    return {"watched": body.watched, "ids": db.watched_ids(ref=ref)}
 
 
 @app.get("/watch")
-def watch_page():
-    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-    groups = watch.page(_watched(data), db.watch_signals(WATCH_SINCE), datetime.now().astimezone())
+def watch_page(ref: LeagueRef = Depends(open_league)):
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
+    groups = watch.page(_watched(data, ref=ref), db.watch_signals(WATCH_SINCE, ref=ref), datetime.now().astimezone())
     return {"week": data["week"], "ros_week": data.get("ros_week", data["week"]), "groups": groups,
-            "ids": db.watched_ids(), "stale_since": data["stale_since"]}
+            "ids": db.watched_ids(ref=ref), "stale_since": data["stale_since"]}
 
 
 def _live_for(week: int | None) -> bool:
@@ -1062,8 +1063,11 @@ def final_plays() -> dict:
     return out
 
 
-def _week_payload(data: dict) -> dict:
-    """A board with the live points laid on and its feed riding along, so one live tick refreshes both."""
+def _week_payload(data: dict, ref: LeagueRef | None = None) -> dict:
+    """A board with the live points laid on and its feed riding along, so one live tick refreshes both. The live
+    points and the feed are home's: another league's board is the builder's own, with no plays."""
+    if ref is not None and not ref.home:
+        return {**data, "plays": []}
     return {**live.overlay_week(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]),
                                 _scoring(), _sigma()),
             "plays": _plays(data, FEED_ROWS)}
@@ -1077,39 +1081,41 @@ def _board(n: int | None, team: int | None, *, ref: LeagueRef | None = None) -> 
 
 
 @app.get("/week")
-def week_current():
-    return _week_payload(_board(None, None))
+def week_current(ref: LeagueRef = Depends(open_league)):
+    return _week_payload(_board(None, None, ref=ref), ref)
 
 
 @app.get("/plays")
-def plays_(team: int | None = None, week: int | None = None):
+def plays_(team: int | None = None, week: int | None = None, ref: LeagueRef = Depends(open_league)):
     """Every feed row of one game's week, newest first (the /plays page): mine, or with `team` that team's;
     `week` (a finished week's board links its own) else the current one. `me`/`opp` name the two sides the
     way the board does; `current` says whether the week is the current one (the way back is then `/`)."""
-    runner = getattr(app.state, "runner", None)
-    current = _board(None, None)
+    runner = getattr(app.state, "runner", None) if ref.home else None  # the runner scores home's league
+    current = _board(None, None, ref=ref)
     if team is None:
-        data = current if week in (None, current["week"]) else _board(week, None)
+        data = current if week in (None, current["week"]) else _board(week, None, ref=ref)
     else:
-        data = _board(week or (runner.week if runner and runner.week else None), team)
+        data = _board(week or (runner.week if runner and runner.week else None), team, ref=ref)
     club = lambda s: {k: s.get(k) for k in ("team_id", "team", "abbrev")} if s else None  # noqa: E731
-    return {"week": data["week"], "current": data["week"] == current["week"], "live": season.is_live(),
+    return {"week": data["week"], "current": data["week"] == current["week"], "live": ref.home and season.is_live(),
             "mine": data.get("mine", True),
-            "game_on": live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"])),
-            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data),
+            "game_on": ref.home and live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"])),
+            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data) if ref.home else [],
             "stale_since": data.get("stale_since")}
 
 
 @app.get("/week/{n}")
-def week(n: int, team: int | None = None):
+def week(n: int, team: int | None = None, ref: LeagueRef = Depends(open_league)):
     """My week's board, or with `team` the board of that team's game (a League scoreboard tile)."""
-    return _week_payload(_board(n, team))
+    return _week_payload(_board(n, team, ref=ref), ref)
 
 
 @app.get("/team/{team_id}")
-def team(team_id: int):
-    """Any fantasy team's roster for the current week (the team page), live points laid on."""
-    data = _serve(f"team:{team_id}", lambda: espn_season.team_state(team_id))
+def team(team_id: int, ref: LeagueRef = Depends(open_league)):
+    """Any fantasy team's roster for the current week (the team page), live points laid on (home's league only)."""
+    data = _serve(f"team:{team_id}", lambda: espn_season.team_state(team_id, ref=ref), ref=ref)
+    if not ref.home:
+        return data
     wk = data["week"]
     return {**data, "side": live.overlay_side(data["side"], _live_points(wk), _live_games(wk), _live_stats(wk), _scoring())}
 
@@ -1253,9 +1259,11 @@ PLAYER_TTL = 600.0  # a game log moves once a week; the live week rides on the f
 
 
 @app.get("/player/{player_id}")
-def player(player_id: int):
-    """One player's game log, this season and last (the season modal), the live week from the feed."""
-    data = _serve(f"player:{player_id}", lambda: espn_season.player_card(player_id), PLAYER_TTL)
+def player(player_id: int, ref: LeagueRef = Depends(open_league)):
+    """One player's game log, this season and last (the season modal), the live week from the feed (home's league only)."""
+    data = _serve(f"player:{player_id}", lambda: espn_season.player_card(player_id, ref=ref), PLAYER_TTL, ref=ref)
+    if not ref.home:
+        return data
     wk = data["current_week"]
     row, scoring = _live_stats(wk).get(player_id), _scoring()
     if row and scoring:
@@ -1304,20 +1312,20 @@ def _player_presets(*, ref: LeagueRef | None = None) -> dict:
 @app.get("/players")
 def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | None = None, q: str | None = None,
             fa: bool | None = None, preset: str | None = None, cols: str | None = None, sort: str | None = None,
-            f: list[str] | None = Query(None)):
+            f: list[str] | None = Query(None), ref: LeagueRef = Depends(open_league)):
     # The view (ffl-8iz): a saved preset (the default when none is named, or one since deleted) with
     # the URL's overrides laid over. Free agents by default; fa=0 adds every rostered player. A search
     # spans every position and both halves and ignores the filters: a lookup must not miss a man.
     q = (q or "").strip() or None
-    store = _player_presets()
+    store = _player_presets(ref=ref)
     try:
         view = player_views.resolve(store, preset, player_views.parse_params(pos=pos, fa=fa, cols=cols, f=f, sort=sort))
     except ValueError as e:
         raise HTTPException(422, {"error": str(e)}) from e
-    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
     rostered = data.get("rostered", {})  # absent from a pool cached before it existed
     # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
-    written = outlook.written(data["week"])
+    written = outlook.written(data["week"]) if ref.home else set()  # outlooks are home's until they go per league
     capped = False
     if q:
         found = [r for half in (data["positions"], rostered) for rows in half.values() for r in rows
@@ -1356,34 +1364,36 @@ def _preset_write(change: Callable[[dict], dict], *, ref: LeagueRef | None = Non
 
 
 @app.get("/players/presets")
-def player_presets():
-    return _player_presets()
+def player_presets(ref: LeagueRef = Depends(open_league)):
+    return _player_presets(ref=ref)
 
 
 @app.post("/players/presets")
-def player_preset_create(body: dict):
+def player_preset_create(body: dict, ref: LeagueRef = Depends(open_league)):
     pid = uuid.uuid4().hex[:8]
-    return {**_preset_write(lambda s: player_views.create(s, body, pid)), "id": pid}
+    return {**_preset_write(lambda s: player_views.create(s, body, pid), ref=ref), "id": pid}
 
 
 @app.post("/players/presets/default")
-def player_preset_default(body: dict):
-    return _preset_write(lambda s: player_views.set_default(s, body.get("id")))
+def player_preset_default(body: dict, ref: LeagueRef = Depends(open_league)):
+    return _preset_write(lambda s: player_views.set_default(s, body.get("id")), ref=ref)
 
 
 @app.post("/players/presets/{pid}")
-def player_preset_update(pid: str, body: dict):
-    return _preset_write(lambda s: player_views.update(s, pid, body))
+def player_preset_update(pid: str, body: dict, ref: LeagueRef = Depends(open_league)):
+    return _preset_write(lambda s: player_views.update(s, pid, body), ref=ref)
 
 
 @app.post("/players/presets/{pid}/delete")
-def player_preset_delete(pid: str):
-    return _preset_write(lambda s: player_views.delete(s, pid))
+def player_preset_delete(pid: str, ref: LeagueRef = Depends(open_league)):
+    return _preset_write(lambda s: player_views.delete(s, pid), ref=ref)
 
 
 @app.get("/league")
-def league_(week: int | None = None):
-    data = _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week))
+def league_(week: int | None = None, ref: LeagueRef = Depends(open_league)):
+    data = _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week, ref=ref), ref=ref)
+    if not ref.home:
+        return data
     return live.overlay_league(data, _live_points(data["week"]), _live_games(data["week"]), _sigma())
 
 
@@ -1391,26 +1401,27 @@ LOGO_TTL = 24 * 3600.0
 
 
 @app.get("/logo/{team_id}")
-def logo(team_id: int):
+def logo(team_id: int, ref: LeagueRef = Depends(open_league)):
     """A fantasy team's logo, fetched with the league cookies (ESPN refuses an owner's upload
     without them) and held for a day. A missing or failed logo is a 404; the UI shows its tile."""
     try:
-        body, ctype = cache.get_or_build(f"logo:{team_id}", lambda: espn_season.team_logo(team_id), ttl=LOGO_TTL)[0]
+        body, ctype = cache_for(ref).get_or_build(f"logo:{team_id}", lambda: espn_season.team_logo(team_id, ref=ref), ttl=LOGO_TTL)[0]
     except Exception as e:  # noqa: BLE001 — any failure means "no logo", never a traceback
         raise HTTPException(status_code=404, detail={"source": "espn", "error": str(e)})
     return Response(content=body, media_type=ctype, headers={"cache-control": f"private, max-age={int(LOGO_TTL)}"})
 
 
 @app.get("/transactions")
-def transactions():
+def transactions(ref: LeagueRef = Depends(open_league)):
     """The league's adds, drops and trades as moves (an add beside the drop it made room with)."""
-    return _serve("transactions", espn_season.transactions_state)
+    return _serve("transactions", lambda: espn_season.transactions_state(ref=ref), ref=ref)
 
 
 @app.get("/decisions")
-def decisions_(week: int | None = None, kind: str | None = None, open_: bool = Query(False, alias="open")):
+def decisions_(week: int | None = None, kind: str | None = None, open_: bool = Query(False, alias="open"),
+               ref: LeagueRef = Depends(open_league)):
     """The decision journal, newest first: the app's moves and what sessions recorded, filtered for the page."""
-    rows = db.decisions()
+    rows = db.decisions(ref=ref)
     weeks = sorted({r["week"] for r in rows if r["week"] is not None}, reverse=True)
     rows = [r for r in rows if (week is None or r["week"] == week) and (kind is None or r["kind"] == kind)
             and (not open_ or r["rationale"] is None or r["outcome"] is None)]
@@ -1423,18 +1434,18 @@ def decision_presets():
 
 
 @app.get("/decisions/prefs")
-def decision_prefs():
-    return _decision_prefs()
+def decision_prefs(ref: LeagueRef = Depends(open_league)):
+    return _decision_prefs(ref=ref)
 
 
 @app.post("/decisions/prefs")
-def decision_prefs_set(body: dict):
+def decision_prefs_set(body: dict, ref: LeagueRef = Depends(open_league)):
     """Settings: `log` off stops the app recording its moves (and asking why); `page` off hides the Decisions page."""
     try:
-        merged = decisions_mod.merge_prefs(db.get_league_state("decision_prefs", {}), body)
+        merged = decisions_mod.merge_prefs(db.get_league_state("decision_prefs", {}, ref=ref), body)
     except ValueError as e:
         raise HTTPException(422, {"error": str(e)}) from e
-    db.put_league_state("decision_prefs", merged)
+    db.put_league_state("decision_prefs", merged, ref=ref)
     return merged
 
 
@@ -1445,9 +1456,9 @@ class DecisionEdit(BaseModel):
 
 
 @app.post("/decisions/{decision_id:int}")
-def decision_edit(decision_id: int, body: DecisionEdit):
+def decision_edit(decision_id: int, body: DecisionEdit, ref: LeagueRef = Depends(open_league)):
     """Give a decision its reason (presets, or Other with a note) and, later, its outcome. Only the fields sent change."""
-    row = db.decision(decision_id)
+    row = db.decision(decision_id, ref=ref)
     if row is None:
         raise HTTPException(404, f"no decision {decision_id}")
     sent = body.model_fields_set
@@ -1465,23 +1476,23 @@ def decision_edit(decision_id: int, body: DecisionEdit):
     if "outcome" in sent:
         text = (body.outcome or "").strip() or None
         fields |= {"outcome": text, "outcome_at": decisions_mod.now_iso() if text else None}
-    return db.update_decision(decision_id, fields) if fields else row
+    return db.update_decision(decision_id, fields, ref=ref) if fields else row
 
 
 @app.get("/player/{player_id}/transactions")
-def player_transactions(player_id: int):
+def player_transactions(player_id: int, ref: LeagueRef = Depends(open_league)):
     """One player's moves this season (the season modal's Transactions section), off the cached
     /transactions payload: no ESPN call of its own."""
-    data = _serve("transactions", espn_season.transactions_state)
+    data = _serve("transactions", lambda: espn_season.transactions_state(ref=ref), ref=ref)
     history = season.player_transactions(data["moves"], player_id)
     try:  # the draft row is the oldest; a draft that cannot be read leaves the moves standing
-        picks = cache.get_or_build("draft_picks", lambda: {"picks": espn_season.draft_picks()}, DRAFT_TTL)[0]["picks"]
+        picks = cache_for(ref).get_or_build("draft_picks", lambda: {"picks": espn_season.draft_picks(ref=ref)}, DRAFT_TTL)[0]["picks"]
         pick = season.draft_entry(picks, player_id, {c["team_id"]: c for c in data.get("teams", [])})
     except Exception as e:  # noqa: BLE001 — HTTPException from the cache included
         print(f"draft pick unavailable for {player_id}: {e}")
         pick = None
     try:  # a section, like the draft row: a journal that cannot be read leaves the moves standing
-        mine = [d for d in db.decisions() if player_id in (d["player_ids"] or [])]
+        mine = [d for d in db.decisions(ref=ref) if player_id in (d["player_ids"] or [])]
     except db.DBError as e:
         log.warning("decisions unavailable for %s: %s", player_id, e)
         mine = []
@@ -1494,8 +1505,8 @@ DRAFT_TTL = 24 * 3600.0  # the draft is over; the record does not move
 @app.get("/roster")
 def roster_(ref: LeagueRef = Depends(open_league)):
     data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
-    if not ref.home:  # no live points or outlooks of home's on another league's page (4.4 task 2 finishes the route)
-        return data
+    if not ref.home:  # no live points or outlooks of home's on another league's page: the cards as built
+        return {**data, "outlook_run": {"running": False}}
     # gated on the payload's week, as /week is: after the rollover the feed still holds last week's
     data = live.overlay_roster(data, _live_points(data["week"]), _live_games(data["week"]), _live_stats(data["week"]), _scoring())
     # attach on every request, not inside the cached build: a finished generation run must show

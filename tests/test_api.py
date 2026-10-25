@@ -23,7 +23,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(api.espn_season, "week_state", fake_week)
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 3, "positions": {"RB": []}})
     monkeypatch.setattr(api.espn_season, "league_state", lambda week=None, **k: {"week": week or 3, "standings": [], "scoreboard": []})
-    monkeypatch.setattr(api.espn_season, "team_state", lambda team_id: {
+    monkeypatch.setattr(api.espn_season, "team_state", lambda team_id, **k: {
         "week": 3, "live": False, "mine": team_id == 7, "club": {"team_id": team_id, "rank": 2},
         "side": {"team_id": team_id, "lineup": [{"player_id": 1, "actual": 0.0, "team": "DET"}], "bench": [], "ir": []}})
     monkeypatch.setattr(api.espn_season, "roster_state",
@@ -181,10 +181,10 @@ def test_startup_warms_the_page_caches(client):
 
 
 def test_logo_serves_bytes_and_404s_when_missing(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "team_logo", lambda tid: (b"\x89PNG", "image/png"))
+    monkeypatch.setattr(api.espn_season, "team_logo", lambda tid, **k: (b"\x89PNG", "image/png"))
     r = client.get("/logo/7")
     assert r.status_code == 200 and r.content == b"\x89PNG" and r.headers["content-type"] == "image/png"
-    monkeypatch.setattr(api.espn_season, "team_logo", lambda tid: (_ for _ in ()).throw(LookupError("no logo")))
+    monkeypatch.setattr(api.espn_season, "team_logo", lambda tid, **k: (_ for _ in ()).throw(LookupError("no logo")))
     r = client.get("/logo/8")
     assert r.status_code == 404
 
@@ -209,7 +209,7 @@ def test_health(client):
 def test_transactions_are_served_through_the_cache(client, monkeypatch):
     calls = []
     monkeypatch.setattr(api.espn_season, "transactions_state",
-                        lambda: calls.append(1) or {"me": 7, "current_week": 5, "moves": [], "teams": []})
+                        lambda **k: calls.append(1) or {"me": 7, "current_week": 5, "moves": [], "teams": []})
     assert client.get("/transactions").json() == {"me": 7, "current_week": 5, "moves": [], "teams": [], "stale_since": None}
     client.get("/transactions")
     assert len(calls) == 1
@@ -219,8 +219,8 @@ def test_player_transactions_filter_the_cached_moves(client, monkeypatch):
     side = {"team_id": 6, "team": "T6", "abbrev": "T", "logo": "", "added": [{"player_id": 101, "name": "A"}], "dropped": []}
     move = {"id": "5-6", "ms": 5, "at": "2026-09-10T03:05", "kind": "waiver", "week": 1, "sides": [side]}
     monkeypatch.setattr(api.espn_season, "transactions_state",
-                        lambda: {"me": 7, "current_week": 5, "moves": [move], "teams": []})
-    monkeypatch.setattr(api.espn_season, "draft_picks", lambda: [
+                        lambda **k: {"me": 7, "current_week": 5, "moves": [move], "teams": []})
+    monkeypatch.setattr(api.espn_season, "draft_picks", lambda **k: [
         {"overall": 24, "round": 3, "pick": 4, "team_id": 6, "team": "T6", "player_id": 101, "at": None}])
     got = client.get("/player/101/transactions").json()["history"]
     assert [h["kind"] for h in got] == ["waiver", "draft"], "the draft is the oldest entry"
@@ -228,9 +228,9 @@ def test_player_transactions_filter_the_cached_moves(client, monkeypatch):
 
 
 def test_player_transactions_survive_a_failed_draft_read(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "transactions_state", lambda: {"me": 7, "current_week": 5, "moves": [], "teams": []})
+    monkeypatch.setattr(api.espn_season, "transactions_state", lambda **k: {"me": 7, "current_week": 5, "moves": [], "teams": []})
 
-    def boom():
+    def boom(**k):
         raise RuntimeError("espn down")
 
     monkeypatch.setattr(api.espn_season, "draft_picks", boom)
@@ -444,20 +444,20 @@ PLAYER_LOG = {"name": "X", "pos": "QB", "team": "BUF", "season": 2026, "current_
 
 
 def test_player_route(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "player_card", lambda pid: {**PLAYER_LOG, "player_id": pid})
+    monkeypatch.setattr(api.espn_season, "player_card", lambda pid, **k: {**PLAYER_LOG, "player_id": pid})
     r = client.get("/player/7")
     assert r.status_code == 200 and r.json()["player_id"] == 7 and r.json()["stale_since"] is None
 
 
 def test_player_502(client, monkeypatch):
-    def boom(pid):
+    def boom(pid, **k):
         raise RuntimeError("espn down")
     monkeypatch.setattr(api.espn_season, "player_card", boom)
     assert client.get("/player/8").status_code == 502
 
 
 def test_player_live_week(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "player_card", lambda pid: {**PLAYER_LOG, "player_id": pid})
+    monkeypatch.setattr(api.espn_season, "player_card", lambda pid, **k: {**PLAYER_LOG, "player_id": pid})
     monkeypatch.setattr(api.live.STATE, "stats", {9: {"0": 10, "1": 7, "3": 80}})
     monkeypatch.setattr(api.live.STATE, "points", {9: 3.2})
     monkeypatch.setattr(api.live.STATE, "week", 4)
@@ -1518,8 +1518,8 @@ def test_an_unchanged_reason_is_not_revalidated(client):
 
 
 def test_player_transactions_carry_his_decisions(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "transactions_state", lambda: {"moves": [], "teams": [], "stale_since": None})
-    monkeypatch.setattr(api.espn_season, "draft_picks", lambda: [])
+    monkeypatch.setattr(api.espn_season, "transactions_state", lambda **k: {"moves": [], "teams": [], "stale_since": None})
+    monkeypatch.setattr(api.espn_season, "draft_picks", lambda **k: [])
     api.cache.clear()
     i = _dec()
     _dec(player_ids=[99])
