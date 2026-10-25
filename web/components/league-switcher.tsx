@@ -23,9 +23,9 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
   return (
     <DropdownMenu>
       <DropdownMenuTrigger aria-label={`FFL, league: ${open?.name ?? "home"}. Switch league`}
-        className="-ml-1 flex min-h-11 min-w-0 shrink-0 items-center gap-1 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
+        className="-ml-1 flex min-h-11 min-w-0 max-w-full items-center gap-1 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
         <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
-        {away && <span className="max-w-[7rem] truncate font-display text-sm font-semibold uppercase tracking-[0.08em] text-foreground/70">{away.name}</span>}
+        {away && <span title={away.name} className="min-w-0 max-w-[16rem] truncate sm:max-w-[9rem] font-display text-sm font-semibold uppercase tracking-[0.08em] text-foreground/70">{away.name}</span>}
         <ChevronDown aria-hidden className="size-4 text-foreground/55" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-auto min-w-64">

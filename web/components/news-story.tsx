@@ -181,7 +181,7 @@ export function NewsStory({ s, focus, target = false, tagged = true, filter = "a
   const chips = chipRows(s.players, filter);
   const stamp = storyStamp(s);
   return (
-    <li id={`story-${s.id}`} data-target={target || undefined} className="news-story scroll-mt-16 space-y-2.5 px-3 py-4 sm:px-4">
+    <li id={`story-${s.id}`} data-target={target || undefined} className="news-story scroll-mt-[calc(var(--nav-h)+1rem)] space-y-2.5 px-3 py-4 sm:px-4">
       <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-4 text-muted-foreground">
         {stamp.updated && <><span className="font-medium text-foreground/85">Updated</span><span aria-hidden>·</span></>}
         {stamp.cite && <><span className="font-medium text-foreground/85">{stamp.cite.source}</span><span aria-hidden>·</span></>}

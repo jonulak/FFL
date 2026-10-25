@@ -237,6 +237,11 @@
   --ease-leave: cubic-bezier(0.4, 0, 1, 1);
 }
 
+/* The sticky nav's height, which anything pinned under it reads (the Players table's heading, a story scrolled to):
+   on the phone two rows, the league switcher (44px) over the page tabs (40px); from `sm` one 48px rule. */
+:root { --nav-h: 5.25rem; }
+@media (width >= 40rem) { :root { --nav-h: 3rem; } }
+
 /* A play arriving: its slot opens room at the top of the ledger, the row slides in from its own
    team's edge (mine from the left, theirs from the right), and a scoring play leaves a lime wash
    running out from that edge that fades as it settles. A dropped row (the strip keeps five)

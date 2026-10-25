@@ -52,9 +52,9 @@ const CLAIM_INLINE = "@min-[40rem]/table:hidden";
 // The name line's chips (would start, injury, bye) may break inside themselves in the phone's narrow
 // name column: a chip is one 20px line by default, so it would otherwise run over the numbers beside it.
 const WRAP_CHIPS = "[&_[data-slot=badge]]:h-auto [&_[data-slot=badge]]:min-h-5 [&_[data-slot=badge]]:max-w-full [&_[data-slot=badge]]:whitespace-normal [&_[data-slot=badge]]:text-left [&_[data-slot=badge]]:leading-4";
-// The heading box pins under the 48px nav. Its hairline is an inset shadow, not a border, so it pins
+// The heading box pins under the nav (--nav-h: two rows on the phone, 48px from sm). Its hairline is an inset shadow, not a border, so it pins
 // with the box; the pinned chevron and name headings lay their own ground over it and redraw it.
-const PIN = "sticky top-12 z-[2] bg-card shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--foreground)_10%,transparent)]";
+const PIN = "sticky top-(--nav-h) z-[2] bg-card shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--foreground)_10%,transparent)]";
 // The chevron and the name stay put while the numbers scroll: each pinned to the left on an opaque
 // ground, the name offset by the chevron's exact width. Once the body has scrolled (use-synced-header
 // marks both boxes), the name's edge casts a thin shadow over the numbers passing under it.

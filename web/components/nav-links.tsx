@@ -20,7 +20,7 @@ const activeOf = (path: string) => LINKS.find(([href]) => (href === "/" ? path =
 // indicator slides from the tab left to the one arrived at. On a phone the strip scrolls and fades at its
 // right edge; the current tab is brought into view on arrival. Another league (`league`) shows only its `pages`,
 // each link naming it (lib/league.ts tabsFor); home passes nulls and gets every tab, as before.
-export function NavLinks({ pages = null, league = null }: { pages?: string[] | null; league?: string | null }) {
+export function NavLinks({ pages = null, league = null, className = "" }: { pages?: string[] | null; league?: string | null; className?: string }) {
   const path = usePathname();
   const active = activeOf(path);
   const [tapped, setTapped] = useState<string | null>(null);
@@ -36,7 +36,7 @@ export function NavLinks({ pages = null, league = null }: { pages?: string[] | n
     current.current?.scrollIntoView({ inline: "center", block: "nearest" });
   }, [path]);
   return (
-    <nav aria-label="Pages" className="flex min-w-0 items-stretch">
+    <nav aria-label="Pages" className={`flex min-w-0 items-stretch ${className}`}>
       {/* the list is the scroller, so the 4px it reaches past the nav on each side is its own padding */}
       <Tabs value={tapped ?? active} onValueChange={(v, { event }) => { if (!newTab(event)) setTapped(v as string); }} className="-mx-1 min-w-0 flex-1">
         <TabsList variant="line" indicatorInset="0.625rem"

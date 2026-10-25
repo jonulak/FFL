@@ -294,9 +294,9 @@ Two corner registers. Surfaces are gently rounded: cards 10px (`rounded-lg`, the
 - **Focus:** the global `focus-visible` outline is 2px `start` at 2px offset.
 
 ### Navigation (`nav.tsx`, `nav-links.tsx`)
-- **Wordmark:** "FFL" in Barlow 700 at 1.6rem, tracking tight, linking to the Matchup page; a 1px ink hairline (12%) stands between it and the tabs.
-- **Tabs:** the label style at 15px (condensed 600, uppercase, 0.12em), 10px side padding, filling the 48px bar so the tap target is the full height. Inactive tabs are ink at 55%, 85% on hover; the current page (`aria-current="page"`, from `usePathname`) is full ink with a 2px ink bar flush to the bottom rule. No background on hover, no pill.
-- **Phone:** the strip scrolls horizontally with the scrollbar hidden and a 28px fade at its right edge; the current tab is scrolled to centre on arrival. Refresh stays pinned at the right edge at every width.
+- **Wordmark:** "FFL" in Barlow 700 at 1.6rem, tracking tight: the league switcher (`league-switcher.tsx`, 2026-10-25). A 16px chevron at 55% ink follows it; another league's name sits between them in the label style at 14px, 70% ink, truncated (16rem on the phone, 9rem from `sm`). The trigger is 44px tall. Its menu (shadcn DropdownMenu) lists each league as a radio row, the name over `ESPN · 2QB · 10 teams` in caption, the open one checked. From `sm` a 1px ink hairline (12%) stands between it and the tabs.
+- **Tabs:** the label style at 15px (condensed 600, uppercase, 0.12em), 10px side padding, filling the bar so the tap target is the full height. Inactive tabs are ink at 55%, 85% on hover; the current page (`aria-current="page"`, from `usePathname`) is full ink with a 2px ink bar flush to the bottom rule. No background on hover, no pill. Another league shows only its own tabs.
+- **Phone:** two rows (`--nav-h`, 84px): the switcher, with the Settings gear at the row's far end, over a 40px full-width tab strip. A league's name and the tabs do not share 360px (2026-10-25). The strip scrolls horizontally with the scrollbar hidden and a 28px fade at its right edge; the current tab is scrolled to centre on arrival. From `sm` one 48px rule: switcher, hairline, tabs, gear. Anything pinned under the nav reads `--nav-h` (the Players table heading, a story scrolled to), never a fixed 48px.
 - **Colour:** ink only. The active bar is ink, not lime; lime remains START.
 
 ### Standings (League, shadcn Table inside a board Card)
