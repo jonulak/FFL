@@ -344,8 +344,9 @@ def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dic
                    sigma: dict | None = None) -> dict:
     """Each scoreboard side re-summed over its `starter_ids` when any of them has live points, and
     each matchup `live` while a starter on either side has his game in progress — not merely
-    while some game in the league is on. A matchup with odds has them re-priced off its
-    `starters`' live points and clocks."""
+    while some game in the league is on. Each side's `starters` carry the feed's points and game
+    states, which the tile's estimated final is summed from (web/lib/game.ts sideTotals, as on the
+    Matchup board), and a matchup with odds has them re-priced off those."""
     board = []
     for m in payload.get("scoreboard", []):
         row = dict(m)
@@ -353,12 +354,16 @@ def overlay_league(payload: dict, points: dict[int, float], games: dict[str, dic
             side = m[key]
             ids = side.get("starter_ids") or []
             if any(i in points for i in ids):
-                row[key] = {**side, "score": round(sum(points.get(i, 0.0) for i in ids), 2)}
+                side = {**side, "score": round(sum(points.get(i, 0.0) for i in ids), 2)}
+            if side.get("starters"):
+                side = {**side, "starters": _live_starters(side, points, games or {})}
+            if side is not m[key]:
+                row[key] = side
         row["live"] = any((games or {}).get(t, {}).get("status") == "in"
                           for key in ("home", "away") for t in m[key].get("starter_teams") or [])
         row["final"] = S.matchup_final(m, games)
         if m.get("win_prob"):
-            p = _odds(_live_starters(m["away"], points, games or {}), _live_starters(m["home"], points, games or {}), sigma)
+            p = _odds(row["away"]["starters"], row["home"]["starters"], sigma)
             row["win_prob"] = {"away": p, "home": round(1 - p, 3)}
         board.append(row)
     return {**payload, "scoreboard": board}

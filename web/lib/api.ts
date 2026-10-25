@@ -278,7 +278,8 @@ export type Standing = Club & { rank: number; points_for: number; points_against
 // played (the API sets `final` once none is left, sooner on the feed's whistle); all empty for a future week.
 // `starters` are those players as the board merges them (ESPN+Sleeper): `proj` is their sum, and the
 // overlay re-prices the matchup's `win_prob` (null for a future week) off them as games run.
-export type ScoreStarter = { player_id: number; pos: string; team: string; proj: number; actual: number; game_played: number; bye: boolean; injury: string };
+// `kickoff` is null in a payload cached before it was added; `game` is the live overlay's, once his game is on.
+export type ScoreStarter = { player_id: number; pos: string; team: string; proj: number; actual: number; game_played: number; bye: boolean; injury: string; kickoff: string | null; game?: GameState };
 export type ScoreSide = Club & { score: number; proj: number; me: boolean; starter_ids: number[]; starter_teams: string[]; pending_teams: string[]; starters: ScoreStarter[] };
 export type League = {
   week: number; current_week: number; weeks: number; playoff_teams: number; playoff_weeks?: number[]; live: boolean;

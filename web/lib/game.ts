@@ -26,7 +26,9 @@ export function toPlay(lineup: Player[], idle: (p: Player) => boolean, now: numb
 // projection until his posted score passes it: what he has posted is scored, the rest of his
 // projection is still to come. ESPN gives no game-progress figure to scale by, so this is the
 // honest middle between counting him at zero remaining and at his full projection.
-export function sideTotals(lineup: Player[], idle: (p: Player) => boolean, now: number) {
+// A League tile's starters (ScoreStarter) carry just enough of a Player for it.
+type Totalled = Pick<Player, "proj" | "actual" | "game_played" | "kickoff" | "bye"> & Partial<Pick<Player, "game">>;
+export function sideTotals<P extends Totalled>(lineup: P[], idle: (p: P) => boolean, now: number) {
   let scored = 0, toCome = 0;
   for (const p of lineup) {
     const phase = gamePhase(p, now);

@@ -17,4 +17,4 @@ export const BOARD_CARD = "rounded-lg py-0 shadow-[0_10px_28px_-16px_rgb(0_0_0_/
 export const LABEL = "font-display text-[0.8125rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
 
 // Idle for the week: on bye, or OUT/IR/SUSP. His game cannot add points.
-export const isIdle = (p: Player) => p.bye || injuryTone(p.injury) === "bad";
+export const isIdle = (p: Pick<Player, "bye" | "injury">) => p.bye || injuryTone(p.injury) === "bad";

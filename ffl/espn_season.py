@@ -1814,8 +1814,9 @@ def _streak(t) -> str:
     return f"{(getattr(t, 'streak_type', '') or '')[:1]}{n}" if n else ""
 
 
-# What a League tile keeps of each starter: enough for live.overlay_league to re-price the odds.
-SCORE_STARTER = ("player_id", "pos", "team", "proj", "actual", "game_played", "bye", "injury")
+# What a League tile keeps of each starter: enough for live.overlay_league to re-price the odds and
+# for the tile to sum its estimated final (web/lib/game.ts sideTotals, which reads the kickoff too).
+SCORE_STARTER = ("player_id", "pos", "team", "proj", "actual", "game_played", "bye", "injury", "kickoff")
 
 
 def league_state(week: int | None = None) -> dict:

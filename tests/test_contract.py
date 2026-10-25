@@ -34,7 +34,7 @@ STANDINGS_ROW = {"rank", "team_id", "team", "owner", "abbrev", "logo", "wins", "
 SCORE_SIDE = {"team_id", "team", "owner", "abbrev", "logo", "wins", "losses", "ties", "score", "proj", "me", "starter_ids",
               "starter_teams", "pending_teams", "starters"}
 # web/lib/api.ts: type ScoreStarter
-SCORE_STARTER = {"player_id", "pos", "team", "proj", "actual", "game_played", "bye", "injury"}
+SCORE_STARTER = {"player_id", "pos", "team", "proj", "actual", "game_played", "bye", "injury", "kickoff"}
 SCORE_ROW = {"home", "away", "live", "final", "win_prob"}
 # web/lib/api.ts: type Week / type League top level (stale_since is added by the API's cache)
 WEEK = {"week", "live", "mine", "slots", "me", "opp", "win_prob"}

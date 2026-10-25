@@ -5,8 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { League, ScoreSide } from "@/lib/api";
-import { BOARD_CARD, LABEL } from "@/lib/board";
+import { BOARD_CARD, isIdle, LABEL } from "@/lib/board";
 import { pts, record } from "@/lib/format";
+import { sideTotals } from "@/lib/game";
 import { matchupHref } from "@/lib/matchup-link";
 import { clubLogoSrc } from "@/lib/teams";
 import { finalP } from "@/lib/win-prob";
@@ -82,7 +83,10 @@ function Standings({ rows, playoffTeams }: { rows: League["standings"]; playoffT
 // score carries a solid caret pointing at it, the way a broadcast scoreboard closes a result; the
 // loser, and every row of a game not yet final, keeps the caret's column empty so scores align across tiles.
 // `odds` (the away side's) and `half` draw this row's half of the card's win meter at the edge.
-function ScoreRow({ side, on, trailing, won, odds, half }: { side: ScoreSide; on: boolean; trailing: boolean; won: boolean; odds: number | null; half: "top" | "bottom" }) {
+function ScoreRow({ side, on, final, now, trailing, won, odds, half }: { side: ScoreSide; on: boolean; final: boolean; now: number; trailing: boolean; won: boolean; odds: number | null; half: "top" | "bottom" }) {
+  // under a live score, the estimated final as the Matchup board sums it; ESPN's projection for a side
+  // with no lineup to sum, and nothing once the game is final (the score is the final)
+  const est = side.starters.length > 0 ? sideTotals(side.starters, isIdle, now).estimate : null;
   return (
     <li className={`relative flex items-center gap-2.5 py-2.5 transition-colors duration-500 sm:gap-3 ${trailing ? "text-foreground/60" : ""}`}>
       {odds != null && <OddsHalf p={odds} half={half} />}
@@ -105,7 +109,9 @@ function ScoreRow({ side, on, trailing, won, odds, half }: { side: ScoreSide; on
             {on ? <Ticker value={side.score} format={pts} gain /> : side.proj > 0 ? <Ticker value={side.proj} format={pts} /> : "—"}
           </Swap>
         </p>
-        <Presence show={on && side.proj > 0}><p className="mt-0.5 text-xs text-muted-foreground">proj {pts(side.proj)}</p></Presence>
+        <Presence show={on && !final && side.proj > 0}>
+          <p className="mt-0.5 text-xs text-muted-foreground">{est != null ? <>est <Ticker value={est} format={pts} /></> : `proj ${pts(side.proj)}`}</p>
+        </Presence>
       </div>
       {/* the caret's slot is on every row, final or not, so scores line up across tiles in every state */}
       <span className="-ml-1 flex w-2.5 shrink-0 self-start pt-[0.4375rem] sm:-ml-1.5">
@@ -116,10 +122,10 @@ function ScoreRow({ side, on, trailing, won, odds, half }: { side: ScoreSide; on
 }
 
 // One matchup per card, away over home the way a broadcast stacks a scorebug. Before kickoff
-// the number is the projection; once points post it is the score with the projection beneath.
+// the number is the projection; once points post it is the score with the estimated final beneath.
 // A tile with a board behind it (this week and earlier) is a link to that board: the ring
 // firms and a chevron closes the header on hover, the way a row in a broadcast menu lifts.
-function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; final: boolean; href: string | null }) {
+function MatchupCard({ m, final, href, now }: { m: League["scoreboard"][number]; final: boolean; href: string | null; now: number }) {
   const live = m.live;
   const on = final || live || m.home.score > 0 || m.away.score > 0;
   const lead = on ? Math.sign(m.away.score - m.home.score) : 0;
@@ -142,8 +148,8 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
       </CardHeader>
       <CardContent className="-mt-(--card-spacing)">
         <ul className="divide-y divide-foreground/10">
-          <ScoreRow side={m.away} on={on} trailing={lead < 0} won={final && lead > 0} odds={odds} half="top" />
-          <ScoreRow side={m.home} on={on} trailing={lead > 0} won={final && lead < 0} odds={odds} half="bottom" />
+          <ScoreRow side={m.away} on={on} final={final} now={now} trailing={lead < 0} won={final && lead > 0} odds={odds} half="top" />
+          <ScoreRow side={m.home} on={on} final={final} now={now} trailing={lead > 0} won={final && lead < 0} odds={odds} half="bottom" />
         </ul>
       </CardContent>
       {/* the odds as a screen reader hears them; each row draws its half of the edge stripe */}
@@ -158,7 +164,7 @@ function MatchupCard({ m, final, href }: { m: League["scoreboard"][number]; fina
   );
 }
 
-export function LeagueView({ data }: { data: League }) {
+export function LeagueView({ data, now }: { data: League; now: number }) {
   const final = data.week < data.current_week;
   const playoffs = data.playoff_weeks ?? [];
   // a playoff week has no pairings until the regular season (the weeks before the first playoff one) ends
@@ -187,7 +193,7 @@ export function LeagueView({ data }: { data: League }) {
             ? <Empty className="py-6"><EmptyHeader><EmptyDescription>{empty}</EmptyDescription></EmptyHeader></Empty>
             : (
               <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-                {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final || m.final} href={matchupHref(m, data.week, data.current_week)} />)}
+                {data.scoreboard.map((m) => <MatchupCard key={`${m.home.team_id}-${m.away.team_id}`} m={m} final={final || m.final} href={matchupHref(m, data.week, data.current_week)} now={now} />)}
               </div>
             )}
         </ViewTransition>

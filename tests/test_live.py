@@ -363,6 +363,17 @@ def test_overlay_league_recomputes_from_starters():
     assert out["scoreboard"][0]["win_prob"] == {"away": 1.0, "home": 0.0}
 
 
+def test_overlay_league_lays_the_feed_over_each_tiles_starters():
+    payload = {"week": 5, "scoreboard": [{"away": _tile_side(1, "KC"), "home": _tile_side(2, "BUF"), "live": False,
+                                          "final": False, "win_prob": None}]}
+    games = {"KC": {"status": "in", "quarter": 2}, "BUF": {"status": "pre"}}
+    out = live.overlay_league(payload, {1: 12.0}, games)["scoreboard"][0]
+    away, home = out["away"]["starters"][0], out["home"]["starters"][0]
+    assert (away["actual"], away["game"]) == (12.0, games["KC"]), "the tile's estimate reads his live points and clock"
+    assert "game" not in home and home["actual"] == 0.0
+    assert "game" not in payload["scoreboard"][0]["away"]["starters"][0], "the cached payload is left alone"
+
+
 def test_overlay_league_keeps_a_schedule_week_without_odds():
     empty = {"starter_ids": [], "starter_teams": [], "pending_teams": [], "starters": [], "score": 0, "proj": 0}
     row = {"away": dict(empty), "home": dict(empty), "live": False, "final": False, "win_prob": None}
