@@ -1754,9 +1754,10 @@ class EndpointIn(BaseModel):
 
 
 @app.get("/notify/config")
-def notify_config():
+def notify_config(ref: LeagueRef = Depends(open_league)):
+    """The devices and quiet hours (every league's) and the open league's switches."""
     return {"public_key": os.environ.get("VAPID_PUBLIC_KEY"), "enabled": notify.sender() is not None,
-            "prefs": notify.prefs(), "devices": len(db.subscriptions())}
+            "prefs": notify.prefs(ref=ref), "devices": len(db.subscriptions())}
 
 
 @app.post("/notify/subscribe")
@@ -1772,9 +1773,9 @@ def notify_unsubscribe(body: EndpointIn):
 
 
 @app.post("/notify/prefs")
-def notify_prefs(body: dict):
+def notify_prefs(body: dict, ref: LeagueRef = Depends(open_league)):
     try:
-        return notify.put_prefs(body)
+        return notify.put_prefs(body, ref=ref)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

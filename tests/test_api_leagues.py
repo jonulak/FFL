@@ -102,7 +102,7 @@ def test_other_league_rows_drop_only_its_pages(monkeypatch, other):
     assert len(journal.sync_transactions(NS(), ref=other)) == 1
     api.cache_for(other).join()  # the move dropped other's page and rewarmed it behind; home's stood
     assert built == {"home": 1, "other": 2}
-    assert db.unsent_notices() == [] and db.unsent_notices(ref=other) == []
+    assert db.unsent_notices() == [] and [n["key"] for n in db.unsent_notices(ref=other)] == ["move:1788937502756-3-FA ADDED-77"]
 
 
 
@@ -544,3 +544,10 @@ def test_league_tick_steps_read_and_write_their_league(client, other, monkeypatc
     assert api.cache_for(other)._d["league:5"].expires == 0.0 and api.cache._d["league:5"].expires > 0.0
     db.put_watch(11, False, ref=other)
     assert api.watch_pass(ref=other) == {"skipped": "none watched"}
+
+
+def test_notify_switches_follow_the_open_league(client, other):
+    assert client.post("/notify/prefs?league=espn:999", json={"news": False}).json()["news"] is False
+    assert client.get("/notify/config?league=espn:999").json()["prefs"]["news"] is False
+    assert client.get("/notify/config").json()["prefs"]["news"] is True
+    assert client.post("/notify/prefs?league=espn:999", json={"quiet": ["bad"]}).status_code == 422

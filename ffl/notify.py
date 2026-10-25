@@ -41,10 +41,10 @@ def move_notices(rows: list[dict], at: str) -> list[dict]:
     return out
 
 
-def enqueue_moves(rows: list[dict]) -> int:
-    """Queue the new log rows. Never fails the sync that found them: a DB error is logged."""
+def enqueue_moves(rows: list[dict], *, ref=None) -> int:
+    """Queue a league's new log rows. Never fails the sync that found them: a DB error is logged."""
     try:
-        return db.add_notices(move_notices(rows, now()))
+        return db.add_notices(move_notices(rows, now()), ref=ref)
     except db.DBError as e:
         log.warning("notify: moves not queued: %s", e)
         return 0
@@ -117,19 +117,36 @@ BODY_MAX = 180
 _HM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-def prefs() -> dict:
-    return {**DEFAULT_PREFS, **db.get_state("prefs", {})}
+SWITCHES = ("move", "injury", "waivers", "news", "watch")
 
 
-def put_prefs(p: dict) -> dict:
-    merged = {**prefs(), **{k: v for k, v in p.items() if k in DEFAULT_PREFS}}
+def _home(ref) -> bool:
+    return ref is None or ref.home
+
+
+def prefs(*, ref=None) -> dict:
+    """A league's push switches (home when `ref` is None) and the quiet hours, which are every league's. Home's
+    switches live beside the quiet hours in the global `prefs` row, as before any other league; another league's in
+    its own `notify_prefs` state."""
+    shared = {**DEFAULT_PREFS, **db.get_state("prefs", {})}
+    if _home(ref):
+        return shared
+    return {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {}), "quiet": shared["quiet"]}
+
+
+def put_prefs(p: dict, *, ref=None) -> dict:
+    merged = {**prefs(ref=ref), **{k: v for k, v in p.items() if k in DEFAULT_PREFS}}
     q = merged["quiet"]
     if not (isinstance(q, list) and len(q) == 2 and all(isinstance(s, str) and _HM.match(s) for s in q)):
         raise ValueError(f"quiet must be two HH:MM times, got {q!r}")
-    for k in ("move", "injury", "waivers", "news", "watch"):
+    for k in SWITCHES:
         if not isinstance(merged[k], bool):
             raise ValueError(f"{k} must be true or false, got {merged[k]!r}")
-    db.put_state("prefs", merged)
+    if _home(ref):
+        db.put_state("prefs", merged)
+    else:
+        db.put_state("prefs", {**db.get_state("prefs", {}), "quiet": merged["quiet"]})
+        db.put_league_state("notify_prefs", {k: merged[k] for k in SWITCHES}, ref=ref)
     return merged
 
 
@@ -224,7 +241,7 @@ def payload_for(push: dict, app_url: str = APP_URL) -> dict:
     `navigate` itself, with no service worker in the way; iOS often never fires the worker's notificationclick for a
     Home Screen app in the background (WebKit bug 268797; ffl-e9x.10). The legacy top-level fields stay for a browser
     that ignores `web_push` and hands the message to sw.js's push handler as before."""
-    legacy = {k: push[k] for k in ("title", "body", "url", "tag")}
+    legacy = {k: push[k] for k in ("title", "body", "url", "tag")}  # never `ref`: the league rides in url
     return {"web_push": 8030, "notification": {"title": push["title"], "body": push["body"], "tag": push["tag"],
                                                "navigate": app_url.rstrip("/") + push["url"]}, **legacy}
 
@@ -260,6 +277,34 @@ def sender():
     return webpush_sender
 
 
+LABEL_MAX = 22
+
+
+def league_label(ref) -> str:
+    """The league as a push names it: its name, cut at a word to LABEL_MAX with an ellipsis."""
+    name = ref.name.strip()
+    if len(name) <= LABEL_MAX:
+        return name
+    cut = name[:LABEL_MAX - 1].rsplit(" ", 1)[0] if " " in name[:LABEL_MAX - 1] else name[:LABEL_MAX - 1]
+    return cut.rstrip() + "…"
+
+
+def league_url(url: str, ref) -> str:
+    """A push's page in its league: home's as it always was, another's with ?league= so a tap (or a push queued
+    before the open league changed) opens that league, never the last one used."""
+    if _home(ref):
+        return url
+    return f"{url}{'&' if '?' in url else '?'}league={ref.key}"
+
+
+def for_league(push: dict, ref, named: bool) -> dict:
+    """A planned push dressed for its league: the label after the title when more than one league is registered,
+    the league's page, and a tag of its own (a device replaces a notification with the same tag)."""
+    title = f"{push['title']} · {league_label(ref)}" if named else push["title"]
+    tag = push["tag"] if _home(ref) else f"{ref.key}:{push['tag']}"
+    return {**push, "title": title, "url": league_url(push["url"], ref), "tag": tag, "ref": ref}
+
+
 def _send_all(pushes: list[dict], send, at: str) -> int:
     subs, sent = db.subscriptions(), 0
     for push in pushes:
@@ -268,25 +313,32 @@ def _send_all(pushes: list[dict], send, at: str) -> int:
             db.drop_subscription(ep)
         subs = [s for s in subs if s["endpoint"] not in dead]
         if ok:
-            db.mark_notices(push["keys"], "sent", at)
+            db.mark_notices(push["keys"], "sent", at, ref=push.get("ref"))
             sent += 1
     return sent
 
 
 def flush(t: datetime | None = None, send=None) -> dict:
-    """Send the queue: nothing in quiet hours; switched-off and stale notices are marked, the rest grouped and pushed."""
+    """Send every league's queue: nothing in quiet hours (every league's); each league's switched-off and stale
+    notices are marked, the rest grouped within the league and pushed, each naming its league once there are two."""
+    from . import leagues
     send = send or sender()
     if send is None:
         return {"disabled": True}
     t = t or datetime.now().astimezone()
-    p, unsent = prefs(), db.unsent_notices()
-    if in_quiet(t, p["quiet"]):
-        return {"held": len(unsent)}
-    pushes, marks = plan(unsent, p, t)
+    refs = leagues.all_leagues()
+    unsent = {r.key: db.unsent_notices(ref=r) for r in refs}
+    if in_quiet(t, prefs()["quiet"]):
+        return {"held": sum(len(u) for u in unsent.values())}
     at = t.isoformat(timespec="seconds")
-    for outcome, keys in marks.items():
-        db.mark_notices(keys, outcome, at)
-    return {"sent": _send_all(pushes, send, at), "pushes": len(pushes), **{k: len(v) for k, v in marks.items()}}
+    pushes, counts = [], {"off": 0, "expired": 0}
+    for r in refs:
+        planned, marks = plan(unsent[r.key], prefs(ref=r), t)
+        for outcome, keys in marks.items():
+            db.mark_notices(keys, outcome, at, ref=r)
+            counts[outcome] += len(keys)
+        pushes += [for_league(p, r, len(refs) > 1) for p in planned]
+    return {"sent": _send_all(pushes, send, at), "pushes": len(pushes), **counts}
 
 
 def send_test(send=None) -> dict:

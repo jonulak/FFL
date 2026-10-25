@@ -188,3 +188,70 @@ def test_more_count_is_rows_left_out_not_teams():
     assert len(push["body"]) <= 180
     shown = push["body"].split("… +")[0].count("Somebody")
     assert push["body"].endswith(f"… +{40 - shown} more")
+
+
+
+# --- pushes carry their league (ffl-soc.4.8) ---------------------------------------------------
+
+def _other(name="Indianapolis Pro H2H Points PPR League"):
+    from ffl import leagues
+    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, name, 3, False, None, None))
+
+
+def test_league_label_is_the_name_cut_at_a_word():
+    from ffl import leagues
+    assert notify.league_label(_other()) == "Indianapolis Pro H2H…"
+    assert notify.league_label(leagues.LeagueRef("espn:1", "espn", "1", 2026, "2026 Fantasy Football", 7, True, None, None)) \
+        == "2026 Fantasy Football"
+
+
+def test_one_league_pushes_read_exactly_as_before():
+    db.add_notices([_n("move:1")])
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    sent = []
+    notify.flush(T, send=lambda sub, payload: sent.append(payload))
+    assert (sent[0]["title"], sent[0]["url"], sent[0]["tag"]) == ("1 league move", "/transactions", "moves")
+
+
+def test_each_leagues_pushes_name_it_and_open_it():
+    from ffl import leagues
+    other = _other()
+    db.add_notices([_n("move:1"), _n("move:2", body="Lions −Y")])
+    db.add_notices([_n("move:1"), {**_n("injury:8:9:OUT", "injury", "Starting at RB."), "url": "/roster"}], ref=other)
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    sent = []
+    out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
+    by_url = {p["url"]: p for p in sent}
+    home = by_url["/transactions"]
+    assert home["title"] == f"2 league moves · {leagues.home().name}", "with two leagues, home's pushes name it too"
+    assert home["tag"] == "moves", "home's tap target and tag are as before"
+    theirs = by_url["/transactions?league=espn:999"]
+    assert theirs["title"] == "1 league move · Indianapolis Pro H2H…" and theirs["tag"] == "espn:999:moves"
+    assert theirs["notification"]["navigate"].endswith("/transactions?league=espn:999")
+    assert by_url["/roster?league=espn:999"]["title"] == "t · Indianapolis Pro H2H…"
+    assert out["sent"] == 3 and db.unsent_notices() == [] and db.unsent_notices(ref=other) == []
+    assert {n["outcome"] for n in db.recent_notices(ref=other)} == {"sent"}
+    assert leagues.home().home
+
+
+def test_a_url_with_a_query_takes_the_league_after_it():
+    assert notify.league_url("/players?watch=1", _other()) == "/players?watch=1&league=espn:999"
+    from ffl import leagues
+    assert notify.league_url("/players?watch=1", leagues.home()) == "/players?watch=1"
+
+
+def test_switches_are_per_league_quiet_hours_global():
+    other = _other()
+    assert notify.prefs(ref=other) == notify.DEFAULT_PREFS
+    notify.put_prefs({"move": False, "quiet": ["22:00", "06:00"]}, ref=other)
+    assert notify.prefs(ref=other)["move"] is False and notify.prefs()["move"] is True
+    assert notify.prefs()["quiet"] == ["22:00", "06:00"], "quiet hours are every league's"
+    notify.put_prefs({"injury": False})
+    assert notify.prefs(ref=other)["injury"] is True and notify.prefs()["injury"] is False
+    db.add_notices([_n("move:1")], ref=other)
+    db.add_notices([_n("move:1")])
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    sent = []
+    out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
+    assert [p["url"] for p in sent] == ["/transactions"] and out["off"] == 1
+    assert db.recent_notices(ref=other)[0]["outcome"] == "off"

@@ -328,7 +328,7 @@ def _act(team_id=3, pid=77, name="Some Guy"):
     return NS(date=1788937502756, actions=[(team, "FA ADDED", NS(playerId=pid, name=name), 0)])
 
 
-def test_sync_other_league_calls_listeners_queues_no_notices(monkeypatch, other):
+def test_sync_other_league_calls_listeners_and_queues_its_own_notices(monkeypatch, other):
     from ffl import journal
     monkeypatch.setattr(journal, "_activities", lambda lg, size: [_act()])
     heard = []
@@ -337,12 +337,12 @@ def test_sync_other_league_calls_listeners_queues_no_notices(monkeypatch, other)
     assert len(new) == 1
     assert [r["player"] for r in db.transactions(ref=other)] == ["Some Guy"]
     assert db.transactions() == []
-    assert db.unsent_notices(ref=other) == [] and db.unsent_notices() == []
+    assert len(db.unsent_notices(ref=other)) == 1 and db.unsent_notices() == [], "its move pushes in its league (4.8)"
     assert heard == [other], "the listener hears another league's rows, with that league"
     # the same call with no ref is home's: it queues the notice and calls the listener
     assert len(journal.sync_transactions(NS())) == 1
     assert len(heard) == 2 and heard[1] == leagues.home() and len(db.unsent_notices()) >= 1
-    assert db.unsent_notices(ref=other) == []
+    assert len(db.unsent_notices(ref=other)) == 1
 
 
 def test_sync_results_from_first_week(monkeypatch, other):

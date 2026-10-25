@@ -60,8 +60,7 @@ def sync_transactions(lg, *, ref=None):
                          "type": action, "team": team.team_name, "player": getattr(player, "name", player),
                          "action": action, "bid": bid, "reasoning": ""})
     new = db.add_transactions(rows, ref=r)  # the (season, id) key makes concurrent syncs safe
-    if r.home:  # pushes are home's until 4.8; the page listeners are every league's
-        notify.enqueue_moves(new)
+    notify.enqueue_moves(new, ref=r)
     if new:
         for fn in ON_NEW_ROWS:
             try:

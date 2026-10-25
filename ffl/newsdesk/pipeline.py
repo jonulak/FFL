@@ -27,45 +27,68 @@ def owners(*, ref=None) -> tuple[dict[int, dict], int]:
             espn_season.my_team_id(lg, ref))
 
 
-def _queue(written: list) -> list[list]:
-    """The revisions waiting for their push, this run's added; past notify.MAX_AGE they are let go."""
+def _queue(written: list, *, ref=None) -> list[list]:
+    """A league's revisions waiting for their push, this run's added; past notify.MAX_AGE they are let go."""
     at, t = notify.now(), datetime.now().astimezone()
-    pending = [p for p in db.get_league_state(PENDING, []) or [] if t - datetime.fromisoformat(p[2]) <= notify.MAX_AGE]
+    pending = [p for p in db.get_league_state(PENDING, [], ref=ref) or []
+               if t - datetime.fromisoformat(p[2]) <= notify.MAX_AGE]
     known = {(sid, rev) for sid, rev, _ in pending}
     pending += [[sid, rev, at] for sid, rev in written if (sid, rev) not in known]
-    db.put_league_state(PENDING, pending)
+    db.put_league_state(PENDING, pending, ref=ref)
     return pending
 
 
-def _queued(t: datetime) -> tuple[list[dict], dict[int, dict]]:
-    """The news notices of the dedupe window and the stories they name."""
+def _queued(t: datetime, *, ref=None) -> tuple[list[dict], dict[int, dict]]:
+    """A league's news notices of the dedupe window and the stories they name."""
     since = (t - notices.DEDUPE * 2).isoformat(timespec="seconds")  # a margin over text order; recent() re-checks
-    queued = db.notices_since("news:", since)
+    queued = db.notices_since("news:", since, ref=ref)
     sids = {sr[0] for n in queued if (sr := notices.rev_key(n["key"]))}
     return queued, {sid: s for sid in sids if (s := db.story(sid))}
 
 
 def notify_written(written: list, index: players.Index) -> dict:
-    """Queue the pushes for the written revisions (and any still waiting from a run that could not read owners or
-    the player index, whose names the pushes carry).
+    """Queue every league's pushes for the written revisions (`_notify_league`): home's counts at the top, as before,
+    each other league's under `leagues`. A league whose owners cannot be read keeps its revisions waiting for the
+    next run and never holds back another's; home's failure is still this stage's error, after the others ran."""
+    from .. import leagues
+    out, others, failed = {}, {}, None
+    for r in leagues.all_leagues():
+        if r.home:
+            try:
+                out = _notify_league(written, index)
+            except (Exception, SystemExit) as e:  # noqa: BLE001 — raised below, once every league has had its turn
+                failed = e
+            continue
+        try:
+            others[r.key] = _notify_league(written, index, ref=r)
+        except (Exception, SystemExit) as e:  # noqa: BLE001 — its revisions wait in its own queue
+            others[r.key] = {"error": f"{type(e).__name__}: {e}"[:300]}
+    if failed is not None:
+        raise failed
+    return {**out, "leagues": others} if others else out
+
+
+def _notify_league(written: list, index: players.Index, *, ref=None) -> dict:
+    """Queue one league's pushes (home when `ref` is None) for the written revisions (and any still waiting from a
+    run that could not read owners or the player index, whose names the pushes carry).
 
     A story's own earlier notices never hold back its newer revision: one already sent makes it a material update,
     and one still waiting (quiet hours) is marked `superseded` whatever the newer revision produces: a revision that
     no longer pushes means the news no longer warrants one, so its outdated predecessor must not go out either."""
-    pending = _queue(written)
+    pending = _queue(written, ref=ref)
     if not pending:
         return {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
-    who, me = owners()
+    who, me = owners() if ref is None else owners(ref=ref)
     muted = {int(p) for p in db.get_state("news_mutes", []) or []}
-    pushed = db.notice_keys("news:")
-    waiting = [n["key"] for n in db.unsent_notices() if n["key"].startswith("news:")]
+    pushed = db.notice_keys("news:", ref=ref)
+    waiting = [n["key"] for n in db.unsent_notices(ref=ref) if n["key"].startswith("news:")]
     at, t = notify.now(), datetime.now().astimezone()
-    queued, stories = _queued(t)
+    queued, stories = _queued(t, ref=ref)
     sources = {s["id"]: s for s in db.news_sources(active_only=False)}
     added: set[tuple[int, str]] = set()  # rows pushed by this run
     out, superseded = [], []
     try:
-        watched = set(db.watched_ids())
+        watched = set(db.watched_ids(ref=ref))
     except db.DBError as e:  # the watch part is extra: the news pushes go out without it
         print(f"news: watched ids unreadable, no watch signals: {e}")
         watched = set()
@@ -104,9 +127,9 @@ def notify_written(written: list, index: players.Index) -> dict:
         if n:
             out.append(n)
         superseded += [k for k in stale if not n or k != n["key"]]
-    db.mark_notices(superseded, "superseded", at)
+    db.mark_notices(superseded, "superseded", at, ref=ref)
     try:
-        new = db.add_watch_signals(found)
+        new = db.add_watch_signals(found, ref=ref)
     except db.DBError as e:
         print(f"news: watch signals not saved: {e}")
         new = []
@@ -115,8 +138,8 @@ def notify_written(written: list, index: players.Index) -> dict:
         by_player.setdefault(sig["player_id"], []).append(sig)
     out += [watch.notice_for({"player_id": pid, "name": (index.by_id.get(pid) or {}).get("name") or f"Player {pid}"},
                              sigs, day, at) for pid, sigs in by_player.items() if pid not in carried and pid not in who and pid not in muted]
-    n_queued = db.add_notices(out)
-    db.put_league_state(PENDING, [])
+    n_queued = db.add_notices(out, ref=ref)
+    db.put_league_state(PENDING, [], ref=ref)
     return {"stories": len(pending), "queued": n_queued, "superseded": len(superseded), "watch": len(new)}
 
 

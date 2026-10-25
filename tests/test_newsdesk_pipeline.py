@@ -414,3 +414,33 @@ def test_watch_signal_wants_news_still_new(stages):
     written.append((sid, 1))
     assert pipeline.run()["notices"]["watch"] == 0
     assert _signals() == [] and db.unsent_notices() == []
+
+
+def test_every_league_gets_its_own_news_pushes(stages, monkeypatch):
+    from ffl import leagues
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+    owners = {None: ({1: {"team_id": ME}}, ME), "espn:999": ({1: {"team_id": 3}}, 3)}  # mine in both
+    monkeypatch.setattr(pipeline, "owners", lambda *, ref=None: owners[ref.key if ref else None])
+    out = pipeline.run()["notices"]
+    assert out["queued"] == 1 and out["leagues"]["espn:999"]["queued"] == 1
+    assert keys() == [f"news:{sid}:1"] and [n["key"] for n in db.unsent_notices(ref=other)] == [f"news:{sid}:1"]
+
+
+def test_another_leagues_owners_failing_never_holds_back_home(stages, monkeypatch):
+    from ffl import leagues
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+
+    def owners(*, ref=None):
+        if ref is not None:
+            raise RuntimeError("espn down")
+        return {1: {"team_id": ME}}, ME
+    monkeypatch.setattr(pipeline, "owners", owners)
+    out = pipeline.run()["notices"]
+    assert out["leagues"]["espn:999"] == {"error": "RuntimeError: espn down"} and keys() == [f"news:{sid}:1"]
+    assert db.get_league_state("news_to_notify", [], ref=other)[0][:2] == [sid, 1], "its revision waits for the next run"
