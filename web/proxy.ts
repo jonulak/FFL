@@ -6,16 +6,18 @@ import { decide, LEAGUE_COOKIE, LEAGUE_HEADER, leagueOf } from "@/lib/league";
 // the last league used, and a league page remembers its league in a cookie (a year: the Home Screen app's memory).
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  const d = decide(pathname, search, request.cookies.get(LEAGUE_COOKIE)?.value ?? null);
+  // a full page load: the browser says so (Sec-Fetch-Dest); one that does not, by asking for HTML. A soft navigation
+  // and a prefetch are fetches (dest "empty"), whose Next headers the proxy never sees.
+  const dest = request.headers.get("sec-fetch-dest");
+  const document = dest ? dest === "document" : (request.headers.get("accept") ?? "").includes("text/html");
+  const d = decide(pathname, search, request.cookies.get(LEAGUE_COOKIE)?.value ?? null, document);
   if (d.redirect) return NextResponse.redirect(new URL(d.redirect, request.url));
   const headers = new Headers(request.headers);
   headers.delete(LEAGUE_HEADER); // only the URL names the league, never a header a client sent
   const league = leagueOf(search);
   if (league) headers.set(LEAGUE_HEADER, league);
   const res = NextResponse.next({ request: { headers } });
-  // a prefetch is not a visit: it must not move the last league used
-  const prefetch = request.headers.get("sec-purpose")?.includes("prefetch");
-  if (d.cookie !== undefined && !prefetch) {
+  if (d.cookie !== undefined) {
     if (d.cookie) res.cookies.set(LEAGUE_COOKIE, d.cookie, { path: "/", maxAge: 365 * 86400, sameSite: "lax" });
     else res.cookies.delete(LEAGUE_COOKIE);
   }

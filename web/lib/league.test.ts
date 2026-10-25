@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decide, leagueOf, tabsFor, withLeague } from "./league";
+import { decide, leagueOf, START_URL, tabsFor, withLeague } from "./league";
 
 const PUB = "espn:950458410";
 
@@ -27,19 +27,29 @@ describe("leagueOf", () => {
 });
 
 describe("decide (the proxy)", () => {
+  const to = `/roster?league=${encodeURIComponent(PUB)}`;
   it("opens the start page on the last league used", () => {
-    expect(decide("/", "", PUB)).toEqual({ redirect: `/roster?league=${encodeURIComponent(PUB)}` });
-    expect(decide("/", "", null)).toEqual({});
-    expect(decide("/", "?week=3", null)).toEqual({});
+    expect(decide("/", "", PUB, true)).toEqual({ redirect: to });
+    expect(decide("/", "", null, true)).toEqual({});
+    expect(decide("/", "?week=3", null, true)).toEqual({});
+  });
+  it("the Home Screen launch (the manifest's start_url) opens the last league used, and forgets nothing", () => {
+    expect(decide(START_URL.split("?")[0], `?${START_URL.split("?")[1]}`, PUB, true)).toEqual({ redirect: to });
+    expect(decide(START_URL.split("?")[0], `?${START_URL.split("?")[1]}`, null, true)).toEqual({});
   });
   it("a league page remembers its league, and home when it names none", () => {
-    expect(decide("/roster", `?league=${PUB}`, null)).toEqual({ cookie: PUB });
-    expect(decide("/players", `?league=${PUB}&pos=WR`, PUB)).toEqual({}); // already remembered
-    expect(decide("/roster", "", PUB)).toEqual({ cookie: null });
-    expect(decide("/team/3", "", null)).toEqual({});
+    expect(decide("/roster", `?league=${PUB}`, null, true)).toEqual({ cookie: PUB });
+    expect(decide("/players", `?league=${PUB}&pos=WR`, PUB, true)).toEqual({}); // already remembered
+    expect(decide("/roster", "", PUB, true)).toEqual({ cookie: null });
+    expect(decide("/team/3", "", null, true)).toEqual({});
+  });
+  it("only a full page load counts: a prefetch or soft navigation neither redirects nor moves the last league", () => {
+    expect(decide("/", "", PUB, false)).toEqual({});
+    expect(decide("/roster", "", PUB, false)).toEqual({});
+    expect(decide("/roster", `?league=${PUB}`, null, false)).toEqual({});
   });
   it("a global page (NFL, News, Settings) leaves the last league alone", () => {
-    for (const p of ["/nfl", "/nfl/8/DET", "/news", "/news/player/1", "/settings", "/plays"]) expect(decide(p, "", PUB)).toEqual({});
+    for (const p of ["/nfl", "/nfl/8/DET", "/news", "/news/player/1", "/settings", "/plays"]) expect(decide(p, "", PUB, true)).toEqual({});
   });
 });
 

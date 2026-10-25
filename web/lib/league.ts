@@ -25,13 +25,22 @@ export function leagueOf(search: string): string | null {
   return new URLSearchParams(search).get(LEAGUE_PARAM) || null;
 }
 
-// What the proxy does with a page request: the start page ("/", the Home Screen launch) opens the last league used;
+// The Home Screen app's launch (app/manifest.ts start_url): home's Roster, marked so the proxy can tell the launch
+// from a link to home's Roster (a push, a tab), which must open home whatever league was used last.
+export const START_URL = "/roster?launch=1";
+
+// What the proxy does with a page request: the start page ("/" and the Home Screen launch) opens the last league used;
 // a league page remembers its league (cookie: the key, null to forget it: home). Undefined fields: nothing to do.
+// Only a full page load (`document`) counts: Next strips its prefetch and RSC headers from the proxy's request, so a
+// soft navigation or a <Link> prefetch would otherwise move the last league, or redirect under the old layout.
 export type ProxyDecision = { redirect?: string; cookie?: string | null };
 
-export function decide(path: string, search: string, cookie: string | null): ProxyDecision {
+export function decide(path: string, search: string, cookie: string | null, document: boolean): ProxyDecision {
+  if (!document) return {};
   const league = leagueOf(search);
-  if (path === "/") return !league && !search && cookie ? { redirect: withLeague("/roster", cookie) } : {};
+  const start = (path === "/" && !search) || `${path}${search}` === START_URL;
+  if (start) return cookie ? { redirect: withLeague("/roster", cookie) } : {};
+  if (path === "/") return {};
   if (!LEAGUE_PAGES.some((p) => path === p || path.startsWith(`${p}/`))) return {};
   if ((league ?? null) === (cookie || null)) return {};
   return { cookie: league };
