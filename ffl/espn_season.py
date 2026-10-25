@@ -890,7 +890,7 @@ def _fetch_box_doc(lg, week: int) -> dict:
     (mMatchupScore + mScoreboard for the week's matchup period, that week's pro games, the positional ratings),
     asked the same way. _parse_box_doc turns it back into the same BoxScores (tests/test_box_doc.py pins it)."""
     period, scoring = lg.currentMatchupPeriod, lg.current_week
-    if week and week <= lg.current_week:
+    if week:  # a week after ESPN's (a league before its first week) is asked as itself too: the current period's sides carry no rosters
         scoring = week
         period = next((mp for mp, weeks in lg.settings.matchup_periods.items() if week in weeks), period)
     filters = {"schedule": {"filterMatchupPeriodIds": {"value": [period]}}}
@@ -954,23 +954,35 @@ def _read_boxes(lg, week: int, finished: bool, epoch: int, ref: leagues.LeagueRe
             raise
         logging.getLogger(__name__).warning("week %s box scores from the stored read (ESPN failed: %s)", week, e)
         return stored, False, finished and final
+    boxes = _parse_box_doc(lg, doc)  # before the store: a read that does not parse is never kept for the next one to trust
     if not finished and _BOXES_EPOCH[0] != epoch:  # a move landed during the fetch: a pre-move read must not be stored as fresh
-        return _parse_box_doc(lg, doc), False, False
+        return boxes, False, False
     try:
         db.put_box_doc(week, doc, box_hash(doc), time.time(), final=finished, ref=ref)
     except db.DBError as e:
         logging.getLogger(__name__).warning("week %s box scores not stored: %s", week, e)
-    return _parse_box_doc(lg, doc), True, finished
+    return boxes, True, finished
 
 
 def _first_week(r: leagues.LeagueRef) -> int:
     """The league's first scoring week (1 unless it was drafted mid-season). Settings that cannot be read
     count as 1, so a league without them reads as it did before the guard."""
     try:
-        return load(r).get("first_week") or 1
+        return load(ref=r).get("first_week") or 1
     except (Exception, SystemExit) as e:  # noqa: BLE001 — the guard must not add a failure path (load exits on missing settings)
         logging.getLogger(__name__).warning("first_week of %s not read, taken as 1: %s", r.key, e)
         return 1
+
+
+def league_week(lg, *, ref: leagues.LeagueRef | None = None) -> int:
+    """The week `ref`'s pages default to: ESPN's current week, or the league's first week while ESPN is still before
+    it (a league drafted mid-season, between its draft and its first week). Home starts at 1: ESPN's week."""
+    return max(lg.current_week, _first_week(_ref(ref)))
+
+
+def league_period(period: int, *, ref: leagues.LeagueRef | None = None) -> int:
+    """ESPN's scoring period (a pending read's) as the league's week, to compare with a page's: league_week's rule."""
+    return max(period, _first_week(_ref(ref)))
 
 
 def box_scores(lg, week: int, *, ref: leagues.LeagueRef | None = None) -> list:
@@ -1386,7 +1398,7 @@ def week_state(week: int | None = None, sources: dict | None = None, season: dic
     r = _ref(ref)
     lg = fresh_league(r)
     settings = load(r)
-    week = week or lg.current_week
+    week = week or league_week(lg, ref=r)
     me = my_team_id(lg, r)
     team = team or me
     boxes = box_scores(lg, week, ref=r)
@@ -1536,7 +1548,7 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
     lr = _ref(ref)  # not `r`: the loops below name their rows that
     lg = fresh_league(lr)
     settings = load(lr)
-    week = week or lg.current_week
+    week = week or league_week(lg, ref=lr)
     # the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`): ROS starts from the first week whose games are not all played
     rw = ros_week_for(lg, week)
     week_over = rw > week
@@ -1814,7 +1826,7 @@ def roster_state(week: int | None = None, sources: dict | None = None, season: d
     r = _ref(ref)
     lg = fresh_league(r)
     settings = load(r)
-    week = week or lg.current_week
+    week = week or league_week(lg, ref=r)
     rw = ros_week_for(lg, week)
     me = my_team_id(lg, r)
     src = sources if sources is not None else weekly_sources(week, settings)

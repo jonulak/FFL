@@ -408,3 +408,36 @@ def test_claims_submit_runs_the_real_fake_store_under_its_league(monkeypatch, cl
     plan = db.claim_plan(6, ref=other)
     assert plan["groups"] == [{"targets": [101], "cuts": [2], "open": 0}] and len(plan["submits"]) == 1
     assert db.claim_plan(6) is None
+
+
+# ffl-soc.4.15: a league before its first week: ESPN's period (7) is behind the page's week (8), the league's first
+def _first_week_8(monkeypatch, writes, other):
+    sent = []
+    writes.period[other.key] = 7
+    monkeypatch.setattr(api.espn_season, "load", lambda *a, ref=None: {"starters": {"RB/WR/TE": 1}, "first_week": 8 if ref == other else 1})
+    monkeypatch.setattr(api.espn_write, "move_lineup", lambda items, week, *, ref=None: sent.append(("lineup", week, ref)))
+    monkeypatch.setattr(api.espn_write, "submit_claim", lambda a, d, week, *, ref=None: sent.append(("claim", week, ref)))
+    return sent
+
+
+def test_lineup_before_the_first_week_writes_espns_period(monkeypatch, client, other, writes):
+    sent = _first_week_8(monkeypatch, writes, other)
+    r = client.post("/lineup?league=espn:999", json=SWAP)
+    assert r.status_code == 200, r.text
+    assert sent == [("lineup", 7, other)], "the body takes ESPN's period, which it wants"
+
+
+def test_claims_submit_before_the_first_week_writes_espns_period(monkeypatch, client, other, writes):
+    sent = _first_week_8(monkeypatch, writes, other)
+    q = {"league": "espn:999"}
+    assert client.post("/claims", params=q, json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]}).status_code == 200
+    r = client.post("/claims/submit", params=q, json={"replace_outside": False, "expect_now": []})
+    assert r.status_code == 200, r.text
+    assert sent == [("claim", 7, other)]
+
+
+def test_home_week_check_is_unchanged(monkeypatch, client, other, writes):
+    _first_week_8(monkeypatch, writes, other)
+    writes.period[leagues.home().key] = 7  # home's page is on 8
+    r = client.post("/lineup", json=SWAP)
+    assert r.status_code == 409 and r.json()["detail"] == {"error": "ESPN's week changed — reload"}

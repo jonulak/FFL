@@ -142,3 +142,14 @@ def test_move_during_fetch_is_not_stored_or_fresh(env, monkeypatch):
     assert db.box_doc(6) is None and env.calls["reconcile"] == 0
     assert espn_season.box_scores(env.lg, 6) == ["pre-move"]
     assert env.calls["fetch"] == 2
+
+
+def test_a_fresh_doc_that_does_not_parse_is_never_stored(env, monkeypatch):
+    """ffl-soc.4.15: a read ESPN answered without rosters raises, and leaves no row for the next read to trust."""
+    def parse(lg, doc):
+        raise KeyError("rosterForCurrentScoringPeriod")
+
+    monkeypatch.setattr(espn_season, "_parse_box_doc", parse)
+    with pytest.raises(KeyError):
+        espn_season.box_scores(env.lg, 7)
+    assert db.box_doc(7) is None

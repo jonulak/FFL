@@ -695,7 +695,7 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
         except espn_write.WriteError as e:
             raise _espn_error(e)
         # ESPN's current scoring period, which is what its write bodies want; the plan's week is the cached pool's
-        if period is not None and period != data["week"]:
+        if period is not None and espn_season.league_period(period, ref=ref) != data["week"]:
             # as /lineup does: drop the cached League and pool, or the reload serves the same old week
             espn_season.refresh_league()
             cache_for(ref).drop("waivers")
@@ -808,7 +808,8 @@ def lineup(body: LineupIn, ref: LeagueRef = Depends(open_league)):
             raise _espn_error(e)
         except Exception as e:  # noqa: BLE001 — the mRoster read
             raise HTTPException(502, {"source": "espn", "error": str(e)})
-        if period is not None and period != data["week"]:
+        # a league before its first week: ESPN's period is behind the page's week, which is the league's first
+        if period is not None and espn_season.league_period(period, ref=ref) != data["week"]:
             # the League is cached up to LEAGUE_TTL_S: drop it and the page, or the Reload rebuilds the same old week
             espn_season.refresh_league()
             c.drop("roster")
@@ -823,7 +824,7 @@ def lineup(body: LineupIn, ref: LeagueRef = Depends(open_league)):
         if items:
             uncertain = False
             try:
-                espn_write.move_lineup(items, data["week"], ref=ref)
+                espn_write.move_lineup(items, data["week"] if period is None else period, ref=ref)  # ESPN's period: what its body wants
             except espn_write.WriteError as e:
                 raise _espn_error(e)
             except requests.RequestException:  # ESPN may have executed it before the connection died

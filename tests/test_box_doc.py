@@ -50,3 +50,22 @@ def test_a_stored_box_doc_parses_back_to_what_espn_api_builds():
 def test_box_hash_ignores_key_order():
     assert espn_season.box_hash({"a": 1, "b": [1, 2]}) == espn_season.box_hash({"b": [1, 2], "a": 1})
     assert espn_season.box_hash({"a": 1}) != espn_season.box_hash({"a": 2})
+
+
+def test_a_week_after_the_current_one_is_asked_as_itself():
+    """A league opened before its first week (ffl-soc.4.15): week 7 while ESPN is on 6 asks period 7 at scoring
+    period 7; asking the current period answers sides without rosters, which do not parse."""
+    lg = _lg()
+    espn_season._fetch_box_doc(lg, FX["current_week"] + 1)
+    params, headers = lg.espn_request.asked[-1]
+    assert params["scoringPeriodId"] == FX["current_week"] + 1
+    assert json.loads(headers["x-fantasy-filter"])["schedule"]["filterMatchupPeriodIds"]["value"] == ["7"]
+
+
+def test_current_and_past_weeks_ask_as_before():
+    for week in (FX["week"], FX["current_week"]):
+        lg = _lg()
+        espn_season._fetch_box_doc(lg, week)
+        params, headers = lg.espn_request.asked[-1]
+        assert params["scoringPeriodId"] == week
+        assert json.loads(headers["x-fantasy-filter"])["schedule"]["filterMatchupPeriodIds"]["value"] == [str(week)]

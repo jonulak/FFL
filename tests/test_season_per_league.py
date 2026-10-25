@@ -493,3 +493,41 @@ def test_correct_boxes_starts_at_first_week(monkeypatch, other):
     read.clear()
     espn_season.correct_boxes(lg)
     assert read == list(range(1, 10))
+
+
+# a league opened before its first week (ffl-soc.4.15): its pages default to that week, never ESPN's earlier one
+def test_league_week_is_the_first_week_until_espn_reaches_it(monkeypatch, other):
+    _first_week(monkeypatch, other, 8)
+    assert espn_season.league_week(NS(current_week=7), ref=other) == 8
+    assert espn_season.league_week(NS(current_week=9), ref=other) == 9
+    assert espn_season.league_week(NS(current_week=7)) == 7, "home starts at 1: ESPN's week"
+    assert espn_season.league_period(7, ref=other) == 8 and espn_season.league_period(7) == 7
+
+
+def _before_first_week(wired, monkeypatch):
+    """other's settings say week 5 while its League (and ESPN) is on 3; every box read logs its week."""
+    asked = []
+    lg = wired.lgs[wired.other.key]
+    real = lg.box_scores
+    lg.box_scores = lambda week: asked.append(week) or real(week)
+    monkeypatch.setitem(OTHER_SET, "first_week", 5)
+    return asked
+
+
+def test_roster_state_defaults_to_the_first_week(wired, monkeypatch):
+    asked = _before_first_week(wired, monkeypatch)
+    out = espn_season.roster_state(snaps={}, ref=wired.other, **NOSRC)
+    assert out["week"] == 5 and out["cards"] and 5 in asked
+    assert espn_season.roster_state(snaps={}, **NOSRC)["week"] == 3, "home: ESPN's week"
+
+
+def test_free_agent_pool_defaults_to_the_first_week(wired, monkeypatch):
+    asked = _before_first_week(wired, monkeypatch)
+    out = espn_season.free_agent_pool(snaps={}, ref=wired.other, **NOSRC)
+    assert out["week"] == 5 and out["roster"] and 5 in asked
+
+
+def test_week_state_defaults_to_the_first_week(wired, monkeypatch):
+    asked = _before_first_week(wired, monkeypatch)
+    st = espn_season.week_state(ref=wired.other, **NOSRC)
+    assert st["week"] == 5 and st["me"]["team_id"] == 3 and 5 in asked
