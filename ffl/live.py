@@ -502,13 +502,14 @@ class Runner(threading.Thread):
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if not first:
             now = datetime.now()
-            entries: dict[int | None, list[dict]] = {}  # the doc's plays per week: every league's is the NFL's
+            # the doc's plays are the NFL's, one table for every league, filed under home's week once: a lane still on
+            # another week (its starters not rolled over) records none of them, or it would refile them under its own
+            nfl_week = self.week
+            entries = playbook.from_fastcast(doc, nfl_week, now) if nfl_week is not None else []
             for lane, before, after in zip(self.lanes, befores, afters):
                 if lane.store is None:
                     continue
-                if lane.week not in entries:
-                    entries[lane.week] = playbook.from_fastcast(doc, lane.week, now)
-                self._feed(lane, before, after, doc, now, stats_before, entries[lane.week])
+                self._feed(lane, before, after, doc, now, stats_before, entries if lane.week == nfl_week else [])
         idle = idle_for(doc)
         if idle is not None:
             self.idle_until = time.time() + idle

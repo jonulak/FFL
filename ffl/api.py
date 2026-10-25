@@ -1679,9 +1679,10 @@ def _roster_job(ref: LeagueRef) -> Callable[[], tuple[list[dict], int]]:
 @app.post("/outlook/refresh", status_code=202)
 def outlook_refresh(league: str | None = Query(None)):
     """The hourly run (launchd/com.jonulak.ffl-outlook): every league in turn, one run, home's cards read first so
-    a failure to read them is this answer's 502; with ?league= only that league."""
+    a failure to read them is this answer's 502. With ?league= only that league, an empty one home's (the Roster
+    page's button, which must not start every league's run)."""
     first = open_league(league)
-    rest = [] if league else [r for r in leagues.all_leagues() if r.key != first.key]
+    rest = [] if league is not None else [r for r in leagues.all_leagues() if r.key != first.key]
     try:
         cards, week = _roster_job(first)()
     except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback

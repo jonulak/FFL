@@ -249,6 +249,9 @@ def test_outlook_refresh_runs_every_league_unless_one_is_named(client, two, othe
     assert home_key is None and other_key == "espn:999" and week == 3, "home's outlooks are stored as before: no ref"
     assert client.post("/outlook/refresh?league=espn:999").status_code == 202
     assert [k for k, _ in runs[-1]] == ["espn:999"]
+    # the Roster page's button names its league, home's as an empty one: only home's cards, as before 4.7
+    assert client.post("/outlook/refresh?league=").status_code == 202
+    assert [k for k, _ in runs[-1]] == [None]
 
 
 def test_refresh_other_league(monkeypatch, client, other):

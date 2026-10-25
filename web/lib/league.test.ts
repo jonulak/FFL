@@ -12,6 +12,10 @@ describe("withLeague", () => {
     expect(withLeague("/roster", PUB)).toBe(`/roster?league=${encodeURIComponent(PUB)}`);
     expect(withLeague("/players?pos=WR&f=", PUB)).toBe(`/players?pos=WR&f=&league=${encodeURIComponent(PUB)}`);
   });
+  it("an empty league (a call naming home) stays on home and takes another league's place off home", () => {
+    expect(withLeague("/outlook/refresh?league=", null)).toBe("/outlook/refresh?league=");
+    expect(withLeague("/outlook/refresh?league=", PUB)).toBe(`/outlook/refresh?league=${encodeURIComponent(PUB)}`);
+  });
   it("replaces a league already there and keeps a hash", () => {
     expect(withLeague("/players?league=espn%3A1&pos=QB#top", PUB)).toBe(`/players?pos=QB&league=${encodeURIComponent(PUB)}#top`);
   });

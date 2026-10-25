@@ -16,7 +16,8 @@ export function OutlookButton({ running }: { running: boolean }) {
   async function go() {
     setBusy(true);
     try {
-      await clientPost<OutlookStarted>("/outlook/refresh");
+      // named, home as an empty league (api-client puts another league in its place): a bare call is launchd's, every league
+      await clientPost<OutlookStarted>("/outlook/refresh?league=");
       toast("writing — reload in a few minutes");
       router.refresh();
     } catch (e) {

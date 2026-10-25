@@ -540,3 +540,32 @@ def test_a_change_in_another_leagues_points_ticks_the_version():
     assert st.version == v
     st.update({1: 2.0}, others={"espn:999": ({1: 1.5}, 7)})
     assert st.version == v + 1 and st.points_for("espn:999") == {1: 1.5}
+
+
+def test_a_lane_a_week_behind_never_files_the_nfl_plays_under_its_week(monkeypatch):
+    """The plays are the NFL's, one table for every league: a league whose starters did not roll over yet (its
+    refresh failing at the rollover) must not rewrite this week's plays under last week's number."""
+    from ffl import playbook, plays
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    monkeypatch.setattr(playbook, "from_fastcast", lambda doc, week, now: [{"play_id": "p1", "week": week}])
+    monkeypatch.setattr(plays, "events_from", lambda *a, **k: [])
+    recorded = {}
+
+    class Rec:
+        def __init__(self, key):
+            self.key = key
+
+        def record(self, entries, *a, **k):
+            recorded.setdefault(self.key, []).extend(entries)
+
+        def add(self, rows):
+            pass
+
+    other = _other()
+    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 8, "games": []},
+                    leagues=[(other, STANDARD, lambda: {"week": 7, "games": []})])
+    r._on_doc(copy.deepcopy(FIX))  # the baseline
+    r.store, r.lane(other.key).store = Rec("home"), Rec("other")
+    r._on_doc(copy.deepcopy(FIX))
+    assert recorded["home"] == [{"play_id": "p1", "week": 8}]
+    assert recorded.get("other", []) == [], "a week behind: none of the NFL's plays under week 7"
