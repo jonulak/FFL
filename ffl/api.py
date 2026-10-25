@@ -332,6 +332,23 @@ def open_league(league: str | None = Query(None)) -> LeagueRef:
         raise HTTPException(status_code=404, detail={"error": "unknown_league", "league": league}) from None
 
 
+# The pages another league opens until its features are generalized (ffl-soc.4.13; 4.9 opens the rest): the web
+# reads this, it decides nothing itself. None: every page (home).
+OTHER_LEAGUE_PAGES = ["roster", "players"]
+PROVIDERS = {"espn": "ESPN"}
+
+
+def _league_format(ref: LeagueRef) -> str | None:
+    """'2QB · 10 teams' for the switcher; None when the league's settings cannot be read."""
+    try:
+        s = espn_season.load(ref=ref)
+        qbs = "2QB" if s["starters"].get("QB", 1) > 1 or "OP" in s["starters"] else "1QB"  # board.is_multi_qb
+        return f"{qbs} · {s['team_count']} teams"
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — load exits on missing settings; the switcher still lists him
+        log.warning("format of %s not read: %s", ref.key, e)
+        return None
+
+
 def _not_for_league(ref: LeagueRef, feature: str) -> None:
     """404 for a feature that is home's alone until its own task makes it per league."""
     if not ref.home:
@@ -439,6 +456,13 @@ def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: L
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/leagues")
+def league_list():
+    """Every registered league, home first: the switcher's rows (name · provider · format) and the pages each opens."""
+    return [{"key": r.key, "name": r.name, "provider": PROVIDERS.get(r.provider, r.provider), "format": _league_format(r),
+             "home": r.home, "pages": None if r.home else OTHER_LEAGUE_PAGES} for r in leagues.all_leagues()]
 
 
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---

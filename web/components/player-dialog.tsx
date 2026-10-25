@@ -16,6 +16,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Decision, OppRank, PlayerLog, PlayerNews, PlayerTx, SeasonLog, SeasonTotals, WeekLog } from "@/lib/api";
 import { reasonText } from "@/lib/decisions";
+import { withLeague } from "@/lib/league";
+import { useOpenLeague } from "./league-context";
 import { recentFor } from "@/lib/news";
 import { ordinal, pts } from "@/lib/format";
 import { cells, columns, hasSnaps, NAME_LINK, ptsText, seasonPts, seasonRank, weekLabel } from "@/lib/player-log";
@@ -219,6 +221,7 @@ export function PlayerRecord({ load, retry, fetch, className = "" }: { load: Loa
 // Decisions page (which closes the modal). Never decided on: no section.
 function Decisions({ rows }: { rows: Decision[] }) {
   const presets = usePresets();
+  const { home } = useOpenLeague();
   return (
     <section aria-labelledby="season-decisions" className="log-in space-y-1.5 px-4 pt-2 pb-5">
       <Heading id="season-decisions" title="Decisions" note={String(rows.length)} />
@@ -229,7 +232,9 @@ function Decisions({ rows }: { rows: Decision[] }) {
           return (
             <li key={d.id} className="flex items-start gap-3 py-2.5">
               <div className="min-w-0 flex-1">
-                <DialogClose nativeButton={false} render={<Link href={to} />} className={`block rounded-sm text-left font-medium leading-snug outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${NAME_LINK}`}>{d.title}</DialogClose>
+                {home
+                  ? <DialogClose nativeButton={false} render={<Link href={to} />} className={`block rounded-sm text-left font-medium leading-snug outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${NAME_LINK}`}>{d.title}</DialogClose>
+                  : <p className="font-medium leading-snug">{d.title}</p>}
                 {d.rationale == null
                   ? <Badge variant="warn" className="mt-0.5">Needs a reason</Badge>
                   : reason && <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{reason}</p>}
@@ -248,17 +253,18 @@ function Decisions({ rows }: { rows: Decision[] }) {
 // week, and beneath it the other half of the pair, or where the pick fell. Undrafted and never
 // moved: no section.
 function History({ moves }: { moves: PlayerTx[] }) {
+  const open = useOpenLeague();
   return (
     <section aria-labelledby="season-moves" className="log-in space-y-1.5 px-4 pt-2 pb-5">
       <Heading id="season-moves" title="Transactions" note={String(moves.length)} />
       <ul className="divide-y divide-foreground/10">
         {moves.map((h) => {
-          const href = teamHref(h.team_id);
+          const href = open.home ? teamHref(h.team_id) : null;
           const detail = historyDetail(h);
           const name = <span className="truncate">{h.team.trim()}</span>;
           return (
             <li key={`${h.id}-${h.team_id}`} className="flex items-center gap-3 py-2.5">
-              <ClubLogo src={clubLogoSrc(h)} abbrev={h.abbrev || h.team} size={32} className="shrink-0" />
+              <ClubLogo src={withLeague(clubLogoSrc(h), clubLogoSrc(h).startsWith("/api/") ? open.key : null)} abbrev={h.abbrev || h.team} size={32} className="shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="flex min-w-0 items-center font-display text-[1.0625rem] font-semibold leading-tight tracking-tight">
                   {href

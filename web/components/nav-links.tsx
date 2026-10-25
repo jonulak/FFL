@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { tabsFor } from "@/lib/league";
 import { useDecisionPrefs } from "./decision-prefs";
 
 const LINKS = [["/", "Matchup"], ["/roster", "Roster"],["/league", "League"], ["/nfl", "NFL"], ["/transactions", "Transactions"], ["/players", "Players"], ["/news", "News"], ["/decisions", "Decisions"]] as const;
@@ -17,8 +18,9 @@ const activeOf = (path: string) => LINKS.find(([href]) => (href === "/" ? path =
 // The page tabs, set like the chyron of a broadcast board: shadcn Tabs in the line variant, each tab a Link
 // (pos-tabs' pattern). The strip lives in the layout, so a page change keeps it mounted and Base UI's
 // indicator slides from the tab left to the one arrived at. On a phone the strip scrolls and fades at its
-// right edge; the current tab is brought into view on arrival.
-export function NavLinks() {
+// right edge; the current tab is brought into view on arrival. Another league (`league`) shows only its `pages`,
+// each link naming it (lib/league.ts tabsFor); home passes nulls and gets every tab, as before.
+export function NavLinks({ pages = null, league = null }: { pages?: string[] | null; league?: string | null }) {
   const path = usePathname();
   const active = activeOf(path);
   const [tapped, setTapped] = useState<string | null>(null);
@@ -39,12 +41,12 @@ export function NavLinks() {
       <Tabs value={tapped ?? active} onValueChange={(v, { event }) => { if (!newTab(event)) setTapped(v as string); }} className="-mx-1 min-w-0 flex-1">
         <TabsList variant="line" indicatorInset="0.625rem"
           className="h-full w-full group-data-horizontal/tabs:h-full justify-start gap-0 overflow-x-auto overflow-y-hidden px-1 py-0 [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)] sm:[mask-image:none]">
-          {LINKS.filter(([href]) => page || href !== "/decisions").map(([href, label]) => (
+          {tabsFor(LINKS, pages, league).filter(([href]) => page || href !== "/decisions").map(([href, label, to]) => (
             <TabsTrigger
               key={href}
               value={href}
               nativeButton={false}
-              render={<Link href={href} ref={href === active ? current : undefined} aria-current={href === active ? "page" : undefined} />}
+              render={<Link href={to} ref={href === active ? current : undefined} aria-current={href === active ? "page" : undefined} />}
               className="h-full flex-none rounded-none border-0 px-2.5 font-display text-[0.9375rem] font-semibold uppercase tracking-[0.12em] text-foreground/55 hover:text-foreground/85 data-active:text-foreground dark:text-foreground/55 dark:hover:text-foreground/85 dark:data-active:text-foreground"
             >
               {label}

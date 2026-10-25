@@ -27,6 +27,7 @@ import { statusTag } from "@/lib/claims";
 import { SLOT_LABEL } from "@/lib/board";
 import { isFreeAgent, ownerLabel, rowKind } from "@/lib/players";
 import { TeamLink } from "./team-link";
+import { useOpenLeague } from "./league-context";
 import { useReorder } from "./motion";
 import { Hint } from "./hint";
 import { usePlayerView } from "./player-view-context";
@@ -195,10 +196,18 @@ function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
 
 // Another team's player, where a free agent's claim control sits: the team's abbreviation,
 // opening its roster. The full name rides the hover.
+// A free agent's outlook (and the dot before it): home's alone, the API refuses another league's (4.7).
+function OutlookDot({ r, dot = false }: { r: Parameters<typeof WaiverOutlookButton>[0]["r"]; dot?: boolean }) {
+  const { home } = useOpenLeague();
+  if (!home) return null;
+  return <>{dot && <span aria-hidden>·</span>}<WaiverOutlookButton r={r} /></>;
+}
+
 function OwnerChip({ owner }: { owner: Owner }) {
+  const { home } = useOpenLeague();
   return (
     <span title={owner.name ?? undefined}>
-      <TeamLink id={owner.team_id} className="font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <TeamLink linked={home} id={owner.team_id} className="font-display text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {ownerLabel(owner)}
       </TeamLink>
     </span>
@@ -271,13 +280,13 @@ function columns(week: number, showPos: boolean, cols: string[]): Col[] {
           {r.would_start && <Badge variant="start" shape="chip">{free ? "start" : "would start"} {signed(r.week_delta ?? 0)}</Badge>}
           {free && <PoolTag r={r} />}
         </>} tail={kind !== "mine" && <span className={`contents ${CLAIM_COL}`}>
-          {free && <><span aria-hidden>·</span><WaiverOutlookButton r={r} /></>}
+          {free && <OutlookDot r={r} dot />}
           <WatchStar id={r.player_id} name={r.name} className="ml-0.5" />
         </span>}
         actions={kind !== "mine" && <>
           <WatchStar id={r.player_id} name={r.name} />
           {free
-            ? <><WaiverOutlookButton r={r} /><ClaimControl id={r.player_id} name={r.name} /></>
+            ? <><OutlookDot r={r} /><ClaimControl id={r.player_id} name={r.name} /></>
             : r.owner && <OwnerChip owner={r.owner} />}
         </>} />
       );

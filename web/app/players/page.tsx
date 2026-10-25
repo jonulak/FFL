@@ -18,7 +18,7 @@ import { Presence, Refade } from "@/components/motion";
 
 export const dynamic = "force-dynamic";
 
-type Search = { pos?: string; q?: string; fa?: string; preset?: string; cols?: string; sort?: string; f?: string | string[]; watch?: string };
+type Search = { league?: string; pos?: string; q?: string; fa?: string; preset?: string; cols?: string; sort?: string; f?: string | string[]; watch?: string };
 const KEYS = ["q", "pos", "fa", "preset", "cols", "sort"] as const;
 
 // A saved view of every player in the league (ffl-8iz): `?preset=` names it and the rest of the URL
@@ -56,7 +56,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
     opponent: r.opponent, home: r.home, kickoff: r.kickoff, bye: r.bye, game: r.game, injury: r.injury, injury_note: r.injury_note, return_week: r.return_week,
   }));
   const table = (
-    <PlayerViewProvider applied={data.view} presets={data.presets} defaultId={data.default} q={q} capped={data.capped}>
+    <PlayerViewProvider league={sp.league || null} applied={data.view} presets={data.presets} defaultId={data.default} q={q} capped={data.capped}>
       <div className="min-w-0 space-y-3">
         {/* phone: the field, then the Free agents toggle, over the tabs; from `sm` the toggle and the
             field close the tab strip's line, one hairline under all three */}

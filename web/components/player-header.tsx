@@ -12,6 +12,8 @@ import { headshotArt, logoArt, team } from "@/lib/teams";
 import { ClubLogo } from "./club-logo";
 import { GameLine } from "./local-time";
 import { WatchStar } from "./watch-star";
+import { useOpenLeague } from "./league-context";
+import { withLeague } from "@/lib/league";
 
 /* eslint-disable @next/next/no-img-element -- ESPN's CDN, as player-media.tsx */
 
@@ -110,14 +112,15 @@ export function PlayerHeader({ p, week, rank, jersey, rostered }: {
 // The fantasy side of the strip, trailing to its right end: the club's mark and name, linked to its roster, my own
 // in the foreground; "Free agent" when nobody holds him.
 function RosteredOn({ r }: { r: Rostered }) {
+  const open = useOpenLeague();
   if (!r.owner) return <span className="ml-auto shrink-0 whitespace-nowrap">Free agent</span>;
   const o = r.owner;
   const name = o.name || o.abbrev || `Team ${o.team_id}`;
-  const href = teamHref(o.team_id);
+  const href = open.home ? teamHref(o.team_id) : null;
   const label = <span className="truncate">{name}</span>;
   return (
     <span className={`ml-auto flex min-w-0 max-w-[60%] items-center gap-1.5 ${r.mine ? "font-medium text-foreground" : ""}`}>
-      <ClubLogo src={`/api/logo/${o.team_id}`} abbrev={o.abbrev || name} size={16} />
+      <ClubLogo src={withLeague(`/api/logo/${o.team_id}`, open.key)} abbrev={o.abbrev || name} size={16} />
       <span className="sr-only">Rostered by </span>
       {href
         ? <DialogClose nativeButton={false} render={<Link href={href} />} className={`min-w-0 truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${NAME_LINK}`}>{label}</DialogClose>

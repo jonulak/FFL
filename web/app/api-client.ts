@@ -1,6 +1,7 @@
 "use client";
 
 import { apiErrorMessage } from "@/lib/api-error";
+import { leagueOf, withLeague } from "@/lib/league";
 
 // Same ceiling as lib/api.ts, redeclared so the client bundle does not pull in the server module.
 const API_TIMEOUT_MS = 20_000;
@@ -13,15 +14,19 @@ export class ClientError extends Error {
   }
 }
 
+// The open league is the page's (?league= in its URL, lib/league.ts): every call names it, so a move, a claim or a
+// refetch on another league's page never lands on home's. Global routes ignore the parameter.
+const leagued = (path: string) => withLeague(path, typeof window === "undefined" ? null : leagueOf(window.location.search));
+
 // Browser-side calls go through Next's /api rewrite, never to :8300 directly.
 export async function clientGet<T>(path: string): Promise<T> {
-  const r = await fetch(`/api${path}`, { cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
+  const r = await fetch(`/api${leagued(path)}`, { cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   return (await r.json()) as T;
 }
 
 export async function clientPost<T>(path: string, body: unknown = {}, timeoutMs = API_TIMEOUT_MS): Promise<T> {
-  const r = await fetch(`/api${path}`, {
+  const r = await fetch(`/api${leagued(path)}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

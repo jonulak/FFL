@@ -22,6 +22,8 @@ import { PlayerTrigger } from "./player-dialog";
 import { TeamPanel } from "./player-media";
 import { SectionHeading } from "./section-heading";
 import { TeamLink } from "./team-link";
+import { useOpenLeague } from "./league-context";
+import { withLeague } from "@/lib/league";
 import { useWatch } from "./watch-context";
 import { WatchStar } from "./watch-star";
 
@@ -63,6 +65,7 @@ function Chip({ c }: { c: WatchChip }) {
 }
 
 function Row({ p, onToggle }: { p: WatchRow; onToggle: (on: boolean) => void }) {
+  const { home } = useOpenLeague();
   const elsewhere = p.owner != null;
   const up = !elsewhere && (p.add ?? 0) > 0;
   return (
@@ -83,7 +86,7 @@ function Row({ p, onToggle }: { p: WatchRow; onToggle: (on: boolean) => void }) 
             // the owner takes his own line on the phone, where it would wrap anyway
             <span className="whitespace-nowrap max-sm:basis-full">
               <span aria-hidden className="mr-1.5 max-sm:hidden">·</span>
-              <TeamLink id={p.owner.team_id} className="text-foreground/80">{p.owner.name}</TeamLink>
+              <TeamLink linked={home} id={p.owner.team_id} className="text-foreground/80">{p.owner.name}</TeamLink>
             </span>
           )}
         </p>
@@ -142,6 +145,7 @@ function Group({ title, note, count, children }: { title: string; note?: string 
 }
 
 export function WatchList({ initial }: { initial: WatchPage }) {
+  const open = useOpenLeague();
   const [data, setData] = useState(initial);
   const [seen, setSeen] = useState(initial);
   if (seen !== initial) {
@@ -203,7 +207,7 @@ export function WatchList({ initial }: { initial: WatchPage }) {
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-              <Link href="/players" className={buttonVariants({ variant: "outline", size: "sm" })}>Browse players</Link>
+              <Link href={withLeague("/players", open.key)} className={buttonVariants({ variant: "outline", size: "sm" })}>Browse players</Link>
             </EmptyContent>
           </Empty>
         </CardContent>

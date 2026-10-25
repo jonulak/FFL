@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Barlow_Condensed, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { DecisionPrefsProvider } from "@/components/decision-prefs";
+import { LeagueProvider } from "@/components/league-context";
 import { Nav } from "@/components/nav";
 import { PageTransition } from "@/components/page-transition";
 import { PlayerDialogProvider } from "@/components/player-dialog";
@@ -9,7 +10,10 @@ import { SwRegister } from "@/components/sw-register";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WatchProvider } from "@/components/watch-context";
-import { apiGet, DEFAULT_DECISION_PREFS, type DecisionPrefs, type WatchIds } from "@/lib/api";
+import { headers } from "next/headers";
+import { apiGet, type DecisionPrefs, type LeagueEntry, type WatchIds } from "@/lib/api";
+import { LEAGUE_HEADER } from "@/lib/league";
+import { DEFAULT_DECISION_PREFS } from "@/lib/decisions";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -24,10 +28,15 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // every page renders under this layout: an API that cannot answer leaves the switches at their defaults, never an error
   // and the watched players' ids, so a star draws filled on the first paint; unread, every star starts empty
-  const [prefs, watched] = await Promise.all([
+  // the leagues for the switcher, and the one this document's URL names (web/proxy.ts: its header); every call here
+  // reads that league, and a switch is a full load, so the layout never shows another league's stars or switches
+  const [prefs, watched, all, open] = await Promise.all([
     apiGet<DecisionPrefs>("/decisions/prefs").catch(() => DEFAULT_DECISION_PREFS),
     apiGet<WatchIds>("/watch/ids").catch((): WatchIds => ({ ids: [] })),
+    apiGet<LeagueEntry[]>("/leagues").catch((): LeagueEntry[] => []),
+    headers().then((h) => h.get(LEAGUE_HEADER)),
   ]);
+  const league = all.find((l) => (open ? l.key === open : l.home)) ?? null;
   // The font variables belong on <html>: globals.css applies `font-sans` there, and
   // `--font-sans` has to be defined on the same element or above it.
   return (
@@ -38,11 +47,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <TooltipProvider delay={400}>
           <DecisionPrefsProvider prefs={prefs}>
             <WatchProvider ids={watched.ids}>
+              <LeagueProvider league={league && !league.home ? league.key : null}>
               <PlayerDialogProvider>
-                <Nav />
+                <Nav leagues={all} league={league} />
                 {/* one 64rem column on every page, the nav's width; the Players page's claims dock stands outside it */}
                 <main className="mx-auto max-w-5xl px-3 py-4"><PageTransition>{children}</PageTransition></main>
               </PlayerDialogProvider>
+              </LeagueProvider>
             </WatchProvider>
           </DecisionPrefsProvider>
         </TooltipProvider>

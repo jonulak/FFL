@@ -441,3 +441,24 @@ def test_home_week_check_is_unchanged(monkeypatch, client, other, writes):
     writes.period[leagues.home().key] = 7  # home's page is on 8
     r = client.post("/lineup", json=SWAP)
     assert r.status_code == 409 and r.json()["detail"] == {"error": "ESPN's week changed — reload"}
+
+
+# the league switcher (ffl-soc.4.13): every registered league with its format, and the pages it opens on
+def test_leagues_lists_every_league_home_first(monkeypatch, client, other):
+    two, one = {"starters": {"QB": 2, "RB": 2}, "team_count": 10}, {"starters": {"QB": 1, "RB": 2}, "team_count": 12}
+    monkeypatch.setattr(api.espn_season, "load", lambda ref=None: one if ref is not None and ref.key == other.key else two)
+    rows = client.get("/leagues").json()
+    assert [r["key"] for r in rows] == [leagues.home().key, "espn:999"]
+    home, them = rows
+    assert home["home"] is True and home["pages"] is None, "home opens every page"
+    assert (home["provider"], home["format"]) == ("ESPN", "2QB · 10 teams")
+    assert them == {"key": "espn:999", "name": "other", "provider": "ESPN", "format": "1QB · 12 teams", "home": False,
+                    "pages": ["roster", "players"]}
+
+
+def test_leagues_survives_unreadable_settings(monkeypatch, client, other):
+    def broken(ref=None):
+        raise SystemExit("no settings")
+    monkeypatch.setattr(api.espn_season, "load", broken)
+    rows = client.get("/leagues").json()
+    assert [r["format"] for r in rows] == [None, None]

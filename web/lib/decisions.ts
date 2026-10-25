@@ -1,4 +1,7 @@
-import type { Decision, DecisionRef, Presets } from "./api";
+import type { Decision, DecisionPrefs, DecisionRef, Presets } from "./api";
+
+// Settings' decision switches before the API answers (or when it cannot): recording and the page both on
+export const DEFAULT_DECISION_PREFS: DecisionPrefs = { log: true, page: true };
 
 export const KIND_LABEL: Record<string, string> = { lineup: "Lineup", sit: "Sit", unsit: "Unsit", claims: "Claims",
   free_add: "Add", trade: "Trade", draft: "Draft", note: "Note" };

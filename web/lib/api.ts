@@ -1,4 +1,11 @@
+import { headers } from "next/headers";
+import { LEAGUE_HEADER, withLeague } from "./league";
+
 export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
+
+// GET /leagues (ffl-soc.4.13): the switcher's rows, home first. `pages`: the tabs another league opens until its
+// features are generalized (null: every page); `format` null when its settings could not be read.
+export type LeagueEntry = { key: string; name: string; provider: string; format: string | null; home: boolean; pages: string[] | null };
 
 // The API is loopback FastAPI; anything slower than this is a hung ESPN call, and a server
 // component must not hold the page open waiting for it.
@@ -357,10 +364,20 @@ export function unreachable(e: unknown): never {
   throw new ApiError(0, "api", `cannot reach the API: ${detail}`);
 }
 
+// The page's league (web/proxy.ts copies its ?league= into a request header) on every server call, so a page and the
+// layout above it read the same league. Outside a request (a test), or with no league named: home, the path as it was.
+async function leagued(path: string): Promise<string> {
+  try {
+    return withLeague(path, (await headers()).get(LEAGUE_HEADER));
+  } catch {
+    return path;
+  }
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   let r: Response;
   try {
-    r = await fetch(`${API_BASE}${path}`, { cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
+    r = await fetch(`${API_BASE}${await leagued(path)}`, { cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
   } catch (e) {
     unreachable(e);
   }
@@ -370,7 +387,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   let r: Response;
   try {
-    r = await fetch(`${API_BASE}${path}`, {
+    r = await fetch(`${API_BASE}${await leagued(path)}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
       cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS),
     });
@@ -407,4 +424,3 @@ export type WatchPage = {
 
 // The Settings switches (GET/POST /decisions/prefs): `log` records the app's moves and asks why; `page` shows the Decisions page.
 export type DecisionPrefs = { log: boolean; page: boolean };
-export const DEFAULT_DECISION_PREFS: DecisionPrefs = { log: true, page: true };

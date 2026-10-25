@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { createContext, useContext, useState, useTransition, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, useTransition, type ReactNode } from "react";
 import type { PlayerView, Preset, ResolvedView, ViewSort } from "@/lib/api";
-import { isModified, playersHref, POSITIONS, WATCH } from "@/lib/player-view";
+import { withLeague } from "@/lib/league";
+import { isModified, playersHref as viewHref, POSITIONS, WATCH } from "@/lib/player-view";
 import { PosTabs } from "./pos-tabs";
 
 // The Players view the page is showing (ffl-8iz): the preset it starts from, the view as the API applied
@@ -12,17 +13,20 @@ import { PosTabs } from "./pos-tabs";
 // (history.replaceState, which Next keeps useSearchParams in step with) without a fetch, except on a
 // capped view (see setSortLocal).
 type Ctx = {
-  q: string; presetId: string; preset: Preset; presets: Preset[]; defaultId: string;
+  q: string; league: string | null; presetId: string; preset: Preset; presets: Preset[]; defaultId: string;
   view: PlayerView; modified: boolean; pending: boolean;
   // base: the saved preset to diff against, when the provider's copy is behind (just saved, just created)
   go: (view: PlayerView, opts?: { presetId?: string; q?: string; base?: PlayerView }) => void;
   setSortLocal: (sort: ViewSort) => void;
+  // a Players address for this view, naming the open league (lib/league.ts): every tab, search and sort keeps it
+  playersHref: typeof viewHref;
 };
 const C = createContext<Ctx | null>(null);
 
-export function PlayerViewProvider({ applied, presets, defaultId, q, capped = false, children }: {
-  applied: ResolvedView; presets: Preset[]; defaultId: string; q: string; capped?: boolean; children: ReactNode;
+export function PlayerViewProvider({ applied, presets, defaultId, q, league = null, capped = false, children }: {
+  applied: ResolvedView; presets: Preset[]; defaultId: string; q: string; league?: string | null; capped?: boolean; children: ReactNode;
 }) {
+  const playersHref = useCallback<typeof viewHref>((...a) => withLeague(viewHref(...a), league), [league]);
   const router = useRouter();
   const [pending, start] = useTransition();
   const strip = ({ pos, fa, cols, filters, sort }: PlayerView): PlayerView => ({ pos, fa, cols, filters, sort });
@@ -48,7 +52,7 @@ export function PlayerViewProvider({ applied, presets, defaultId, q, capped = fa
     window.history.replaceState(null, "", playersHref(q, preset.id, next, preset));
   };
   return (
-    <C.Provider value={{ q, presetId: preset.id, preset, presets, defaultId, view, modified: isModified(view, preset), pending, go, setSortLocal }}>
+    <C.Provider value={{ q, league, playersHref, presetId: preset.id, preset, presets, defaultId, view, modified: isModified(view, preset), pending, go, setSortLocal }}>
       {children}
     </C.Provider>
   );
@@ -64,7 +68,7 @@ export function usePlayerView(): Ctx {
 // columns, filters, sort) while dropping the search, as a tab tap always has. Watch, last, opens the watch list in
 // the table's place and keeps the view for the tap back to a position.
 export function PlayerPosTabs({ active }: { active: string | null }) {
-  const { presetId, preset, view } = usePlayerView();
+  const { presetId, preset, view, playersHref } = usePlayerView();
   const hrefFor = (p: string) => p === WATCH ? `${playersHref("", presetId, view, preset)}&watch=1` : playersHref("", presetId, { ...view, pos: p }, preset);
   return <PosTabs active={active} base="/players" positions={[...POSITIONS, WATCH]} hrefFor={hrefFor} />;
 }

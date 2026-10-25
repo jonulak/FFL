@@ -6,7 +6,8 @@ import { clientPost } from "@/app/api-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { DEFAULT_DECISION_PREFS, type DecisionPrefs } from "@/lib/api";
+import type { DecisionPrefs } from "@/lib/api";
+import { DEFAULT_DECISION_PREFS } from "@/lib/decisions";
 import { Swap } from "./motion";
 
 // The Settings switches, read once by the layout and handed to every page: the nav's Decisions tab, the player

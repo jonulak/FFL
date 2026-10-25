@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Kbd } from "@/components/ui/kbd";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
-import { playersHref } from "@/lib/player-view";
 import { usePlayerView } from "./player-view-context";
 
 const DEBOUNCE_MS = 250;
@@ -17,7 +16,7 @@ const DEBOUNCE_MS = 250;
 // `/` focuses the field from anywhere on the page that is not itself a field; Esc clears it.
 export function WaiverSearch({ q }: { q: string }) {
   const router = useRouter();
-  const { presetId, view, preset } = usePlayerView();
+  const { presetId, view, preset, playersHref } = usePlayerView();
   const [value, setValue] = useState(q);
   const [pending, startTransition] = useTransition();
   const input = useRef<HTMLInputElement>(null);
@@ -35,7 +34,7 @@ export function WaiverSearch({ q }: { q: string }) {
     if (value.trim() === q.trim()) return;
     const t = setTimeout(() => startTransition(() => router.replace(playersHref(value, presetId, view, preset), { scroll: false })), DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [value, q, presetId, view, preset, router]);
+  }, [value, q, presetId, view, preset, router, playersHref]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
