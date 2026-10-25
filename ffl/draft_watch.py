@@ -783,9 +783,29 @@ def run(once: bool = False):
         time.sleep(POLL_S)
 
 
+def store_espn_draft(ref) -> int:
+    """Store a finished draft from ESPN's own record under `ref`, for a league drafted without the watcher.
+    ESPN keeps no pick times and the board never saw it, so ts and the board columns stay None."""
+    from . import espn_season
+    if not fetch_picks(ref)["drafted"]:
+        raise SystemExit(f"{ref.key}: ESPN says the draft is not finished; nothing stored")
+    picks = config.league(ref).draft
+    info = espn_season.tx_player_info({p.playerId for p in picks})
+    rows = [{"overall": i, "round": p.round_num, "pick": p.round_pick, "team_id": p.team.team_id,
+             "team": p.team.team_name, "player_id": p.playerId, "player": p.playerName,
+             "pos": info.get(p.playerId, {}).get("pos"), "nfl": info.get(p.playerId, {}).get("team"),
+             "adp_2qb": None, "board_rank_at_pick": None, "proj": None, "ts": None}
+            for i, p in enumerate(picks, 1)]
+    db.put_picks(rows, ref=ref)
+    return len(rows)
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "socket"
-    if cmd == "once":
+    if cmd == "store":
+        ref = leagues.current()
+        print(f"{ref.key}: stored {store_espn_draft(ref)} picks")
+    elif cmd == "once":
         run(once=True)
     elif cmd == "rest":
         run()

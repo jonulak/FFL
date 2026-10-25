@@ -32,6 +32,7 @@ uv run python -m ffl.ffc fetch         # FantasyFootballCalculator 10-team 2QB d
 uv run python -m ffl.practice 4        # start a League Specific Practice Draft from slot 4 (see journal/PRACTICE_DRAFT.md)
 uv run python -m ffl.autodraft q.txt   # draft from a written queue (practice runs; --live to arm it for real)
 uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanity check only)
+FFL_LEAGUE=<key> uv run python -m ffl.draft_watch store   # a finished draft nobody watched: ESPN's own record -> that league's draft_picks (no pick times; once)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results into the DB
 uv run python -m ffl.playbook backfill 1-6   # finished weeks' NFL plays from ESPN's drives, and their called-back rows (the tick keeps new games current)
 uv run python -m ffl.newsdesk run      # one news-desk run (collect, tag, write, queue pushes); seed / status (launchd POSTs /news/run every 10 min)
