@@ -24,7 +24,7 @@ from .flight import Flight
 from . import config
 from .config import SEASON, cookies, league, raw_league_get
 from .players import fetch_pool
-from .settings import key_scoring, load
+from .settings import load, rescoring
 from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
 
 SLEEPER_WEEK = "https://api.sleeper.app/projections/nfl/{season}/{week}"
@@ -462,7 +462,7 @@ def parse_sleeper_rows(rows: list[dict], ks: dict) -> dict[tuple[str, str], floa
         elif pos == "K":
             out[(norm_name(f"{pl.get('first_name','')} {pl.get('last_name','')}"), "K")] = float(st.get("pts_std") or 0)
         else:
-            out[(norm_name(f"{pl.get('first_name','')} {pl.get('last_name','')}"), pos)] = round(score(st, ks), 1)
+            out[(norm_name(f"{pl.get('first_name','')} {pl.get('last_name','')}"), pos)] = round(score(st, ks[pos]), 1)
     return out
 
 
@@ -491,7 +491,7 @@ WEEKLY_SOURCES = {"cbs": cbs.fetch_week, "sharks": sharks.fetch_week, "fleaflick
 
 def weekly_sources(week: int, settings: dict) -> dict[str, dict[tuple[str, str], float]]:
     """Every weekly source's projections for the week, fetched together (each cached; a failed one is {})."""
-    ks = key_scoring(settings["scoring"])
+    ks = rescoring(settings)
     with ThreadPoolExecutor(len(WEEKLY_SOURCES) + 1) as pool:
         sl = pool.submit(_sleeper_for, week, settings)
         rest = {name: pool.submit(fn, week, ks) for name, fn in WEEKLY_SOURCES.items()}
@@ -683,7 +683,7 @@ def season_lookup(settings: dict, week: int, ref=None) -> dict[int, dict]:
         return hit[1]
     # four independent sources of one to four seconds each, in flight together: in sequence they
     # were most of what the Refresh button waited on
-    ks = key_scoring(settings["scoring"])
+    ks = rescoring(settings)
     with ThreadPoolExecutor(3 + len(ROS_SOURCES)) as pool:
         espn_f = pool.submit(fetch_pool, ref=ref) if ref else pool.submit(fetch_pool)
         sleeper_f = pool.submit(fetch_sleeper_season)
@@ -800,7 +800,7 @@ def apply_injuries(players: list[dict], injuries: dict[int, dict], week1_start: 
 
 def _sleeper_for(week: int, settings: dict) -> dict:
     """Sleeper's weekly projections rescored to `settings`, cached for CACHE_S per week and scoring (POST /refresh clears _SL)."""
-    ks = key_scoring(settings["scoring"])
+    ks = rescoring(settings)
     key = (week, scoring_key(ks))
     hit = _SL.get(key)
     if hit and hit[0] > time.time():
@@ -1235,7 +1235,8 @@ def player_card(player_id: int) -> dict:
         except Exception as e:  # noqa: BLE001 — an earlier season or the opponents are not worth the log
             print(f"{kind} {yr} unavailable for player {player_id}: {e}")
     card = {"players": [{"player": {**p, "stats": (p.get("stats") or []) + rows}}]}
-    log = card_log.player_log(card, settings["scoring"], schedules, lg.current_week, SEASON, HISTORY, ranks,
+    from .live import box_items
+    log = card_log.player_log(card, box_items(settings), schedules, lg.current_week, SEASON, HISTORY, ranks,
                               sleeper=sleeper, pos_ranks=pos_ranks, snaps=snaps, current=current)
     return {**log, "playoff_weeks": settings.get("playoff_weeks", [])}  # this season's: the log flags its weeks
 

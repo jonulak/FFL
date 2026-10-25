@@ -71,7 +71,7 @@ def parse_page(html: str, pos: str, ks: dict) -> dict[tuple[str, str], dict]:
         long = tds[0].select_one(".CellPlayerName--long a") or tds[0].find("a")
         if long is None:
             continue
-        pts = score({STATS[c]: v for c, v in row.items() if c in STATS}, ks)
+        pts = score({STATS[c]: v for c, v in row.items() if c in STATS}, ks[pos])
         out[(norm_name(long.get_text(strip=True)), pos)] = {"pts": round(float(pts), 1), "games": int(row.get("gp", 0))}
     return out
 

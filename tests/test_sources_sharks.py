@@ -6,10 +6,11 @@ import pytest
 
 from ffl import sources
 from ffl.sources import sharks
+from tests.scoring import tables
 
 FIX = Path(__file__).parent / "fixtures" / "sources"
-KS = {"ppr": 1.0, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.1, "rush_td": 6,
-      "rec_yd": 0.1, "rec_td": 6, "fumble": -2}
+KS = tables({"ppr": 1.0, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.1, "rush_td": 6,
+      "rec_yd": 0.1, "rec_td": 6, "fumble": -2})
 
 
 def test_weekly_qb_rescored_from_raw_stats():

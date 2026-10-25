@@ -117,7 +117,8 @@ def collect(ref=None) -> dict:
 
 def load(ref=None) -> dict:
     """The league's settings (None: the current league, the home one unless FFL_LEAGUE names another): the
-    dict settings.json used to hold, plus `first_week` and `league_key`. A fresh dict on every call."""
+    dict settings.json used to hold, plus `first_week`, `league_key`, `scoring_tables` and `scoring_items` (formats.assemble).
+    A fresh dict on every call."""
     ref = ref or leagues.current()
     stored = db.league_settings_doc(ref.key, ref.season)
     if stored is None:
@@ -125,8 +126,20 @@ def load(ref=None) -> dict:
     return formats.assemble(ref.key, stored)
 
 
+RESCORED_POS = ("QB", "RB", "WR", "TE")   # K and D/ST take a source's own points
+
+
+def rescoring(settings: dict) -> dict[str, dict[str, float]]:
+    """{pos: {stat: points}} over formats.RESCORED, signed as the league scores them, for each position a
+    source is rescored at (sleeper.score takes one): the league's per-position tables (`scoring_tables`,
+    a TE premium only on TE's), else, for a dict without them, the flat `scoring` list at every position."""
+    tables = settings.get("scoring_tables") or formats.scoring_from_espn(formats.items_from_list(settings["scoring"]))[0]
+    return {p: {k: float(v) for k, v in tables[p].items() if k in formats.RESCORED} for p in RESCORED_POS}
+
+
 def key_scoring(scoring: list[dict]) -> dict:
-    """The points rescoring reads, signed as the league scores them; `int` is the interception thrown
+    """The headline points off the flat list (board header, the 1QB ADP feed's PPR, ffl.settings' summary);
+    rescoring reads `rescoring`. Signed as the league scores them; `int` is the interception thrown
     (INTT), not the D/ST interception (INT), which only matched it while both were worth 2 (ffl-twi)."""
     by = {x["abbr"]: x["points"] for x in scoring}
     return {k: by.get(a, 0) for k, a in {

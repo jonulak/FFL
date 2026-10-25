@@ -73,7 +73,7 @@ def parse_page(html: str, pos: str, ks: dict, week: int) -> dict[tuple[str, str]
         # "Q Jaxon Smith-Njigba WR SEA": the link alone is his name
         link = cells[0].select_one(".player-name a.player-text")
         name = link.get_text(" ", strip=True) if link else m.group(1)
-        out[(norm_name(name), pos)] = round(score({stat: _num(tds[i]) for i, stat in cols}, ks), 1)
+        out[(norm_name(name), pos)] = round(score({stat: _num(tds[i]) for i, stat in cols}, ks[pos]), 1)
     if not out and played:
         raise Idle("every game played")
     return out

@@ -67,7 +67,7 @@ def parse_csv(text: str, pos: str, ks: dict) -> dict[tuple[str, str], float]:
         if len(r) != len(head):
             continue
         st = {stat: _num(r[idx[h]]) for h, stat in COLS.items() if h in idx}
-        out[(_name(r[idx["Player Name"]]), pos)] = round(score(st, ks), 1)
+        out[(_name(r[idx["Player Name"]]), pos)] = round(score(st, ks[pos]), 1)
     return out
 
 

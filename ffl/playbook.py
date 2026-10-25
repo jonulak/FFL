@@ -174,11 +174,11 @@ def play_stats(play: dict, player_id: int, pos: str, team: str | None) -> dict[s
     return out
 
 
-def would_be(play: dict, player_id: int, pos: str, team: str | None, table: dict[int, float]) -> float:
-    return round(fc.player_points(play_stats(play, player_id, pos, team), table), 2)
+def would_be(play: dict, player_id: int, pos: str, team: str | None, table: dict[str, dict[int, float]]) -> float:
+    return round(fc.player_points(play_stats(play, player_id, pos, team), fc.position_table(table, pos)), 2)
 
 
-def callbacks(play: dict, roster: dict[int, dict], kept: dict[int, float], table: dict[int, float]) -> list[dict]:
+def callbacks(play: dict, roster: dict[int, dict], kept: dict[int, float], table: dict[str, dict[int, float]]) -> list[dict]:
     """The called-back rows of one play: a starter it names (a D/ST: its club on defence) whose points it would
     have raised past what it kept him (`kept`: his feed rows' deltas on this play). [] once it is not called back."""
     if not called_back(play.get("text")):

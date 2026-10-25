@@ -6,6 +6,7 @@ from ffl import db, playbook, plays
 # the league's table for the stats a called-back play is read for (settings.json)
 TABLE = {3: 0.04, 4: 4.0, 24: 0.1, 25: 6.0, 42: 0.1, 43: 6.0, 53: 1.0, 80: 3.0, 77: 4.0, 198: 5.0, 201: 6.0, 86: 1.0,
          95: 2.0, 99: 1.0, 103: 6.0, 20: -2.0}
+TABLE = {pos: TABLE for pos in ("", "QB", "RB", "WR", "TE", "K", "D/ST")}   # every position on it
 ROSTER = {1: {"name": "Brock Purdy", "pos": "QB", "team": "SF", "team_id": 7},
           2: {"name": "Mike Evans", "pos": "WR", "team": "SF", "team_id": 3},
           3: {"name": "Bryce Young", "pos": "QB", "team": "CAR", "team_id": 3},

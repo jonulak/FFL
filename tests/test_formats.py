@@ -107,7 +107,11 @@ def test_load_round_trips_todays_settings():
     ref = formats.store(leagues.home(), copy.deepcopy(fx))
     assert ref.lineup_format == formats.lineup_key(formats.lineup_from_settings(fx))
     assert ref.name == "2026 Fantasy Football" and ref.team_id == 7, "the registry row keeps its team"
-    assert settings.load(leagues.home()) == {**fx, "first_week": 1, "league_key": HOME}
+    got = settings.load(leagues.home())
+    assert {k: v for k, v in got.items() if k not in ("scoring_tables", "scoring_items")} == \
+        {**fx, "first_week": 1, "league_key": HOME}
+    assert got["scoring_items"] is None, "settings.json kept no raw items"
+    assert got["scoring_tables"] == formats.league_table(leagues.home())
     assert settings.load() == settings.load(leagues.home()), "no league named: the home league"
 
 
@@ -118,10 +122,10 @@ def test_load_keeps_the_lineup_order():
     assert list(got["starters"]) == list(fx["starters"]) and list(got["roster_slots"]) == list(fx["roster_slots"])
 
 
-def test_store_keeps_raw_items_out_of_load_and_takes_first_week():
+def test_store_keeps_raw_items_and_takes_first_week():
     formats.store(leagues.home(), {**fixture(), "scoring_items": PPR, "first_week": 2})
     got = settings.load()
-    assert "scoring_items" not in got and got["first_week"] == 2
+    assert got["scoring_items"] == PPR and got["first_week"] == 2
     assert formats.league_table(leagues.home())["QB"]["pass_int"] == -2
 
 
@@ -142,13 +146,14 @@ def test_pass_int_is_intt():
                {"stat_id": 20, "abbr": "INTT", "label": "Interceptions Thrown", "points": -1.0}]
     ks = settings.key_scoring(scoring)
     assert ks["int"] == -1
-    assert sleeper.score({"pass_int": 1}, ks) == -1
+    assert sleeper.score({"pass_int": 1}, settings.rescoring({"scoring": scoring})["QB"]) == -1
 
 
 def test_home_rescoring_unchanged():
     ks = settings.key_scoring(fixture()["scoring"])
     assert ks["int"] == -2.0
-    assert sleeper.score({"pass_int": 2, "pass_yd": 250, "pass_td": 2}, ks) == pytest.approx(-4 + 10 + 8)
+    qb = settings.rescoring(fixture())["QB"]
+    assert sleeper.score({"pass_int": 2, "pass_yd": 250, "pass_td": 2}, qb) == pytest.approx(-4 + 10 + 8)
 
 
 def test_caps_take_the_lower():
@@ -199,7 +204,9 @@ def test_migration_imports_settings_json(tmp_path, monkeypatch):
     command.upgrade(db._alembic_config(), "head")
     db.reset()
     home = leagues.home()
-    assert settings.load(home) == {**fixture(), "first_week": 1, "league_key": HOME}
+    got = settings.load(home)
+    assert {k: v for k, v in got.items() if k not in ("scoring_tables", "scoring_items")} == \
+        {**fixture(), "first_week": 1, "league_key": HOME}
     assert leagues.caps(home) == {"QB": 3, "RB": 7, "WR": 7, "TE": 2, "K": 1, "D/ST": 1}
     assert home.name == "2026 Fantasy Football"
     assert home.lineup_format == formats.lineup_key(formats.lineup_from_settings(fixture()))

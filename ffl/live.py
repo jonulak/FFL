@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
-from . import db
+from . import db, formats
 from . import fastcast as fc
 from . import playbook
 from . import plays as P
@@ -218,13 +218,28 @@ def _label(raw: str) -> str:
     return s[:1].upper() + s[1:]
 
 
-def box_score(stats: dict, scoring: list[dict]) -> list[dict]:
-    """Every stat in the row the league scores, as a line item: the count, the rate and the
-    points it earned (count x rate). A band row's count is the total it was read off (17 points
-    allowed) and its rate is the flat award. The items sum to what score_all gives the row."""
+def box_items(settings: dict) -> list[dict]:
+    """The league's scoring list for box_score: the flat `scoring` list's items (labels), each with `by_pos`,
+    its points at each position (fastcast.scoring_table), and any stat that scores only at some positions."""
+    table = fc.scoring_table(settings)
+    items = {int(x["stat_id"]): {**x} for x in settings["scoring"]}
+    for pos, t in table.items():
+        for sid in t:
+            items.setdefault(sid, {"stat_id": sid, "abbr": formats.abbr(sid), "label": formats.label(sid), "points": table[""].get(sid, 0.0)})
+    for sid, x in items.items():
+        x["by_pos"] = {pos: t.get(sid, 0.0) for pos, t in table.items() if pos}
+    return list(items.values())
+
+
+def box_score(stats: dict, scoring: list[dict], pos: str | None = None) -> list[dict]:
+    """Every stat in the row the league scores, as a line item: the count, the rate (at his position, when
+    the item says per position: `box_items`) and the points it earned (count x rate). A band row's count is
+    the total it was read off (17 points allowed) and its rate is the flat award. The items sum to what
+    score_all gives the row."""
     items = []
     for s in sorted(scoring, key=lambda s: _ORDER.get(int(s["stat_id"]), int(s["stat_id"]))):
-        sid, rate = int(s["stat_id"]), float(s["points"])
+        sid = int(s["stat_id"])
+        rate = float((s.get("by_pos") or {}).get(pos or "", s["points"]))
         n = float(stats.get(str(sid)) or 0)
         if not n or not rate:
             continue
@@ -254,7 +269,7 @@ def overlay_players(players: list[dict], points: dict[int, float], games: dict[s
     """Live `actual` for players the feed has scored; `game` (status, quarter, clock, score) for
     players whose pro team has kicked off, so the page can show the clock where the kickoff
     time was, and with it `field` (`field`) while his unit is on; `stat_line` for players with a stat that scores, and with `scoring` (the league's
-    stat table, settings["scoring"]) `box`, the line items behind his points. The stat row is
+    stat list, `box_items`: per position) `box`, the line items behind his points. The stat row is
     the feed's while it has him, else ESPN's own (`stat_row`, the week payload's), which is
     dropped from the output either way."""
     out = []
@@ -274,7 +289,7 @@ def overlay_players(players: list[dict], points: dict[int, float], games: dict[s
         if line:
             p["stat_line"] = line
         if row and scoring:
-            p["box"] = box_score(row, scoring)
+            p["box"] = box_score(row, scoring, p.get("pos"))
         if row and (v := volume(p.get("pos", ""), row)):
             p["volume"] = v
         out.append(p)

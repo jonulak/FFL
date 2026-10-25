@@ -274,7 +274,7 @@ def test_sleeper_weeks_cache_per_scoring(monkeypatch):
     monkeypatch.setattr(espn_season, "_SL", {})
     calls: list = []
     monkeypatch.setattr(espn_season, "fetch_sleeper_week", lambda week, ks: _by_scoring(calls)(ks))
-    monkeypatch.setattr(espn_season, "key_scoring", lambda scoring: scoring[0])
+    monkeypatch.setattr(espn_season, "rescoring", lambda settings: settings["scoring"][0])
     a = espn_season._sleeper_for(5, {"scoring": [KS_A]})
     b = espn_season._sleeper_for(5, {"scoring": [KS_B]})
     assert a == {("a", "QB"): 1.0} and b == {("a", "QB"): 0.5} and calls == [1.0, 0.5]

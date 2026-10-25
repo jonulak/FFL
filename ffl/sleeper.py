@@ -14,10 +14,12 @@ import requests
 
 from .adp import csv_frame, norm_name
 from .config import SEASON
-from .settings import key_scoring, load
+from .formats import RESCORED
+from .settings import load, rescoring
 
 API = "https://api.sleeper.app/projections/nfl/{season}"
 POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
+TWO_POINT = ("pass_2pt", "rush_2pt", "rec_2pt")
 TEAM_FIX = {"JAC": "JAX", "WSH": "WAS", "LA": "LAR"}
 DST_NAMES = {"ARI": "Cardinals", "ATL": "Falcons", "BAL": "Ravens", "BUF": "Bills", "CAR": "Panthers", "CHI": "Bears",
              "CIN": "Bengals", "CLE": "Browns", "DAL": "Cowboys", "DEN": "Broncos", "DET": "Lions", "GB": "Packers",
@@ -27,13 +29,23 @@ DST_NAMES = {"ARI": "Cardinals", "ATL": "Falcons", "BAL": "Ravens", "BUF": "Bill
              "TEN": "Titans", "WAS": "Commanders"}
 
 
-def score(st: dict, ks: dict) -> float:
+def score(st: dict, table: dict) -> float:
+    """Raw stats (formats.RESCORED names) scored with one position's table, `settings.rescoring(s)[pos]`:
+    signed, so an interception or a lost fumble costs what the league says (ffl-twi). Two-point conversions at
+    one rate are counted together before the rate. Summed left to right in a plain loop, the order this was
+    always summed in (3.12's sum() compensates, which rounds differently): a projection on an x.x5 boundary
+    rounds the same as it did."""
     g = lambda k: float(st.get(k) or 0)
-    # ks["int"] is INTT's points, signed (settings.key_scoring; ffl-twi)
-    return (g("pass_yd") * ks["pass_yd"] + g("pass_td") * ks["pass_td"] + g("pass_int") * ks["int"]
-            + g("rush_yd") * ks["rush_yd"] + g("rush_td") * ks["rush_td"]
-            + g("rec") * ks["ppr"] + g("rec_yd") * ks["rec_yd"] + g("rec_td") * ks["rec_td"]
-            - g("fum_lost") * abs(ks["fumble"]) + 2 * (g("pass_2pt") + g("rush_2pt") + g("rec_2pt")))
+    pts = 0.0
+    for k in RESCORED:
+        if k in table and k not in TWO_POINT:
+            pts += g(k) * table[k]
+    rates = {table.get(k, 0.0) for k in TWO_POINT}
+    if len(rates) == 1:
+        return pts + rates.pop() * (g("pass_2pt") + g("rush_2pt") + g("rec_2pt"))
+    for k in TWO_POINT:
+        pts += g(k) * table.get(k, 0.0)
+    return pts
 
 
 def fetch_raw(season: int) -> list[dict]:
@@ -46,7 +58,7 @@ def fetch_raw(season: int) -> list[dict]:
 
 
 def rescore(raw: list[dict], ks: dict) -> pd.DataFrame:
-    """The raw answer scored with `ks` (settings.key_scoring), one row per (name, position), by projection.
+    """The raw answer scored with `ks` (settings.rescoring: a table per position), one row per (name, position), by projection.
     K and D/ST take Sleeper's standard points."""
     rows = []
     for p in raw:
@@ -60,7 +72,7 @@ def rescore(raw: list[dict], ks: dict) -> pd.DataFrame:
         elif pos == "K":
             name, proj = f"{pl.get('first_name','')} {pl.get('last_name','')}".strip(), float(st.get("pts_std") or 0)
         else:
-            name, proj = f"{pl.get('first_name','')} {pl.get('last_name','')}".strip(), score(st, ks)
+            name, proj = f"{pl.get('first_name','')} {pl.get('last_name','')}".strip(), score(st, ks[pos])
         rows.append({"name": name, "key": norm_name(name), "pos": pos, "team": team, "proj_sleeper": round(proj, 1),
                      "sleeper_gp": st.get("gp"), "adp_2qb_sleeper": st.get("adp_2qb"), "adp_ppr_sleeper": st.get("adp_ppr")})
     df = pd.DataFrame(rows).sort_values("proj_sleeper", ascending=False)
@@ -69,7 +81,7 @@ def rescore(raw: list[dict], ks: dict) -> pd.DataFrame:
 
 def fetch() -> pd.DataFrame:
     """A fresh fetch this season, scored for the current league (the in-season season lookup reads it live)."""
-    return rescore(fetch_raw(SEASON), key_scoring(load()["scoring"]))
+    return rescore(fetch_raw(SEASON), rescoring(load()))
 
 
 def stored_raw(season: int, refresh: bool = False) -> list[dict]:
@@ -87,7 +99,7 @@ def season_players(ref=None) -> pd.DataFrame:
     rescored with its scoring."""
     from . import leagues
     ref = ref or leagues.current()
-    ks = key_scoring(load(ref)["scoring"])
+    ks = rescoring(load(ref))
     return csv_frame(rescore(stored_raw(ref.season), ks))
 
 

@@ -5,9 +5,10 @@ import math
 import pytest
 
 from ffl import props
+from tests.scoring import tables
 
-KS = {"ppr": 1.0, "pass_td": 4.0, "pass_yd": 0.04, "int": -2.0, "rush_yd": 0.1, "rush_td": 6.0,
-      "rec_yd": 0.1, "rec_td": 6.0, "fumble": -2.0}
+KS = tables({"ppr": 1.0, "pass_td": 4.0, "pass_yd": 0.04, "int": -2.0, "rush_yd": 0.1, "rush_td": 6.0,
+      "rec_yd": 0.1, "rec_td": 6.0, "fumble": -2.0})
 
 
 def _ou(market, who, point, over, under):

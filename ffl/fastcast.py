@@ -33,6 +33,8 @@ from datetime import datetime, timezone
 
 import requests
 
+from . import formats
+
 HOST_URL = "https://fastcast.semfs.engsvc.go.com/public/websockethost"
 PROFILE = 12000
 TOPIC = "scoreboard-ffl-fantasycast"
@@ -123,18 +125,41 @@ def apply_patch(doc, ops: list[dict]) -> None:
 
 # ---- scoring ----------------------------------------------------------------------------------
 
-def scoring_table(settings: dict) -> dict[int, float]:
-    """stat_id -> points from the league settings' scoring list (ffl.settings)."""
-    return {int(x["stat_id"]): float(x["points"]) for x in settings["scoring"]}
+POSITION_IDS = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}   # the checkpoint's positionId
+
+
+def scoring_table(settings: dict) -> dict[str, dict[int, float]]:
+    """{pos: {stat_id: points}} (and "" for a player of no known position) from the league's raw scoring
+    items, every position's override kept (formats.stat_tables, as ESPN scores its box score); settings with
+    no raw items (imported from settings.json, or a hand-built dict) score the flat `scoring` list at every
+    position, as before."""
+    if settings.get("scoring_items"):
+        return formats.stat_tables(settings["scoring_items"])
+    flat = {int(x["stat_id"]): float(x["points"]) for x in settings["scoring"]}
+    return {pos: flat for pos in ("", *formats.POSITIONS)}
+
+
+def position_table(table: dict[str, dict[int, float]], pos: str | None) -> dict[int, float]:
+    return table.get(pos or "") or table[""]
 
 
 def player_points(stats: dict, table: dict[int, float]) -> float:
+    """One player's points under his position's table (`position_table`)."""
     return sum(table.get(int(k), 0.0) * float(v) for k, v in stats.items())
 
 
-def score_all(doc: dict, table: dict[int, float]) -> dict[int, float]:
-    """Every player in the checkpoint scored under the league's table, by ESPN player id."""
-    return {int(pid): round(player_points(row.get("stats", {}), table), 2)
+def row_position(pid, row: dict) -> str | None:
+    """A checkpoint row's position: its positionId, else a D/ST by its negative id."""
+    try:
+        pos = POSITION_IDS.get(int(row.get("positionId") or 0))
+    except (TypeError, ValueError):
+        pos = None
+    return pos or ("D/ST" if int(pid) < 0 else None)
+
+
+def score_all(doc: dict, table: dict[str, dict[int, float]]) -> dict[int, float]:
+    """Every player in the checkpoint scored under the league's table for his position, by ESPN player id."""
+    return {int(pid): round(player_points(row.get("stats", {}), position_table(table, row_position(pid, row))), 2)
             for pid, row in doc.get("statistics", {}).items()}
 
 

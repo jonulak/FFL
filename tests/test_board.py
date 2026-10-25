@@ -239,7 +239,7 @@ def test_season_players_is_the_old_csv_frame():
     """The stored raw, rescored, is the frame sleeper_players.csv held: the old fetch written and read back."""
     home = formats.store(leagues.home(), home_fx())
     db.put_sleeper_season(2026, QB_RAW)
-    old = sleeper.rescore(QB_RAW, settings_mod.key_scoring(settings_mod.load(home)["scoring"]))
+    old = sleeper.rescore(QB_RAW, settings_mod.rescoring(settings_mod.load(home)))
     want = pd.read_csv(io.StringIO(old.to_csv(index=False)))
     pd.testing.assert_frame_equal(sleeper.season_players(home), want)
     assert list(want.columns) == ["name", "key", "pos", "team", "proj_sleeper", "sleeper_gp",

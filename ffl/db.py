@@ -713,7 +713,8 @@ def put_league_settings(rows: dict, league_row: dict) -> None:
 
 
 def league_settings_doc(league: str, season: int) -> dict | None:
-    """The stored pieces formats.assemble puts back together: {doc, lineup, caps}; None when never stored."""
+    """The stored pieces formats.assemble puts back together: {doc, lineup, caps, tables (pos -> scoring table)};
+    None when never stored."""
     s, lf, lc, lg = league_settings_table, lineup_formats, league_caps, leagues_table
     with _read() as c:
         doc = c.execute(sa.select(s.c.doc).where(s.c.league == league, s.c.season == season)).scalar()
@@ -723,7 +724,10 @@ def league_settings_doc(league: str, season: int) -> dict | None:
                            .where(lg.c.key == league)).scalar()
         caps = {r.pos: {"provider_limit": r.provider_limit, "my_cap": r.my_cap}
                 for r in c.execute(sa.select(lc).where(lc.c.league == league))}
-    return {"doc": doc, "lineup": lineup, "caps": caps}
+        ls, sf = league_scoring, scoring_formats
+        tables = {r.pos: r.table for r in c.execute(
+            sa.select(ls.c.pos, sf.c.table).join(sf, sf.c.key == ls.c.scoring_format).where(ls.c.league == league))}
+    return {"doc": doc, "lineup": lineup, "caps": caps, "tables": tables}
 
 
 def league_scoring_tables(league: str) -> dict[str, dict[str, float]]:

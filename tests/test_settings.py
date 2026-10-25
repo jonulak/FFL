@@ -32,7 +32,9 @@ def test_main_stores_and_prints_and_writes_no_file(monkeypatch, tmp_path, capsys
     out = capsys.readouterr().out
     assert "# 2026 Fantasy Football" in out and "Key scoring:" in out
     assert list(data.iterdir()) == [], "settings live in the DB: no settings.json, no settings.md"
-    assert settings.load() == {**fx, "first_week": 1, "league_key": "espn:100000001"}
+    got = settings.load()
+    assert {k: v for k, v in got.items() if k not in ("scoring_tables", "scoring_items")} == \
+        {**fx, "first_week": 1, "league_key": "espn:100000001"}
 
 
 def test_fetch_reads_first_week_from_espn_status(monkeypatch):

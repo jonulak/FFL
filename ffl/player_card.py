@@ -85,7 +85,7 @@ def _clubs(played: list[dict], games: dict, fallback: str | None) -> list[str | 
 def _entry(week: int, row: dict, club: str | None, game: tuple | None, pos: str, scoring: list[dict],
            status: str = "played") -> dict:
     stats = row.get("stats") or {}
-    box = live.box_score(stats, scoring)
+    box = live.box_score(stats, scoring, pos)
     away, home = (game[1], game[2]) if game else (None, None)
     opp = (home if club == away else away) if club and club in (away, home) else None
     return {"week": week, "opp": opp, "home": (club == home) if opp else None, "status": status,
@@ -124,7 +124,7 @@ def season_log(rows: list[dict], season: int, pos: str, scoring: list[dict], gam
     for r in played:
         for k, n in (r.get("stats") or {}).items():
             totals[k] = totals.get(k, 0.0) + float(n)
-    box = live.box_score(totals, scoring)
+    box = live.box_score(totals, scoring, pos)
     for b in box:  # a band's season count is the games that landed in it, not its summed basis
         if b["flat"]:
             b["count"] = totals.get(str(b["stat_id"]), 0.0)

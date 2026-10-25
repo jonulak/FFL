@@ -7,12 +7,13 @@ import pytest
 
 from ffl import sources
 from ffl.sources import Idle, fleaflicker
+from tests.scoring import tables
 
 FIX = Path(__file__).parent / "fixtures" / "sources"
 QB = (FIX / "fleaflicker_w5_qb.html").read_text()
 RB = (FIX / "fleaflicker_w5_rb.html").read_text()
-KS = {"ppr": 1.0, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.1, "rush_td": 6,
-      "rec_yd": 0.1, "rec_td": 6, "fumble": -2}
+KS = tables({"ppr": 1.0, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.1, "rush_td": 6,
+      "rec_yd": 0.1, "rec_td": 6, "fumble": -2})
 
 
 def test_qb_rows_rescored_and_played_games_skipped():

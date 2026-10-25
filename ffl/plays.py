@@ -291,7 +291,7 @@ class Store:
                 if r.get("play_id") and r.get("match") != "correction" and str(r["play_id"]) in book else r
                 for r in rows]
 
-    def record(self, entries: list[dict], roster: dict[int, dict], table: dict[int, float],
+    def record(self, entries: list[dict], roster: dict[int, dict], table: dict[str, dict[int, float]],
                also: set[str] | None = None, seen: datetime | None = None) -> None:
         """Store the plays that are new or changed (playbook.changes), a new wording added to the play's
         versions as first `seen` (now), then rewrite the called-back rows of those plays and of `also`

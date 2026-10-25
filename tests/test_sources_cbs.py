@@ -7,12 +7,13 @@ import requests
 
 from ffl import sources
 from ffl.sources import cbs
+from tests.scoring import tables
 
 FIX = Path(__file__).parent / "fixtures" / "sources"
 RB = (FIX / "cbs_ros_rb.html").read_text()
-# half-PPR-ish league keys, the shape settings.key_scoring returns
-KS = {"ppr": 0.5, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.1, "rush_td": 6,
-      "rec_yd": 0.1, "rec_td": 6, "fumble": -2}
+# half-PPR-ish league keys, as settings.rescoring's per-position tables (tests/scoring.py)
+KS = tables({"ppr": 0.5, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.1, "rush_td": 6,
+      "rec_yd": 0.1, "rec_td": 6, "fumble": -2})
 
 
 def test_parse_rb_page_rescores_raw_stats_to_league_scoring():

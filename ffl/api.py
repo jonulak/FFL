@@ -932,7 +932,7 @@ def _scoring() -> list[dict] | None:
     """The league's stat table for the overlay's scoring breakdown; None (no breakdown) when the
     settings file cannot be read, rather than failing the page."""
     try:
-        return load().get("scoring")
+        return live.box_items(load())
     except (Exception, SystemExit):  # noqa: BLE001 — load() exits when the file is missing
         return None
 

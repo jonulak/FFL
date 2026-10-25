@@ -88,6 +88,13 @@ def _abbr(stat_id: int) -> str:
     return SETTINGS_SCORING_FORMAT_MAP.get(stat_id, {}).get("abbr") or f"stat{stat_id}"
 
 
+abbr = _abbr
+
+
+def label(stat_id: int) -> str:
+    return SETTINGS_SCORING_FORMAT_MAP.get(stat_id, {}).get("label") or "Unknown"
+
+
 def items_from_list(scoring: list[dict]) -> list[dict]:
     """The flat `scoring` list (settings.json's, no overrides) as raw ESPN scoringItems."""
     return [{"statId": x["stat_id"], "points": x["points"]} for x in scoring]
@@ -114,6 +121,21 @@ def scoring_from_espn(items: list[dict]) -> tuple[dict[str, dict[str, float]], l
                 if pts:
                     tables[pos][name] = pts
     return tables, sorted(unmapped)
+
+
+def stat_tables(items: list[dict]) -> dict[str, dict[int, float]]:
+    """Raw ESPN scoringItems -> {pos: {stat_id: points}} for live scoring, plus "" for a player of no known
+    position (the base points). ESPN's own rule: an item scores at every position, at the override for that
+    position's lineup slot when it has one, so an unmapped stat scores too; a stat worth 0 is left out."""
+    out: dict[str, dict[int, float]] = {pos: {} for pos in ("", *POSITIONS)}
+    for it in items:
+        sid, base = int(it["statId"]), float(it.get("points") or 0)
+        over = {str(k): float(v) for k, v in (it.get("pointsOverrides") or {}).items()}
+        for pos in out:
+            pts = over.get(_SLOT[pos], base) if pos else base
+            if pts:
+                out[pos][sid] = pts
+    return out
 
 
 def _digest(doc) -> str:
@@ -181,6 +203,10 @@ def assemble(ref_key: str, stored: dict) -> dict:
             out[k] = doc[k]
     out["first_week"] = doc.get("first_week") or 1
     out["league_key"] = ref_key
+    # per-position scoring for rescoring (settings.rescoring) and live points (fastcast.scoring_table);
+    # scoring_items is None for settings imported from settings.json, which kept no overrides
+    out["scoring_tables"] = stored.get("tables") or None
+    out["scoring_items"] = doc.get("scoring_items")
     return out
 
 

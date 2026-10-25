@@ -153,7 +153,7 @@ def snapshot_rows(players: list[dict], stats: dict, market: dict, ks: dict) -> l
             continue
         key = norm_name(p["name"])
         mk = market.get(key) or {}
-        pp = round(score_stats(props_stats(stats.get((key, p["pos"]), {}), mk, p["pos"]), ks), 1) if mk else None
+        pp = round(score_stats(props_stats(stats.get((key, p["pos"]), {}), mk, p["pos"]), ks[p["pos"]]), 1) if mk and p["pos"] in ks else None
         srcs = [v for v in (p["proj_espn"] if p["proj_espn"] > 0 else None, p.get("proj_sleeper"), pp) if v is not None]
         proj3 = round(sum(srcs) / len(srcs), 1) if pp is not None else p["proj"]
         rows.append({k: p.get(k) for k in ("player_id", "name", "pos", "team", "fantasy_team", "slot", "bye",
@@ -242,7 +242,7 @@ def fetch_event_props(event_id: str) -> tuple[dict, int | None]:
 
 def pull(kind: str, force: bool = False) -> None:
     from .espn_season import _boxes_by_team, fetch_sleeper_rows, flatten_box_player, fresh_league, parse_sleeper_rows
-    from .settings import key_scoring, load
+    from .settings import load, rescoring
     if not os.environ.get("ODDS_API_KEY"):
         print("ODDS_API_KEY is not set in .env: nothing pulled")
         return
@@ -271,7 +271,7 @@ def pull(kind: str, force: bool = False) -> None:
         for who, stats in consensus(data).items():
             market.setdefault(who, {}).update(stats)
     settings = load()
-    ks = key_scoring(settings["scoring"])
+    ks = rescoring(settings)
     sl_rows = fetch_sleeper_rows(week)
     players = []
     for tid, lineup in _boxes_by_team(lg, week).items():

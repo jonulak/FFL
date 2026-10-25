@@ -11,6 +11,7 @@ import requests
 from ffl import espn_season, season
 from ffl.adp import norm_name
 from tests.test_season import TWO_QB, roster as season_roster
+from tests.scoring import tables
 
 
 def bp(**kw):
@@ -109,8 +110,8 @@ def test_parse_sleeper_rows_skips_players_who_did_not_play():
              "stats": {"gp": 1.0, "rec": 4, "rush_yd": 80, "rush_td": 1}},
             {"player": {"position": "RB", "first_name": "Inactive", "last_name": "Guy", "team": "DET"},
              "stats": {"rec": 0, "rush_yd": 0}}]
-    ks = {"ppr": 1, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.1, "rush_td": 6,
-          "rec_yd": 0.1, "rec_td": 6, "fumble": -2}
+    ks = tables({"ppr": 1, "pass_td": 4, "pass_yd": 0.04, "int": -2, "rush_yd": 0.1, "rush_td": 6,
+                 "rec_yd": 0.1, "rec_td": 6, "fumble": -2})
     out = espn_season.parse_sleeper_rows(rows, ks)
     assert list(out) == [("jahmyr gibbs", "RB")], "a row with no gp is an inactive all-zero row"
     assert out[("jahmyr gibbs", "RB")] == 18.0
@@ -1216,7 +1217,7 @@ def test_concurrent_cold_sleeper_weeks_share_one_fetch(monkeypatch):
     calls = []
 
     def fake_week(week, ks):
-        park(espn_season._SL_FLIGHT, (4, espn_season.scoring_key(espn_season.key_scoring([]))), 1)
+        park(espn_season._SL_FLIGHT, (4, espn_season.scoring_key(espn_season.rescoring({"scoring": []}))), 1)
         calls.append(week)
         return {("jalen hurts", "QB"): 10.0}
 
