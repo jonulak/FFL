@@ -149,3 +149,12 @@ def _home_only_caches():
             c.join()
             with c._lock:
                 c._d.clear()
+
+
+@pytest.fixture(autouse=True)
+def _write_fakes_reset():
+    """The per-league fake write stores and kept pending reads start empty in every test."""
+    from ffl import espn_write
+    espn_write.reset_fakes()
+    yield
+    espn_write.reset_fakes()

@@ -255,7 +255,7 @@ def test_roster_state_other_league(wired, monkeypatch):
 
 def test_roster_state_other_league_ignores_home_fake_slots(wired, monkeypatch):
     monkeypatch.setenv("FFL_WRITES", "0")
-    monkeypatch.setitem(espn_write._FAKE_SLOTS, 1, "BE")  # home moved player 1 to the bench
+    monkeypatch.setitem(espn_write._fake(leagues.home()).slots, 1, "BE")  # home moved player 1 to the bench
     flags = {1: {"slot": "QB", "order": 0, "locked": False}}
     mine = espn_season.roster_state(week=3, snaps={}, flags=flags, **NOSRC)
     theirs = espn_season.roster_state(week=3, snaps={}, flags=flags, ref=wired.other, **NOSRC)

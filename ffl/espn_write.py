@@ -16,6 +16,7 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 
 import requests
@@ -23,11 +24,15 @@ import requests
 from . import config
 
 
-def write_url() -> str:
-    """Looked up per call: the home league's id and season come from the registry (as `config.league(ref)` reads
-    them), which an import must not need."""
+def _ref(ref=None):
+    """`ref`, else the home league (never FFL_LEAGUE). Looked up per call: the registry is a DB read an import must not need."""
     from . import leagues
-    ref = leagues.home()
+    return ref if ref is not None else leagues.home()
+
+
+def write_url(*, ref=None) -> str:
+    """That league's write endpoint (None: home): its season and provider id, as `config.league(ref)` reads them."""
+    ref = _ref(ref)
     return (f"https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/{ref.season}"
             f"/segments/0/leagues/{ref.provider_id}/transactions/")
 
@@ -36,13 +41,22 @@ def write_url() -> str:
 HEADERS = {"x-fantasy-platform": "espn-fantasy-web", "x-fantasy-source": "kona"}
 TIMEOUT = 15
 
-_FAKE: list[dict] = []
-_FAKE_ADDS: list[dict] = []
-_FAIL_ADDS: set[int] = set()  # dev/tests under FFL_WRITES=0: ids whose instant add "was taken"
-_FAKE_PERIOD: int | None = None  # dev/tests under FFL_WRITES=0: ESPN's scoring period; None means "the plan week"
-_FAKE_LAST_RUN: str | None = None  # dev/tests under FFL_WRITES=0: the last waiver run, local ISO
-_IDS = itertools.count(1)
-_READ: tuple[float, dict] | None = None  # the last pending document and when it was read (monotonic)
+
+
+@dataclass
+class _Fake:
+    """One league's in-memory ESPN under FFL_WRITES=0 (dev/tests)."""
+    claims: list[dict] = field(default_factory=list)
+    adds: list[dict] = field(default_factory=list)
+    fail_adds: set[int] = field(default_factory=set)  # ids whose instant add "was taken"
+    period: int | None = None  # ESPN's scoring period; None means "the plan week"
+    last_run: str | None = None  # the last waiver run, local ISO
+    slots: dict[int, str] = field(default_factory=dict)  # player id -> the slot a fake move put him in
+
+
+_FAKES: dict[str, _Fake] = {}
+_IDS = itertools.count(1)  # global, so a fake claim id is unique across leagues
+_READ: dict[str, tuple[float, dict]] = {}  # league key -> its last pending document and when it was read (monotonic)
 _GEN = 0  # bumped by every write, so a read in flight across one is not kept
 _GEN_LOCK = threading.Lock()  # a claim save and a lineup move can write at once
 
@@ -73,7 +87,16 @@ def _writes() -> bool:
     return os.environ.get("FFL_WRITES", "1") != "0"
 
 
-_FAKE_SLOTS: dict[int, str] = {}  # dev/tests under FFL_WRITES=0: player id -> the slot a fake move put him in
+def _fake(ref=None) -> _Fake:
+    """That league's fake store, made on first use."""
+    return _FAKES.setdefault(_ref(ref).key, _Fake())
+
+
+def reset_fakes() -> None:
+    """Empty every league's fake store and kept pending read (tests)."""
+    _FAKES.clear()
+    with _GEN_LOCK:
+        _READ.clear()
 
 
 def writes() -> bool:
@@ -81,13 +104,14 @@ def writes() -> bool:
     return _writes()
 
 
-def fake_slots() -> dict[int, str]:
-    return {} if _writes() else dict(_FAKE_SLOTS)
+def fake_slots(*, ref=None) -> dict[int, str]:
+    return {} if _writes() else dict(_fake(ref).slots)
 
 
-def _team_id() -> int:
+def _team_id(*, ref=None) -> int:
     from .espn_season import fresh_league, my_team_id
-    return my_team_id(fresh_league())
+    r = _ref(ref)
+    return my_team_id(fresh_league(r), r)
 
 
 def submit_body(add: int, drop: int | None, week: int, team_id: int, member_id: str) -> dict:
@@ -149,22 +173,23 @@ def lineup_body(items: list[tuple[int, str, str]], week: int, team_id: int, memb
                       for p, f, t in items]}
 
 
-def move_lineup(items: list[tuple[int, str, str]], week: int) -> None:
+def move_lineup(items: list[tuple[int, str, str]], week: int, *, ref=None) -> None:
     """Move players between slots in one transaction; raises WriteError unless ESPN executed it."""
     if not _writes():
-        _FAKE_SLOTS.update({p: t for p, _, t in items})
+        _fake(ref).slots.update({p: t for p, _, t in items})
         return
-    res = _post(lineup_body(items, week, _team_id(), config.SWID))
+    res = _post(lineup_body(items, week, _team_id(ref=ref), config.SWID), ref=ref)
     if not isinstance(res, dict) or res.get("status") != "EXECUTED":
         status = res.get("status") if isinstance(res, dict) else None
         raise WriteError(200, f"lineup move not executed (status {status!r})")
 
 
-def _post(body: dict | list, url: str | None = None) -> dict | list:
-    global _READ, _GEN
-    with _GEN_LOCK:  # before and whatever the answer: a write that errored may still have landed
-        _READ, _GEN = None, _GEN + 1
-    r = requests.post(url or write_url(), json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
+def _post(body: dict | list, url: str | None = None, *, ref=None) -> dict | list:
+    global _GEN
+    with _GEN_LOCK:  # before and whatever the answer: a write that errored may still have landed (any league's read goes)
+        _READ.clear()
+        _GEN += 1
+    r = requests.post(url or write_url(ref=ref), json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
     if r.status_code >= 400:
         raise WriteError(r.status_code, r.text[:500])
     return r.json()
@@ -188,32 +213,35 @@ def _read_error(e: Exception) -> WriteError:
     return WriteError(0, f"{type(e).__name__}: {e}"[:300])
 
 
-def _pending_doc(max_age: float) -> dict:
+def _pending_doc(max_age: float, *, ref=None) -> dict:
     """The mPendingTransactions + mTeam document, which also carries mStatus's waiverLastExecutionDate. A caller
     passing max_age takes the last read when it is younger than that (the Claims page: each GET and save paid two
-    ESPN reads, 1.5-2.3 s); any write drops it, and a read that spans a write is not kept."""
-    global _READ
-    if max_age and _READ and time.monotonic() - _READ[0] < max_age:
-        return _READ[1]
+    ESPN reads, 1.5-2.3 s); it is kept per league, any write drops every league's, and a read that spans a write is
+    not kept."""
+    key = _ref(ref).key
+    kept = _READ.get(key)
+    if max_age and kept and time.monotonic() - kept[0] < max_age:
+        return kept[1]
     gen = _GEN
     try:
         # mTeam is what makes ESPN include subOrder (the priority) on each pending claim
-        doc = config.raw_league_get(["mPendingTransactions", "mTeam"])
+        doc = config.raw_league_get(["mPendingTransactions", "mTeam"], ref=ref)
     except Exception as e:  # noqa: BLE001 — every read failure is a WriteError, sorted by _read_error
         raise _read_error(e) from e
     with _GEN_LOCK:
         if gen == _GEN:
-            _READ = (time.monotonic(), doc)
+            _READ[key] = (time.monotonic(), doc)
     return doc
 
 
-def pending_state(max_age: float = 0) -> tuple[list[dict], int | None]:
+def pending_state(max_age: float = 0, *, ref=None) -> tuple[list[dict], int | None]:
     """My pending waiver claims in ESPN's processing order, and ESPN's current scoring period (the week its write
     bodies want), from one mPendingTransactions read. The period is None when the document has none."""
     if not _writes():
-        return [{**c, "priority": n} for n, c in enumerate(_FAKE, 1)], _FAKE_PERIOD
-    doc = _pending_doc(max_age)
-    team = _team_id()
+        f = _fake(ref)
+        return [{**c, "priority": n} for n, c in enumerate(f.claims, 1)], f.period
+    doc = _pending_doc(max_age, ref=ref)
+    team = _team_id(ref=ref)
     try:
         period = doc.get("scoringPeriodId")
         return parse_pending(doc, team), None if period is None else int(period)
@@ -221,60 +249,63 @@ def pending_state(max_age: float = 0) -> tuple[list[dict], int | None]:
         raise WriteError(0, f"unreadable pending claims ({type(e).__name__}: {e})"[:300]) from e
 
 
-def last_waiver_run(max_age: float = 0) -> str | None:
+def last_waiver_run(max_age: float = 0, *, ref=None) -> str | None:
     """When ESPN last ran waivers (waiverLastExecutionDate, off the pending read), local ISO to the second; None
     when the read fails or carries no date, so a plan is never retired on a guess."""
     if not _writes():
-        return _FAKE_LAST_RUN
+        return _fake(ref).last_run
     try:
-        ms = _pending_doc(max_age).get("status", {}).get("waiverLastExecutionDate")
+        ms = _pending_doc(max_age, ref=ref).get("status", {}).get("waiverLastExecutionDate")
     except Exception:  # noqa: BLE001
         return None
     return None if ms is None else datetime.fromtimestamp(ms / 1000).isoformat(timespec="seconds")
 
 
-def pending_claims() -> list[dict]:
+def pending_claims(*, ref=None) -> list[dict]:
     """My pending waiver claims in ESPN's processing order."""
-    return pending_state()[0]
+    return pending_state(ref=ref)[0]
 
 
-def submit_claim(add: int, drop: int | None, week: int) -> str:
+def submit_claim(add: int, drop: int | None, week: int, *, ref=None) -> str:
     """Post one claim (appended last in priority); returns ESPN's claim id."""
     if not _writes():
         cid = f"fake-{next(_IDS)}"
-        _FAKE.append({"id": cid, "add": add, "drop": drop})
+        _fake(ref).claims.append({"id": cid, "add": add, "drop": drop})
         return cid
-    res = _post(submit_body(add, drop, week, _team_id(), config.SWID))
+    res = _post(submit_body(add, drop, week, _team_id(ref=ref), config.SWID), ref=ref)
     if not isinstance(res, dict) or res.get("id") is None:  # ESPN may hold it anyway: the read-back shows it
         raise WriteError(200, "claim sent but ESPN's answer carries no id")
     return str(res["id"])
 
 
-def reorder_claims(ids: list[str]) -> None:
+def reorder_claims(ids: list[str], *, ref=None) -> None:
     """Number my pending claims 1..n in this order (every pending id, outside claims included)."""
     if not _writes():
         rank = {i: n for n, i in enumerate(ids)}
-        _FAKE.sort(key=lambda c: rank.get(c["id"], len(rank)))
+        _fake(ref).claims.sort(key=lambda c: rank.get(c["id"], len(rank)))
         return
-    team = _team_id()
-    _post(reorder_body(ids), url=write_url().replace("/transactions/", f"/teams/{team}/pendingTransactions"))
+    team = _team_id(ref=ref)
+    _post(reorder_body(ids), url=write_url(ref=ref).replace("/transactions/", f"/teams/{team}/pendingTransactions"),
+          ref=ref)
 
 
-def cancel_claim(claim_id: str, week: int) -> None:
+def cancel_claim(claim_id: str, week: int, *, ref=None) -> None:
     if not _writes():
-        _FAKE[:] = [c for c in _FAKE if c["id"] != claim_id]
+        f = _fake(ref)
+        f.claims[:] = [c for c in f.claims if c["id"] != claim_id]
         return
-    _post(cancel_body(claim_id, week, _team_id(), config.SWID))
+    _post(cancel_body(claim_id, week, _team_id(ref=ref), config.SWID), ref=ref)
 
 
-def add_free_agent(add: int, drop: int | None, week: int) -> None:
+def add_free_agent(add: int, drop: int | None, week: int, *, ref=None) -> None:
     """Instant add; raises WriteError when ESPN refuses (taken, locked, ...)."""
     if not _writes():
-        if add in _FAIL_ADDS:
+        f = _fake(ref)
+        if add in f.fail_adds:
             raise WriteError(409, f"player {add} is no longer a free agent")
-        _FAKE_ADDS.append({"add": add, "drop": drop})
+        f.adds.append({"add": add, "drop": drop})
         return
-    res = _post(add_body(add, drop, week, _team_id(), config.SWID))
+    res = _post(add_body(add, drop, week, _team_id(ref=ref), config.SWID), ref=ref)
     # A 200 is not a landed add: only "EXECUTED" is (a guess, like add_body; ffl-ut0.7 pins the real shape and value).
     if not isinstance(res, dict) or res.get("status") != "EXECUTED":
         status = res.get("status") if isinstance(res, dict) else None
