@@ -111,17 +111,24 @@ def _rebuild_all(league: bool, where: str, params: dict) -> None:
     op.rename_table("_calibration_rows_new", "calibration_rows")
 
 
-def upgrade() -> None:
-    """Upgrade schema; every existing row is the home league's (the only league the season side has run on)."""
-    bind = op.get_bind()
+def _home_or_refuse(bind, what: str, then: str):
+    """The home league's key; None only when the tables are empty (rows and no home league: RuntimeError)."""
     n = sum(bind.execute(sa.text(f"SELECT count(*) FROM {s[0]}")).scalar() for s in _TABLES)
     home = bind.execute(sa.text("SELECT key FROM leagues WHERE home")).scalar()
     if n and home is None:
-        raise RuntimeError(f"0021: the league-data tables hold {n} rows and there is no home league to file them "
-                           "under; register it first (`uv run python -m ffl.leagues add espn <id> --home`), then upgrade")
+        raise RuntimeError(f"0021: the league-data tables hold {n} rows and there is no home league {what}; register "
+                           f"it first (`uv run python -m ffl.leagues add espn <id> --home`), then {then}")
+    return home
+
+
+def upgrade() -> None:
+    """Upgrade schema; every existing row is the home league's (the only league the season side has run on)."""
+    home = _home_or_refuse(op.get_bind(), "to file them under", "upgrade")
     _rebuild_all(True, "", {"home": home})
 
 
 def downgrade() -> None:
-    """Downgrade schema; only the home league's rows fit the old keys, so the others are dropped."""
+    """Downgrade schema; only the home league's rows fit the old keys, so the others are dropped (with no home
+    league every row would be: refused)."""
+    _home_or_refuse(op.get_bind(), "whose rows to keep", "downgrade")
     _rebuild_all(False, f"WHERE league = {_HOME}", {})

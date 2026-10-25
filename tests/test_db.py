@@ -689,6 +689,29 @@ def test_models_match_migration():
                 [[x.parent.name for x in f.elements] for f in t.foreign_key_constraints], name
 
 
+def test_no_league_named_is_home_whatever_ffl_league_says(monkeypatch):
+    other = _other_league()
+    monkeypatch.setenv("FFL_LEAGUE", other.key)          # a draft shell's export must not move home's season data
+    db.put_results([{"week": 1, "opponent": "H", "my_score": 1.0, "opp_score": 0.0, "result": "W"}])
+    db.put_sit(8, 1, True)
+    assert db.results_rows(ref=other) == [] and db.sat_ids(8, ref=other) == set()
+    from ffl import leagues
+    assert db.results_rows(ref=leagues.home())[0]["opponent"] == "H" and db.sat_ids(8, ref=leagues.home()) == {1}
+
+
+def test_0021_downgrade_refuses_rows_with_no_home_league(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0020(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "head")
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        c.execute(sa.text("DELETE FROM leagues"))
+    eng.dispose()
+    with pytest.raises(RuntimeError, match="home league"):
+        command.downgrade(db._alembic_config(), "0020")
+    assert _schema(url)["results"]["n"] == 1, "nothing dropped"
+
+
 def test_0021_upgrades_an_empty_db_with_no_home_league(tmp_path, monkeypatch):
     from alembic import command
     from ffl import config
