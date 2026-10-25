@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import os
+import threading
 from datetime import date
-from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -66,22 +66,49 @@ def cookies() -> dict | None:
     return None
 
 
-@lru_cache(maxsize=None)
-def _league(provider_id: str, season: int, fetch_league: bool):
-    from espn_api.football import League
-
-    return League(league_id=int(provider_id), year=season, espn_s2=ESPN_S2, swid=SWID, fetch_league=fetch_league)
+_LEAGUES: dict[tuple[str, int, bool], object] = {}  # (provider_id, season, fetch_league) -> its espn-api League
+_LEAGUES_LOCK = threading.Lock()
 
 
 def league(ref=None, fetch_league: bool = True):
-    """The espn-api League for `ref` (None: the home league), built once per (league, season, fetch_league)."""
+    """The espn-api League for `ref` (None: the home league), built once per (league, season, fetch_league).
+    A League is a snapshot of one league's week, teams and settings, not a connection. The cache is a dict
+    behind a lock, not an lru_cache, so one league's League can be dropped (`league.evict(ref)`) when its
+    hour is up without the other leagues' being rebuilt; the build (an ESPN call) runs outside the lock,
+    and two threads asking at once may both build, the first install standing."""
     if ref is None:
         from . import leagues
         ref = leagues.home()
-    return _league(ref.provider_id, ref.season, fetch_league)
+    key = (ref.provider_id, ref.season, fetch_league)
+    with _LEAGUES_LOCK:
+        hit = _LEAGUES.get(key)
+    if hit is not None:
+        return hit
+    from espn_api.football import League
+
+    built = League(league_id=int(ref.provider_id), year=ref.season, espn_s2=ESPN_S2, swid=SWID, fetch_league=fetch_league)
+    with _LEAGUES_LOCK:
+        return _LEAGUES.setdefault(key, built)
 
 
-league.cache_clear = _league.cache_clear
+def _evict(ref=None) -> None:
+    """Drop every cached League of `ref` (None: the home league), whichever fetch_league it was built with."""
+    if ref is None:
+        from . import leagues
+        ref = leagues.home()
+    with _LEAGUES_LOCK:
+        for key in [k for k in _LEAGUES if k[:2] == (ref.provider_id, ref.season)]:
+            del _LEAGUES[key]
+
+
+def _cache_clear() -> None:
+    """Drop every cached League, of every league."""
+    with _LEAGUES_LOCK:
+        _LEAGUES.clear()
+
+
+league.evict = _evict
+league.cache_clear = _cache_clear
 
 
 def raw_league_get(view, extend: str = "", headers: dict | None = None, *, ref=None, **params) -> dict:

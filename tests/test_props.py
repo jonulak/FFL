@@ -151,9 +151,9 @@ def test_score_reads_the_stored_snapshots(monkeypatch, capsys):
     row = _row(1, 10.0, 12.0, kickoff="2026-10-04T17:00:00+00:00", fantasy_team=7)
     db.put_props_snapshot(4, "sun", {"week": 4, "kind": "sun", "taken_at": "2026-10-04T15:30:00+00:00", "rows": [row]})
     db.put_props_snapshot(9, "thu", {"week": 9, "kind": "thu", "taken_at": "2026-10-29T15:30:00+00:00", "rows": []})
-    monkeypatch.setattr(espn_season, "fresh_league", lambda: SimpleNamespace(current_week=8))
-    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    monkeypatch.setattr(settings, "load", lambda: {"starters": {"WR": 1}})
+    monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: SimpleNamespace(current_week=8))
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
+    monkeypatch.setattr(settings, "load", lambda *a, **k: {"starters": {"WR": 1}})
     monkeypatch.setattr(calibrate, "actuals_since", lambda lg, ids, a, b: {1: (11.0, 1)})
     props.score_main()
     out = capsys.readouterr().out

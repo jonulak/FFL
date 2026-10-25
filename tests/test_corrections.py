@@ -42,7 +42,7 @@ def env(monkeypatch):
             raise s.raises[week]
         return s.docs[week]
 
-    def gap(w, ids, week):
+    def gap(w, ids, week, **k):
         s.gap_fetches.append((w, list(ids)))
         return {i: s.gap[(w, i)] for i in ids}
 
@@ -219,7 +219,7 @@ def test_gap_rows_reread_and_corrected(env):
     [c] = db.box_corrections(week=6)
     assert (c["player_id"], c["team_id"], c["old"], c["new"]) == (21, None, 4.0, 6.0)
     assert db.gap_rows(6, [21])[21] == env.gap[(6, 21)]
-    assert espn_season._GAP_GAMES[(21, 6)] == env.gap[(6, 21)]
+    assert espn_season._GAP_GAMES[("espn:100000001", 21, 6)] == env.gap[(6, 21)]
     assert out["plays"] == [] and out["changed"] == [6]
 
 

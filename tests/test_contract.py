@@ -80,9 +80,9 @@ def test_standings_row_keys(monkeypatch):
     future = SimpleNamespace(home_team=them, away_team=team, home_score=0, away_score=0)  # scoreboard(): no projection
     lg = SimpleNamespace(current_week=3, standings=lambda: [team, them], box_scores=lambda wk: [match, bye],
                          scoreboard=lambda wk: [future])
-    monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
-    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    monkeypatch.setattr(espn_season, "load", lambda: {"reg_season_weeks": 14, "playoff_teams": 6,
+    monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: lg)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
+    monkeypatch.setattr(espn_season, "load", lambda *a, **k: {"reg_season_weeks": 14, "playoff_teams": 6,
                                                       "playoff_weeks": [15, 16, 17]})
     st = espn_season.league_state(2)
     assert set(st) == LEAGUE
@@ -114,9 +114,9 @@ def test_score_starter_keys(monkeypatch):
                             away_lineup=lineup, home_projected=0.0, away_projected=0.0)
     lg = SimpleNamespace(current_week=1, standings=lambda: [team, them], box_scores=lambda wk: [match],
                          scoreboard=lambda wk: [])
-    monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
-    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
-    monkeypatch.setattr(espn_season, "load", lambda: {"reg_season_weeks": 14, "playoff_teams": 6})
+    monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: lg)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
+    monkeypatch.setattr(espn_season, "load", lambda *a, **k: {"reg_season_weeks": 14, "playoff_teams": 6})
     monkeypatch.setattr(espn_season, "_sleeper_for", lambda week, settings: {})
     row = espn_season.league_state(1)["scoreboard"][0]
     assert set(row["home"]["starters"][0]) == SCORE_STARTER
@@ -127,9 +127,9 @@ def test_week_state_top_level_keys(monkeypatch):
     matchup = SimpleNamespace(home_team=SimpleNamespace(team_id=7, team_name="Mine"),
                               home_lineup=[], away_team=SimpleNamespace(), away_lineup=[])
     lg = SimpleNamespace(box_scores=lambda week: [matchup], current_week=1)
-    monkeypatch.setattr(espn_season, "fresh_league", lambda: lg)
-    monkeypatch.setattr(espn_season, "load", lambda: TWO_QB)
-    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: lg)
+    monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
     assert set(espn_season.week_state(week=1, sources={}, season={}, injuries={})) == WEEK
 
 
@@ -166,8 +166,8 @@ def test_player_card_io(monkeypatch):
     def down(*a):
         raise RuntimeError("down")
     monkeypatch.setattr(espn_season, "raw_league_get", fake_get)
-    monkeypatch.setattr(espn_season, "fresh_league", lambda: SimpleNamespace(current_week=4))
-    monkeypatch.setattr(espn_season, "load", lambda: json.loads((FX / "settings_scoring.json").read_text()))
+    monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: SimpleNamespace(current_week=4))
+    monkeypatch.setattr(espn_season, "load", lambda *a, **k: json.loads((FX / "settings_scoring.json").read_text()))
     monkeypatch.setattr(espn_season, "_schedule_doc", down)
     monkeypatch.setattr(espn_season, "past_schedule", down)
     monkeypatch.setattr(espn_season, "opponent_ranks", dict)  # its own test below
@@ -210,11 +210,11 @@ def test_opponent_ranks_io(monkeypatch):
             raise RuntimeError("down")
         return doc
     monkeypatch.setattr(espn_season, "raw_league_get", fake_get)
-    monkeypatch.setattr(espn_season, "_RANKS", [])
+    monkeypatch.setattr(espn_season, "_RANKS", {})
     want = {"QB": {"KC": {"rank": 1, "of": 1, "allowed": 8.9}}}
     assert espn_season.opponent_ranks() == want and espn_season.opponent_ranks() == want
     assert calls == ["kona_player_info"]
-    espn_season._RANKS[0] = 0  # expired
+    espn_season._RANKS["espn:100000001"] = (0, want)  # expired
     assert espn_season.opponent_ranks() == want and len(calls) == 2
 
 
@@ -237,7 +237,7 @@ def test_position_ranks_io(monkeypatch):
     assert espn_season.position_ranks("WR") == want and espn_season.position_ranks("WR") == want
     view, filt = calls[0]
     assert len(calls) == 1 and view == "kona_player_info" and filt["filterSlotIds"]["value"] == [4]
-    espn_season._POS_RANKS["WR"] = (0, want)  # expired
+    espn_season._POS_RANKS[("espn:100000001", "WR")] = (0, want)  # expired
     assert espn_season.position_ranks("WR") == want and len(calls) == 2
 
 

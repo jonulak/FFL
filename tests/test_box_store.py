@@ -66,7 +66,7 @@ def test_finished_week_non_final_row_serves_on_outage_but_is_not_kept(env):
     store(4, "mid-game", age=10)
     env.state["raise"] = RuntimeError("espn down")
     assert espn_season.box_scores(env.lg, 4) == ["mid-game"]
-    assert espn_season._BOXES[4][0] != float("inf")   # served for BOXES_TTL_S, never for the process
+    assert espn_season._BOXES[("espn:100000001", 4)][0] != float("inf")   # served for BOXES_TTL_S, never for the process
     assert db.box_doc(4)["final"] is False
 
 

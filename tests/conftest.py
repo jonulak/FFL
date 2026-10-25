@@ -85,7 +85,14 @@ def _reconciled_reset(monkeypatch):
     """Every current-week box score fetch reconciles the transaction log (espn_season.reconcile_log);
     a test must not inherit another test's reconciled state."""
     from ffl import espn_season
-    monkeypatch.setattr(espn_season, "_RECONCILED", [None])
+    monkeypatch.setattr(espn_season, "_RECONCILED", {})
+
+
+@pytest.fixture(autouse=True)
+def _league_builds_reset(monkeypatch):
+    """fresh_league keeps each league's build time (espn_season._BUILT); one test's must not make the next's League look fresh."""
+    from ffl import espn_season
+    monkeypatch.setattr(espn_season, "_BUILT", {})
 
 
 @pytest.fixture(autouse=True)

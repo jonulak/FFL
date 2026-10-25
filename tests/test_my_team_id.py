@@ -73,6 +73,6 @@ def test_espn_season_my_team_id_fails_with_runtime_error(monkeypatch):
     from ffl import espn_season
     monkeypatch.setattr(config, "SWID", None)
     _home_team(None)
-    monkeypatch.setattr(espn_season, "load", lambda: SETTINGS)
+    monkeypatch.setattr(espn_season, "load", lambda *a, **k: SETTINGS)
     with pytest.raises(RuntimeError, match="Could not identify my team"):
         espn_season.my_team_id(None)

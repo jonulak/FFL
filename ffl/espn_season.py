@@ -40,7 +40,8 @@ CACHE_S = 1800
 # standings and journal.sync_results' range forever. Every builder goes through fresh_league(),
 # which rebuilds it once an hour; POST /refresh forces it immediately.
 LEAGUE_TTL_S = 3600
-_LEAGUE_BUILT_AT = 0.0
+_LEAGUE_BUILT_AT = 0.0  # the newest League build of any league: the NFL-wide schedule caches key on it
+_BUILT: dict[str, float] = {}  # league key -> when fresh_league last rebuilt that league's League
 # week -> (fetched_at, lookup), every week asked for and none dropped: the Matchup board prices on the scoring
 # week, the Roster and Players pages on the ROS week (the next one once the week's games are played), and with
 # one slot each build evicted the other's 5-25 s lookup. An entry refetches only once it is CACHE_S old.
@@ -51,23 +52,37 @@ _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps
 _INJ: list = []  # [expires_at, data]
 
 
+def _ref(ref: leagues.LeagueRef | None) -> leagues.LeagueRef:
+    """`ref`, else the home league: never FFL_LEAGUE (db.py's rule), so a request or job naming no league is home's."""
+    return ref if ref is not None else leagues.home()
+
+
 def refresh_league() -> None:
-    """Drop the cached League so the next fresh_league() fetches ESPN again."""
+    """Drop every cached League (every league's) so the next fresh_league() fetches ESPN again."""
     global _LEAGUE_BUILT_AT
     _LEAGUE_BUILT_AT = 0.0
+    _BUILT.clear()
     cache_clear = getattr(league, "cache_clear", None)  # None when tests stub `league`
     if cache_clear is not None:
         cache_clear()
 
 
-def fresh_league():
-    """config.league(), rebuilt when the cached one is older than LEAGUE_TTL_S."""
+def fresh_league(ref: leagues.LeagueRef | None = None):
+    """config.league(ref) (None: home), rebuilt when that league's build is older than LEAGUE_TTL_S. Only its
+    own League is evicted, so one league's hour running out never costs another its League; _LEAGUE_BUILT_AT
+    moves with any rebuild (the pro schedule is NFL-wide, and its caches key on it)."""
     global _LEAGUE_BUILT_AT
+    r = _ref(ref)
     now = time.time()
-    if now - _LEAGUE_BUILT_AT >= LEAGUE_TTL_S:
-        refresh_league()
+    if now - _BUILT.get(r.key, 0.0) >= LEAGUE_TTL_S:
+        evict = getattr(league, "evict", None)  # None when tests stub `league`
+        if evict is not None:
+            evict(r)
+        elif (cache_clear := getattr(league, "cache_clear", None)) is not None:
+            cache_clear()
+        _BUILT[r.key] = now
         _LEAGUE_BUILT_AT = now
-    return league()
+    return league(r)
 
 
 def flatten_box_player(bp, season_proj: float | None = None) -> dict:
@@ -568,10 +583,11 @@ def record_projections() -> dict:
     return {"week": db.put_projection_rows(week, "week", wk), "ros": db.put_projection_rows(rw, "ros", ros)}
 
 
-def my_team_id(lg) -> int:
-    """leagues.my_team_id, but a failure is a RuntimeError: the API's `except Exception` paths must catch it (SystemExit would escape them)."""
+def my_team_id(lg, ref: leagues.LeagueRef | None = None) -> int:
+    """leagues.my_team_id of `ref`'s settings (None: home), but a failure is a RuntimeError: the API's `except Exception` paths must catch it (SystemExit would escape them)."""
+    r = _ref(ref)
     try:
-        return leagues.my_team_id(load())
+        return leagues.my_team_id(load(r), r)
     except SystemExit as e:
         raise RuntimeError(str(e)) from e
 
@@ -838,22 +854,24 @@ def _week1_start(settings: dict) -> date | None:
 
 
 BOXES_TTL_S = 60
-_BOXES: dict[int, tuple[float, object, list]] = {}  # week -> (expires_at, the League fetched from, box scores)
+_BOXES: dict[tuple[str, int], tuple[float, object, list]] = {}  # (league key, week) -> (expires_at, the League fetched from, box scores)
 
 
-_BOXES_FLIGHT = Flight()  # (week, League) -> its box-score fetch in flight, shared by the builders asking at once
+_BOXES_FLIGHT = Flight()  # (league key, week, League) -> its box-score fetch in flight, shared by the builders asking at once
 _BOXES_EPOCH = [0]  # bumped by forget_current_boxes: a fetch that began before the bump does not keep its boxes
 
 
-def forget_current_boxes() -> None:
-    """Drop the current week's box scores (a league move changed its rosters); finished weeks never change.
+def forget_current_boxes(*, ref: leagues.LeagueRef | None = None) -> None:
+    """Drop the current week's box scores of `ref`'s league (None: home; a league move changed its rosters); finished weeks never change.
+    The epoch stays global: a fetch of another league that began before the bump just does not keep its boxes (over-invalidating is safe).
     The non-final stored rows are expired too (fetched_at 0), so a pre-move read in the table never counts as a
     60 s hit; a final row's fetched_at is the correction pass's throttle and stays."""
     _BOXES_EPOCH[0] += 1
-    for week in [w for w, hit in list(_BOXES.items()) if hit[0] != math.inf]:  # a builder thread may be adding
-        _BOXES.pop(week, None)
+    key = _ref(ref).key
+    for k in [k for k, hit in list(_BOXES.items()) if k[0] == key and hit[0] != math.inf]:  # a builder thread may be adding
+        _BOXES.pop(k, None)
     try:
-        db.expire_live_boxes()
+        db.expire_live_boxes(ref=ref)
     except db.DBError as e:
         logging.getLogger(__name__).warning("stored box scores not expired: %s", e)
 
@@ -893,12 +911,12 @@ def box_hash(doc: dict) -> str:
     return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _stored_boxes(lg, week: int) -> tuple[list | None, float, bool]:
+def _stored_boxes(lg, week: int, ref: leagues.LeagueRef | None = None) -> tuple[list | None, float, bool]:
     """The stored row parsed, when it was read (0 when none) and whether that read was final (made after the
     week finished). A DB error or a doc espn-api can no longer parse counts as no row: logged, and the week is
     read from ESPN."""
     try:
-        row = db.box_doc(week)
+        row = db.box_doc(week, ref=ref)
     except db.DBError as e:
         logging.getLogger(__name__).warning("stored box scores for week %s unreadable: %s", week, e)
         return None, 0.0, False
@@ -911,13 +929,13 @@ def _stored_boxes(lg, week: int) -> tuple[list | None, float, bool]:
         return None, 0.0, False
 
 
-def _read_boxes(lg, week: int, finished: bool, epoch: int) -> tuple[list, bool, bool]:
+def _read_boxes(lg, week: int, finished: bool, epoch: int, ref: leagues.LeagueRef | None = None) -> tuple[list, bool, bool]:
     """(box scores, read from ESPN just now, final: a finished week's read made after it finished).
     A finished week is a hit only on a final row: the current week's last read (maybe mid-game) is not its
     result, so the first ask after ESPN rolls the week reads it again and stores that read final."""
     if not hasattr(lg, "espn_request"):  # tests stub League with box_scores alone: nothing to store or read back
         return lg.box_scores(week), True, finished
-    stored, at, final = _stored_boxes(lg, week)
+    stored, at, final = _stored_boxes(lg, week, ref)
     if stored is not None and ((finished and final) or (not finished and time.time() - at < BOXES_TTL_S)):
         return stored, False, finished and final
     try:
@@ -930,13 +948,13 @@ def _read_boxes(lg, week: int, finished: bool, epoch: int) -> tuple[list, bool, 
     if not finished and _BOXES_EPOCH[0] != epoch:  # a move landed during the fetch: a pre-move read must not be stored as fresh
         return _parse_box_doc(lg, doc), False, False
     try:
-        db.put_box_doc(week, doc, box_hash(doc), time.time(), final=finished)
+        db.put_box_doc(week, doc, box_hash(doc), time.time(), final=finished, ref=ref)
     except db.DBError as e:
         logging.getLogger(__name__).warning("week %s box scores not stored: %s", week, e)
     return _parse_box_doc(lg, doc), True, finished
 
 
-def box_scores(lg, week: int) -> list:
+def box_scores(lg, week: int, *, ref: leagues.LeagueRef | None = None) -> list:
     """lg.box_scores(week), shared by every builder for BOXES_TTL_S.
 
     The four page builders each need the week's box scores, and the API cache rebuilds them
@@ -946,28 +964,30 @@ def box_scores(lg, week: int) -> list:
     A finished week (before the League's current one: the form window's earlier weeks) never
     changes, so it is kept for the life of the process, whichever League asks (ffl-qf7), and is
     read from the box_scores table (ESPN only when it has no final row); finished weeks change only through
-    the correction pass (ffl-7sq). The current week is a hit for BOXES_TTL_S off its row's fetched_at
+    the correction pass (ffl-7sq). Every cache is per league (`ref`, None: home): two leagues' week 5 never answer each other. The current week is a hit for BOXES_TTL_S off its row's fetched_at
     (a cold process right after a deploy), and when ESPN fails the stored row is served whatever its age
     (a finished week's non-final row so served is kept BOXES_TTL_S only, never for the process).
     """
-    hit = _BOXES.get(week)
+    r = _ref(ref)
+    hit = _BOXES.get((r.key, week))
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):
         return hit[2]
     # keyed on the League too: a caller holding another League fetches from its own, never waits for this one's
-    return _BOXES_FLIGHT.do((week, id(lg)), lambda: _fetch_boxes(lg, week))
+    return _BOXES_FLIGHT.do((r.key, week, id(lg)), lambda: _fetch_boxes(lg, week, r))
 
 
-def _fetch_boxes(lg, week: int) -> list:
+def _fetch_boxes(lg, week: int, ref: leagues.LeagueRef | None = None) -> list:
     """box_scores' fetch, once for every caller waiting on it: the read, the install and the log's reconcile."""
-    hit = _BOXES.get(week)
+    key = _ref(ref).key
+    hit = _BOXES.get((key, week))
     if hit and (hit[0] == math.inf or (hit[0] > time.time() and hit[1] is lg)):  # the flight before this one
         return hit[2]
     epoch = _BOXES_EPOCH[0]
     finished = week < getattr(lg, "current_week", week)
-    boxes, fresh, final = _read_boxes(lg, week, finished, epoch)
+    boxes, fresh, final = _read_boxes(lg, week, finished, epoch, ref)
     if finished or _BOXES_EPOCH[0] == epoch:  # a move during the fetch: these may be from before it
-        _BOXES[week] = (math.inf if final else time.time() + BOXES_TTL_S, lg, boxes)
-    if fresh and week == getattr(lg, "current_week", None):
+        _BOXES[(key, week)] = (math.inf if final else time.time() + BOXES_TTL_S, lg, boxes)
+    if fresh and week == getattr(lg, "current_week", None) and key == leagues.home().key:  # the log is home's until 4.4
         # every page's rosters come through here: a rostered man the record never saw taken (or a
         # drop it missed), seen by any page, syncs the transaction log
         try:
@@ -1056,7 +1076,7 @@ def _correct_week(lg, w: int, now: datetime, row: dict | None, kicks: list, play
         db.add_box_corrections(gap_corr)
         db.put_gap_rows(w, gap_new, now.timestamp())
         for pid, rows in gap_new.items():
-            _GAP_GAMES[(pid, w)] = rows
+            _GAP_GAMES[(leagues.home().key, pid, w)] = rows
     db.put_box_doc(w, doc, box_hash(doc), now.timestamp(), settled=settled, corrections=corrections, final=True)
     plays.extend(week_plays)
     return {"changed": len(corrections) + len(gap_corr), "settled": settled}
@@ -1095,7 +1115,7 @@ def correct_boxes(lg, now: datetime | None = None) -> dict:
             continue
         out["weeks"][w] = res
         if res["changed"] or not (have and have["final"]):  # a backfill replaced a non-final read too
-            _BOXES.pop(w, None)
+            _BOXES.pop((leagues.home().key, w), None)  # the correction pass is home's until 4.7
         if res["changed"]:
             out["changed"].append(w)
     return out
@@ -1119,51 +1139,54 @@ def past_schedule(season: int) -> dict:
 # so the log reads none of them (checked 2026-10-22)
 FIRST_SEASON = 2019
 HISTORY = SEASON - FIRST_SEASON  # past seasons in the season modal: every one ESPN has
-_RANKS: list = []  # [expires_at, ranks]
+_RANKS: dict[str, tuple[float, dict]] = {}  # league key -> (expires_at, ranks); kona_player_info is league-scored
 
 
-def opponent_ranks() -> dict[str, dict[str, dict]]:
+def opponent_ranks(*, ref: leagues.LeagueRef | None = None) -> dict[str, dict[str, dict]]:
     """ESPN's points-allowed rank of every defence against each position (player_card.parse_ranks),
     off the league's kona_player_info view, which carries it beside any player list (one player is
-    asked for). Cached for CACHE_S; a failed read serves the last good ranks, or none."""
-    if _RANKS and _RANKS[0] > time.time():
-        return _RANKS[1]
-    from . import player_card as card_log  # player_card imports this module
-
-    filt = {"players": {"limit": 1, "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}}
-    try:
-        ranks = card_log.parse_ranks(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}))
-    except Exception as e:  # noqa: BLE001 — the ranks are context; the log stands without them
-        print(f"opponent ranks unavailable: {e}")
-        return _RANKS[1] if _RANKS else {}
-    _RANKS[:] = [time.time() + CACHE_S, ranks]
-    return ranks
-
-
-POS_SLOT = {"QB": 0, "RB": 2, "WR": 4, "TE": 6, "D/ST": 16, "K": 17}
-_POS_RANKS: dict[str, tuple[float, dict]] = {}  # pos -> (expires_at, player_card.parse_pos_ranks)
-
-
-def position_ranks(pos: str) -> dict:
-    """Every player's season and weekly rank at `pos` (player_card.parse_pos_ranks), off one
-    kona_player_info list of the position's top 400 by season points with their weekly rows
-    (about 1.5 s and 3 MB for WR). Cached for CACHE_S; a failed read serves the last good, or none."""
-    hit = _POS_RANKS.get(pos)
+    asked for). Cached per league for CACHE_S; a failed read serves the last good ranks, or none."""
+    key = _ref(ref).key
+    hit = _RANKS.get(key)
     if hit and hit[0] > time.time():
         return hit[1]
     from . import player_card as card_log  # player_card imports this module
 
-    weeks = [f"01{SEASON}{w}" for w in range(1, S.NFL_WEEKS + 1)]
+    filt = {"players": {"limit": 1, "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}}
+    try:
+        ranks = card_log.parse_ranks(raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, ref=ref))
+    except Exception as e:  # noqa: BLE001 — the ranks are context; the log stands without them
+        print(f"opponent ranks unavailable: {e}")
+        return hit[1] if hit else {}
+    _RANKS[key] = (time.time() + CACHE_S, ranks)
+    return ranks
+
+
+POS_SLOT = {"QB": 0, "RB": 2, "WR": 4, "TE": 6, "D/ST": 16, "K": 17}
+_POS_RANKS: dict[tuple[str, str], tuple[float, dict]] = {}  # (league key, pos) -> (expires_at, player_card.parse_pos_ranks)
+
+
+def position_ranks(pos: str, *, ref: leagues.LeagueRef | None = None) -> dict:
+    """Every player's season and weekly rank at `pos` (player_card.parse_pos_ranks), off one
+    kona_player_info list of the position's top 400 by season points with their weekly rows
+    (about 1.5 s and 3 MB for WR). Cached per league for CACHE_S; a failed read serves the last good, or none."""
+    r = _ref(ref)
+    hit = _POS_RANKS.get((r.key, pos))
+    if hit and hit[0] > time.time():
+        return hit[1]
+    from . import player_card as card_log  # player_card imports this module
+
+    weeks = [f"01{r.season}{w}" for w in range(1, S.NFL_WEEKS + 1)]
     filt = {"players": {"filterSlotIds": {"value": [POS_SLOT[pos]]}, "limit": 400,
                         "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": weeks},
-                        "sortAppliedStatTotal": {"sortAsc": False, "sortPriority": 1, "value": f"00{SEASON}"}}}
+                        "sortAppliedStatTotal": {"sortAsc": False, "sortPriority": 1, "value": f"00{r.season}"}}}
     try:
-        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)})
-        ranks = card_log.parse_pos_ranks(doc, pos, SEASON)
+        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, ref=r)
+        ranks = card_log.parse_pos_ranks(doc, pos, r.season)
     except Exception as e:  # noqa: BLE001 — the ranks are context; the log stands without them
         print(f"{pos} position ranks unavailable: {e}")
         return hit[1] if hit else {}
-    _POS_RANKS[pos] = (time.time() + CACHE_S, ranks)
+    _POS_RANKS[(r.key, pos)] = (time.time() + CACHE_S, ranks)
     return ranks
 _PAST_STATS: dict[tuple[int, int], list[dict]] = {}  # (season, player) -> his stat rows; a past season never changes
 
@@ -1618,10 +1641,10 @@ def _roster_games(lg, boxes: dict[int, list], week: int) -> dict[int, list[dict]
 GAP_BATCH = 40  # ids per kona_player_info call, as tx_player_info asks (no `limit`: ESPN 400s on it)
 # (player, finished week) -> his rows. Kept in memory and in the gap_games table; the correction pass
 # re-reads an unsettled week's rows (ffl-7sq).
-_GAP_GAMES: dict[tuple[int, int], list[dict]] = {}
+_GAP_GAMES: dict[tuple[str, int, int], list[dict]] = {}  # (league key, player, week): ESPN's player info is the league's own
 
 
-def _fetch_gap_rows(w: int, ids: list[int], week: int) -> dict[int, list[dict]]:
+def _fetch_gap_rows(w: int, ids: list[int], week: int, *, ref: leagues.LeagueRef | None = None) -> dict[int, list[dict]]:
     """One kona_player_info read of `ids` for week w, with that week's scoringPeriodId, the same call
     free_agents(week=w) makes: player -> player_games(pl, [w], week). A failed call is logged and leaves
     its players out of the answer, as does a player ESPN answers without or oddly. Pure ESPN: neither the
@@ -1631,14 +1654,14 @@ def _fetch_gap_rows(w: int, ids: list[int], week: int) -> dict[int, list[dict]]:
     log = logging.getLogger(__name__)
     filt = {"players": {"filterIds": {"value": ids}}}
     try:
-        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=w)
+        doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=w, ref=ref)
     except Exception as e:  # noqa: BLE001 — a pickup's free-agent weeks are not worth the page
         log.warning("week %s player info not read; no free-agent rows for %s: %s", w, ids, e)
         return {}
     out: dict[int, list[dict]] = {}
     for p in doc.get("players") or []:
         try:  # one player ESPN answers oddly costs his own rows, not the batch's
-            pl = Player(p, SEASON)
+            pl = Player(p, _ref(ref).season)
         except Exception as e:  # noqa: BLE001
             log.warning("week %s player info unreadable for %s: %s", w, p.get("id"), e)
             continue
@@ -1647,7 +1670,7 @@ def _fetch_gap_rows(w: int, ids: list[int], week: int) -> dict[int, list[dict]]:
     return out
 
 
-def _gap_games(gaps: dict[int, list[int]], week: int) -> dict[int, list[dict]]:
+def _gap_games(gaps: dict[int, list[int]], week: int, *, ref: leagues.LeagueRef | None = None) -> dict[int, list[dict]]:
     """Game rows for the earlier weeks a rostered player sat on no fantasy roster (player -> weeks): one
     kona_player_info call per such week (GAP_BATCH ids each) for the players missing from the process and
     the gap_games table, so the row (points and that week's projection) is the one a free agent's window
@@ -1656,25 +1679,26 @@ def _gap_games(gaps: dict[int, list[int]], week: int) -> dict[int, list[dict]]:
     is kept in memory and in the table once read (a finished week), so a build after the first asks for
     nothing, even after a restart; the correction pass re-reads an unsettled week's rows (ffl-7sq). A failed
     call leaves that week without rows, as a failed week's box scores does; a table error is logged and
-    ESPN is asked instead."""
+    ESPN is asked instead. Memory, table and ESPN are all `ref`'s (None: home)."""
     log = logging.getLogger(__name__)
+    lk = _ref(ref).key
     asks: list[tuple[int, list[int]]] = []
     for w in sorted({w for ws in gaps.values() for w in ws}):
-        ids = sorted(pid for pid, ws in gaps.items() if w in ws and (pid, w) not in _GAP_GAMES)
+        ids = sorted(pid for pid, ws in gaps.items() if w in ws and (lk, pid, w) not in _GAP_GAMES)
         if not ids:
             continue
         try:
-            stored = db.gap_rows(w, ids)
+            stored = db.gap_rows(w, ids, ref=ref)
         except db.DBError as e:
             log.warning("gap_games not read for week %s: %s", w, e)
             stored = {}
         for pid, rows in stored.items():
-            _GAP_GAMES[(pid, w)] = rows
+            _GAP_GAMES[(lk, pid, w)] = rows
         ids = [pid for pid in ids if pid not in stored]
         asks += [(w, ids[i:i + GAP_BATCH]) for i in range(0, len(ids), GAP_BATCH)]
 
     def read(ask: tuple[int, list[int]]) -> tuple[int, dict[int, list[dict]]]:
-        return ask[0], _fetch_gap_rows(ask[0], ask[1], week)
+        return ask[0], _fetch_gap_rows(ask[0], ask[1], week, ref=ref)
     if asks:
         with ThreadPoolExecutor(len(asks)) as pool:  # all in flight together, like the free-agent asks
             answers = list(pool.map(read, asks))
@@ -1683,15 +1707,15 @@ def _gap_games(gaps: dict[int, list[int]], week: int) -> dict[int, list[dict]]:
             by_week.setdefault(w, {}).update(got)
         for w, got in by_week.items():
             for pid, rows in got.items():
-                _GAP_GAMES[(pid, w)] = rows
+                _GAP_GAMES[(lk, pid, w)] = rows
             if got:
                 try:
-                    db.put_gap_rows(w, got, time.time())
+                    db.put_gap_rows(w, got, time.time(), ref=ref)
                 except db.DBError as e:
                     log.warning("gap_games not saved for week %s: %s", w, e)
     out: dict[int, list[dict]] = {}
     for pid, ws in gaps.items():
-        if rows := [g for w in ws for g in _GAP_GAMES.get((pid, w), [])]:
+        if rows := [g for w in ws for g in _GAP_GAMES.get((lk, pid, w), [])]:
             out[pid] = rows
     return out
 
@@ -1919,7 +1943,7 @@ def tx_player_info(ids: set[int]) -> dict[int, dict]:
 TX_CHUNK = 40
 
 
-_RECONCILED: list = [None]  # the disagreement last synced for, so one the feed cannot close syncs once
+_RECONCILED: dict[str, frozenset] = {}  # league key -> the disagreement last synced for, so one the feed cannot close syncs once
 
 
 def reconcile_log(lg, owners: dict[int, int]) -> bool:
@@ -1929,9 +1953,10 @@ def reconcile_log(lg, owners: dict[int, int]) -> bool:
     syncs once, not on every rebuild."""
     from . import journal
     drift = frozenset(S.ownership_drift(owners, S.log_owners(draft_picks(), journal_state()["transactions"])))
-    if not drift or drift == _RECONCILED[0]:
+    key = leagues.home().key  # the log is home's until 4.4
+    if not drift or drift == _RECONCILED.get(key):
         return False
-    _RECONCILED[0] = drift
+    _RECONCILED[key] = drift
     journal.sync_transactions(lg)
     return True
 

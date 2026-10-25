@@ -1439,7 +1439,7 @@ def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypat
         return fn
     for key in ROSTER_KEYS + ["player:9", "logo:3", "draft_picks"]:
         api.cache.get_or_build(key, builder(key))
-    monkeypatch.setattr(espn_season, "_BOXES", {4: (math.inf, None, ["done"]), 5: (9e18, None, ["now"])})
+    monkeypatch.setattr(espn_season, "_BOXES", {("espn:100000001", 4): (math.inf, None, ["done"]), ("espn:100000001", 5): (9e18, None, ["now"])})
     monkeypatch.setattr(live, "STATE", live.State())
 
     journal.sync_transactions(_move_lg())
@@ -1448,7 +1448,7 @@ def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypat
     assert all(built[k] == 2 for k in ROSTER_KEYS), built          # rebuilt behind the move
     assert built["player:9"] == 1 and not api.cache.has("player:9")  # dropped, built on its next open
     assert built["logo:3"] == built["draft_picks"] == 1 and api.cache.has("logo:3")
-    assert list(espn_season._BOXES) == [4], "the current week's box scores are refetched, finished weeks kept"
+    assert list(espn_season._BOXES) == [("espn:100000001", 4)], "the current week's box scores are refetched, finished weeks kept"
     assert live.STATE.moves == 1 and live.STATE.version == 0
 
     journal.sync_transactions(_move_lg())  # nothing new: nothing rebuilt, no tick
@@ -1740,10 +1740,10 @@ def test_a_rewarm_that_joins_a_build_from_before_the_move_builds_again():
 def test_expire_everything_keeps_finished_weeks(monkeypatch):
     import math
     from ffl import espn_season
-    monkeypatch.setattr(espn_season, "_BOXES", {4: (math.inf, None, ["done"]), 5: (9e18, None, ["now"])})
-    monkeypatch.setattr(espn_season, "_GAP_GAMES", {(7, 3): [{"week": 3}]})
+    monkeypatch.setattr(espn_season, "_BOXES", {("espn:100000001", 4): (math.inf, None, ["done"]), ("espn:100000001", 5): (9e18, None, ["now"])})
+    monkeypatch.setattr(espn_season, "_GAP_GAMES", {("espn:100000001", 7, 3): [{"week": 3}]})
     api.expire_everything()
-    assert list(espn_season._BOXES) == [4] and (7, 3) in espn_season._GAP_GAMES
+    assert list(espn_season._BOXES) == [("espn:100000001", 4)] and ("espn:100000001", 7, 3) in espn_season._GAP_GAMES
 
 
 # ffl-7sq: the stat-correction pass on the notify tick, and past boards' stored feeds

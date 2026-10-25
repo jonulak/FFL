@@ -130,7 +130,7 @@ def test_draft_picks_read_the_db(monkeypatch):
     from ffl import espn_season as E
     db.put_picks([{**r, "player": "", "pos": None, "nfl": None, "adp_2qb": None, "board_rank_at_pick": None,
                    "proj": None, "ts": r["at"]} for r in PICKS])
-    monkeypatch.setattr(E, "fresh_league", lambda: (_ for _ in ()).throw(AssertionError("no ESPN call")))
+    monkeypatch.setattr(E, "fresh_league", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no ESPN call")))
     assert E.draft_picks() == PICKS
 
 
@@ -141,7 +141,7 @@ def test_draft_picks_fall_back_to_espn_when_the_db_is_empty(monkeypatch):
     t = SimpleNamespace(team_id=6, team_name="Daejon Love Fan Club")
     draft = [SimpleNamespace(playerId=7, round_num=1, round_pick=1, team=t),
              SimpleNamespace(playerId=101, round_num=1, round_pick=2, team=t)]
-    monkeypatch.setattr(E, "fresh_league", lambda: SimpleNamespace(draft=draft))
+    monkeypatch.setattr(E, "fresh_league", lambda *a, **k: SimpleNamespace(draft=draft))
     got = E.draft_picks()
     assert got[1] == {"overall": 2, "round": 1, "pick": 2, "team_id": 6, "team": "Daejon Love Fan Club",
                       "player_id": 101, "at": None}
@@ -191,9 +191,9 @@ def test_state_dresses_sides_with_the_current_club(monkeypatch):
                          wins=3, losses=1, ties=0)
     monkeypatch.setattr(E, "journal_state", lambda: {"transactions": [
         row(1, 6, "FA ADDED", -16020, "Jets D/ST"), row(1, 9, "DROPPED", -16020, "Jets D/ST")]})
-    monkeypatch.setattr(E, "fresh_league", lambda: SimpleNamespace(teams=[t6], current_week=5))
-    monkeypatch.setattr(E, "my_team_id", lambda lg: 7)
-    monkeypatch.setattr(E, "load", lambda: {"week1_start": "2026-09-08"})
+    monkeypatch.setattr(E, "fresh_league", lambda *a, **k: SimpleNamespace(teams=[t6], current_week=5))
+    monkeypatch.setattr(E, "my_team_id", lambda lg, *a, **k: 7)
+    monkeypatch.setattr(E, "load", lambda *a, **k: {"week1_start": "2026-09-08"})
     monkeypatch.setattr("ffl.journal.sync_transactions", lambda lg: None)
     got = E.transactions_state()
     assert got["me"] == 7 and got["current_week"] == 5
@@ -208,9 +208,9 @@ def _state_env(monkeypatch, rows, log):
     from ffl import espn_season as E
     lg = SimpleNamespace(teams=[], current_week=5)
     monkeypatch.setattr(E, "journal_state", lambda: log.append("read") or {"transactions": rows})
-    monkeypatch.setattr(E, "fresh_league", lambda: lg)
-    monkeypatch.setattr(E, "my_team_id", lambda lg: 7)
-    monkeypatch.setattr(E, "load", lambda: {"week1_start": "2026-09-08"})
+    monkeypatch.setattr(E, "fresh_league", lambda *a, **k: lg)
+    monkeypatch.setattr(E, "my_team_id", lambda lg, *a, **k: 7)
+    monkeypatch.setattr(E, "load", lambda *a, **k: {"week1_start": "2026-09-08"})
     return E, lg
 
 
@@ -299,7 +299,7 @@ def test_reconcile_syncs_once_per_disagreement(monkeypatch):
     monkeypatch.setattr(journal, "sync_transactions", lambda lg: synced.append(1))
     monkeypatch.setattr(E, "journal_state", lambda: {"transactions": []})
     monkeypatch.setattr(E, "draft_picks", lambda: [{"player_id": 101, "team_id": 1}])
-    monkeypatch.setattr(E, "_RECONCILED", [None])
+    monkeypatch.setattr(E, "_RECONCILED", {})
     lg = SimpleNamespace()
     assert E.reconcile_log(lg, {101: 1}) is False and synced == []
     assert E.reconcile_log(lg, {101: 1, 105: 6}) is True and synced == [1]

@@ -9,8 +9,8 @@ from ffl import db, espn_season, espn_write, journal, notify
 @pytest.fixture
 def lg(monkeypatch):
     league = SimpleNamespace(current_week=5, player_map={11: "Ray Davis", 12: "Tyler Allgeier"})
-    monkeypatch.setattr(espn_season, "fresh_league", lambda: league)
-    monkeypatch.setattr(espn_season, "my_team_id", lambda lg: 7)
+    monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: league)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
     return league
 
 
