@@ -453,12 +453,22 @@ notices = sa.Table(
 )
 sa.Index("ix_notices_unsent", notices.c.league, notices.c.season, notices.c.sent_at)
 
-# notify's prefs and detector memory (last waiver run, the pending-claims snapshot), one JSON value per key.
+# notify's GLOBAL prefs and memory, one JSON value per key; a league's own keys (LEAGUE_STATE_KEYS) live in league_state.
 notify_state = sa.Table(
     "notify_state", metadata, _season(),
     sa.Column("key", sa.String, nullable=False),
     sa.Column("value", sa.JSON, nullable=False),
     sa.PrimaryKeyConstraint("season", "key"),
+)
+
+# The state keys that belong to one league (what a waiver run or a claim did is that league's), kept in league_state.
+LEAGUE_STATE_KEYS = frozenset({"waiver_run", "pending_claims", "watch_state", "player_presets", "pregame_pulls",
+                               "decision_prefs", "final_plays_done", "news_to_notify"})
+league_state = sa.Table(
+    "league_state", metadata, _league(), _season(),
+    sa.Column("key", sa.String, nullable=False),
+    sa.Column("value", sa.JSON, nullable=False),
+    sa.PrimaryKeyConstraint("league", "season", "key"),
 )
 
 # The decision journal (was journal/DECISIONS.md): every lineup move, sit, claims submit and free add the app makes,
@@ -494,11 +504,11 @@ sa.Index("ix_decisions_week_kind", decisions_table.c.league, decisions_table.c.s
 # The API's page payloads (api.Cache), written through on every install and loaded expired at boot, so the first open
 # of a page after a restart is served at once while it rebuilds behind. A dropped page's row is deleted with it.
 page_cache = sa.Table(
-    "page_cache", metadata, _season(),
+    "page_cache", metadata, _league(), _season(),
     sa.Column("key", sa.String, nullable=False),
     sa.Column("payload", sa.JSON, nullable=False),
     sa.Column("built_at", sa.Float, nullable=False),     # epoch seconds
-    sa.PrimaryKeyConstraint("season", "key"),
+    sa.PrimaryKeyConstraint("league", "season", "key"),
 )
 
 # ffl/sources' scrapes (sources.Cached), written through on every good fetch and loaded on a source's first read,
@@ -1581,37 +1591,58 @@ def put_state(key: str, value, season: int = SEASON) -> None:
         c.execute(_upsert(notify_state, [{"season": season, "key": key, "value": value}], ["season", "key"], ["value"]))
 
 
-def put_page(key: str, payload, built_at: float, season: int = SEASON) -> None:
+def get_league_state(key: str, default=None, season: int = SEASON, *, ref=None):
+    t = league_state
+    q = sa.select(t.c.value).where(t.c.league == _league_key(ref), t.c.season == season, t.c.key == key)
+    with _read() as c:
+        v = c.execute(q).scalar()
+    return default if v is None else v
+
+
+def put_league_state(key: str, value, season: int = SEASON, *, ref=None) -> None:
+    league = _league_key(ref)
     with _write() as c:
-        c.execute(_upsert(page_cache, [{"season": season, "key": key, "payload": payload, "built_at": built_at}],
-                          ["season", "key"], ["payload", "built_at"]))
+        c.execute(_upsert(league_state, [{"league": league, "season": season, "key": key, "value": value}],
+                          ["league", "season", "key"], ["value"]))
 
 
-def drop_pages(keys: list[str], season: int = SEASON) -> None:
+def put_page(key: str, payload, built_at: float, season: int = SEASON, *, ref=None) -> None:
+    league = _league_key(ref)
+    with _write() as c:
+        c.execute(_upsert(page_cache, [{"league": league, "season": season, "key": key, "payload": payload,
+                                        "built_at": built_at}], ["league", "season", "key"], ["payload", "built_at"]))
+
+
+def drop_pages(keys: list[str], season: int = SEASON, *, ref=None) -> None:
     if not keys:
         return
+    league = _league_key(ref)
     with _write() as c:
-        c.execute(page_cache.delete().where(page_cache.c.season == season, page_cache.c.key.in_(keys)))
+        c.execute(page_cache.delete().where(page_cache.c.league == league, page_cache.c.season == season,
+                                            page_cache.c.key.in_(keys)))
 
 
-def drop_page_prefixes(prefixes: tuple[str, ...], season: int = SEASON) -> None:
+def drop_page_prefixes(prefixes: tuple[str, ...], season: int = SEASON, *, ref=None) -> None:
     """Delete every row keyed `prefix` or `prefix:...`."""
     k = page_cache.c.key
     match = sa.or_(*[sa.or_(k == p, k.startswith(p + ":", autoescape=True)) for p in prefixes])
+    league = _league_key(ref)
     with _write() as c:
-        c.execute(page_cache.delete().where(page_cache.c.season == season, match))
+        c.execute(page_cache.delete().where(page_cache.c.league == league, page_cache.c.season == season, match))
 
 
-def clear_pages(season: int = SEASON) -> None:
+def clear_pages(season: int = SEASON, *, ref=None) -> None:
+    league = _league_key(ref)
     with _write() as c:
-        c.execute(page_cache.delete().where(page_cache.c.season == season))
+        c.execute(page_cache.delete().where(page_cache.c.league == league, page_cache.c.season == season))
 
 
-def pages(season: int = SEASON) -> list[dict]:
+def pages(season: int = SEASON, *, ref=None) -> list[dict]:
     """Every stored page: {key, payload, built_at}."""
     t = page_cache
+    q = sa.select(t.c.key, t.c.payload, t.c.built_at).where(t.c.league == _league_key(ref), t.c.season == season)
     with _read() as c:
-        return [dict(r._mapping) for r in c.execute(sa.select(t.c.key, t.c.payload, t.c.built_at).where(t.c.season == season))]
+        return [dict(r._mapping) for r in c.execute(q)]
 
 
 def put_source(name: str, key: str, data: list, fetched_at: float, ttl: float, season: int = SEASON) -> None:

@@ -1,3 +1,4 @@
+import json
 import multiprocessing as mp
 import sqlite3
 
@@ -636,6 +637,105 @@ def test_league_data_is_kept_per_league():
     assert db.box_doc(5) == db.box_doc(5, ref=home)
     db.expire_live_boxes(ref=other)
     assert db.box_weeks(ref=home)[5]["fetched_at"] == 1.0 and db.box_weeks(ref=other)[5]["fetched_at"] == 0.0
+
+
+def _at_0021(tmp_path, monkeypatch, seed_home: bool = True) -> str:
+    """A DB at 0021 with notify_state and page_cache seeded (state keys of both kinds, two pages)."""
+    from alembic import command
+    url = _at_0020(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "0021")
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        if not seed_home:
+            c.execute(sa.text("DELETE FROM leagues"))
+        for k, v in (("waiver_run", {"run": 1}), ("news_mutes", [1]), ("source_status", {"cbs": "ok"})):
+            c.execute(sa.text("INSERT INTO notify_state (season, key, value) VALUES (2026, :k, :v)"),
+                      {"k": k, "v": json.dumps(v)})
+        for k in ("roster", "week:6"):
+            c.execute(sa.text("INSERT INTO page_cache (season, key, payload, built_at) VALUES (2026, :k, '{}', 1.0)"),
+                      {"k": k})
+    eng.dispose()
+    return url
+
+
+def _rows(url: str, sql: str) -> list:
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        out = [tuple(r) for r in c.execute(sa.text(sql))]
+    eng.dispose()
+    return out
+
+
+def test_0022_moves_league_keys_under_home(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0021(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "0022")
+    assert _rows(url, "SELECT league, season, key FROM league_state") == [("espn:100000001", 2026, "waiver_run")]
+    assert sorted(_rows(url, "SELECT key FROM notify_state")) == [("news_mutes",), ("source_status",)]
+    assert sorted(_rows(url, "SELECT league, key FROM page_cache")) == [("espn:100000001", "roster"),
+                                                                       ("espn:100000001", "week:6")]
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        assert sa.inspect(c).get_pk_constraint("page_cache")["constrained_columns"] == ["league", "season", "key"]
+        assert sa.inspect(c).get_pk_constraint("league_state")["constrained_columns"] == ["league", "season", "key"]
+    eng.dispose()
+
+
+def test_0022_downgrade_keeps_home(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0021(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "0022")
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        c.execute(sa.text("INSERT INTO league_state (league, season, key, value) VALUES ('espn:999', 2026, 'waiver_run', '{}')"))
+        c.execute(sa.text("INSERT INTO page_cache (league, season, key, payload, built_at) "
+                          "VALUES ('espn:999', 2026, 'other', '{}', 1.0)"))
+    eng.dispose()
+    command.downgrade(db._alembic_config(), "0021")
+    assert _rows(url, "SELECT value FROM notify_state WHERE key = 'waiver_run'") == [('{"run": 1}',)]
+    assert sorted(_rows(url, "SELECT key FROM notify_state")) == [("news_mutes",), ("source_status",), ("waiver_run",)]
+    assert sorted(_rows(url, "SELECT key FROM page_cache")) == [("roster",), ("week:6",)]
+    assert _rows(url, "SELECT name FROM sqlite_master WHERE name = 'league_state'") == []
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        ins = sa.inspect(c)
+        assert ins.get_pk_constraint("page_cache")["constrained_columns"] == ["season", "key"]
+        assert [x["name"] for x in ins.get_columns("page_cache")] == ["season", "key", "payload", "built_at"]
+    eng.dispose()
+
+
+def test_0022_refuses_with_no_home_league(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0021(tmp_path, monkeypatch, seed_home=False)
+    with pytest.raises(RuntimeError, match="home league"):
+        command.upgrade(db._alembic_config(), "0022")
+    assert len(_rows(url, "SELECT key FROM notify_state")) == 3, "nothing moved"
+
+
+def test_league_state_and_pages_kept_per_league():
+    from ffl import leagues
+    home, other = leagues.home(), _other_league()
+    db.put_league_state("waiver_run", {"who": "home"}, ref=home)
+    db.put_league_state("waiver_run", {"who": "other"}, ref=other)
+    assert db.get_league_state("waiver_run", ref=home) == {"who": "home"}
+    assert db.get_league_state("waiver_run", ref=other) == {"who": "other"}
+    assert db.get_league_state("waiver_run") == {"who": "home"}, "no league named is home"
+    assert db.get_league_state("pending_claims", default=[], ref=other) == []
+
+    db.put_page("roster", {"a": "home"}, 1.0, ref=home)
+    db.put_page("roster", {"a": "other"}, 2.0, ref=other)
+    db.put_page("week:6", {"a": "home"}, 1.0, ref=home)
+    db.put_page("week:6", {"a": "other"}, 2.0, ref=other)
+    assert {r["key"]: r["payload"] for r in db.pages(ref=other)}["roster"] == {"a": "other"}
+    assert {r["key"]: r["payload"] for r in db.pages()}["roster"] == {"a": "home"}
+    db.drop_page_prefixes(("week",), ref=other)
+    assert sorted(r["key"] for r in db.pages(ref=other)) == ["roster"]
+    assert sorted(r["key"] for r in db.pages(ref=home)) == ["roster", "week:6"]
+    db.drop_pages(["roster"], ref=other)
+    assert db.pages(ref=other) == [] and len(db.pages(ref=home)) == 2
+    db.put_page("roster", {}, 3.0, ref=other)
+    db.clear_pages(ref=other)
+    assert db.pages(ref=other) == [] and len(db.pages()) == 2
 
 
 def test_decisions_per_league():
