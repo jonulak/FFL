@@ -88,3 +88,41 @@ def test_cli_show_and_list(capsys):
     assert strategy.main(["list"]) == 0
     out = capsys.readouterr().out
     assert "2qb-10team  v1" in out and "espn:100000001" in out
+
+
+def test_public_preset_seeded():
+    s = db.strategy_row("1qb-10team")
+    assert s["version"] == 1 and s["name"] == "1QB, 10 teams"
+    assert s["constants"] == {"qb_pace": 0.0, "suggested_caps": LIMITS}, "no caps tighter than the league's own"
+    assert s["prose"].startswith("# Draft strategy — 1QB, 10 teams, ESPN standard (full PPR)\n")
+    for h in ("## Draft rules (1QB)", "## Waivers (in-season, 2026-09-08)", "## Lineup (in-season, 2026-09-08)"):
+        assert h in s["prose"]
+    assert "Props trial" not in s["prose"] and "Brier 0.203" not in s["prose"], "the home league's history stays home's"
+
+
+def test_0020_links_the_public_league_where_it_is_registered(tmp_path, monkeypatch):
+    from alembic import command
+    from ffl import config
+    data = tmp_path / "data"
+    data.mkdir()
+    monkeypatch.setattr(config, "DATA", data)
+    monkeypatch.setattr(config, "JOURNAL", tmp_path / "journal")
+    url = f"sqlite:///{tmp_path / 'fresh.db'}"
+    monkeypatch.setenv("FFL_DB_URL", url)
+    monkeypatch.delenv("LEAGUE_ID", raising=False)
+    db.reset()
+    command.upgrade(db._alembic_config(), "0019")
+    eng = sa.create_engine(url)  # the app refuses a DB behind head, so the row goes in as 0019 left the table
+    with eng.begin() as c:
+        c.execute(sa.text("INSERT INTO leagues (key, provider, provider_id, season, name, team_id, home, added_at) "
+                          "VALUES ('espn:950458410', 'espn', '950458410', 2026, 'public', 1, 0, '2026-10-25')"))
+    eng.dispose()
+    command.upgrade(db._alembic_config(), "head")
+    ref = leagues.get("espn:950458410")
+    assert ref.strategy == "1qb-10team"
+    provider_limits(ref.key, LIMITS)
+    assert strategy.caps(ref) == LIMITS
+    command.downgrade(db._alembic_config(), "0019")
+    assert leagues.get("espn:950458410").strategy is None
+    assert db.strategy_row("1qb-10team") is None
+    db.reset()

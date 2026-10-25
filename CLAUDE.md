@@ -68,7 +68,7 @@ Mock/practice runs: `FFL_DATA_DIR=data-mock uv run python -m ffl.<mod>` (the moc
 `data-mock/ffl.db`) keeps the real board and pick log untouched: `FFL_DATA_DIR` only chooses the SQLite file.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
 `data/` is gitignored, and everything in it is regenerable except `data/ffl.db` (the season's data; see Persistence), which is backed up nightly to Drive, not by git.
-`journal/` is the durable prose and is committed. The strategy is not a file: presets live in the DB's `strategies` table (added and versioned only by migrations; 0016 holds the old strategy file's text as `2qb-10team` v1) and `uv run python -m ffl.strategy show` prints the league's.
+`journal/` is the durable prose and is committed. The strategy is not a file: presets live in the DB's `strategies` table (added and versioned only by migrations; 0016 holds the old strategy file's text as `2qb-10team` v1, the home league's; 0020 added `1qb-10team` v1, generic 1QB draft rules over home's in-season sections, which the public league `espn:950458410` plays, its caps ESPN's own limits) and `uv run python -m ffl.strategy show` prints the league's.
 
 ## Architecture notes
 - `ffl/config.py` owns env + the `League` singleton; `raw_league_get(view, ...)` hits ESPN views directly.

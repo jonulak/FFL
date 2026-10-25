@@ -5,7 +5,7 @@
 
 A preset lives in the `strategies` table under (key, version); a league plays the latest version of the key
 `leagues.strategy` names. Presets are shared and not user-editable: only a migration adds one or a new version
-(0016 added `2qb-10team` v1, STRATEGY.md's text). My caps are league data: a league takes its preset's
+(0016 added `2qb-10team` v1, STRATEGY.md's text; 0020 `1qb-10team` v1, the public league's). My caps are league data: a league takes its preset's
 `suggested_caps` as its own the first time they are read, and from then on owns them (`ffl.leagues caps`), so a
 new preset version never moves a cap.
 """
