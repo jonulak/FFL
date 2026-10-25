@@ -41,9 +41,22 @@ def playoff_weeks(schedule: dict) -> list[int]:
     return sorted(w for mp, weeks in schedule.get("matchupPeriods", {}).items() if int(mp) > reg for w in weeks)
 
 
+def first_week(status: dict, draft_ms: int | None, week1_start: date) -> int:
+    """The league's first scoring week. ESPN reports 1 until a league has drafted, so a league joined once the
+    season is under way takes the week after its draft (the 2026-10-25 public draft, in week 7: ESPN said 8
+    once it was over); a preseason league, or one that has drafted, keeps ESPN's."""
+    fw = status.get("firstScoringPeriod") or 1
+    under_way = max(status.get("currentMatchupPeriod") or 0, status.get("latestScoringPeriod") or 0) > 1
+    if fw > 1 or not under_way or not draft_ms:
+        return fw
+    from .season import week_of  # season imports board, which imports this module
+    drafted = datetime.fromtimestamp(draft_ms / 1000, tz=timezone.utc).astimezone().date()
+    return max(1, week_of(drafted, week1_start) + 1)
+
+
 def fetch(ref) -> dict:
-    """ESPN's settings for the league: today's settings.json dict plus `first_week` (ESPN's first scoring
-    period) and `scoring_items` (the raw items, every position's pointsOverrides kept, for the formats)."""
+    """ESPN's settings for the league: today's settings.json dict plus `first_week` (the first scoring
+    week, `first_week()`) and `scoring_items` (the raw items, every position's pointsOverrides kept, for the formats)."""
     raw = raw_league_get(["mSettings", "mTeam"], ref=ref)
     status = raw.get("status") or raw_league_get(["mStatus"], ref=ref).get("status") or {}
     s = raw["settings"]
@@ -103,7 +116,7 @@ def fetch(ref) -> dict:
         "trade_deadline_ms": s.get("tradeSettings", {}).get("deadlineDate"),
         "scoring": scoring,
         "teams": teams,
-        "first_week": status.get("firstScoringPeriod") or 1,
+        "first_week": first_week(status, draft.get("date"), nfl_week1_start(season)),
         "scoring_items": s["scoringSettings"].get("scoringItems", []),
     }
 

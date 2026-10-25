@@ -119,15 +119,88 @@ def ros_players(players: pd.DataFrame, lookup: dict[int, dict], settings: dict) 
     return df
 
 
+USAGE_WEEKS = 3  # the finished NFL weeks before a mid-season draft whose usage sits beside the table
+
+
+def feed_status(status: str) -> str:
+    """ESPN's injuries-feed status ("Injured Reserve", "Out", "Day-To-Day") in the pool's vocabulary."""
+    s = status.strip().upper().replace("-", "_").replace(" ", "_")
+    return "INJURY_RESERVE" if s == "INJURED_RESERVE" else s
+
+
+def with_injuries(players: pd.DataFrame, injuries: dict[int, dict], settings: dict) -> pd.DataFrame:
+    """The injuries feed over the pool's status, which is ESPN's draft-pool snapshot and lags (it priced a
+    season-ending McLaurin as healthy on 2026-10-25). `return_week` is the feed's return date as a week; a
+    return past the fantasy season zeroes `proj` (the sources lag such news, so this cannot double-dock);
+    any earlier return leaves `proj` to the sources and shows beside it."""
+    from datetime import date
+    from .draft_watch import SEASON_WEEKS
+    from .season import week_of
+    df = players.copy()
+    week1 = date.fromisoformat(settings["week1_start"])
+    status, ret = [], []
+    for pid, inj in zip(df.player_id, df.get("injury", pd.Series([None] * len(df)))):
+        row = injuries.get(int(pid)) or {}
+        status.append(feed_status(row["status"]) if row.get("status") else inj)
+        ret.append(week_of(row["return_date"], week1) if row.get("return_date") else np.nan)
+    df["injury"] = status
+    df["return_week"] = ret
+    df.loc[df.return_week > SEASON_WEEKS, "proj"] = 0.0
+    return df
+
+
+def usage(rows_by_week: dict[int, list[dict]]) -> dict[tuple[str, str], dict[str, float | None]]:
+    """Recent usage off Sleeper's weekly stat rows, keyed (normalized name, position): `snap` his offensive
+    snap share over the weeks he played, `tgt` targets a game, `trend` his latest game's opportunity (targets
+    + rushes, + pass attempts for a QB) minus the mean of his earlier ones (None with one game). Shown beside
+    the draft table, never in `score`: a riser shows in usage weeks before a projection catches up."""
+    games: dict[tuple[str, str], list[tuple[int, float, float, float]]] = {}
+    for week in sorted(rows_by_week):
+        for p in rows_by_week[week]:
+            pl, st = p.get("player") or {}, p.get("stats") or {}
+            pos = pl.get("position")
+            if not pos or not st.get("off_snp") or not st.get("tm_off_snp"):
+                continue
+            g = lambda k: float(st.get(k) or 0)  # noqa: E731
+            opp = g("rec_tgt") + g("rush_att") + (g("pass_att") if pos == "QB" else 0.0)
+            key = (norm_name(f"{pl.get('first_name', '')} {pl.get('last_name', '')}"), pos)
+            games.setdefault(key, []).append((week, g("off_snp") / g("tm_off_snp"), g("rec_tgt"), opp))
+    out = {}
+    for key, gs in games.items():
+        opps = [o for *_, o in gs]
+        out[key] = {"snap": round(sum(s for _, s, _, _ in gs) / len(gs), 2),
+                    "tgt": round(sum(t for _, _, t, _ in gs) / len(gs), 1),
+                    "trend": round(opps[-1] - sum(opps[:-1]) / len(opps[:-1]), 1) if len(opps) > 1 else None}
+    return out
+
+
+def with_usage(players: pd.DataFrame, use: dict[tuple[str, str], dict]) -> pd.DataFrame:
+    """`snap`, `tgt` and `trend` (usage()) as columns, matched on normalized name + position; blank for a
+    player Sleeper has no snaps for (a D/ST, a K, one who has not played)."""
+    df = players.copy()
+    keys = list(zip(df["name"].map(norm_name), df.pos))
+    for col in ("snap", "tgt", "trend"):
+        df[col] = [(use.get(k) or {}).get(col) for k in keys]
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
 def load_inputs(ref=None):
     """(settings, players, adp) for the league (None: the current one), from the DB: ESPN's pool for its
-    formats with Sleeper's projections averaged in, and its ADP feeds."""
+    formats with Sleeper's projections averaged in, and its ADP feeds. A mid-season draft adds what a
+    preseason one has no use for: rest-of-season projections, the injuries feed and recent usage."""
     ref = ref or leagues.current()
     settings = load(ref)
     players = merge_sleeper(players_mod.pool(ref), sleeper_mod.season_players(ref))
-    if start_week(settings) > 1:
+    w = start_week(settings)
+    if w > 1:
         from . import espn_season
-        players = ros_players(players, espn_season.season_lookup(settings, start_week(settings), ref=ref), settings)
+        players = ros_players(players, espn_season.season_lookup(settings, w, ref=ref), settings)
+        players = with_injuries(players, espn_season.fetch_injuries(), settings)
+        # a league joined mid-season drafts in the week before its first (settings.first_week), which is
+        # still being played: its Thursday game alone would read as everyone's latest
+        weeks = [x for x in range(w - 1 - USAGE_WEEKS, w - 1) if x >= 1]
+        players = with_usage(players, usage({x: espn_season._stats_rows(x) for x in weeks}))
     return settings, players, load_adp(settings)
 
 

@@ -448,7 +448,7 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
     avail = avail.sort_values(["score", "depth", "proj"], ascending=[False, True, False])
     cols = ["player_id", "name", "pos", "team", "bye", "proj", "vorp", "tier", "adp", "survive_prob",
             "likely_gone", "gone_before_me", "score", "urgency", "need", "bye_risk", "opp_demand",
-            "spread", "injury"]
+            "spread", "injury", "return_week", "snap", "tgt", "trend"]  # the last four: a mid-season board's
     cols = [c for c in cols if c in avail.columns]
     # A player on injured reserve cannot be drafted into the IR slot, but he can be drafted to
     # the bench and moved there afterwards, which hands the roster spot back. In the last rounds
@@ -486,8 +486,11 @@ def candidate_table(rows: list[dict], n: int = 10) -> str:
     df["inj"] = df.injury.map(lambda s: INJURY_SHORT.get(s, s if isinstance(s, str) else ""))
     df["surv"] = df.survive_prob.map(lambda p: f"{p:.0%}")
     df["gone"] = np.where(df.gone_before_me, "!", "")
+    if "return_week" in df.columns:  # a mid-season board: the injuries feed's return week beside the status
+        df["inj"] = [i if not i or r != r else f"{i} season" if r > SEASON_WEEKS else f"{i} wk{int(r)}"
+                     for i, r in zip(df.inj, df.return_week)]
     cols = [c for c in ["gone", "name", "pos", "proj", "vorp", "tier", "adp", "surv", "score", "urgency",
-                        "need", "bye", "bye_risk", "spread", "opp_demand", "inj", "player_id"]
+                        "need", "bye", "bye_risk", "spread", "opp_demand", "snap", "tgt", "trend", "inj", "player_id"]
             if c in df.columns]
     return df[cols].to_string(index=False)
 

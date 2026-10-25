@@ -1,7 +1,28 @@
 """Pure league facts derived without the network."""
 from datetime import date
 
-from ffl.settings import nfl_week1_start, playoff_weeks
+from ffl.settings import first_week, nfl_week1_start, playoff_weeks
+
+PUBLIC_DRAFT_MS = 1792935180000  # 2026-10-25 09:33 EDT, the public league's draft (Sunday of NFL week 7)
+WEEK1 = date(2026, 9, 8)
+
+
+def test_a_league_joined_mid_season_starts_the_week_after_its_draft():
+    # before the draft ESPN says 1 though week 7 is being played; afterwards it said 8
+    assert first_week({"firstScoringPeriod": 1, "currentMatchupPeriod": 7, "latestScoringPeriod": 7},
+                      PUBLIC_DRAFT_MS, WEEK1) == 8
+
+
+def test_a_preseason_league_keeps_week_1():
+    assert first_week({"firstScoringPeriod": 1, "currentMatchupPeriod": 1, "latestScoringPeriod": 1},
+                      PUBLIC_DRAFT_MS, WEEK1) == 1
+    assert first_week({"firstScoringPeriod": 1, "currentMatchupPeriod": 7}, None, WEEK1) == 1, "no draft date"
+
+
+def test_espn_first_week_stands_once_it_is_set():
+    assert first_week({"firstScoringPeriod": 8, "currentMatchupPeriod": 7, "latestScoringPeriod": 7},
+                      PUBLIC_DRAFT_MS, WEEK1) == 8
+    assert first_week({"firstScoringPeriod": 3, "currentMatchupPeriod": 9}, PUBLIC_DRAFT_MS, WEEK1) == 3
 
 
 def test_week1_starts_the_tuesday_before_kickoff():

@@ -350,6 +350,8 @@ def test_week1_board_unchanged(espn, monkeypatch):
     from ffl import espn_season
     monkeypatch.delenv("FFL_ADP_MODE", raising=False)
     monkeypatch.setattr(espn_season, "season_lookup", lambda *a, **k: pytest.fail("week 1 must not price ROS"))
+    monkeypatch.setattr(espn_season, "fetch_injuries", lambda: pytest.fail("week 1 reads the pool's status"))
+    monkeypatch.setattr(espn_season, "_stats_rows", lambda w: pytest.fail("week 1 shows no usage"))
     home = seed_home()
     for fw in ({}, {"first_week": 1}):
         monkeypatch.setattr(board_mod, "load", lambda ref, fw=fw: {**home_fx(), **fw, "league_key": ref.key})
@@ -364,6 +366,44 @@ def test_mid_season_load_inputs_prices_through_this_league(espn, monkeypatch):
     seen = []
     monkeypatch.setattr(espn_season, "season_lookup",
                         lambda settings, week, ref=None: seen.append((week, ref.key)) or {1001: {"ros_proj": 12.0}})
+    monkeypatch.setattr(espn_season, "fetch_injuries", lambda: {})
+    weeks = []
+    monkeypatch.setattr(espn_season, "_stats_rows", lambda w: weeks.append(w) or [])
     s, pl, a = board_mod.load_inputs(home)
     assert seen == [(9, home.key)]
     assert pl.set_index("player_id").proj[1001] == 10.8   # 12 over weeks 9..18, scaled to the nine fantasy weeks
+    assert sorted(weeks) == [5, 6, 7], "the three finished weeks before the draft's week (8, still being played)"
+    assert {"return_week", "snap", "tgt", "trend"} <= set(pl.columns)
+
+
+def _sleeper_row(first, last, pos, snp, tm, tgt=0, rush=0, pas=0):
+    return {"player": {"first_name": first, "last_name": last, "position": pos},
+            "stats": {"off_snp": snp, "tm_off_snp": tm, "rec_tgt": tgt, "rush_att": rush, "pass_att": pas}}
+
+
+def test_usage_reads_snap_share_targets_and_the_latest_game_against_the_earlier_ones():
+    rows = {5: [_sleeper_row("Germie", "Bernard", "WR", 30, 60, tgt=3)],
+            6: [_sleeper_row("Germie", "Bernard", "WR", 45, 60, tgt=5, rush=1),
+                _sleeper_row("Sam", "Darnold", "QB", 60, 60, pas=30, rush=2)],
+            7: [_sleeper_row("Germie", "Bernard", "WR", 60, 60, tgt=10, rush=1),
+                {"player": {"first_name": "Bye", "last_name": "Week", "position": "WR"}, "stats": {}}]}
+    u = board_mod.usage(rows)
+    assert u[("germie bernard", "WR")] == {"snap": 0.75, "tgt": 6.0, "trend": 6.5}   # 11 vs the mean of 3 and 6
+    assert u[("sam darnold", "QB")] == {"snap": 1.0, "tgt": 0.0, "trend": None}, "one game: no trend"
+    assert ("bye week", "WR") not in u, "a row without snaps is not a game"
+
+
+def test_injuries_feed_overrides_the_pool_and_a_season_ending_return_zeroes_proj():
+    from datetime import date
+    pl = pd.DataFrame({"player_id": [1, 2, 3, 4], "name": ["McLaurin", "Tyson", "Goff", "Achane"],
+                       "pos": ["WR", "WR", "QB", "RB"], "proj": [140.0, 97.0, 218.0, 178.0],
+                       "injury": ["ACTIVE", "ACTIVE", "QUESTIONABLE", "ACTIVE"]})
+    feed = {1: {"status": "Out", "return_date": date(2027, 2, 15)},
+            2: {"status": "Injured Reserve", "return_date": date(2026, 11, 8)},
+            3: {"status": "Active", "return_date": None}}
+    out = board_mod.with_injuries(pl, feed, {"week1_start": "2026-09-08"}).set_index("name")
+    assert out.loc["McLaurin", ["injury", "proj"]].tolist() == ["OUT", 0.0], "out past week 17"
+    assert out.loc["Tyson", ["injury", "proj", "return_week"]].tolist() == ["INJURY_RESERVE", 97.0, 9]
+    assert out.loc["Goff", "injury"] == "ACTIVE", "the feed is fresher than the pool"
+    assert out.loc["Achane", ["injury", "proj"]].tolist() == ["ACTIVE", 178.0], "not in the feed: the pool's"
+    assert board_mod.feed_status("Day-To-Day") == "DAY_TO_DAY"

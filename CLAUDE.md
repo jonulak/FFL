@@ -157,6 +157,10 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   (`board.start_week`; `board.banner` warns on the board, advise and the watcher), `proj` is the rest of the season
   (`board.ros_players`: `season_lookup`'s sourced ROS scaled to the fantasy weeks left, else the season total scaled the same way),
   byes already played cost nothing and `weeks_left` replaces 17 in urgency and the rollout; ADP stays preseason, so survive% is rough.
+  It also lays ESPN's injuries feed over the pool's lagging status (`board.with_injuries`: `return_week`; a return past the season zeroes `proj`,
+  any other leaves it to the sources) and shows recent usage beside the table (`board.usage` off Sleeper's stat rows for the three finished weeks
+  before the draft's week: `snap`, `tgt`, `trend`; columns only, never in `score`). ESPN reports a league's first scoring week as 1 until it has
+  drafted; `settings.first_week` takes the week after the draft date when the season is under way (2026-10-25's public draft: 8, as ESPN then said).
   The draft tables are keyed by league (`draft_picks`, `draft_feeds`, `draft_states`), and the watcher reads only its league's room.
 - ADP source is FantasyFootballCalculator's public API (FantasyPros gates its table behind login). The 2QB feed
   is primary; `adp_1qb` is kept for comparison.

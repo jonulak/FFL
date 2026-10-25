@@ -23,7 +23,8 @@ def main(pos: str, n: int = 8):
     b = board_mod.build(*board_mod.load_inputs(ref))
     left = b[(b.pos == pos.upper()) & ~b.player_id.isin(gone)].sort_values("proj", ascending=False)
     print(f"{len(gone)} picks made — {len(left)} {pos.upper()} left:")
-    print(left.head(n)[["player_id", "name", "team", "bye", "proj", "vorp", "adp", "injury"]].to_string(index=False))
+    cols = ["player_id", "name", "team", "bye", "proj", "vorp", "adp", "injury", "return_week", "snap", "tgt", "trend"]
+    print(left.head(n)[[c for c in cols if c in left.columns]].to_string(index=False))  # the last four: mid-season
 
 
 if __name__ == "__main__":
