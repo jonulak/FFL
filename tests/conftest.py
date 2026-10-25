@@ -126,3 +126,26 @@ def _empty_api_cache():
         api.cache.join()
         with api.cache._lock:                            # memory only: the test's DB is a throwaway copy
             api.cache._d.clear()
+
+
+@pytest.fixture(autouse=True)
+def _home_only_caches():
+    """api.caches holds a cache per league that has been asked for: each test starts with home's alone, and what a
+    test made for another league is joined and dropped after it (memory only: the DB is a throwaway copy)."""
+    import sys
+    api = sys.modules.get("ffl.api")
+    if api is not None:
+        from ffl import leagues
+        with api._CACHES:
+            api.caches.clear()
+            api.caches[leagues.home().key] = api.cache
+    yield
+    api = sys.modules.get("ffl.api")
+    if api is not None:
+        with api._CACHES:
+            made = [c for c in api.caches.values() if c is not api.cache]
+            api.caches.clear()
+        for c in made:
+            c.join()
+            with c._lock:
+                c._d.clear()

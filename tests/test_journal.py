@@ -70,7 +70,7 @@ def test_a_failing_listener_never_fails_the_sync(monkeypatch):
                          get_team_data=lambda tid: team,
                          espn_request=SimpleNamespace(league_get=lambda extend="", params=None, headers=None: topics))
 
-    def boom(rows):
+    def boom(rows, ref=None):
         raise RuntimeError("listener down")
     monkeypatch.setattr(journal, "ON_NEW_ROWS", [boom])
     assert len(journal.sync_transactions(lg)) == 1

@@ -19,7 +19,7 @@ def pool(monkeypatch):
     """What `free_agent_pool`, Sleeper's chart and ESPN's injury feed answer; a test edits it before the build."""
     state = {"watched": [], "builds": 0, "chart": {}, "injuries": {}, "owners": None}
 
-    def fake_pool(week=None):
+    def fake_pool(week=None, **k):
         state["builds"] += 1
         return {"week": 7, "ros_week": 7, "positions": {"RB": []}, "rostered": {"RB": []},
                 "roster": [{"player_id": 90, "name": "Mine", "pos": "RB", "ros_adj": 30.0, "slot": "BE"}],

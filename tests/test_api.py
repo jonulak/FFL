@@ -16,18 +16,18 @@ from ffl import api, db
 def client(monkeypatch, tmp_path):
     calls = {"week": 0}
 
-    def fake_week(week=None):
+    def fake_week(week=None, **k):
         calls["week"] += 1
         return {"week": week or 3, "live": False, "me": {"team": "me"}, "opp": {"team": "opp"}, "stale": None}
 
     monkeypatch.setattr(api.espn_season, "week_state", fake_week)
-    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 3, "positions": {"RB": []}})
-    monkeypatch.setattr(api.espn_season, "league_state", lambda week=None: {"week": week or 3, "standings": [], "scoreboard": []})
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 3, "positions": {"RB": []}})
+    monkeypatch.setattr(api.espn_season, "league_state", lambda week=None, **k: {"week": week or 3, "standings": [], "scoreboard": []})
     monkeypatch.setattr(api.espn_season, "team_state", lambda team_id: {
         "week": 3, "live": False, "mine": team_id == 7, "club": {"team_id": team_id, "rank": 2},
         "side": {"team_id": team_id, "lineup": [{"player_id": 1, "actual": 0.0, "team": "DET"}], "bench": [], "ir": []}})
     monkeypatch.setattr(api.espn_season, "roster_state",
-                        lambda week=None: {"week": 3, "live": False, "cards": [
+                        lambda week=None, **k: {"week": 3, "live": False, "cards": [
                             {"player_id": 1, "name": "A", "pos": "RB", "team": "DET", "bye": False, "injury": "ACTIVE",
                              "proj": 12.0, "spread": 1.0, "game_played": 0, "opponent": "GB", "kickoff": None,
                              "return_week": None, "injury_note": None, "call": "START", "close_call": False,
@@ -67,7 +67,7 @@ def test_refresh_keeps_the_stale_fallback(client, monkeypatch):
     """expire_all, not clear: refreshing while ESPN is down must not blank the page."""
     client.get("/week/3")
     monkeypatch.setattr(api.espn_season, "week_state",
-                        lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+                        lambda week=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     client.post("/refresh")
     r = client.get("/week/3")
     assert r.status_code == 200 and r.json()["stale_since"] is not None
@@ -81,7 +81,7 @@ def test_refresh_502s_when_espn_is_down(client, monkeypatch):
 
 def test_transactions_sync_answers_the_new_count(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda: "LG")
-    monkeypatch.setattr(api, "load", lambda: {})
+    monkeypatch.setattr(api, "load", lambda *a, **k: {})
     monkeypatch.setattr(api, "sync_transactions", lambda lg: [{}, {}])
     results = []
     monkeypatch.setattr(api, "sync_results", lambda lg, settings: results.append(lg))
@@ -106,7 +106,7 @@ def test_sync_all_rebuilds_the_league(monkeypatch):
                         lambda: hits.__setitem__("refresh", hits["refresh"] + 1))
     monkeypatch.setattr(api.espn_season, "fresh_league",
                         lambda: (hits.__setitem__("fresh", hits["fresh"] + 1), "LG")[1])
-    monkeypatch.setattr(api, "load", lambda: {})
+    monkeypatch.setattr(api, "load", lambda *a, **k: {})
     monkeypatch.setattr(api, "sync_transactions", lambda lg: None)
     monkeypatch.setattr(api, "sync_results", lambda lg, s: None)
     assert api.sync_all() == {"transactions": True, "results": True}
@@ -115,7 +115,7 @@ def test_sync_all_rebuilds_the_league(monkeypatch):
 
 def test_stale_payload_served_when_source_fails(client, monkeypatch):
     client.get("/week/3")
-    monkeypatch.setattr(api.espn_season, "week_state", lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(api.espn_season, "week_state", lambda week=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     api.cache.expire_all()
     client.get("/week/3")  # answered from the old payload; the rebuild behind it fails
     api.cache.join()
@@ -129,7 +129,7 @@ def test_expired_entry_is_served_at_once_and_rebuilt_behind(client, monkeypatch)
     gate = threading.Event()
     seen = {"n": 0}
 
-    def slow_week(week=None):
+    def slow_week(week=None, **k):
         seen["n"] += 1
         if seen["n"] > 1:
             gate.wait(5)
@@ -151,14 +151,14 @@ def test_expired_entry_is_served_at_once_and_rebuilt_behind(client, monkeypatch)
 
 def test_failed_background_rebuild_keeps_the_old_payload_and_flags_it(client, monkeypatch):
     client.get("/week/3")
-    monkeypatch.setattr(api.espn_season, "week_state", lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(api.espn_season, "week_state", lambda week=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     api.cache.expire_all()
     assert client.get("/week/3").json()["stale_since"] is None, "not known to be down yet"
     api.cache.join()
     r = client.get("/week/3")
     assert r.status_code == 200 and r.json()["me"]["team"] == "me" and r.json()["stale_since"] is not None
     monkeypatch.setattr(api.espn_season, "week_state",
-                        lambda week=None: {"week": 3, "live": False, "me": {"team": "back"}, "opp": None})
+                        lambda week=None, **k: {"week": 3, "live": False, "me": {"team": "back"}, "opp": None})
     client.get("/week/3")  # still flagged and expired: this get starts the retry
     api.cache.join()
     assert client.get("/week/3").json()["stale_since"] is None, "a good build clears the flag"
@@ -190,7 +190,7 @@ def test_logo_serves_bytes_and_404s_when_missing(client, monkeypatch):
 
 
 def test_502_when_nothing_cached(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "league_state", lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+    monkeypatch.setattr(api.espn_season, "league_state", lambda week=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     r = client.get("/league")
     assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
 
@@ -295,7 +295,7 @@ def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeyp
 
 def test_outlook_refresh_reports_a_source_failure_as_502(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "roster_state",
-                        lambda week=None: (_ for _ in ()).throw(RuntimeError("espn down")))
+                        lambda week=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     r = client.post("/outlook/refresh")
     assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
 
@@ -304,7 +304,7 @@ def _fa_pool(monkeypatch):
     row = {"player_id": 7, "name": "B", "pos": "RB", "team": "MIA", "bye": False, "injury": "ACTIVE",
            "opponent": "BUF", "kickoff": None, "return_week": None, "injury_note": None, "add": 9.0}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
-                        lambda week=None: {"week": 3, "positions": {"RB": [row], "WR": []}})
+                        lambda week=None, **k: {"week": 3, "positions": {"RB": [row], "WR": []}})
     monkeypatch.setattr(api.outlook, "_WRITING", {})
     api.cache.clear()
     return row
@@ -353,7 +353,7 @@ def _store(rows):
 
 def test_week_plays_come_only_from_the_runner_scoring_that_week(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "week_state",
-                        lambda week=None: {"week": week or 3, "live": False, "me": {"team_id": 7}, "opp": {"team_id": 3}})
+                        lambda week=None, **k: {"week": week or 3, "live": False, "me": {"team_id": 7}, "opp": {"team_id": 3}})
     store = _store([{"delta": 6.0, "team_id": 7}])
     monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=2, store=store), raising=False)
     assert client.get("/week").json()["plays"] == []
@@ -367,7 +367,7 @@ def test_every_board_carries_its_own_games_plays_sided_from_its_left(client, mon
     board is never served for someone else's game, and each board's feed is its two teams' rows."""
     asked = []
 
-    def fake_week(week=None, team=None):
+    def fake_week(week=None, team=None, **k):
         asked.append(team)
         left, right = (7, 3) if team is None else (team, 5)
         return {"week": week or 3, "live": False, "me": {"team": f"t{left}", "team_id": left, "abbrev": "L"},
@@ -390,7 +390,7 @@ def test_every_board_carries_its_own_games_plays_sided_from_its_left(client, mon
 def test_plays_page_opens_the_week_it_was_linked_from(client, monkeypatch):
     """A finished week's board links its whole feed with `week`: the page reads that week's stored rows, not
     the current week's, and leads back to that week's board (`current` false); my current week stays `/`."""
-    monkeypatch.setattr(api.espn_season, "week_state", lambda week=None, team=None: {
+    monkeypatch.setattr(api.espn_season, "week_state", lambda week=None, team=None, **k: {
         "week": week or 6, "live": False, "me": {"team": "t", "team_id": team or 7, "abbrev": "L"},
         "opp": {"team": "x", "team_id": 5, "abbrev": "R"}, "mine": team in (None, 7)})
     monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=_store([{"delta": 6.0, "team_id": 7}])),
@@ -472,7 +472,7 @@ def test_players_search_spans_every_position(client, monkeypatch):
     wr = {**rb, "player_id": 8, "name": "Bo Nix", "pos": "WR", "team": "DEN", "add": 12.0}
     qb = {**rb, "player_id": 9, "name": "Cam Ward", "pos": "QB", "team": "TEN", "add": 3.0}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
-                        lambda week=None: {"week": 3, "positions": {"RB": [rb], "WR": [wr], "QB": [qb]}})
+                        lambda week=None, **k: {"week": 3, "positions": {"RB": [rb], "WR": [wr], "QB": [qb]}})
     api.cache.clear()
     body = client.get("/players?q=b").json()
     assert [r["player_id"] for r in body["rows"]] == [8, 7], "every pool, by add, best first"
@@ -487,7 +487,7 @@ def claims_env(client, monkeypatch):
     roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
     pool = {"WR": [{"player_id": 101, "name": "Addison", "status": "WAIVERS"}, {"player_id": 102, "name": "Mims", "status": "WAIVERS"}],
             "D/ST": [{"player_id": -16020, "name": "Vikings D/ST", "status": "WAIVERS"}]}
-    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 6, "roster": roster, "positions": pool})
     # reads the current pool dict on every call, so a test can flip a status between load and Submit
     monkeypatch.setattr(api.espn_season, "pool_status", lambda: {r["player_id"]: {"status": r["status"], "waiver_date": None} for rows in pool.values() for r in rows})
     monkeypatch.setattr(api, "_roster_size", lambda: 17)
@@ -517,7 +517,7 @@ def test_a_target_another_team_took_keeps_his_name_and_says_who(claims_env, monk
     taken = {"player_id": 102, "name": "Mims", "pos": "WR", "team": "DEN", "owner": {"team_id": 3, "name": "Hawks", "abbrev": "HWK"}, "mine": False}
     pool = {"WR": [claims_env.pool["WR"][0]]}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
-                        lambda week=None: {"week": 6, "roster": roster, "positions": pool, "rostered": {"WR": [taken]}})
+                        lambda week=None, **k: {"week": 6, "roster": roster, "positions": pool, "rostered": {"WR": [taken]}})
     r = claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 1}]}).json()
     assert r["players"]["102"]["name"] == "Mims"
     assert r["players"]["102"]["droppable"] is None, "not offered as a cut: the panel reads droppable as mine"
@@ -632,7 +632,7 @@ def _counting_board(monkeypatch):
     """week:current built from a counter: the version a read sees says whether it was built after the move."""
     builds = {"n": 0}
 
-    def week_state(week=None, team=None):
+    def week_state(week=None, team=None, **k):
         builds["n"] += 1
         return {"week": 3, "v": builds["n"]}
 
@@ -854,7 +854,7 @@ def test_claims_page_reuses_the_pending_read_but_fresh_and_submit_read_once(clai
 def test_new_week_starts_empty(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
-    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 7, "roster": [], "positions": {}})
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 7, "roster": [], "positions": {}})
     api.cache.clear()
     r = claims_env.get("/claims").json()
     assert r["week"] == 7 and r["groups"] == [] and r["last_submit"] is None
@@ -946,7 +946,7 @@ def test_instant_add_is_consumed_from_the_plan(claims_env, monkeypatch):
     roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False}
               for i in range(2, 17)] + [{"player_id": 102, "slot": "BE", "name": "Mims", "pos": "WR", "droppable": True, "locked": False}]
     pool = {"WR": [claims_env.pool["WR"][0]]}   # Mims left the pool, R1 left the roster
-    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 6, "roster": roster, "positions": pool})
     api.cache.clear()
     r = claims_env.get("/claims").json()
     assert r["groups"] == [{"targets": [101], "cuts": [2], "open": 0}]
@@ -1000,7 +1000,7 @@ def _league_pool(monkeypatch, positions_rb=None):
             "delta_pool": None, "mine": True, "owner": {"team_id": 7, "name": "Mine", "abbrev": "ME"}}
     pool = {"week": 3, "positions": {"RB": positions_rb if positions_rb is not None else [fa], "WR": []},
             "rostered": {"RB": [theirs, mine], "WR": []}}
-    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: pool)
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: pool)
     monkeypatch.setattr(api.outlook, "_WRITING", {})
     api.cache.clear()
     return pool
@@ -1033,7 +1033,7 @@ def test_players_one_row_when_espn_lists_a_rostered_player_as_free(client, monke
 
 def test_players_pool_cached_before_rostered_existed(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
-                        lambda week=None: {"week": 3, "positions": {"RB": [{"player_id": 7, "name": "B", "pos": "RB", "team": "MIA", "add": 1.0}]}})
+                        lambda week=None, **k: {"week": 3, "positions": {"RB": [{"player_id": 7, "name": "B", "pos": "RB", "team": "MIA", "add": 1.0}]}})
     api.cache.clear()
     assert [r["player_id"] for r in client.get("/players?pos=RB&fa=0").json()["rows"]] == [7]
 
@@ -1049,7 +1049,7 @@ def lineup_env(client, monkeypatch):
              {"player_id": 2, "name": "Flex", "pos": "WR", "slot": "RB/WR/TE", "call": "BENCH", "gap": -1.4, "group": "starter", "locked": False}]
     state = {"slots": {3: "BE", 2: "RB/WR/TE"}, "locked": set(), "period": 3, "builds": 0, "flag_reads": 0}
 
-    def roster_state(week=None, flags=None):
+    def roster_state(week=None, flags=None, **k):
         state["builds"] += 1
         state["readback_flags"] = flags
         return {"week": 3, "live": False, "empty_slots": [], "writes": False,
@@ -1061,7 +1061,7 @@ def lineup_env(client, monkeypatch):
         return {i: {"locked": i in state["locked"], "slot": s} for i, s in state["slots"].items()}
     monkeypatch.setattr(api.espn_season, "roster_flags", roster_flags)
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)  # these model real writes (move_lineup is stubbed)
-    monkeypatch.setattr(api.espn_season, "load", lambda: {"starters": {"RB/WR/TE": 1}})
+    monkeypatch.setattr(api.espn_season, "load", lambda *a, **k: {"starters": {"RB/WR/TE": 1}})
     monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: ([], state["period"]))
     sent = []
     monkeypatch.setattr(api.espn_write, "move_lineup",
@@ -1122,7 +1122,7 @@ def test_turning_the_decisions_page_off_turns_logging_off(lineup_env):
 
 
 def test_unreadable_decision_prefs_never_fail_a_move(lineup_env, monkeypatch, caplog):
-    def broken(key, default=None):
+    def broken(key, default=None, **k):
         raise db.sa.exc.OperationalError("select", {}, Exception("disk I/O error"))
     monkeypatch.setattr(api.db, "get_league_state", broken)
     r = lineup_env.post("/lineup", json=SWAP)
@@ -1141,7 +1141,7 @@ def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_en
     monkeypatch.setattr(api.espn_write, "move_lineup", ORIGINAL_MOVE_LINEUP)
     monkeypatch.setattr(api.espn_write, "writes", ORIGINAL_WRITES)
     real = api.espn_season.roster_state
-    monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None, flags=None: {
+    monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None, flags=None, **k: {
         **(d := real(week)), "cards": [{**c, "slot": api.espn_write.fake_slots().get(c["player_id"], c["slot"])} for c in d["cards"]]})
     assert lineup_env.post("/lineup", json=SWAP).status_code == 200
     back = {"moves": [{"player_id": 3, "to_slot": "BE"}, {"player_id": 2, "to_slot": "RB/WR/TE"}]}
@@ -1219,7 +1219,7 @@ def test_lineup_reports_espns_refusal(lineup_env, monkeypatch):
 
 def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):
     real = api.espn_season.roster_state
-    def after_write(week=None, flags=None):
+    def after_write(week=None, flags=None, **k):
         if lineup_env.sent:
             raise RuntimeError("espn down")
         return real(week)
@@ -1234,7 +1234,7 @@ def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):
 def test_lineup_read_back_failure_still_journals_the_move(lineup_env, monkeypatch):
     real = api.espn_season.roster_state
     monkeypatch.setattr(api.espn_season, "roster_state",
-                        lambda week=None, flags=None: (_ for _ in ()).throw(RuntimeError("espn down")) if lineup_env.sent else real(week))
+                        lambda week=None, flags=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")) if lineup_env.sent else real(week))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["moved"] is True and len(lineup_env.sent) == 1
     assert _titles() == ["Week 3 lineup: Bench to FLEX, Flex to the bench"]
@@ -1288,12 +1288,12 @@ def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch):
               "gap": None, "group": "ir", "locked": False},
              {"player_id": 7, "name": "Sore", "pos": "RB", "slot": "BE", "injury": "OUT", "call": "OUT",
               "gap": None, "group": "bench", "locked": False}]
-    monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None, flags=None: {
+    monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None, flags=None, **k: {
         "week": 3, "live": False, "empty_slots": [], "writes": False,
         "cards": [{**c, "slot": api.espn_write.fake_slots().get(c["player_id"], c["slot"])} for c in cards]})
     monkeypatch.setattr(api.espn_season, "roster_flags",
                         lambda lg: {c["player_id"]: {"locked": False, "slot": c["slot"]} for c in cards})
-    monkeypatch.setattr(api.espn_season, "load", lambda: {"starters": {"RB/WR/TE": 1}, "ir_size": 1})
+    monkeypatch.setattr(api.espn_season, "load", lambda *a, **k: {"starters": {"RB/WR/TE": 1}, "ir_size": 1})
     r = lineup_env.post("/lineup", json={"moves": [{"player_id": 5, "to_slot": "BE"}, {"player_id": 7, "to_slot": "IR"}]})
     assert r.status_code == 200, r.json()
     assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {5: "BE", 7: "IR"}
@@ -1312,13 +1312,13 @@ def sit_env(client, monkeypatch):
     from tests.test_season import TWO_QB, roster
     state = {"builds": 0}
 
-    def roster_state(week=None, flags=None):
+    def roster_state(week=None, flags=None, **k):
         state["builds"] += 1
         rows = api.espn_season.with_sits(roster(), db.sat_ids(3))
         return {"week": 3, "live": False, "empty_slots": [], "writes": False,
                 "cards": season.roster_cards(rows, TWO_QB, 3)}
     monkeypatch.setattr(api.espn_season, "roster_state", roster_state)
-    monkeypatch.setattr(api.espn_season, "load", lambda: TWO_QB)
+    monkeypatch.setattr(api.espn_season, "load", lambda *a, **k: TWO_QB)
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)
     client.state = state
     return client
@@ -1787,7 +1787,7 @@ def test_a_changed_week_expires_its_pages_and_the_roster_only(client, monkeypatc
 
 def test_a_past_board_shows_its_stored_feed_for_its_two_teams_newest_first(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "week_state",
-                        lambda week=None: {"week": week or 3, "live": False, "me": {"team_id": 7}, "opp": {"team_id": 3}})
+                        lambda week=None, **k: {"week": week or 3, "live": False, "me": {"team_id": 7}, "opp": {"team_id": 3}})
     monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=_store([])), raising=False)
     db.add_plays([_corr(4, pid=1, team=7), {**_corr(4, pid=2, team=3), "at": "2026-10-14T13:00:00-04:00"},
                   _corr(4, pid=3, team=9)])
@@ -1814,7 +1814,7 @@ def _views_pool(monkeypatch):
     wr = [{**base, "player_id": 300 + i, "name": f"W{i}", "pos": "WR", "add": float(i) + 0.5, "form": None} for i in range(100)]
     mine = {**base, "player_id": 9, "name": "Mine", "pos": "RB", "add": None, "owner": {"team_id": 7}, "mine": True}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
-                        lambda week=None: {"week": 3, "positions": {"RB": rb, "WR": wr}, "rostered": {"RB": [mine]}})
+                        lambda week=None, **k: {"week": 3, "positions": {"RB": rb, "WR": wr}, "rostered": {"RB": [mine]}})
     api.cache.clear()
 
 
@@ -1854,7 +1854,7 @@ def test_players_flex_spans_rb_wr_te_and_is_capped_like_all(client, monkeypatch)
     pool = api.espn_season.free_agent_pool()
     qb = {**pool["positions"]["RB"][0], "player_id": 500, "name": "Q", "pos": "QB", "add": 999.0}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
-                        lambda week=None: {**pool, "positions": {**pool["positions"], "QB": [qb]}})
+                        lambda week=None, **k: {**pool, "positions": {**pool["positions"], "QB": [qb]}})
     api.cache.clear()
     body = client.get("/players?pos=FLEX").json()
     assert body["pos"] == "FLEX" and body["capped"] is True and len(body["rows"]) == 150

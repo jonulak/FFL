@@ -45,9 +45,9 @@ def test_scoreboard_route(c):
 
 
 def test_scoreboard_carries_the_playoff_weeks_from_settings(c, monkeypatch):
-    monkeypatch.setattr(api, "load", lambda: {"playoff_weeks": [15, 16, 17]})
+    monkeypatch.setattr(api, "load", lambda *a, **k: {"playoff_weeks": [15, 16, 17]})
     assert c.get("/nfl").json()["playoff_weeks"] == [15, 16, 17]
-    monkeypatch.setattr(api, "load", lambda: {})  # a settings file from before the key: no flags
+    monkeypatch.setattr(api, "load", lambda *a, **k: {})  # a settings file from before the key: no flags
     assert c.get("/nfl").json()["playoff_weeks"] == []
 
 

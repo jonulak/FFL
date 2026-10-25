@@ -17,8 +17,8 @@ from .settings import load
 
 
 # Called with the rows a sync logged, whichever path ran it (the hourly tick, a page build, the box-score reconcile):
-# the API drops its cached Transactions page here, so a move notice's link never opens the page from before the move.
-ON_NEW_ROWS: list[Callable[[list[dict]], None]] = []
+# (of any league, with `ref=` that league) the API drops that league's cached pages here, so a move notice's link never opens the page from before the move.
+ON_NEW_ROWS: list[Callable[..., None]] = []  # fn(rows, ref=league)
 
 
 def _my_team(lg, settings, ref=None):
@@ -60,17 +60,15 @@ def sync_transactions(lg, *, ref=None):
                          "type": action, "team": team.team_name, "player": getattr(player, "name", player),
                          "action": action, "bid": bid, "reasoning": ""})
     new = db.add_transactions(rows, ref=r)  # the (season, id) key makes concurrent syncs safe
-    if not r.home:  # pushes and the API's page listeners are home's until 4.8
-        print(f"transactions {r.key}: +{len(new)} (no notices before 4.8)")
-        return new
-    notify.enqueue_moves(new)
+    if r.home:  # pushes are home's until 4.8; the page listeners are every league's
+        notify.enqueue_moves(new)
     if new:
         for fn in ON_NEW_ROWS:
             try:
-                fn(new)
+                fn(new, ref=r)
             except Exception as e:  # noqa: BLE001 — the rows are logged; a listener's failure is not the sync's
                 print(f"transactions: listener {getattr(fn, '__name__', fn)} failed: {e}")
-    print(f"transactions: +{len(new)}")
+    print(f"transactions{'' if r.home else ' ' + r.key}: +{len(new)}")
     return new
 
 
