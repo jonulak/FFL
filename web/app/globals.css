@@ -424,6 +424,10 @@ tr[data-fold="shut"] > td > .fold {
 .league-in.league-wait { animation: league-in 420ms var(--ease-arrive) both, league-wait 1100ms ease-in-out 420ms infinite alternate; }
 @keyframes league-in { from { clip-path: inset(0 100% 0 0); } }
 @keyframes league-wait { to { opacity: 0.55; } }
+/* The page of the league being left, from the pick until the next league's page replaces it (a full page load, whose
+   own .page-in fades the arrival in): it fades back on the leaving curve, faster than the arrival, and takes no taps.
+   Not to nothing: a cold page takes seconds, and a blank screen reads as broken. Opacity only, like .page-in. */
+html[data-league-leaving] main { opacity: 0.3; pointer-events: none; transition: opacity 240ms var(--ease-leave); }
 
 /* Reduced motion keeps what carries meaning (a new row still fades in, a scoring play still
    washes) and drops the travel: no sliding, no opening and folding. */
