@@ -20,6 +20,13 @@ def run_migrations_online():
         @sa.event.listens_for(eng, "connect")
         def _busy(dbapi_conn, _rec):  # a batch migration can meet the live API's writer
             dbapi_conn.execute("PRAGMA busy_timeout=5000")
+            dbapi_conn.isolation_level = None  # BEGIN is ours (below): pysqlite would commit each DDL statement
+
+        @sa.event.listens_for(eng, "begin")
+        def _begin(conn):
+            # one transaction for the whole upgrade, DDL included: a migration that fails part way (a bad
+            # file in an import) leaves the DB at the revision it started from, ready to re-run
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
     with eng.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
         with context.begin_transaction():

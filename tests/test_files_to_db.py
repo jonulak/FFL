@@ -44,6 +44,11 @@ def _sample(tmp_path):
             "rows": [{"player_id": 1, "name": "A", "proj": 10.0, "proj_props": 12.0, "proj3": 11.0}]}
     (data / "props" / "week-4-sun.json").write_text(json.dumps(snap))
     (data / "props" / "raw" / "week-4-sun" / "abc123.json").write_text(json.dumps({"id": "abc123", "bookmakers": []}))
+    # junk a deploy must pass over: a truncated snapshot, a truncated raw event, a non-UTF-8 trace line
+    (data / "props" / "week-5-thu.json").write_text('{"week": 5, "rows": [')
+    (data / "props" / "raw" / "week-4-sun" / "broken.json").write_text("{")
+    with open(data / "trace.jsonl", "ab") as f:
+        f.write(b"\xff\xfe junk\n")
     return data, journal, snap
 
 
@@ -202,3 +207,28 @@ def test_ffc_fetch_stores_new_drafts_and_skips_stored(monkeypatch):
                            {"overall": 2, "round": 1, "pick": 2, "team_id": 2, "player_id": 3918298,
                             "player": "Josh Allen", "pos": "QB", "nfl": "BUF", "human": False}]
     assert row["meta"] == {"url": f"{ffc.BASE}/draft/22", "human": [True, False]}
+
+
+def test_a_failed_upgrade_leaves_the_db_where_it_was(tmp_path, monkeypatch):
+    """Migrations run in one transaction, DDL included: a 0019 that fails part way leaves 0018, re-runnable."""
+    from alembic import command
+    data, journal, _ = _sample(tmp_path)
+    monkeypatch.setattr(config, "DATA", data)
+    monkeypatch.setattr(config, "JOURNAL", journal)
+    url = f"sqlite:///{tmp_path / 'fresh.db'}"
+    monkeypatch.setenv("FFL_DB_URL", url)
+    monkeypatch.delenv("LEAGUE_ID", raising=False)
+    db.reset()
+    command.upgrade(db._alembic_config(), "0018")
+    monkeypatch.setattr(config, "DATA", 0)   # Path(0) raises in 0019's import, after its tables are created
+    with pytest.raises(TypeError):
+        command.upgrade(db._alembic_config(), "head")
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        assert c.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() == "0018"
+        assert not sa.inspect(c).has_table("traces"), "the new tables went with the failed run"
+    eng.dispose()
+    monkeypatch.setattr(config, "DATA", data)
+    command.upgrade(db._alembic_config(), "head")
+    db.reset()
+    assert len(db.trace_rows()) == 2

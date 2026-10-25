@@ -1617,7 +1617,11 @@ def trace(body: TraceIn):
     """On-device trace of the push tap path (ffl-e9x.10): the worker and the page beacon each step here, and the
     server stamps the time, since uvicorn's access log carries none. One row per event in the `traces` table
     (`db.trace_rows()` reads them back as the old trace.jsonl lines)."""
-    db.add_trace(datetime.now().astimezone().isoformat(timespec="milliseconds"), {"event": body.event, **body.fields})
+    try:
+        db.add_trace(datetime.now().astimezone().isoformat(timespec="milliseconds"), {"event": body.event, **body.fields})
+    except db.DBError as e:  # a debug beacon: nothing retries it, so say so in the log and answer
+        log.warning("trace %s not saved: %s", body.event, e)
+        return {"ok": False}
     return {"ok": True}
 
 

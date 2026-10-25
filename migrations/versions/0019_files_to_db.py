@@ -54,6 +54,22 @@ def _pick_log(path: Path):
     return records(df) if _LOG_COLS <= set(df.columns) and len(df) else None
 
 
+def _text(path: Path) -> str:
+    """A file's text, an undecodable byte replaced: a junk line is skipped, never the deploy."""
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def _json(path: Path):
+    """A JSON file's document, None when it cannot be read or parsed (skipped, never the deploy)."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def import_files(bind) -> dict[str, int]:
     """Insert-if-absent from the files these tables replace, read where they are at call time (config.DATA,
     config.JOURNAL): <DATA>/trace.jsonl (only into an empty table: its rows have no natural key),
@@ -67,7 +83,7 @@ def import_files(bind) -> dict[str, int]:
     trace = data / "trace.jsonl"
     if trace.exists() and not bind.execute(sa.text("SELECT count(*) FROM traces")).scalar():
         rows = []
-        for line in trace.read_text().splitlines():
+        for line in _text(trace).splitlines():
             try:
                 doc = json.loads(line)
             except ValueError:
@@ -101,7 +117,9 @@ def import_files(bind) -> dict[str, int]:
         wk = _week_kind(path.stem)
         if wk is None or wk in have:
             continue
-        snaps.append({"week": wk[0], "kind": wk[1], "doc": json.loads(path.read_text())})
+        doc = _json(path)
+        if doc is not None:
+            snaps.append({"week": wk[0], "kind": wk[1], "doc": doc})
     if snaps:
         bind.execute(_snaps.insert(), snaps)
         n["props_snapshots"] = len(snaps)
@@ -114,8 +132,8 @@ def import_files(bind) -> dict[str, int]:
         if wk is None or not folder.is_dir():
             continue
         for path in sorted(folder.glob("*.json")):
-            if (*wk, path.stem) not in have:
-                raw.append({"week": wk[0], "kind": wk[1], "event_id": path.stem, "doc": json.loads(path.read_text())})
+            if (*wk, path.stem) not in have and (doc := _json(path)) is not None:
+                raw.append({"week": wk[0], "kind": wk[1], "event_id": path.stem, "doc": doc})
     if raw:
         bind.execute(_raw.insert(), raw)
         n["props_raw"] = len(raw)

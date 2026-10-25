@@ -182,7 +182,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   above it), so the app writes nothing under `data/` but SQLite. `season` leads every natural key (`plays` is keyed by an autoincrement `id`, unique on `(season, week, player_id, at, total)`; `draft_logs`, `traces` and the props tables carry none). A write is one short `BEGIN IMMEDIATE` transaction, never held
   across an ESPN call; the connect hook sets `busy_timeout` before `journal_mode=WAL`. `db.engine()` never creates tables: a
   missing or stale schema raises `SchemaError` (run `uv run alembic upgrade head`); a DB error on a page read 500s the page, only a missing
-  row degrades to empty. Callers outside `db.py` catch `db.DBError`. Schema changes are new Alembic revisions
+  row degrades to empty. Callers outside `db.py` catch `db.DBError`. An upgrade runs in one `BEGIN IMMEDIATE` transaction, DDL included (`migrations/env.py`): one that fails part way leaves the revision it started from, re-runnable, and a file import in a migration skips an unreadable file rather than fail the deploy. Schema changes are new Alembic revisions
   (`uv run alembic revision --autogenerate -m ...`, batch mode, under `migrations/`). `uv run python -m ffl.db import`
   (`ffl/db_import.py`) is insert-if-absent from the old files, with per-table counts and dupes; it exits 1 when short or when a
   non-plays table has shared keys (the cutover ran it 2026-10-08; the originals are in `data/pre-db/`). `scripts/deploy.sh`

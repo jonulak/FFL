@@ -63,7 +63,10 @@ def resolve_logs(names: list[str]) -> list[tuple[str, str]]:
 
 def keep(name: str, path, league: str) -> None:
     """Store `league`'s draft from another ffl.db (a practice run's `data-mock/ffl.db`) as the practice log `name`."""
-    rows = db.picks_in(path, league)
+    try:
+        rows = db.picks_in(path, league)
+    except db.DBError as e:  # not an ffl.db, or one older than the draft_picks league key (0018)
+        raise SystemExit(f"{path}: cannot read its draft_picks ({type(e).__name__}: {e})")
     if not rows:
         raise SystemExit(f"{path}: no picks for {league}")
     if not db.put_draft_log("practice", name, rows, {"from": str(path), "league": league}):
