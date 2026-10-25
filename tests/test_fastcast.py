@@ -99,6 +99,27 @@ def test_a_patch_frame_without_a_payload_is_skipped(capsys):
     assert c.mid == 9 and c.doc["statistics"]["1"]["stats"]["42"] == 3.0 and len(seen) == 1
 
 
+def test_a_cdn_frame_reloads_the_document_it_points_to(monkeypatch):
+    """Seen live 2026-10-25: a patch too big to push arrives as {useCDN, eventId, edgeUrl}, and
+    edgeUrl is the whole document. Skipping it left the doc a patch behind, so the next patch
+    failed (KeyError on lastPlay/end/downDistanceText, IndexError) and the socket reconnected."""
+    url = "https://fcast.espncdn.com/FastcastService/pubsub/profiles/12000/topic/t/message/41/checkpoint"
+    frame = json.dumps({"op": "P", "mid": 42, "tc": "t",
+                        "pl": json.dumps({"useCDN": True, "eventId": "41", "edgeUrl": url})})
+    assert fc.decode(frame)["checkpoint"] == url
+    fetched = []
+    monkeypatch.setattr(fc.requests, "get", lambda u, **k: fetched.append(u) or type("R", (), {
+        "raise_for_status": lambda self: None, "json": lambda self: {"statistics": {"1": {"stats": {"42": 5.0}}}}})())
+    seen = []
+    c = fc.Client(seen.append)
+    c.doc, c.mid = {"statistics": {"1": {"stats": {"42": 1.0}}}}, 40
+    c._frame(frame)
+    assert fetched == [url] and c.mid == 42 and c.doc["statistics"]["1"]["stats"]["42"] == 5.0 and len(seen) == 1
+    ops = [{"op": "replace", "path": "/statistics/1/stats/42", "value": 6.0}]
+    c._frame(r_frame(ops, mid=43, op="P"))  # the next patch applies on the reloaded document
+    assert c.mid == 43 and c.doc["statistics"]["1"]["stats"]["42"] == 6.0
+
+
 def test_a_fresh_checkpoint_clears_the_last_error(monkeypatch):
     """/live/status reads last_error once the socket drops: a failure the reconnect already
     repaired must not read as the feed's state for the rest of the week."""

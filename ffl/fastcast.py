@@ -49,12 +49,17 @@ PATCH_OPS = ("R", "P")  # R: replay of recent messages right after subscribing; 
 def decode(text: str) -> dict:
     """A frame as a dict; a patch frame (R or P) gains `patch`, the decoded JSON-Patch op list.
 
+    A patch too big to push comes as {useCDN, eventId, edgeUrl}, edgeUrl the whole document: the
+    frame gains `checkpoint`, that URL, for `Client._frame` to reload (seen 2026-10-25).
     A patch frame with no payload, outer or inner, gains no `patch`: there is nothing to apply,
     and `Client._frame` skips it rather than reconnect (seen 2026-09-17 and 2026-09-28)."""
     f = json.loads(text)
     if f.get("op") in PATCH_OPS:
         inner = f.get("pl")
         inner = json.loads(inner) if isinstance(inner, str) else inner
+        if isinstance(inner, dict) and inner.get("useCDN") and inner.get("edgeUrl"):
+            f["checkpoint"] = inner["edgeUrl"]
+            return f
         if not isinstance(inner, dict) or "pl" not in inner:
             return f
         raw = inner["pl"]
@@ -267,8 +272,8 @@ class Client:
     def checkpoint_url(self, mid: int) -> str:
         return f"https://fcast.espncdn.com/FastcastService/pubsub/profiles/{PROFILE}/topic/{self.topic}/message/{mid}/checkpoint"
 
-    def _load_checkpoint(self, mid: int) -> None:
-        r = requests.get(self.checkpoint_url(mid), timeout=TIMEOUT)
+    def _load_checkpoint(self, mid: int, url: str | None = None) -> None:
+        r = requests.get(url or self.checkpoint_url(mid), timeout=TIMEOUT)
         r.raise_for_status()
         self.doc, self.mid = r.json(), mid
         self.last_error = None  # a fresh document: whatever failed before is repaired
@@ -282,6 +287,10 @@ class Client:
         elif op in PATCH_OPS:
             if not self.doc:
                 return  # a delta before the checkpoint: nothing to apply it to
+            if "checkpoint" in f:
+                # the patch was too big to push: the document it leaves is on the CDN
+                self._load_checkpoint(int(f["mid"]), f["checkpoint"])
+                return
             if "patch" not in f:
                 # no payload: nothing to apply. Log its shape, since none has been captured yet
                 print(f"fastcast: skipped a patch frame without a payload: {text[:500]}")
