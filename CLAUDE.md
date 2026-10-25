@@ -386,6 +386,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   ESPN's lineup and the call disagree); rows are compact, detail expands, and the name opens the shared player
   dialog (Form on `ros_adj`). `espn_season.with_espn_slots` takes each card's slot and lock from a fresh mRoster
   read (`roster_flags`), never the cached box score; a failed read keeps the box slot, unlocked.
+  Writes (`/lineup`, `/roster/sit`, `/claims*`) follow `?league=` (one lock per league, `api._lock`; the fake lineup store, ESPN URL/team and decision rows are the league's); outlooks are still home-only.
   **`POST /lineup`** is the one-tap swap (`ffl/espn_write.py` is the only code that writes to ESPN): it re-reads
   mRoster for slots and locks, refuses when ESPN's week (`pending_state`) differs from the page's (and drops the
   cached League and page so Reload sees the new week), takes the non-blocking `_LINEUP` lock (409 when held),

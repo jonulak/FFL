@@ -253,9 +253,9 @@ def test_claims_keys(monkeypatch):
 
     roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
     pool = {"WR": [{"player_id": 101, "name": "Addison", "status": "WAIVERS"}]}
-    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None: {"week": 6, "roster": roster, "positions": pool})
-    monkeypatch.setattr(api, "_roster_size", lambda: 17)
-    monkeypatch.setattr(api, "_limits", lambda: {})
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 6, "roster": roster, "positions": pool})
+    monkeypatch.setattr(api, "_roster_size", lambda **k: 17)
+    monkeypatch.setattr(api, "_limits", lambda **k: {})
     api.cache.clear()
     assert set(TestClient(api.app).get("/claims").json()) == CLAIMS
 

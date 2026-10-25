@@ -1830,7 +1830,7 @@ def roster_state(week: int | None = None, sources: dict | None = None, season: d
         home_by_team(lg, week)), _exp_for(weeks, snaps)),
         _roster_games(lg, {me: boxes[me]}, week, ref=r), snap_weeks, rw, bye_by_team(lg), snap_refs(snap_weeks),
         _usage_for(weeks, snaps))
-    fake = espn_write.fake_slots() if r.home else {}  # the fake lineup store is home's until 4.5 makes it per league
+    fake = espn_write.fake_slots(ref=r)
     if flags is None:
         try:
             flags = roster_flags(lg, ref=r)

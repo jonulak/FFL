@@ -443,10 +443,25 @@ def health():
 
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
 
-_SUBMIT = threading.Lock()  # one submit at a time: it cancels and reposts ESPN's whole claim list
+_SUBMIT = threading.Lock()  # one submit at a time: it cancels and reposts ESPN's whole claim list (home's; see _lock)
+_LINEUP = threading.Lock()  # one move at a time: the answer is read back from ESPN, and two would read each other's half (home's)
+_LOCKS_GUARD = threading.Lock()
+_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+
+
+def _lock(name: str, ref: LeagueRef) -> threading.Lock:
+    """The write lock `name` ("lineup", "submit") of a league: one per league, so a move in one never 409s another's.
+    Home's are the module's `_LINEUP` and `_SUBMIT`."""
+    if ref.home:
+        return {"lineup": _LINEUP, "submit": _SUBMIT}[name]
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault((name, ref.key), threading.Lock())
+
+
 # token -> None while that submit runs, then its answer {status, body}. A phone that leaves the app mid-send loses
 # the request ("Load failed") while the server finishes it; the dialog asks GET /claims/submit/{token} for the answer.
 _SUBMITS: dict[str, dict | None] = {}
+_SUBMIT_LEAGUE: dict[str, str] = {}  # token -> the league key whose send it was; another league's token is a 404
 _SUBMITS_KEPT = 20
 
 
@@ -493,22 +508,22 @@ def _positions(data) -> dict:
     return {r["player_id"]: r.get("pos") for r in rows}
 
 
-def _validate(plan, roster, data, status):
-    return claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(), status, _instant_adds(),
-                               _owners(data), _positions(data), _limits())
+def _validate(plan, roster, data, status, *, ref: LeagueRef | None = None):
+    return claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(ref=ref), status, _instant_adds(),
+                               _owners(data), _positions(data), _limits(ref=ref))
 
 
-def _load_plan(week, max_age=0):
+def _load_plan(week, max_age=0, *, ref: LeagueRef | None = None):
     # a plan the waiver run already processed reads as retired (an empty week); the next save writes that down
-    plan = db.claim_plan(week)
+    plan = db.claim_plan(week, ref=ref)
     if plan is None:
         return {"week": week, "groups": [], "submits": []}
-    return claims_mod.retire(plan, espn_write.last_waiver_run(max_age))
+    return claims_mod.retire(plan, espn_write.last_waiver_run(max_age, ref=ref))
 
 
-def _save_plan(plan):
+def _save_plan(plan, *, ref: LeagueRef | None = None):
     plan["saved_at"] = datetime.now().isoformat(timespec="seconds")
-    db.put_claim_plan(plan)
+    db.put_claim_plan(plan, ref=ref)
 
 
 def _pool_rows(data):
@@ -519,11 +534,11 @@ def _status(data):
     return {i: r.get("status") for i, r in _pool_rows(data).items() if r.get("status")}
 
 
-def _fresh_status(data):
+def _fresh_status(data, *, ref: LeagueRef | None = None):
     """ESPN's statuses now (the pool is cached, and the Wednesday run turns WAIVERS into FREEAGENT); the cached
     ones when the read fails, where unknown counts as WAIVERS."""
     try:
-        return {i: v["status"] for i, v in espn_season.pool_status().items() if v.get("status")}
+        return {i: v["status"] for i, v in espn_season.pool_status(ref=ref).items() if v.get("status")}
     except Exception:  # noqa: BLE001
         return _status(data)
 
@@ -550,10 +565,10 @@ def _players(groups, data):
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
 
 
-def _claims_roster(data):
+def _claims_roster(data, *, ref: LeagueRef | None = None):
     """My roster as the claims read it: the cached pool's rows with the slots a fake lineup move (FFL_WRITES=0) put
     players in laid over, as the Roster page does, so a fake move off IR clears the IR block here too."""
-    fake = espn_write.fake_slots()
+    fake = espn_write.fake_slots(ref=ref)
     return [{**p, "slot": fake.get(p["player_id"], p.get("slot"))} for p in data.get("roster", [])]
 
 
@@ -564,13 +579,13 @@ CLAIMS_REUSE_S = 60
 JUST_READ_S = 5
 
 
-def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S):
-    roster, status = _claims_roster(data), _status(data) if status is None else status
+def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S, *, ref: LeagueRef | None = None):
+    roster, status = _claims_roster(data, ref=ref), _status(data) if status is None else status
     last = plan["submits"][-1] if plan["submits"] else None
     ids = set(last["ids"]) if last else set()
     now, expansion = claims_mod.plan_now(plan["groups"], status), claims_mod.expand(plan["groups"], status)
     try:
-        pending, perr = espn_write.pending_state(max_age)[0], None
+        pending, perr = espn_write.pending_state(max_age, ref=ref)[0], None
     except espn_write.WriteError as e:
         log.warning("pending claims not read: %s", e)  # the page shows only e.message; the cause is here
         pending, perr = [], e.message
@@ -580,10 +595,10 @@ def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S):
     on_espn = (bool(last) and perr is None and all(c.get("priority", 0) is not None for c in pending)
                and claims_mod.matches(expansion, [c for c in pending if c["id"] in ids]))
     return {"week": plan["week"], "groups": plan["groups"], "now": now, "claims": expansion,
-            "errors": _validate(plan, roster, data, status),
-            "warnings": claims_mod.cap_warnings(plan["groups"], roster, _positions(data), _limits()),
-            "open_spots": claims_mod.open_spots(roster, _roster_size()),
-            "position_caps": season.position_caps(roster, _limits()),
+            "errors": _validate(plan, roster, data, status, ref=ref),
+            "warnings": claims_mod.cap_warnings(plan["groups"], roster, _positions(data), _limits(ref=ref)),
+            "open_spots": claims_mod.open_spots(roster, _roster_size(ref=ref)),
+            "position_caps": season.position_caps(roster, _limits(ref=ref)),
             "status": {str(i): s for i, s in status.items()},
             "pending": [{**c, "from_app": c["id"] in ids} for c in pending], "pending_error": perr,
             "last_submit": last,
@@ -595,93 +610,103 @@ def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S):
             "players": _players(plan["groups"], data)}
 
 
-@app.get("/claims", dependencies=[home_only("claims")])
-def claims_get(fresh: bool = False):
+def _pool(ref: LeagueRef) -> dict:
+    return _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
+
+
+@app.get("/claims")
+def claims_get(fresh: bool = False, ref: LeagueRef = Depends(open_league)):
     # fresh=1 (the Submit dialog on open): statuses re-read from ESPN, so "Add now" is what Submit will run
-    data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
+    data = _pool(ref)
     if not fresh:
-        return _claims_payload(_load_plan(data["week"], CLAIMS_REUSE_S), data)
-    return _claims_payload(_load_plan(data["week"]), data, _fresh_status(data), JUST_READ_S)
+        return _claims_payload(_load_plan(data["week"], CLAIMS_REUSE_S, ref=ref), data, ref=ref)
+    return _claims_payload(_load_plan(data["week"], ref=ref), data, _fresh_status(data, ref=ref), JUST_READ_S, ref=ref)
 
 
-@app.post("/claims", dependencies=[home_only("claims")])
-def claims_save(body: PlanIn):
+@app.post("/claims")
+def claims_save(body: PlanIn, ref: LeagueRef = Depends(open_league)):
     # a save during a submit would overwrite its record (or be overwritten by it)
-    if not _SUBMIT.acquire(blocking=False):
+    lock = _lock("submit", ref)
+    if not lock.acquire(blocking=False):
         raise HTTPException(409, "a submit is running")
     try:
-        data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-        plan = {**_load_plan(data["week"], CLAIMS_REUSE_S), "groups": [g.model_dump() for g in body.groups]}
-        _save_plan(plan)
-        return _claims_payload(plan, data)
+        data = _pool(ref)
+        plan = {**_load_plan(data["week"], CLAIMS_REUSE_S, ref=ref), "groups": [g.model_dump() for g in body.groups]}
+        _save_plan(plan, ref=ref)
+        return _claims_payload(plan, data, ref=ref)
     finally:
-        _SUBMIT.release()
+        lock.release()
 
 
-def _keep_submit(token, answer):
+def _keep_submit(token, answer, ref: LeagueRef | None = None):
     _SUBMITS.pop(token, None)
     _SUBMITS[token] = answer
+    _SUBMIT_LEAGUE[token] = (ref or leagues.home()).key
     while len(_SUBMITS) > _SUBMITS_KEPT:
-        _SUBMITS.pop(next(iter(_SUBMITS)))
+        old = next(iter(_SUBMITS))
+        _SUBMITS.pop(old)
+        _SUBMIT_LEAGUE.pop(old, None)
 
 
-@app.post("/claims/submit", dependencies=[home_only("claims")])
-def claims_submit(body: SubmitIn):
+@app.post("/claims/submit")
+def claims_submit(body: SubmitIn, ref: LeagueRef = Depends(open_league)):
     if not body.token:
-        return _claims_submit(body)
-    _keep_submit(body.token, None)
+        return _claims_submit(body, ref)
+    _keep_submit(body.token, None, ref)
     try:
-        res = _claims_submit(body)
+        res = _claims_submit(body, ref)
     except HTTPException as e:
-        _keep_submit(body.token, {"status": e.status_code, "body": {"detail": e.detail}})
+        _keep_submit(body.token, {"status": e.status_code, "body": {"detail": e.detail}}, ref)
         raise
     except Exception as e:
-        _keep_submit(body.token, {"status": 500, "body": {"detail": str(e)}})
+        _keep_submit(body.token, {"status": 500, "body": {"detail": str(e)}}, ref)
         raise
-    _keep_submit(body.token, {"status": 200, "body": res})
+    _keep_submit(body.token, {"status": 200, "body": res}, ref)
     return res
 
 
-@app.get("/claims/submit/{token}", dependencies=[home_only("claims")])
-def claims_submit_answer(token: str):
-    """A send's answer by the dialog's token: running, or the status and body the POST answered (404: never arrived)."""
-    if token not in _SUBMITS:
+@app.get("/claims/submit/{token}")
+def claims_submit_answer(token: str, ref: LeagueRef = Depends(open_league)):
+    """A send's answer by the dialog's token: running, or the status and body the POST answered (404: never arrived,
+    or another league's)."""
+    if token not in _SUBMITS or _SUBMIT_LEAGUE.get(token, leagues.home().key) != ref.key:
         raise HTTPException(404, "no submit with that token")
     answer = _SUBMITS[token]
     return {"state": "running"} if answer is None else {"state": "done", **answer}
 
 
-def _claims_submit(body: SubmitIn):
-    if not _SUBMIT.acquire(blocking=False):
+def _claims_submit(body: SubmitIn, ref: LeagueRef):
+    lock = _lock("submit", ref)
+    if not lock.acquire(blocking=False):
         raise HTTPException(409, "a submit is already running")
     try:
-        data = _serve("waivers", lambda: espn_season.free_agent_pool(None))
-        plan, roster = _load_plan(data["week"]), _claims_roster(data)
-        status = _fresh_status(data)
+        data = _pool(ref)
+        plan, roster = _load_plan(data["week"], ref=ref), _claims_roster(data, ref=ref)
+        status = _fresh_status(data, ref=ref)
         # the dialog showed an "Add now" list from its own read: instant adds can't be undone, so any other is a 409
         now = claims_mod.plan_now(plan["groups"], status)
         if now != [m.model_dump() for m in body.expect_now]:
             raise HTTPException(409, {"error": "statuses changed — review again", "now": now})
-        errs = _validate(plan, roster, data, status)
+        errs = _validate(plan, roster, data, status, ref=ref)
         if errs:
             raise HTTPException(422, {"errors": errs})
         try:
-            pending, period = espn_write.pending_state(JUST_READ_S)
+            pending, period = espn_write.pending_state(JUST_READ_S, ref=ref)
         except espn_write.WriteError as e:
             raise _espn_error(e)
         # ESPN's current scoring period, which is what its write bodies want; the plan's week is the cached pool's
         if period is not None and period != data["week"]:
             # as /lineup does: drop the cached League and pool, or the reload serves the same old week
             espn_season.refresh_league()
-            cache.drop("waivers")
+            cache_for(ref).drop("waivers")
             raise HTTPException(409, {"error": "ESPN's week changed — reload"})
         last = plan["submits"][-1] if plan["submits"] else None
         wk = data["week"] if period is None else period
-        w = SimpleNamespace(pending_claims=espn_write.pending_claims,
-                            cancel_claim=lambda i: espn_write.cancel_claim(i, wk),
-                            submit_claim=lambda a, d: espn_write.submit_claim(a, d, wk),
-                            add_free_agent=lambda a, d: espn_write.add_free_agent(a, d, wk),
-                            reorder_claims=espn_write.reorder_claims)
+        w = SimpleNamespace(pending_claims=lambda: espn_write.pending_claims(ref=ref),
+                            cancel_claim=lambda i: espn_write.cancel_claim(i, wk, ref=ref),
+                            submit_claim=lambda a, d: espn_write.submit_claim(a, d, wk, ref=ref),
+                            add_free_agent=lambda a, d: espn_write.add_free_agent(a, d, wk, ref=ref),
+                            reorder_claims=lambda ids: espn_write.reorder_claims(ids, ref=ref))
         res = claims_mod.run_submit(plan["groups"], status, pending, set(last["ids"]) if last else set(), body.replace_outside, w)
         strip = lambda m: {k: m[k] for k in ("group", "add", "drop")}  # noqa: E731
         # ids = what ESPN still holds of ours (sent now, or kept from the last submit when a cancel failed), so the
@@ -695,28 +720,29 @@ def _claims_submit(body: SubmitIn):
                                 "claims": [strip(c) for c in res["sent"]], "ids": ids, "match": res["match"]})
         submitted = plan["groups"]
         plan["groups"] = claims_mod.consume(submitted, res["now"])  # landed adds are on the roster now
-        _save_plan(plan)
-        refs = []
-        if _records() and (res["now"] or res["sent"]):
+        _save_plan(plan, ref=ref)
+        decs = []
+        if _records(ref=ref) and (res["now"] or res["sent"]):
             names = {i: r["name"] for i, r in _pool_rows(data).items()} | {r["player_id"]: r["name"] for r in roster}
             if res["sent"]:
                 try:
-                    refs.append(db.put_week_claims(data["week"], _mark_fake(claims_mod.decision_row(
-                        submitted, names, status, data["week"], len(plan["submits"]), len(plan.get("retired", []))))))
+                    decs.append(db.put_week_claims(data["week"], _mark_fake(claims_mod.decision_row(
+                        submitted, names, status, data["week"], len(plan["submits"]), len(plan.get("retired", [])))), ref=ref))
                 except db.DBError as e:
                     log.warning("claims not recorded: %s", e)
-            refs += [r for r in map(_record, map(_mark_fake, claims_mod.free_add_rows(res["now"], names, data["week"]))) if r]
+            decs += [r for r in (_record(_mark_fake(row), ref=ref) for row in claims_mod.free_add_rows(res["now"], names, data["week"])) if r]
         elif res["now"] or res["sent"]:
             log.info("claims not recorded (logging off, or FFL_WRITES=0 without FFL_RECORD_FAKE=1)")
         if res["now"]:
             # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
             # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
-            espn_season.forget_current_boxes()
-            cache.expire_all()
-            cache.rebuild("waivers", "roster", "week:current", "league:current")
-        return {**res, "decisions": refs}
+            espn_season.forget_current_boxes(ref=ref)
+            c = cache_for(ref)
+            c.expire_all()
+            c.rebuild("waivers", "roster", "week:current", "league:current")
+        return {**res, "decisions": decs}
     finally:
-        _SUBMIT.release()
+        lock.release()
 
 
 class LineupMove(BaseModel):
@@ -728,9 +754,6 @@ class LineupIn(BaseModel):
     moves: list[LineupMove]
 
 
-_LINEUP = threading.Lock()  # one move at a time: the answer is read back from ESPN, and two would read each other's half
-
-
 def _decision_prefs(*, ref: LeagueRef | None = None) -> dict:
     """The Settings switches; read after ESPN took a move, so a DB error falls back to the defaults, never a 500."""
     try:
@@ -740,20 +763,20 @@ def _decision_prefs(*, ref: LeagueRef | None = None) -> dict:
         return dict(decisions_mod.DEFAULT_PREFS)
 
 
-def _records() -> bool:
+def _records(*, ref: LeagueRef | None = None) -> bool:
     """Real writes record their decisions unless logging is off in Settings; a dev API records only under
     FFL_RECORD_FAKE=1 (a worktree test server, own DB)."""
-    return (espn_write.writes() or os.environ.get("FFL_RECORD_FAKE") == "1") and _decision_prefs()["log"]
+    return (espn_write.writes() or os.environ.get("FFL_RECORD_FAKE") == "1") and _decision_prefs(ref=ref)["log"]
 
 
 def _mark_fake(row: dict) -> dict:
     return row if espn_write.writes() else {**row, "title": "[fake] " + row["title"], "facts": {**(row.get("facts") or {}), "fake": True}}
 
 
-def _record(row: dict) -> dict | None:
+def _record(row: dict, *, ref: LeagueRef | None = None) -> dict | None:
     """Store a decision the app just made; the move stands whatever the DB says, so a failure is a warning and no ref."""
     try:
-        return {"id": db.add_decision(row), "needs_rationale": row["rationale"] is None}
+        return {"id": db.add_decision(row, ref=ref), "needs_rationale": row["rationale"] is None}
     except db.DBError as e:
         log.warning("decision not recorded (%s): %s", row["title"], e)
         return None
@@ -764,18 +787,20 @@ def _espn_error(e: espn_write.WriteError) -> HTTPException:
     return HTTPException(502, {"source": "espn", "error": e.message})
 
 
-@app.post("/lineup", dependencies=[home_only("lineup")])
-def lineup(body: LineupIn):
+@app.post("/lineup")
+def lineup(body: LineupIn, ref: LeagueRef = Depends(open_league)):
     """Move players between ESPN slots (one transaction), then answer with the Roster page as ESPN now has it.
     Locks are re-read here, not trusted from the page: a game can kick off between the load and the tap."""
-    if not _LINEUP.acquire(blocking=False):
+    lock = _lock("lineup", ref)
+    if not lock.acquire(blocking=False):
         raise HTTPException(409, "a lineup move is already running")
+    c = cache_for(ref)
     try:
-        data = _serve("roster", lambda: espn_season.roster_state(None))
+        data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
         # the two reads are independent: both in flight at once (0.45 s + 0.2 s, one after the other)
         with ThreadPoolExecutor(2) as pool:
-            reading = pool.submit(lambda: espn_season.roster_flags(espn_season.fresh_league()))
-            pending = pool.submit(espn_write.pending_state)
+            reading = pool.submit(lambda: espn_season.roster_flags(espn_season.fresh_league(ref=ref), ref=ref))
+            pending = pool.submit(lambda: espn_write.pending_state(ref=ref))
         try:
             flags = reading.result()
             _, period = pending.result()
@@ -786,19 +811,19 @@ def lineup(body: LineupIn):
         if period is not None and period != data["week"]:
             # the League is cached up to LEAGUE_TTL_S: drop it and the page, or the Reload rebuilds the same old week
             espn_season.refresh_league()
-            cache.drop("roster")
+            c.drop("roster")
             raise HTTPException(409, {"error": "ESPN's week changed — reload"})
         # slots and locks both from this one mRoster read: the cached page may be minutes behind
         # under FFL_WRITES=0 the page shows the fake store's slots, so the moves are validated against those ({} for real)
-        roster = espn_season.with_espn_slots(data["cards"], flags, espn_write.fake_slots())
-        items, errs = season.lineup_moves([m.model_dump() for m in body.moves], roster, espn_season.load())
+        roster = espn_season.with_espn_slots(data["cards"], flags, espn_write.fake_slots(ref=ref))
+        items, errs = season.lineup_moves([m.model_dump() for m in body.moves], roster, espn_season.load(ref=ref))
         if errs:
             raise HTTPException(409, {"errors": errs})
-        ref = None
+        dec = None
         if items:
             uncertain = False
             try:
-                espn_write.move_lineup(items, data["week"])
+                espn_write.move_lineup(items, data["week"], ref=ref)
             except espn_write.WriteError as e:
                 raise _espn_error(e)
             except requests.RequestException:  # ESPN may have executed it before the connection died
@@ -809,77 +834,79 @@ def lineup(body: LineupIn):
             if uncertain:
                 entry["facts"]["uncertain"] = True
                 entry["decision"] += " — ESPN did not answer; the move may not have happened, check ESPN"
-            if _records():
-                ref = _record(_mark_fake(entry))
+            if _records(ref=ref):
+                dec = _record(_mark_fake(entry), ref=ref)
             else:
                 log.info("lineup move not recorded (logging off, or FFL_WRITES=0 without FFL_RECORD_FAKE=1): %s", entry["title"])
             # the moved players keep the rows they took (season.reseat), before the read-back reads the seats
             try:
-                db.put_seats(season.reseat(items, data["cards"], db.seat_map()))
+                db.put_seats(season.reseat(items, data["cards"], db.seat_map(ref=ref)), ref=ref)
             except db.DBError as e:
                 log.warning("lineup moved but its rows not kept: %s", e)
-            espn_season.forget_current_boxes()  # the box scores carry the slots; read them again
+            espn_season.forget_current_boxes(ref=ref)  # the box scores carry the slots; read them again
             # the Matchup board, the League tile and my Team page show this lineup too: dropped, not expired, which
             # would serve the pre-move board once more; rebuilt behind, and /live ticks so an open board refetches
-            _start_rewarm(cache, cache.drop_prefixes(LINEUP_KEYS))
+            _start_rewarm(c, c.drop_prefixes(LINEUP_KEYS))
             # the claims validate against the pool's roster slots (an IR player with no designation blocks every
             # claim): the next /claims or /players builds it from the moved roster, never from the pre-move one
-            cache.drop("waivers")
+            c.drop("waivers")
             if uncertain:
-                cache.drop("roster")
+                c.drop("roster")
                 raise HTTPException(502, {"source": "espn", "error": "ESPN did not answer — it may have moved; reload", "moved": True})
             # the read-back reuses this request's mRoster read, the moves applied (ESPN said EXECUTED): a second
             # read would only say the same; locks cannot have changed in the second since
             moved = {**flags, **{p: {**flags.get(p, {}), "slot": to} for p, _, to in items}}
             try:
-                cache.put("roster", espn_season.roster_state(None, flags=moved))
+                c.put("roster", espn_season.roster_state(None, flags=moved, ref=ref))
             except Exception as e:  # noqa: BLE001 — ESPN took the move; say so, never show the old slots as current
-                cache.drop("roster")  # the reload this asks for must build from ESPN, not serve the pre-move page
+                c.drop("roster")  # the reload this asks for must build from ESPN, not serve the pre-move page
                 raise HTTPException(502, {"source": "espn", "error": "moved in ESPN — the read-back failed, reload", "moved": True}) from e
-        return {**roster_(leagues.home()), "decision": ref}
+        return {**roster_(ref), "decision": dec}
     finally:
-        _LINEUP.release()
+        lock.release()
 
 
 class SitIn(BaseModel):
     sat: bool
 
 
-@app.post("/roster/sit/{player_id:int}", dependencies=[home_only("sit")])
-def roster_sit(player_id: int, body: SitIn):
+@app.post("/roster/sit/{player_id:int}")
+def roster_sit(player_id: int, body: SitIn, ref: LeagueRef = Depends(open_league)):
     """Sit him for the week, or stand him back up: the call is re-made without him (season.roster_cards) and the
     page answers at once. Nothing reaches ESPN. Under the lineup lock, so a move's read-back and a sit never land
     over each other."""
-    if not _LINEUP.acquire(blocking=False):
+    lock = _lock("lineup", ref)
+    if not lock.acquire(blocking=False):
         raise HTTPException(409, "a lineup move is running")
+    c = cache_for(ref)
     try:
-        data = _serve("roster", lambda: espn_season.roster_state(None))
+        data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
         before = next((c for c in data["cards"] if c["player_id"] == player_id), None)
         if before is None:
             raise HTTPException(404, f"player {player_id} is not on the roster")
         week = data["week"]
-        ref = None
+        dec = None
         if before.get("sat") != body.sat:
             try:
-                db.put_sit(week, player_id, body.sat)
+                db.put_sit(week, player_id, body.sat, ref=ref)
             except db.DBError as e:
                 raise HTTPException(500, f"sit not saved: {e}") from e
             # a fake sit (FFL_WRITES=0) is recorded only under FFL_RECORD_FAKE=1, and nothing with logging off (_records)
             entry = season.sit_entry(before, body.sat, week)
-            if _records():
-                ref = _record(_mark_fake(entry))
+            if _records(ref=ref):
+                dec = _record(_mark_fake(entry), ref=ref)
             else:
                 log.info("sit not recorded (logging off, or FFL_WRITES=0 without FFL_RECORD_FAKE=1): %s", entry["title"])
         # the cards carry every player field, so the call is re-made from them without an ESPN read
-        sat = db.sat_ids(week)
+        sat = db.sat_ids(week, ref=ref)
         rows = espn_season.with_sits(data["cards"], sat)
         payload = {k: v for k, v in data.items() if k != "stale_since"}
-        cache.put("roster", {**payload, "cards": season.roster_cards(rows, espn_season.load(), week)})
+        c.put("roster", {**payload, "cards": season.roster_cards(rows, espn_season.load(ref=ref), week)})
         if before.get("sat") != body.sat:  # the Matchup board's by-projection lineup leaves him out too (as /lineup)
-            _start_rewarm(cache, cache.drop_prefixes(("week",)))
-        return {**roster_(leagues.home()), "decision": ref}
+            _start_rewarm(c, c.drop_prefixes(("week",)))
+        return {**roster_(ref), "decision": dec}
     finally:
-        _LINEUP.release()
+        lock.release()
 
 
 # --- the watchlist (ffl/watch.py): the star, the Watch page, and the tick's hourly pass ---

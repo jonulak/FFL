@@ -213,8 +213,6 @@ def test_decision_other_league_404(client, other):
 
 # sync and refresh per league, the home-only features refused (task 3)
 HOME_ONLY = [
-    ("get", "/claims", "claims"), ("post", "/claims", "claims"), ("post", "/claims/submit", "claims"),
-    ("get", "/claims/submit/tok", "claims"), ("post", "/lineup", "lineup"), ("post", "/roster/sit/1", "sit"),
     ("get", "/outlook/1", "outlook"), ("post", "/outlook/1", "outlook"), ("get", "/waivers/outlook/1", "outlook"),
     ("post", "/waivers/outlook/1", "outlook"), ("post", "/outlook/refresh", "outlook"),
 ]
@@ -261,3 +259,128 @@ def test_transactions_sync_other_league(monkeypatch, client, other):
     assert r.status_code == 200 and r.json() == {"new": 1}
     assert got["tx"] == ("LG:espn:999", other)
     assert got["res"] == ("LG:espn:999", {"for": "espn:999"}, other)
+
+
+# the write routes (ffl-soc.4.5 task 2): lineup, sit and claims on the open league, one lock per league
+from ffl import espn_write  # noqa: E402
+
+SWAP = {"moves": [{"player_id": 3, "to_slot": "RB/WR/TE"}, {"player_id": 2, "to_slot": "BE"}]}
+
+
+@pytest.fixture
+def writes(monkeypatch, other):
+    """Builders and espn_write answer for any league and record the ref each was given."""
+    seen = []
+    cards = [{"player_id": 3, "name": "Bench", "pos": "RB", "slot": "BE", "call": "START", "gap": 1.4, "group": "bench", "locked": False},
+             {"player_id": 2, "name": "Flex", "pos": "WR", "slot": "RB/WR/TE", "call": "BENCH", "gap": -1.4, "group": "starter", "locked": False},
+             {"player_id": 11, "name": "Sit", "pos": "WR", "slot": "BE", "call": "BENCH", "gap": 0, "group": "bench", "locked": False, "reason": "r"}]
+    roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
+    period = {}
+    es, ew = api.espn_season, api.espn_write
+
+    def rec(name, make=lambda *a: None):
+        def fn(*a, ref=None, **k):
+            seen.append((name, ref))
+            return make(*a)
+        return fn
+
+    monkeypatch.setattr(es, "roster_state", rec("roster_state", lambda *a: {"week": 8, "live": False, "cards": cards}))
+    monkeypatch.setattr(es, "fresh_league", rec("fresh_league"))
+    monkeypatch.setattr(api.season, "roster_cards", lambda rows, settings, week: rows)
+    monkeypatch.setattr(es, "roster_flags", rec("roster_flags", lambda lg, *a: {c["player_id"]: {"locked": False, "slot": c["slot"]} for c in cards}))
+    monkeypatch.setattr(es, "load", rec("load", lambda *a: {"starters": {"RB/WR/TE": 1}}))
+    monkeypatch.setattr(es, "forget_current_boxes", rec("forget_current_boxes"))
+    monkeypatch.setattr(es, "free_agent_pool", rec("free_agent_pool", lambda *a: {"week": 8, "roster": roster, "positions": {"WR": [{"player_id": 101, "name": "A", "status": "WAIVERS"}]}}))
+    monkeypatch.setattr(es, "pool_status", rec("pool_status", lambda *a: {101: {"status": "WAIVERS", "waiver_date": None}}))
+    monkeypatch.setattr(api, "_roster_size", rec("roster_size", lambda *a: 17))
+    monkeypatch.setattr(api, "_limits", rec("limits", lambda *a: {}))
+    monkeypatch.setattr(ew, "writes", lambda: True)
+    monkeypatch.setattr(ew, "pending_state", lambda max_age=0, *, ref=None: seen.append(("pending_state", ref)) or ([], period.get(ref.key if ref else None, 8)))
+    monkeypatch.setattr(ew, "last_waiver_run", rec("last_waiver_run"))
+    monkeypatch.setattr(ew, "pending_claims", rec("pending_claims", lambda: []))
+    monkeypatch.setattr(ew, "move_lineup", lambda items, week, *, ref=None: seen.append(("move_lineup", ref)))
+    for n in ("submit_claim", "cancel_claim", "add_free_agent", "reorder_claims"):
+        monkeypatch.setattr(ew, n, rec(n))
+    monkeypatch.setattr(ew, "fake_slots", rec("fake_slots", lambda: {}))
+    return NS(seen=seen, period=period, cards=cards)
+
+
+WRITE_CALLS = [("post", "/lineup", SWAP), ("post", "/roster/sit/11", {"sat": True}), ("get", "/claims", None),
+               ("post", "/claims", {"groups": [{"targets": [101], "cuts": [1], "open": 0}]}),
+               ("post", "/claims/submit", {"replace_outside": False, "expect_now": []})]
+
+
+@pytest.mark.parametrize("method,path,body", WRITE_CALLS)
+def test_write_routes_follow_the_league(monkeypatch, client, other, writes, method, path, body):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: True)
+    r = client.request(method.upper(), path, params={"league": "espn:999"}, json=body)
+    assert r.status_code == 200, r.text
+    assert writes.seen, "the route reached its builders"
+    assert all(ref == other for _, ref in writes.seen), [x for x in writes.seen if x[1] != other]
+
+
+def test_the_lineup_write_is_other_leagues_alone(client, other, writes):
+    assert client.post("/lineup?league=espn:999", json=SWAP).status_code == 200
+    assert [n for n, _ in writes.seen].count("move_lineup") == 1
+    assert ("move_lineup", other) in writes.seen
+
+
+@pytest.mark.parametrize("name,method,path,body", [
+    ("lineup", "post", "/lineup", SWAP), ("submit", "post", "/claims/submit", {"expect_now": []}),
+    ("submit", "post", "/claims", {"groups": []})])
+def test_locks_are_per_league(client, other, writes, name, method, path, body):
+    lock = api._lock(name, leagues.home())
+    assert lock is api._lock(name, leagues.home()) and api._lock(name, other) is api._lock(name, other)
+    assert api._lock(name, other) is not lock
+    assert lock.acquire(blocking=False)
+    try:
+        assert client.request(method.upper(), path, params={"league": "espn:999"}, json=body).status_code == 200
+        assert client.request(method.upper(), path, json=body).status_code == 409
+    finally:
+        lock.release()
+    held = api._lock(name, other)
+    assert held.acquire(blocking=False)
+    try:
+        assert client.request(method.upper(), path, params={"league": "espn:999"}, json=body).status_code == 409
+    finally:
+        held.release()
+
+
+def test_home_locks_keep_their_names():
+    assert api._lock("lineup", leagues.home()) is api._LINEUP and api._lock("submit", leagues.home()) is api._SUBMIT
+
+
+def test_write_decisions_land_under_their_league(monkeypatch, client, other, writes):
+    monkeypatch.setattr(api.espn_write, "writes", lambda: False)
+    monkeypatch.setenv("FFL_RECORD_FAKE", "1")
+    r = client.post("/roster/sit/11?league=espn:999", json={"sat": True})
+    assert r.status_code == 200 and r.json()["decision"]["id"]
+    assert [d["title"].startswith("[fake]") for d in db.decisions(ref=other)] == [True]
+    assert db.decisions() == []
+    assert db.sat_ids(8, ref=other) == {11} and db.sat_ids(8) == set()
+
+
+def test_roster_state_reads_its_league_fake_slots(monkeypatch, other):
+    """FFL_WRITES=0: a fake move under other puts other's card in the new slot; home's card keeps ESPN's slot."""
+    monkeypatch.setenv("FFL_WRITES", "0")
+    espn_write.move_lineup([(1, "QB", "BE")], 3, ref=other)
+    assert espn_write.fake_slots(ref=other) == {1: "BE"} and espn_write.fake_slots() == {}
+    rows = [{"player_id": 1, "slot": "QB"}]
+    flags = {1: {"slot": "QB", "order": 0, "locked": False}}
+    slot = lambda fake: api.espn_season.with_espn_slots(rows, flags, fake)[0]["slot"]  # noqa: E731
+    assert slot(espn_write.fake_slots(ref=other)) == "BE" and slot(espn_write.fake_slots()) == "QB"
+
+
+def test_lineup_week_check_reads_its_league(client, other, writes):
+    writes.period.update({leagues.home().key: 7, other.key: 8})
+    assert client.post("/lineup?league=espn:999", json=SWAP).status_code == 200
+    r = client.post("/lineup", json=SWAP)
+    assert r.status_code == 409 and r.json()["detail"] == {"error": "ESPN's week changed — reload"}, "home's week is 7"
+
+
+def test_submit_token_per_league(client, other, writes):
+    r = client.post("/claims/submit?league=espn:999", json={"expect_now": [], "token": "tok"})
+    assert r.status_code == 200
+    assert client.get("/claims/submit/tok").status_code == 404
+    got = client.get("/claims/submit/tok?league=espn:999").json()
+    assert got == {"state": "done", "status": 200, "body": r.json()}

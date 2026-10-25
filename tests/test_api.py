@@ -489,9 +489,9 @@ def claims_env(client, monkeypatch):
             "D/ST": [{"player_id": -16020, "name": "Vikings D/ST", "status": "WAIVERS"}]}
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 6, "roster": roster, "positions": pool})
     # reads the current pool dict on every call, so a test can flip a status between load and Submit
-    monkeypatch.setattr(api.espn_season, "pool_status", lambda: {r["player_id"]: {"status": r["status"], "waiver_date": None} for rows in pool.values() for r in rows})
-    monkeypatch.setattr(api, "_roster_size", lambda: 17)
-    monkeypatch.setattr(api, "_limits", lambda: {})
+    monkeypatch.setattr(api.espn_season, "pool_status", lambda **k: {r["player_id"]: {"status": r["status"], "waiver_date": None} for rows in pool.values() for r in rows})
+    monkeypatch.setattr(api, "_roster_size", lambda **k: 17)
+    monkeypatch.setattr(api, "_limits", lambda **k: {})
     api.espn_write._fake(leagues.home()).claims.clear()
     api.espn_write._fake(leagues.home()).adds.clear()
     api.espn_write._fake(leagues.home()).fail_adds.clear()
@@ -592,8 +592,8 @@ def test_an_undesignated_ir_player_blocks_the_submit(claims_env, monkeypatch):
     api.cache.clear()
     pool_fn = api.espn_season.free_agent_pool
 
-    def with_bad_ir(week=None):
-        d = pool_fn(week)
+    def with_bad_ir(week=None, **k):
+        d = pool_fn(week, **k)
         d["roster"] = d["roster"] + [{"player_id": 99, "slot": "IR", "name": "Stuck", "pos": "RB", "droppable": True, "locked": False, "injury": "ACTIVE"}]
         return d
 
@@ -613,13 +613,13 @@ def test_an_undesignated_ir_player_blocks_the_submit(claims_env, monkeypatch):
 def test_a_lineup_move_rebuilds_the_claims_roster(lineup_env, monkeypatch):
     builds = {"n": 0}
 
-    def pool(week=None):
+    def pool(week=None, **k):
         builds["n"] += 1
         return {"week": 3, "roster": [], "positions": {"WR": []}}
 
     monkeypatch.setattr(api.espn_season, "free_agent_pool", pool)
-    monkeypatch.setattr(api, "_roster_size", lambda: 17)
-    monkeypatch.setattr(api, "_limits", lambda: {})
+    monkeypatch.setattr(api, "_roster_size", lambda **k: 17)
+    monkeypatch.setattr(api, "_limits", lambda **k: {})
     lineup_env.get("/claims")
     lineup_env.get("/claims")
     assert builds["n"] == 1
@@ -757,8 +757,8 @@ def test_submit_writes_carry_espn_period(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write._fake(leagues.home()), "period", 6)
     weeks = []
     real_submit, real_add = api.espn_write.submit_claim, api.espn_write.add_free_agent
-    monkeypatch.setattr(api.espn_write, "submit_claim", lambda a, d, wk: weeks.append(wk) or real_submit(a, d, wk))
-    monkeypatch.setattr(api.espn_write, "add_free_agent", lambda a, d, wk: weeks.append(wk) or real_add(a, d, wk))
+    monkeypatch.setattr(api.espn_write, "submit_claim", lambda a, d, wk, **k: weeks.append(wk) or real_submit(a, d, wk, **k))
+    monkeypatch.setattr(api.espn_write, "add_free_agent", lambda a, d, wk, **k: weeks.append(wk) or real_add(a, d, wk, **k))
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
@@ -769,7 +769,7 @@ def test_landed_add_rebuilds_the_pool_before_returning(claims_env, monkeypatch):
     calls = {"n": 0}
     roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
 
-    def pool_fn(week=None):
+    def pool_fn(week=None, **k):
         calls["n"] += 1
         r = roster
         if api.espn_write._fake(leagues.home()).adds:                          # ESPN now has the add: Mims on, R1 off
@@ -799,8 +799,8 @@ def test_submit_rejects_undroppable(claims_env, monkeypatch):
     api.cache.clear()
     pool_fn = api.espn_season.free_agent_pool
 
-    def with_undroppable(week=None):
-        d = pool_fn(week)
+    def with_undroppable(week=None, **k):
+        d = pool_fn(week, **k)
         d["roster"] = [{**p, "droppable": p["player_id"] != 3} for p in d["roster"]]
         return d
 
@@ -812,7 +812,7 @@ def test_submit_rejects_undroppable(claims_env, monkeypatch):
 def test_submit_expired_login(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
 
-    def boom(max_age=0):
+    def boom(max_age=0, **k):
         raise api.espn_write.WriteError(401, "expired")
 
     monkeypatch.setattr(api.espn_write, "pending_state", boom)
@@ -823,21 +823,21 @@ def test_submit_expired_login(claims_env, monkeypatch):
 def test_unreachable_espn_is_not_a_login_expired(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
 
-    def boom(max_age=0):
+    def boom(max_age=0, **k):
         raise api.espn_write.WriteError(0, "ReadTimeout: read timed out")
 
     monkeypatch.setattr(api.espn_write, "pending_state", boom)
     r = claims_env.post("/claims/submit", json={"replace_outside": False})
     assert r.status_code == 502 and r.json()["detail"]["error"] == api.espn_write.UNREACHABLE
     assert claims_env.get("/claims").json()["pending_error"] == api.espn_write.UNREACHABLE
-    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: (_ for _ in ()).throw(api.espn_write.WriteError(403, "x")))
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0, **k: (_ for _ in ()).throw(api.espn_write.WriteError(403, "x")))
     assert claims_env.get("/claims").json()["pending_error"] == api.espn_write.EXPIRED
 
 
 def test_claims_page_reuses_the_pending_read_but_fresh_and_submit_read_once(claims_env, monkeypatch):
     calls = []
-    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: calls.append(("pending", max_age)) or ([], None))
-    monkeypatch.setattr(api.espn_write, "last_waiver_run", lambda max_age=0: calls.append(("run", max_age)))
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0, **k: calls.append(("pending", max_age)) or ([], None))
+    monkeypatch.setattr(api.espn_write, "last_waiver_run", lambda max_age=0, **k: calls.append(("run", max_age)))
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     calls.clear()  # the first save had no plan to retire
     claims_env.get("/claims")
@@ -872,7 +872,7 @@ def test_submit_readback_failure_still_journals(claims_env, monkeypatch):
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
 
-    def down():   # the read-back only: the pre-submit read is pending_state
+    def down(**k):   # the read-back only: the pre-submit read is pending_state
         raise api.espn_write.WriteError(503, "down")
 
     monkeypatch.setattr(api.espn_write, "pending_claims", down)
@@ -889,11 +889,11 @@ def test_failed_cancel_keeps_app_claim_tracked(claims_env, monkeypatch):
     old = [p["id"] for p in claims_env.get("/claims").json()["pending"]]
     real, calls = api.espn_write.cancel_claim, {"n": 0}
 
-    def flaky(i, wk):
+    def flaky(i, wk, **k):
         calls["n"] += 1
         if calls["n"] == 2:
             raise api.espn_write.WriteError(500, "boom")
-        return real(i, wk)
+        return real(i, wk, **k)
 
     monkeypatch.setattr(api.espn_write, "cancel_claim", flaky)
     r = claims_env.post("/claims/submit", json={"replace_outside": False}).json()
@@ -1055,17 +1055,17 @@ def lineup_env(client, monkeypatch):
         return {"week": 3, "live": False, "empty_slots": [], "writes": False,
                 "cards": [{**c, "slot": state["slots"][c["player_id"]]} for c in cards]}
     monkeypatch.setattr(api.espn_season, "roster_state", roster_state)
-    monkeypatch.setattr(api.espn_season, "fresh_league", lambda: None)
-    def roster_flags(lg):
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: None)
+    def roster_flags(lg, **k):
         state["flag_reads"] += 1
         return {i: {"locked": i in state["locked"], "slot": s} for i, s in state["slots"].items()}
     monkeypatch.setattr(api.espn_season, "roster_flags", roster_flags)
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)  # these model real writes (move_lineup is stubbed)
     monkeypatch.setattr(api.espn_season, "load", lambda *a, **k: {"starters": {"RB/WR/TE": 1}})
-    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0: ([], state["period"]))
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda max_age=0, **k: ([], state["period"]))
     sent = []
     monkeypatch.setattr(api.espn_write, "move_lineup",
-                        lambda items, week: sent.append((items, week)) or state["slots"].update({p: t for p, _, t in items}))
+                        lambda items, week, **k: sent.append((items, week)) or state["slots"].update({p: t for p, _, t in items}))
     client.state, client.sent = state, sent
     return client
 
@@ -1089,7 +1089,7 @@ def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env
 
 
 def test_a_decision_the_db_cannot_take_never_fails_the_move(lineup_env, monkeypatch, caplog):
-    def broken(row, season=None):
+    def broken(row, season=None, **k):
         raise db.sa.exc.OperationalError("insert", {}, Exception("disk I/O error"))
     monkeypatch.setattr(api.db, "add_decision", broken)
     r = lineup_env.post("/lineup", json=SWAP)
@@ -1169,13 +1169,13 @@ def test_lineup_fake_move_logs_instead_of_journaling(lineup_env, monkeypatch, ca
 
 
 def test_lineup_maps_errors_from_the_concurrent_reads_as_before(lineup_env, monkeypatch):
-    monkeypatch.setattr(api.espn_write, "pending_state", lambda: (_ for _ in ()).throw(api.espn_write.WriteError(401, "x")))
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda **k: (_ for _ in ()).throw(api.espn_write.WriteError(401, "x")))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN login expired, refresh .env"
-    monkeypatch.setattr(api.espn_write, "pending_state", lambda: (_ for _ in ()).throw(api.espn_write.WriteError(0, "Timeout: t")))
+    monkeypatch.setattr(api.espn_write, "pending_state", lambda **k: (_ for _ in ()).throw(api.espn_write.WriteError(0, "Timeout: t")))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN couldn't be reached, try again"
-    monkeypatch.setattr(api.espn_season, "roster_flags", lambda lg: (_ for _ in ()).throw(RuntimeError("mRoster down")))
+    monkeypatch.setattr(api.espn_season, "roster_flags", lambda lg, **k: (_ for _ in ()).throw(RuntimeError("mRoster down")))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"] == {"source": "espn", "error": "mRoster down"}
     assert lineup_env.sent == []
@@ -1210,7 +1210,7 @@ def test_lineup_refuses_a_second_move_while_one_runs(lineup_env):
 
 
 def test_lineup_reports_espns_refusal(lineup_env, monkeypatch):
-    def boom(items, week):
+    def boom(items, week, **k):
         raise api.espn_write.WriteError(401, "nope")
     monkeypatch.setattr(api.espn_write, "move_lineup", boom)
     r = lineup_env.post("/lineup", json=SWAP)
@@ -1241,7 +1241,7 @@ def test_lineup_read_back_failure_still_journals_the_move(lineup_env, monkeypatc
 
 
 def test_lineup_timeout_may_have_moved_so_it_says_so_journals_it_and_drops_the_page(lineup_env, monkeypatch):
-    def slow(items, week):
+    def slow(items, week, **k):
         raise api.requests.Timeout("15s")
     lineup_env.get("/roster")
     monkeypatch.setattr(api.espn_write, "move_lineup", slow)
@@ -1292,7 +1292,7 @@ def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch):
         "week": 3, "live": False, "empty_slots": [], "writes": False,
         "cards": [{**c, "slot": api.espn_write.fake_slots().get(c["player_id"], c["slot"])} for c in cards]})
     monkeypatch.setattr(api.espn_season, "roster_flags",
-                        lambda lg: {c["player_id"]: {"locked": False, "slot": c["slot"]} for c in cards})
+                        lambda lg, **k: {c["player_id"]: {"locked": False, "slot": c["slot"]} for c in cards})
     monkeypatch.setattr(api.espn_season, "load", lambda *a, **k: {"starters": {"RB/WR/TE": 1}, "ir_size": 1})
     r = lineup_env.post("/lineup", json={"moves": [{"player_id": 5, "to_slot": "BE"}, {"player_id": 7, "to_slot": "IR"}]})
     assert r.status_code == 200, r.json()
