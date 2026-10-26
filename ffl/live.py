@@ -446,6 +446,10 @@ class Runner(threading.Thread):
         before, first = dict(self.state.points), self.state.version == 0
         stats_before = self.state.stats  # replaced, not mutated, by update: a D/ST's play is read off what moved
         after = fc.score_all(doc, self.table)
+        if not first and self.state.week == self.week:
+            # a player who drops out of one doc keeps his total: read as 0, his whole total posted as one
+            # play when a fuller doc brought him back (HOU-NYG's starters, 2026-10-25 21:00, hours after the final)
+            after = {**{p: v for p, v in before.items() if p not in after}, **after}
         self.state.update(after, fc.game_states(doc), fc.player_stats(doc), week=self.week)
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player

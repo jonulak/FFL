@@ -476,3 +476,38 @@ def test_a_recovered_plays_load_clears_only_its_own_error(monkeypatch):
     r.week, r.state.error = None, "roster refresh failed: boom"  # a new week loads; an unrelated error stays
     r._refresh_roster()
     assert r.week == 1 and r.state.error == "roster refresh failed: boom"
+
+
+def test_a_player_missing_from_one_doc_keeps_his_total_and_comes_back_without_a_play(monkeypatch):
+    """2026-10-25 21:00: a finished game's stat rows dropped out of the held doc and a fuller one brought
+    them back; read as 0 in between, Nabers' whole 18.1 posted as one play."""
+    from ffl import plays
+
+    seen = []
+
+    class Recording:
+        def add(self, rows):
+            pass
+
+        def record(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(plays, "events_from", lambda before, after, *a, **k: seen.append((dict(before), dict(after))) or [])
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    current = {"week": 1}
+    r = live.Runner(state=live.State(), settings={"scoring": []},
+                    week_fn=lambda: {"week": current["week"], "games": []})
+    r._on_doc(copy.deepcopy(FIX))  # the baseline
+    r.store = Recording()
+    pid = next(iter(FIX["statistics"]))
+    total = r.state.points[int(pid)]
+    gone = copy.deepcopy(FIX)
+    del gone["statistics"][pid]
+    r._on_doc(gone)
+    assert r.state.points[int(pid)] == total, "dropped out of the doc, not back to 0"
+    r._on_doc(copy.deepcopy(FIX))
+    before, after = seen[-1]
+    assert before[int(pid)] == after[int(pid)] == total
+    current["week"] = 2  # a new week starts from the doc alone
+    r._on_doc(copy.deepcopy(gone))
+    assert int(pid) not in r.state.points
