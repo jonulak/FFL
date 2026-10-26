@@ -508,12 +508,18 @@ def unmatched(src: dict[tuple[str, str], float], pool: set[tuple[str, str]], top
 WEEKLY_SOURCES = {"cbs": cbs.fetch_week, "sharks": sharks.fetch_week, "fleaflicker": fleaflicker.fetch_week}
 
 
+def _on(registry: dict) -> dict:
+    """The registry's sources this host asks: one in FFL_SOURCES_OFF is left out, absent from the consensus rather than failing."""
+    return {name: fn for name, fn in registry.items() if not config.source_off(name)}
+
+
 def weekly_sources(week: int, settings: dict) -> dict[str, dict[tuple[str, str], float]]:
     """Every weekly source's projections for the week, fetched together (each cached; a failed one is {})."""
     ks = rescoring(settings)
-    with ThreadPoolExecutor(len(WEEKLY_SOURCES) + 1) as pool:
+    weekly = _on(WEEKLY_SOURCES)
+    with ThreadPoolExecutor(len(weekly) + 1) as pool:
         sl = pool.submit(_sleeper_for, week, settings)
-        rest = {name: pool.submit(fn, week, ks) for name, fn in WEEKLY_SOURCES.items()}
+        rest = {name: pool.submit(fn, week, ks) for name, fn in weekly.items()}
         out = {name: f.result() for name, f in rest.items()}
         try:
             out = {"sleeper": sl.result(), **out}
@@ -706,11 +712,12 @@ def season_lookup(settings: dict, week: int, ref=None) -> dict[int, dict]:
     # four independent sources of one to four seconds each, in flight together: in sequence they
     # were most of what the Refresh button waited on
     ks = rescoring(settings)
-    with ThreadPoolExecutor(3 + len(ROS_SOURCES)) as pool:
+    ros_sources = _on(ROS_SOURCES)
+    with ThreadPoolExecutor(3 + len(ros_sources)) as pool:
         espn_f = pool.submit(fetch_pool, ref=ref) if ref else pool.submit(fetch_pool)
         sleeper_f = pool.submit(fetch_sleeper_season)
         weeks_f = pool.submit(_remaining_sleeper_weeks, week, settings)
-        ros_f = {name: pool.submit(fn, ks, week) for name, fn in ROS_SOURCES.items()}
+        ros_f = {name: pool.submit(fn, ks, week) for name, fn in ros_sources.items()}
         weeks = weeks_f.result()
         ros = {name: f.result() for name, f in ros_f.items()}
         if weeks is not None:
@@ -1377,8 +1384,9 @@ def _fetch_and_keep(week: int, settings: dict, boxes: list, *, ref: leagues.Leag
     """A finished week with nothing recorded: ask the sources that serve a played week, and keep what they said
     (kind LATE) for every box player of the week, so no later build asks again. Kept only when each answered: a
     source down today is asked again next time rather than missing from the week for good."""
-    src = {name: d for name, d in weekly_sources(week, settings).items() if name in PLAYED_WEEK_SOURCES}
-    if all(src.get(name) for name in PLAYED_WEEK_SOURCES):
+    played = [name for name in PLAYED_WEEK_SOURCES if not config.source_off(name)]  # one switched off is not waited for
+    src = {name: d for name, d in weekly_sources(week, settings).items() if name in played}
+    if all(src.get(name) for name in played):
         rows = [{"player_id": p["player_id"], "source": s, "points": v}
                 for p in _box_players(boxes) for s, v in source_values(p, src).items()]
         try:

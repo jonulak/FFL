@@ -872,6 +872,56 @@ def test_a_finished_week_is_not_kept_while_a_source_is_down(monkeypatch):
     assert espn_season._SAVED_LATE == [], "asked again next time, not frozen without FantasySharks"
 
 
+def test_a_finished_week_is_kept_without_a_source_switched_off(monkeypatch):
+    """FFL_SOURCES_OFF=sharks (the box): Sleeper alone is the whole set, so the week freezes rather than refetching forever."""
+    monkeypatch.setenv("FFL_SOURCES_OFF", "sharks")
+    _finished_week(monkeypatch, [])
+    key = espn_season.source_key(espn_season.flatten_box_player(as_box(season_roster()[0])))
+    monkeypatch.setattr(espn_season, "weekly_sources", lambda week, settings: {"sleeper": {key: 24.0}})
+    espn_season.week_state(week=1, injuries={})
+    (_, kind, rows), = espn_season._SAVED_LATE
+    assert kind == espn_season.LATE and {r["source"] for r in rows} - {"espn"} == {"sleeper"}
+
+
+def test_sources_off_takes_known_names_only_and_warns_once_about_the_rest(monkeypatch, caplog):
+    from ffl import config
+    monkeypatch.setattr(config, "_WARNED", set())
+    monkeypatch.setenv("FFL_SOURCES_OFF", " sharks , sleeper,,cbs-typo")
+    with caplog.at_level("WARNING", logger="ffl.config"):
+        assert config.sources_off() == {"sharks"}
+        assert config.source_off("sharks") and not config.source_off("sleeper"), "sleeper has no switch: never off"
+        assert not config.source_off("youtube_captions")
+    warned = [r.getMessage() for r in caplog.records if r.name == "ffl.config"]
+    assert warned == ["FFL_SOURCES_OFF: ignoring unknown cbs-typo, sleeper (known: sharks, youtube_captions)"]
+    monkeypatch.delenv("FFL_SOURCES_OFF")
+    assert config.sources_off() == frozenset()
+
+
+def test_a_switched_off_source_is_absent_never_asked_and_never_failing(monkeypatch):
+    from ffl import sources
+    sources.reset()
+    sources.STATUS.pop("sharks", None)
+    monkeypatch.setenv("FFL_SOURCES_OFF", "sharks,youtube_captions")
+    monkeypatch.setattr(espn_season, "_sleeper_for", lambda week, settings: {("a", "RB"): 3.0})
+    monkeypatch.setattr(espn_season, "WEEKLY_SOURCES", {"cbs": lambda w, ks: {("a", "RB"): 1.0},
+                                                         "sharks": lambda w, ks: pytest.fail("sharks asked")})
+    out = espn_season.weekly_sources(5, {"scoring": []})
+    assert out == {"sleeper": {("a", "RB"): 3.0}, "cbs": {("a", "RB"): 1.0}}
+    p = {"player_id": 1, "name": "A", "pos": "RB", "team": "DET", "proj_espn": 0}
+    assert espn_season.merge_weekly([p], out)[0]["n_src"] == 2, "the consensus runs on the rest"
+    assert "sharks" not in sources.status_snapshot(), "no failure recorded, so no 24 h notice"
+
+    monkeypatch.setattr(espn_season, "fetch_pool", lambda: SEASON_ESPN)
+    monkeypatch.setattr(espn_season, "fetch_sleeper_season", lambda: SEASON_SLEEPER)
+    monkeypatch.setattr(espn_season, "_remaining_sleeper_weeks", lambda week, settings: None)
+    monkeypatch.setattr(espn_season, "ROS_SOURCES", {"cbs": lambda ks, week: {("jalen hurts", "QB"): 150.0},
+                                                     "sharks": lambda ks, week: pytest.fail("sharks ROS asked")})
+    espn_season._SEASON_CACHE.clear()
+    got = espn_season.season_lookup({**TWO_QB, "scoring": []}, week=16)
+    assert got[1]["ros_src"] == {"cbs": 150.0} and got[1]["ros_n"] == 1
+    espn_season._SEASON_CACHE.clear()
+
+
 def test_a_finished_week_reads_projections_saved_after_its_games(monkeypatch):
     qb = season_roster()[0]
     _finished_week(monkeypatch, [{"week": 1, "kind": espn_season.LATE, "player_id": qb["player_id"],

@@ -1439,7 +1439,7 @@ def live_status():
 def sources_status():
     """Each projection source's health: last success, rows per position, the error while failing
     (this process's view over the last one saved, so a fresh restart still shows yesterday's)."""
-    return {**(db.get_state("source_status", {}) or {}), **sources.status_snapshot()}
+    return sources.on_only({**(db.get_state("source_status", {}) or {}), **sources.status_snapshot()})
 
 
 _PRESETS = threading.Lock()  # one preset write at a time: each reads the store, changes it, writes it back

@@ -1,4 +1,6 @@
 .env
+.env.rds
+.env.bak-fallback-*
 .venv/
 data/
 .chrome-profile/

@@ -43,7 +43,7 @@ import requests
 from youtube_transcript_api import (NoTranscriptFound, RequestBlocked, TranscriptsDisabled, VideoUnplayable,
                                     YouTubeRequestFailed, YouTubeTranscriptApi)
 
-from .. import db
+from .. import config, db
 from . import collect, split
 from .players import Index
 
@@ -133,7 +133,10 @@ def parse_transcript(body: str, type: str) -> list[dict]:
 
 
 def captions(video_id: str) -> list[dict] | None:
-    """The video's English captions, None when it has none yet. Raises when YouTube refuses the read."""
+    """The video's English captions, None when it has none yet (or `youtube_captions` is in FFL_SOURCES_OFF: no read at
+    all, the video waits like one without captions). Raises when YouTube refuses the read."""
+    if config.source_off("youtube_captions"):
+        return None
     wait = _LAST[0] + GAP_S - time.monotonic()
     if wait > 0:
         time.sleep(wait)
@@ -283,11 +286,14 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
     videos = ([sv for sv in videos if sv[1]["video_id"] not in pending]
               + [sv for sv in videos if sv[1]["video_id"] in pending and retry_due(sv[1]["video_id"])])
     unreadable: list[str] = []
+    # captions switched off on this host (FFL_SOURCES_OFF): no video is taken, so nothing pends, and an old block
+    # (copied with the DB from another host) marks no channel failing
+    off = config.source_off("youtube_captions")
     block: dict | None = db.get_state("news_captions_blocked")
-    paused = bool(block) and now < datetime.fromisoformat(block["until"])
+    paused = not off and bool(block) and now < datetime.fromisoformat(block["until"])
     if paused:  # the source that hit the block stays failing, so a block that never lifts reaches the health notice
         errors.setdefault(block["source"], block["error"])
-    for source, v in [] if paused else videos[:CAPTIONS_PER_RUN]:
+    for source, v in [] if paused or off else videos[:CAPTIONS_PER_RUN]:
         vid = v["video_id"]
         try:
             segs = captions(vid)

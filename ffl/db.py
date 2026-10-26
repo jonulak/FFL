@@ -9,6 +9,7 @@ Writes are one short transaction each.
     uv run python -m ffl.db backup       # a checked snapshot into the backup dir (launchd nightly)
     uv run python -m ffl.db restore S --url U   # a dump (file, dir or s3:// prefix: the newest) back in (local only without --to-rds)
     uv run python -m ffl.db pgcopy F     # the SQLite file F (schema 0024, read-only) into FFL_DB_URL, checked
+    uv run python -m ffl.db counts A [B] # rows per table, two databases side by side (`env`: FFL_DB_URL), read-only
 """
 from __future__ import annotations
 
@@ -2157,7 +2158,11 @@ def main(argv: list[str]) -> int:
     if cmd == "pgcopy":
         from . import db_copy
         return db_copy.main(argv[1:])
-    print("usage: python -m ffl.db import | backup [dest] | restore <src> --url URL [--to-rds] | pgcopy <sqlite file>")
+    if cmd == "counts":
+        from . import db_copy
+        return db_copy.counts_main(argv[1:])
+    print("usage: python -m ffl.db import | backup [dest] | restore <src> (--url URL | --url-from-env) [--to-rds] "
+          "| pgcopy <sqlite file> | counts A [B]")
     return 2
 
 

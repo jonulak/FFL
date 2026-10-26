@@ -102,8 +102,27 @@ def test_restore_refuses_a_non_local_host_without_to_rds(tmp_path, url):
 @pytest.mark.parametrize("url", ["postgresql+psycopg:///x", "postgresql+psycopg://u@localhost/x",
                                  "postgresql+psycopg://u@127.0.0.1:5432/x", "postgresql+psycopg://u@[::1]/x",
                                  "postgresql+psycopg://u@/x?host=/tmp"])
-def test_local_hosts(url):
+def test_local_hosts(url, monkeypatch):
+    monkeypatch.setattr(db_backup, "server_is_rds", lambda u: False)
     assert db_backup.is_local(url)
+
+
+def test_a_tunnel_to_the_rds_is_not_local(tmp_path, monkeypatch):
+    """127.0.0.1:5434 is the production RDS through the ffl-rds tunnel: the server's answer decides."""
+    monkeypatch.setattr(db_backup, "server_is_rds", lambda u: True)
+    url = "postgresql+psycopg://ffl:pw@127.0.0.1:5434/ffl?sslmode=require"
+    assert not db_backup.is_local(url)
+    with pytest.raises(SystemExit, match="--to-rds"):
+        db_backup.restore(str(tmp_path), url)
+
+
+def test_server_is_rds_asks_the_server():
+    assert db_backup.server_is_rds(db.url()) is False  # the test server: a plain Postgres, no rds_superuser
+
+
+def test_server_is_rds_unreachable_is_never_local():
+    with pytest.raises(SystemExit, match="cannot ask"):
+        db_backup.is_local("postgresql+psycopg://u:p@127.0.0.1:1/x?connect_timeout=2")
 
 
 def test_s3_store_through_a_stub_client():
@@ -164,3 +183,69 @@ def test_restore_cli_needs_url_and_touches_nothing(monkeypatch):
         db_backup.restore_main(["somewhere"])
     with pytest.raises(SystemExit, match="--url"):
         db.main(["restore", "somewhere"])
+    with pytest.raises(SystemExit, match="--url-from-env"):  # both: ambiguous, refused
+        db_backup.restore_main(["somewhere", "--url", "postgresql+psycopg:///x", "--url-from-env"])
+    with pytest.raises(SystemExit, match="--url"):
+        db_backup.restore_main(["somewhere", "--url"])
+
+
+def test_restore_cli_url_from_env_takes_ffl_db_url(monkeypatch, capsys):
+    got = []
+    monkeypatch.setattr(db_backup, "restore", lambda src, url, to_rds: got.append((src, url, to_rds)))
+    monkeypatch.setenv("FFL_DB_URL", "postgresql+psycopg://ffl:s3cret@127.0.0.1:5434/ffl?sslmode=require")
+    assert db_backup.restore_main(["d.dump", "--url-from-env", "--to-rds"]) == 0
+    assert got == [("d.dump", "postgresql+psycopg://ffl:s3cret@127.0.0.1:5434/ffl?sslmode=require", True)]
+    out = capsys.readouterr().out
+    assert "'ffl' on 127.0.0.1" in out and "from the environment" in out and "s3cret" not in out
+    monkeypatch.delenv("FFL_DB_URL")
+    with pytest.raises(SystemExit, match="not set"):
+        db_backup.restore_main(["d.dump", "--url-from-env"])
+    assert len(got) == 1
+
+
+def test_restore_cli_url_from_env_keeps_the_rds_gate(tmp_path, monkeypatch):
+    monkeypatch.setattr(db_backup, "server_is_rds", lambda u: True)
+    monkeypatch.setenv("FFL_DB_URL", "postgresql+psycopg://ffl:pw@127.0.0.1:5434/ffl")
+    with pytest.raises(SystemExit, match="--to-rds"):
+        db_backup.restore_main([str(tmp_path), "--url-from-env"])
+
+
+def test_counts_side_by_side_equal_then_differs(tmp_path, empty_db, capsys, monkeypatch):
+    """`ffl.db counts A B`: the cutover's check. A restored copy is equal (0); a row more on one side, or a table
+    on one side only, is a difference (1)."""
+    _tx()
+    bk = str(tmp_path / "bk")
+    db_backup.backup(bk, today=date(2026, 10, 8))
+    fresh = empty_db()
+    db_backup.restore(bk, fresh)
+    monkeypatch.setenv("FFL_DB_URL", db.url())
+    assert db.main(["counts", "env", fresh]) == 0
+    out = capsys.readouterr().out
+    assert "all" in out and "equal" in out and "transactions" in out
+
+    db.add_transactions([{"id": "1-6-DROPPED-2", "date": "d", "type": "DROPPED", "team": "t", "player": "q",
+                          "action": "DROPPED", "bid": 0, "reasoning": ""}])
+    assert db.main(["counts", db.url(), fresh]) == 1
+    out = capsys.readouterr().out
+    assert "transactions" in out.split("differ:")[1] and "leagues" not in out.split("differ:")[1]
+
+    eng = sa.create_engine(fresh, poolclass=sa.pool.NullPool)
+    with eng.begin() as c:
+        c.execute(sa.text("create table only_here (x int)"))
+    eng.dispose()
+    assert db.main(["counts", fresh]) == 0  # one URL: its counts alone
+    assert "only_here" in capsys.readouterr().out
+    assert db.main(["counts", fresh, fresh]) == 0
+    capsys.readouterr()
+    assert db.main(["counts", db.url(), fresh]) == 1
+    assert "only_here" in capsys.readouterr().out.split("differ:")[1]
+
+
+def test_counts_usage_and_bad_urls(capsys, monkeypatch):
+    assert db.main(["counts"]) == 2
+    assert db.main(["counts", "a", "b", "c"]) == 2
+    assert db.main(["counts", "sqlite:///x.db"]) == 1
+    monkeypatch.delenv("FFL_DB_URL")
+    assert db.main(["counts", "env"]) == 1
+    assert db.main(["counts", "postgresql+psycopg://u:hidden@127.0.0.1:1/x?connect_timeout=2"]) == 1
+    assert "hidden" not in capsys.readouterr().out
