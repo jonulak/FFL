@@ -419,22 +419,14 @@ tr[data-fold="shut"] > td > .fold {
 @keyframes group-reveal { from { opacity: 0; translate: 0 -0.375rem; } }
 
 /* League switch (league-switcher.tsx). On the pick the new league's name stands in, dimmed and breathing, while its
-   first page loads (seen only on a cold load: a warm one streams in within ~20 ms); the page being left fades back and
-   takes no taps. The arrival is the moment, set before the new page's first paint (layout.tsx ARRIVE_SCRIPT): a sheet
-   of the page's ground over everything under the nav fades off, and the name rolls over, the old one (the marker's,
-   --league-from) up and out of its slot as the new one rolls up into it, the chevron gliding from where the old name
-   left it (--league-dw, a FLIP: the name takes its new width at once). Transform and opacity only, so the compositor
-   runs it: a warm load hydrates for ~500 ms on the main thread, which froze the clip and width animations tried before.
-   The sheet is its own fixed layer: anything on <main> but opacity would make it the containing block of its fixed
-   bars (the Players claims bar). */
+   first page loads (seen only on a cold load: a warm one streams in within ~20 ms). On arrival, set before the new
+   page's first paint (layout.tsx ARRIVE_SCRIPT), the name rolls over: the old one (the marker's, --league-from) up and
+   out of its slot as the new one rolls up into it, the chevron gliding from where the old name left it (--league-dw, a
+   FLIP: the name takes its new width at once). Transform and opacity only, so the compositor runs it: a warm load
+   hydrates for ~500 ms on the main thread, which froze the clip and width animations tried before. The page itself
+   arrives as any page load does. */
 .league-wait { animation: league-wait 1100ms ease-in-out infinite alternate; }
 @keyframes league-wait { to { opacity: 0.55; } }
-html[data-league-leaving] main { opacity: 0.3; pointer-events: none; transition: opacity 240ms var(--ease-leave); }
-html[data-league-arriving] body::after {
-  content: ""; position: fixed; inset: var(--nav-h) 0 0 0; z-index: 5; pointer-events: none;
-  background: var(--background); animation: league-sheet 520ms var(--ease-arrive) 80ms both;
-}
-@keyframes league-sheet { to { opacity: 0; } }
 .league-roll { position: relative; overflow: hidden; }
 html[data-league-arriving] .league-name { animation: league-roll-in 620ms var(--ease-arrive) both; }
 html[data-league-arriving] .league-roll::before {
@@ -461,7 +453,6 @@ html[data-league-dw] .league-chevron { animation: league-follow 620ms var(--ease
   .stage-out { animation: stage-fade-out 120ms ease-out both; }
   .group-reveal { animation: log-fade 200ms ease-out both; }
   .league-wait { animation: none; opacity: 0.6; }
-  html[data-league-arriving] body::after { animation-duration: 240ms; }
   html[data-league-arriving] .league-name { animation: log-fade 240ms ease-out both; }
   html[data-league-arriving] .league-roll::before { content: none; }
   html[data-league-dw] .league-chevron { animation: none; }

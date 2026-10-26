@@ -15,7 +15,6 @@ import { LEAGUE_ARRIVE, LEAGUE_COOKIE, withLeague } from "@/lib/league";
 // soft navigation would keep the old league's. The cookie is set here too, so the start page ("/") opens on it; home
 // forgets it. A league's settings open it the same way: its pages are under it.
 function go(l: LeagueEntry, path: string) {
-  document.documentElement.dataset.leagueLeaving = ""; // the page left behind fades back while the next loads (globals.css)
   // the marker carries the name as it reads now and its width: the next page's name rolls over from it
   const el = document.querySelector(".league-name");
   const mark = { name: el?.textContent ?? "", w: Math.round(el?.getBoundingClientRect().width ?? 0) };
@@ -30,9 +29,7 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
   const [pending, setPending] = useState<LeagueEntry | null>(null);
   useEffect(() => {
     const back = (e: PageTransitionEvent) => {
-      if (!e.persisted) return;
-      setPending(null);
-      delete document.documentElement.dataset.leagueLeaving;
+      if (e.persisted) setPending(null);
     };
     window.addEventListener("pageshow", back);
     return () => window.removeEventListener("pageshow", back);
