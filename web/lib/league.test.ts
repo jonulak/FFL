@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decide, leagueHref, leagueOf, START_URL, tabsFor, withLeague } from "./league";
+import { decide, leagueHref, leagueOf, START_URL, switchPath, tabsFor, withLeague } from "./league";
 
 const PUB = "espn:950458410";
 
@@ -67,6 +67,27 @@ describe("tabsFor", () => {
   it("every league opens every tab; another league's each carry it (the global ones too, so the way back stays in it)", () => {
     expect(tabsFor(tabs, null)).toEqual(tabs.map(([h, l]) => [h, l, h]));
     expect(tabsFor(tabs, PUB)).toEqual(tabs.map(([h, l]) => [h, l, withLeague(h, PUB)]));
+  });
+});
+
+describe("switchPath (the page a league switch opens)", () => {
+  it("a league's own page opens the same page in the other league, its query left behind", () => {
+    expect(switchPath("/roster", "")).toBe("/roster");
+    expect(switchPath("/", "?week=3")).toBe("/");
+    expect(switchPath("/players", "?preset=abc&pos=WR&league=espn%3A1")).toBe("/players");
+    expect(switchPath("/transactions", "")).toBe("/transactions");
+    expect(switchPath("/settings/league", "?league=espn%3A1")).toBe("/settings/league");
+  });
+  it("a page of one team or one week falls back to its list: the other league's ids and weeks differ", () => {
+    expect(switchPath("/team/3", "")).toBe("/league");
+    expect(switchPath("/league/8/4", "")).toBe("/league");
+    expect(switchPath("/league/8", "")).toBe("/league");
+    expect(switchPath("/decisions", "?week=6")).toBe("/decisions");
+  });
+  it("a page every league shares stays where it is, query and all (less the league)", () => {
+    expect(switchPath("/nfl/8/DET", "?f=mine&league=espn%3A1")).toBe("/nfl/8/DET?f=mine");
+    expect(switchPath("/news", "?filter=mine")).toBe("/news?filter=mine");
+    expect(switchPath("/settings", "")).toBe("/settings");
   });
 });
 

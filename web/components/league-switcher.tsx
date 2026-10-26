@@ -7,7 +7,7 @@ import {
   DropdownMenuRadioItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { LeagueEntry } from "@/lib/api";
-import { LEAGUE_ARRIVE, LEAGUE_COOKIE, withLeague } from "@/lib/league";
+import { LEAGUE_ARRIVE, LEAGUE_COOKIE, switchPath, withLeague } from "@/lib/league";
 
 // The wordmark is the league switcher (mockup A, ffl-soc.4.13): "FFL ▾" lists every league (name · provider · format),
 // the open one checked, each with a gear to its League settings. Picking one is a full page load, not router.push: the
@@ -43,7 +43,7 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
   const pick = (key: string) => {
     const l = leagues.find((x) => x.key === key);
     if (!l || l.key === open?.key) return;
-    go(l, "/"); // the marker first: it must read the name of the league being left
+    go(l, switchPath(location.pathname, location.search)); // the same page there; the marker first: it reads the league being left
     setPending(l);
   };
   // the open league's name beside the wordmark, home's too, set on its baseline as the wordmark's subtitle: the pages
