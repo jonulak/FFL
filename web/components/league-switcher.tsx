@@ -57,7 +57,7 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
           <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
           {shown && (
             // the slot the name rolls over in on a league switch (globals.css): the old name's ::before over it
-            <span className="league-roll min-w-0 max-w-[16rem] pb-px font-display text-[0.875rem] font-semibold uppercase leading-none tracking-[0.06em] text-foreground/75 sm:max-w-[9rem] lg:max-w-[13rem]">
+            <span className="league-roll min-w-0 pb-px font-display text-[0.875rem] font-semibold uppercase leading-none tracking-[0.06em] text-foreground/75 lg:max-w-[13rem]">
               <span key={shown.key} title={shown.name} className={`league-name block truncate ${pending ? "league-wait" : ""}`}>
                 {shown.name}
               </span>

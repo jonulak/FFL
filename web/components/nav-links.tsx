@@ -37,12 +37,12 @@ export function NavLinks({ league = null, className = "" }: { league?: string | 
   }, [path]);
   return (
     <nav aria-label="Pages" className={`flex min-w-0 items-stretch ${className}`}>
-      {/* the list is the scroller, so the 4px it reaches past the nav on each side is its own padding. On the phone the
+      {/* the list is the scroller, so the 4px it reaches past the nav on each side is its own padding. Below `lg` the
           strip is its own row under the wordmark: it reaches a tab's padding further left, so the first label (and its
           inset underline) starts where "FFL" does */}
-      <Tabs value={tapped ?? active} onValueChange={(v, { event }) => { if (!newTab(event)) setTapped(v as string); }} className="-ml-3.5 -mr-1 min-w-0 flex-1 sm:-ml-1">
+      <Tabs value={tapped ?? active} onValueChange={(v, { event }) => { if (!newTab(event)) setTapped(v as string); }} className="-ml-3.5 -mr-1 min-w-0 flex-1 lg:-ml-1">
         <TabsList variant="line" indicatorInset="0.625rem"
-          className="h-full w-full group-data-horizontal/tabs:h-full justify-start gap-0 overflow-x-auto overflow-y-hidden px-1 py-0 [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)] sm:[mask-image:none]">
+          className="h-full w-full group-data-horizontal/tabs:h-full justify-start gap-0 overflow-x-auto overflow-y-hidden px-1 py-0 [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)] lg:[mask-image:none]">
           {tabsFor(LINKS, league).filter(([href]) => page || href !== "/decisions").map(([href, label, to]) => (
             <TabsTrigger
               key={href}

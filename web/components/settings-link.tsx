@@ -12,7 +12,7 @@ export function SettingsLink() {
   return (
     <Hint text="Settings">
       <Link href="/settings" aria-label="Settings" aria-current={active ? "page" : undefined}
-            className={buttonVariants({ variant: "ghost", size: "icon-sm", className: "max-sm:size-11 text-foreground/55 aria-[current=page]:text-foreground" })}>
+            className={buttonVariants({ variant: "ghost", size: "icon-sm", className: "max-lg:size-11 text-foreground/55 aria-[current=page]:text-foreground" })}>
         <Settings />
       </Link>
     </Hint>
