@@ -1,0 +1,82 @@
+name: Test
+
+# The merge gate: the Python suite, the web build, typecheck, Vitest and ESLint, the same steps and order as
+# scripts/deploy.sh, so a PR that would fail a deploy fails here first. The job's name, `test`, is the
+# required status check on develop and main.
+#
+# NO paths: FILTER, deliberately. A required check that a path filter skips never reports, and a
+# PR waiting on a check that never runs is blocked, not passed. It runs on every PR unconditionally.
+#
+# The suite needs neither data/ nor .env: it runs on its own databases on the postgres:16 service below
+# (production's RDS is PG 16), made and dropped by tests/conftest.py through FFL_TEST_PG.
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ffl-ci          # a throwaway container on the runner, reachable only from this job
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      # the backup tests run pg_dump / pg_restore, whose major must be >= the service's 16 (the image's own, else the
+      # distribution's newest client; ffl/db_backup.py checks the version and says so)
+      - run: command -v pg_dump || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - run: uv sync
+
+      - run: uv run pytest -q
+        env:
+          FFL_TEST_PG: postgresql+psycopg://postgres:ffl-ci@127.0.0.1:5432/postgres
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: corepack enable
+
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      # build first: `next build` generates next-env.d.ts, which declares the *.css module types,
+      # so the typecheck fails on a fresh checkout until a build has run.
+      - name: Build
+        working-directory: web
+        env:
+          FFL_API_URL: http://127.0.0.1:8300
+        run: pnpm build
+
+      # tsconfig includes .next/dev/types, which only `pnpm dev` writes; a stale copy fails the typecheck.
+      - name: Typecheck
+        working-directory: web
+        run: |
+          rm -rf .next/dev/types
+          pnpm typecheck
+
+      - name: Web tests
+        working-directory: web
+        run: pnpm test
+
+      - name: Lint
+        working-directory: web
+        run: pnpm lint

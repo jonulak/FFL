@@ -222,7 +222,7 @@ def backfill(weeks: list[int]) -> None:
             store.record(entries, roster, table)
             n += len(entries)
             done.add(g["event_id"])
-        db.put_league_state("final_plays_done", sorted(done))
+        db.update_league_state("final_plays_done", lambda cur: sorted(set(cur or []) | done), [])
         fixed = plays.old_revisions(store.rows)
         db.update_plays(fixed)
         print(f"week {w}: {len(games)} games, {n} plays, {len(store.called)} called back, {len(fixed)} old rows retagged")

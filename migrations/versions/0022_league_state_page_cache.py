@@ -24,6 +24,16 @@ _IN = ", ".join(f"'{k}'" for k in _KEYS)
 _HOME = "(SELECT key FROM leagues WHERE home)"
 
 
+def _rename_parts(bind, name: str) -> None:
+    """The renamed copy keeps the names Postgres gave `_<name>_new`'s constraints (its key; on PG 18 its NOT NULLs
+    too): give them the names a fresh create_table(name) has, so the schema matches one built at head."""
+    prefix = f"_{name}_new_"
+    for (con,) in bind.execute(sa.text("SELECT conname FROM pg_constraint WHERE conrelid = CAST(:t AS regclass)"),
+                               {"t": name}).all():
+        if con.startswith(prefix):
+            bind.execute(sa.text(f'ALTER TABLE {name} RENAME CONSTRAINT "{con}" TO "{name}_{con[len(prefix):]}"'))
+
+
 def _home_or_refuse(bind, rows: int, what: str, then: str):
     """The home league's key; None only when there is nothing to file (rows and no home league: RuntimeError)."""
     home = bind.execute(sa.text("SELECT key FROM leagues WHERE home")).scalar()
@@ -43,12 +53,13 @@ def _rebuild_page_cache(league: bool, where: str, params: dict) -> None:
     op.create_table("_page_cache_new", *cols, sa.PrimaryKeyConstraint(*pk))
     if league:
         bind.execute(sa.text("INSERT INTO _page_cache_new (league, season, key, payload, built_at) "
-                             "SELECT :home, season, key, payload, built_at FROM page_cache ORDER BY rowid"), params)
+                             "SELECT :home, season, key, payload, built_at FROM page_cache"), params)
     else:
         bind.execute(sa.text("INSERT INTO _page_cache_new (season, key, payload, built_at) "
-                             f"SELECT season, key, payload, built_at FROM page_cache {where} ORDER BY rowid"), params)
+                             f"SELECT season, key, payload, built_at FROM page_cache {where}"), params)
     op.drop_table("page_cache")
     op.rename_table("_page_cache_new", "page_cache")
+    _rename_parts(bind, "page_cache")
 
 
 def upgrade() -> None:
@@ -78,7 +89,8 @@ def downgrade() -> None:
     rows = bind.execute(sa.text("SELECT count(*) FROM league_state")).scalar() \
         + bind.execute(sa.text("SELECT count(*) FROM page_cache")).scalar()
     _home_or_refuse(bind, rows, "whose rows to keep", "downgrade")
-    bind.execute(sa.text("INSERT OR REPLACE INTO notify_state (season, key, value) "
-                         f"SELECT season, key, value FROM league_state WHERE league = {_HOME}"))
+    bind.execute(sa.text("INSERT INTO notify_state (season, key, value) "
+                         f"SELECT season, key, value FROM league_state WHERE league = {_HOME} "
+                         "ON CONFLICT (season, key) DO UPDATE SET value = excluded.value"))
     op.drop_table("league_state")
     _rebuild_page_cache(False, f"WHERE league = {_HOME}", {})

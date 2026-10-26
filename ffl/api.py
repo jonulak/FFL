@@ -109,8 +109,9 @@ class Cache:
         if hit and hit.expires > now:
             return hit.payload, self._stale(hit)
         if hit:
+            stale = self._stale(hit)  # read before the rebuild starts: a thread that fails fast must not flag this reply
             self._revalidate(key)
-            return hit.payload, self._stale(hit)
+            return hit.payload, stale
         return self._flight.do(key, lambda: self._first_build(key, fn, ttl))
 
     def _first_build(self, key: str, fn: Callable[[], object], ttl: float | None):
@@ -1013,12 +1014,14 @@ def _prune_watch_state(ids: set[int], st: dict | None = None, *, ref: LeagueRef 
     """The pass's baselines kept only for the watched ids, written back and returned: an unwatched player's old
     owner would read as a drop when he is watched again. By the watchlist, never by the rows a pass priced: a read
     that missed a watched player keeps his baselines."""
-    st = dict(st if st is not None else (db.get_league_state("watch_state", {}, ref=ref) or {}))
     keep = {str(i) for i in ids}
-    for f in WATCH_BASELINES:
-        st[f] = {k: v for k, v in (st.get(f) or {}).items() if k in keep}
-    db.put_league_state("watch_state", st, ref=ref)
-    return st
+
+    def prune(cur):
+        out = dict(st if st is not None else (cur or {}))
+        for f in WATCH_BASELINES:
+            out[f] = {k: v for k, v in (out.get(f) or {}).items() if k in keep}
+        return out
+    return db.update_league_state("watch_state", prune, {}, ref=ref)
 
 
 @app.get("/watch/ids")
@@ -1194,7 +1197,7 @@ def final_plays() -> dict:
             _record_plays(week, plays_, ref=refs[key])
             out[str(week)] = max(out.get(str(week), 0), len(games))
             d |= {g["event_id"] for g in games}
-            db.put_league_state("final_plays_done", sorted(d), ref=refs[key])
+            db.update_league_state("final_plays_done", lambda cur, d=d: sorted(set(cur or []) | d), [], ref=refs[key])
     return out
 
 
@@ -1491,14 +1494,12 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
 def _preset_write(change: Callable[[dict], dict], *, ref: LeagueRef | None = None) -> dict:
     """Read the presets, change them, write them back, under the lock. ValueError → 422, KeyError → 404."""
     with _PRESETS:
-        try:
-            store = change(_player_presets(ref=ref))
+        try:  # read and write in one locked transaction (update_state): another process's write is not lost either
+            return db.update_state("player_presets", lambda raw: change(player_views.load(raw)))
         except ValueError as e:
             raise HTTPException(422, {"error": str(e)}) from e
         except KeyError as e:
             raise HTTPException(404, {"error": f"no preset {e.args[0]!r}"}) from e
-        db.put_state("player_presets", store)
-        return store
 
 
 @app.get("/players/presets")
@@ -1578,11 +1579,10 @@ def decision_prefs(ref: LeagueRef = Depends(open_league)):
 def decision_prefs_set(body: dict, ref: LeagueRef = Depends(open_league)):
     """Settings: `log` off stops the app recording its moves (and asking why); `page` off hides the Decisions page."""
     try:
-        merged = decisions_mod.merge_prefs(db.get_league_state("decision_prefs", {}, ref=ref), body)
+        return db.update_league_state("decision_prefs", lambda cur: decisions_mod.merge_prefs(cur or {}, body), {},
+                                      ref=ref)
     except ValueError as e:
         raise HTTPException(422, {"error": str(e)}) from e
-    db.put_league_state("decision_prefs", merged, ref=ref)
-    return merged
 
 
 class DecisionEdit(BaseModel):
@@ -1998,8 +1998,10 @@ class MuteIn(BaseModel):
 
 @app.post("/news/mute/{player_id}")
 def news_mute(player_id: int, body: MuteIn):
-    muted = {int(p) for p in db.get_state("news_mutes", []) or []}
-    db.put_state("news_mutes", sorted(muted | {player_id} if body.muted else muted - {player_id}))
+    def change(cur):
+        muted = {int(p) for p in cur or []}
+        return sorted(muted | {player_id} if body.muted else muted - {player_id})
+    db.update_state("news_mutes", change, [])
     return {"muted": body.muted}
 
 
@@ -2068,7 +2070,8 @@ def pregame_pull(now: datetime | None = None, *, ref: LeagueRef | None = None) -
     with c._lock:
         c._threads["pregame"] = t
     t.start()
-    db.put_league_state("pregame_pulls", sorted(pulled | {k.isoformat() for k in due})[-40:], ref=ref)  # a season's kickoffs
+    new = {k.isoformat() for k in due}
+    db.update_league_state("pregame_pulls", lambda cur: sorted(set(cur or []) | new)[-40:], [], ref=ref)  # a season's kickoffs
     return [k.isoformat() for k in due]
 
 

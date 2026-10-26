@@ -30,12 +30,12 @@ def owners(*, ref=None) -> tuple[dict[int, dict], int]:
 def _queue(written: list, *, ref=None) -> list[list]:
     """A league's revisions waiting for their push, this run's added; past notify.MAX_AGE they are let go."""
     at, t = notify.now(), datetime.now().astimezone()
-    pending = [p for p in db.get_league_state(PENDING, [], ref=ref) or []
-               if t - datetime.fromisoformat(p[2]) <= notify.MAX_AGE]
-    known = {(sid, rev) for sid, rev, _ in pending}
-    pending += [[sid, rev, at] for sid, rev in written if (sid, rev) not in known]
-    db.put_league_state(PENDING, pending, ref=ref)
-    return pending
+
+    def add(cur):
+        pending = [p for p in cur or [] if t - datetime.fromisoformat(p[2]) <= notify.MAX_AGE]
+        known = {(sid, rev) for sid, rev, _ in pending}
+        return pending + [[sid, rev, at] for sid, rev in written if (sid, rev) not in known]
+    return db.update_league_state(PENDING, add, [], ref=ref)
 
 
 def _queued(t: datetime, *, ref=None) -> tuple[list[dict], dict[int, dict]]:
@@ -139,7 +139,8 @@ def _notify_league(written: list, index: players.Index, *, ref=None) -> dict:
     out += [watch.notice_for({"player_id": pid, "name": (index.by_id.get(pid) or {}).get("name") or f"Player {pid}"},
                              sigs, day, at) for pid, sigs in by_player.items() if pid not in carried and pid not in who and pid not in muted]
     n_queued = db.add_notices(out, ref=ref)
-    db.put_league_state(PENDING, [], ref=ref)
+    done = {(sid, rev) for sid, rev, _ in pending}  # only these: one queued since this run read the queue waits on
+    db.update_league_state(PENDING, lambda cur: [p for p in cur or [] if (p[0], p[1]) not in done], [], ref=ref)
     return {"stories": len(pending), "queued": n_queued, "superseded": len(superseded), "watch": len(new)}
 
 

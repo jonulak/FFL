@@ -189,14 +189,14 @@ def test_restore_keeps_my_caps():
     assert leagues.caps(leagues.home())["RB"] == 7, "re-reading the league's settings keeps my caps"
 
 
-def test_migration_imports_settings_json(tmp_path, monkeypatch):
+def test_migration_imports_settings_json(tmp_path, monkeypatch, empty_db):
     from alembic import command
     from ffl import config
     data = tmp_path / "data"
     data.mkdir()
     (data / "settings.json").write_text(FX.read_text())
     monkeypatch.setattr(config, "DATA", data)
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{tmp_path / 'fresh.db'}")
+    monkeypatch.setenv("FFL_DB_URL", empty_db())
     monkeypatch.setenv("LEAGUE_ID", "100000001")
     monkeypatch.setenv("SEASON", "2026")
     monkeypatch.setenv("MY_TEAM_ID", "7")

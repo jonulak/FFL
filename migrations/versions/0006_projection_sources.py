@@ -35,7 +35,7 @@ def upgrade() -> None:
     sa.Column('season', sa.Integer(), nullable=False),
     sa.Column('fitted_at', sa.String(), nullable=False),
     sa.Column('fit', sa.JSON(), nullable=False),
-    sa.Column('active', sa.Boolean(), server_default=sa.text('0'), nullable=False),
+    sa.Column('active', sa.Boolean(), server_default=sa.false(), nullable=False),
     sa.PrimaryKeyConstraint('season', 'fitted_at')
     )
     # ### end Alembic commands ###

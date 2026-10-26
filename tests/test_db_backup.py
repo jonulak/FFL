@@ -1,44 +1,60 @@
-import sqlite3
 from datetime import date
 
 import pytest
+import sqlalchemy as sa
 
 from ffl import db, db_backup
 
 
-def test_backup_is_a_checked_copy(tmp_path):
+def _count(url, table):
+    eng = sa.create_engine(url, poolclass=sa.pool.NullPool)
+    try:
+        with eng.connect() as c:
+            return c.execute(sa.text(f'select count(*) from "{table}"')).scalar()
+    finally:
+        eng.dispose()
+
+
+def _tx():
     db.add_transactions([{"id": "1-6-DROPPED-1", "date": "d", "type": "DROPPED", "team": "t", "player": "p",
                           "action": "DROPPED", "bid": 0, "reasoning": ""}])
-    out = db_backup.backup(tmp_path / "bk", today=date(2026, 10, 8))
-    assert out.name == "ffl-2026-10-08.db"
-    con = sqlite3.connect(out)
-    assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-    assert con.execute("select count(*) from transactions").fetchone()[0] == 1
+
+
+def test_backup_writes_checked_dump(tmp_path):
+    _tx()
+    out = db_backup.backup(str(tmp_path / "bk"), today=date(2026, 10, 8))
+    assert out.endswith("ffl-2026-10-08.dump")
+    assert "transactions" in db_backup.pg_tool("pg_restore", "--list", out).stdout
+    assert db_backup.dump_head(out) == db._head()
     assert not list((tmp_path / "bk").glob(".*")), "no temp file left in the synced folder"
 
 
-def test_backup_prunes_to_newest_keep(tmp_path):
-    bk = tmp_path / "bk"
+def test_backup_prunes_to_keep(tmp_path):
+    bk = str(tmp_path / "bk")
     for d in range(1, 6):
         db_backup.backup(bk, keep=3, today=date(2026, 10, d))
-    assert sorted(p.name for p in bk.glob("ffl-*.db")) == ["ffl-2026-10-03.db", "ffl-2026-10-04.db", "ffl-2026-10-05.db"]
+    assert sorted(p.name for p in (tmp_path / "bk").glob("ffl-*.dump")) == [
+        "ffl-2026-10-03.dump", "ffl-2026-10-04.dump", "ffl-2026-10-05.dump"]
 
 
 def test_backup_same_day_replaces(tmp_path):
-    db_backup.backup(tmp_path, today=date(2026, 10, 8))
-    db_backup.backup(tmp_path, today=date(2026, 10, 8))
-    assert [p.name for p in tmp_path.glob("ffl-*.db")] == ["ffl-2026-10-08.db"]
+    db_backup.backup(str(tmp_path), today=date(2026, 10, 8))
+    db_backup.backup(str(tmp_path), today=date(2026, 10, 8))
+    assert [p.name for p in tmp_path.glob("ffl-*.dump")] == ["ffl-2026-10-08.dump"]
 
 
-def test_backup_of_a_missing_db_raises_and_publishes_nothing(tmp_path, monkeypatch):
-    missing = tmp_path / "gone" / "ffl.db"
-    (tmp_path / "gone").mkdir()
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{missing}")
-    bk = tmp_path / "bk"
-    with pytest.raises(sqlite3.OperationalError):
-        db_backup.backup(bk, today=date(2026, 10, 8))
-    assert not list(bk.glob("ffl-*.db"))
-    assert not missing.exists(), "the source must not be created"
+def test_backup_refuses_wrong_head(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "_head", lambda: "9999")
+    with pytest.raises(RuntimeError, match="schema"):
+        db_backup.backup(str(tmp_path / "bk"), today=date(2026, 10, 8))
+    assert not list((tmp_path / "bk").glob("*")), "a refused dump publishes nothing"
+
+
+def test_backup_unreachable_db_publishes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setenv("FFL_DB_URL", "postgresql+psycopg://nobody@127.0.0.1:1/none?connect_timeout=2")
+    with pytest.raises(Exception):
+        db_backup.backup(str(tmp_path / "bk"), today=date(2026, 10, 8))
+    assert not list((tmp_path / "bk").glob("*"))
 
 
 def test_backup_failed_publish_leaves_no_temp_file(tmp_path, monkeypatch):
@@ -46,28 +62,105 @@ def test_backup_failed_publish_leaves_no_temp_file(tmp_path, monkeypatch):
         raise OSError("sync folder gone")
     monkeypatch.setattr(db_backup.os, "replace", boom)
     with pytest.raises(OSError):
-        db_backup.backup(tmp_path / "bk", today=date(2026, 10, 8))
+        db_backup.backup(str(tmp_path / "bk"), today=date(2026, 10, 8))
     assert not list((tmp_path / "bk").glob("*")) and not list((tmp_path / "bk").glob(".*"))
 
 
-def test_backup_of_an_empty_file_is_refused_and_publishes_nothing(tmp_path, monkeypatch):
-    empty = tmp_path / "empty.db"
-    sqlite3.connect(empty).close()
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{empty}")
+def test_restore_round_trip(tmp_path, empty_db):
+    _tx()
+    bk = str(tmp_path / "bk")
+    db_backup.backup(bk, today=date(2026, 10, 8))
+    fresh = empty_db()
+    db_backup.restore(bk, fresh)  # a directory: the newest dump
+    for t in ("transactions", "leagues", "strategies"):
+        assert _count(fresh, t) == _count(db.url(), t) > 0
+    assert _count(fresh, "alembic_version") == 1
+
+
+def test_restore_named_file_and_newest_pick(tmp_path, empty_db):
     bk = tmp_path / "bk"
-    with pytest.raises(RuntimeError, match="schema"):
-        db_backup.backup(bk, today=date(2026, 10, 8))
-    assert not list(bk.glob("ffl-*.db")) and not list(bk.glob(".*"))
+    old = db_backup.backup(str(bk), today=date(2026, 10, 1))
+    _tx()
+    db_backup.backup(str(bk), today=date(2026, 10, 2))
+    a = empty_db()
+    db_backup.restore(old, a)
+    assert _count(a, "transactions") == 0
+    b = empty_db()
+    db_backup.restore(str(bk), b)
+    assert _count(b, "transactions") == 1
 
 
-def test_backup_reads_a_db_whose_path_needs_uri_quoting(tmp_path, monkeypatch):
-    # the source goes through a URI (the Drive destination does not): a space, '#' or '?' in its path must be quoted
-    odd = tmp_path / "My Drive #1 ?x" / "ffl.db"
-    odd.parent.mkdir()
-    src, out = sqlite3.connect(db.url().removeprefix("sqlite:///")), sqlite3.connect(odd)
-    src.backup(out)
-    out.close()
-    src.close()
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{odd}")
-    bk = db_backup.backup(tmp_path / "bk", today=date(2026, 10, 8))
-    assert sqlite3.connect(bk).execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+@pytest.mark.parametrize("url", [
+    "postgresql+psycopg://u:p@db.abc.rds.amazonaws.com:5432/ffl",
+    "postgresql+psycopg://u@10.0.0.5/ffl",
+])
+def test_restore_refuses_a_non_local_host_without_to_rds(tmp_path, url):
+    with pytest.raises(SystemExit, match="--to-rds"):
+        db_backup.restore(str(tmp_path), url)
+
+
+@pytest.mark.parametrize("url", ["postgresql+psycopg:///x", "postgresql+psycopg://u@localhost/x",
+                                 "postgresql+psycopg://u@127.0.0.1:5432/x", "postgresql+psycopg://u@[::1]/x",
+                                 "postgresql+psycopg://u@/x?host=/tmp"])
+def test_local_hosts(url):
+    assert db_backup.is_local(url)
+
+
+def test_s3_store_through_a_stub_client():
+    class Stub:
+        def __init__(self):
+            self.objs = {}
+
+        def upload_file(self, path, bucket, key):
+            self.objs[key] = open(path, "rb").read()
+
+        def download_file(self, bucket, key, path):
+            open(path, "wb").write(self.objs[key])
+
+        def delete_object(self, Bucket, Key):
+            del self.objs[Key]
+
+        def list_objects_v2(self, Bucket, Prefix, **kw):
+            return {"Contents": [{"Key": k} for k in sorted(self.objs) if k.startswith(Prefix)], "IsTruncated": False}
+
+    stub = Stub()
+    for d in range(1, 5):
+        out = db_backup.backup("s3://bkt/ffl/", keep=2, today=date(2026, 10, d), client=stub)
+    assert out == "s3://bkt/ffl/ffl-2026-10-04.dump"
+    assert sorted(stub.objs) == ["ffl/ffl-2026-10-03.dump", "ffl/ffl-2026-10-04.dump"]
+
+
+def test_a_client_older_than_the_server_is_refused(monkeypatch):
+    monkeypatch.setattr(db_backup, "_tool_major", lambda path: 14)
+    monkeypatch.setattr(db_backup, "_candidates", lambda name: ["/x/pg_dump"])
+    monkeypatch.setattr(db_backup, "_server_major", lambda url: 16)
+    with pytest.raises(SystemExit, match="older than the server"):
+        db_backup.pg_tool("pg_dump", "--version")
+
+
+def test_a_newer_clients_transaction_timeout_is_the_only_error_tolerated():
+    one = ('pg_restore: error: could not execute query: ERROR:  unrecognized configuration parameter '
+           '"transaction_timeout"\nCommand was: SET transaction_timeout = 0;\npg_restore: warning: errors ignored on restore: 1')
+    assert db_backup._only_newer_settings(one)
+    assert not db_backup._only_newer_settings(one + "\npg_restore: error: could not execute query: ERROR:  boom")
+    assert not db_backup._only_newer_settings("")
+
+
+def test_pg_restore_takes_the_newest_client_pg_dump_the_smallest(monkeypatch):
+    # a dump made by 18 into a server 16 with both clients installed: 16 cannot read the archive
+    monkeypatch.setattr(db_backup, "_server_major", lambda url: 16)
+    monkeypatch.setattr(db_backup, "_candidates", lambda name: [f"/pg16/{name}", f"/pg18/{name}"])
+    monkeypatch.setattr(db_backup, "_tool_major", lambda path: 16 if "pg16" in path else 18)
+    ran = []
+    monkeypatch.setattr(db_backup.subprocess, "run", lambda cmd, **kw: ran.append(cmd[0]))
+    db_backup.pg_tool("pg_restore", "--list", "x")
+    db_backup.pg_tool("pg_dump", "-Fc")
+    assert ran == ["/pg18/pg_restore", "/pg16/pg_dump"]
+
+
+def test_restore_cli_needs_url_and_touches_nothing(monkeypatch):
+    monkeypatch.setattr(db_backup, "restore", lambda *a, **k: pytest.fail("restored"))
+    with pytest.raises(SystemExit, match="--url"):
+        db_backup.restore_main(["somewhere"])
+    with pytest.raises(SystemExit, match="--url"):
+        db.main(["restore", "somewhere"])

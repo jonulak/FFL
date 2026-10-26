@@ -100,14 +100,14 @@ def test_public_preset_seeded():
     assert "Props trial" not in s["prose"] and "Brier 0.203" not in s["prose"], "the home league's history stays home's"
 
 
-def test_0020_links_the_public_league_where_it_is_registered(tmp_path, monkeypatch):
+def test_0020_links_the_public_league_where_it_is_registered(tmp_path, monkeypatch, empty_db):
     from alembic import command
     from ffl import config
     data = tmp_path / "data"
     data.mkdir()
     monkeypatch.setattr(config, "DATA", data)
     monkeypatch.setattr(config, "JOURNAL", tmp_path / "journal")
-    url = f"sqlite:///{tmp_path / 'fresh.db'}"
+    url = empty_db()
     monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
@@ -115,7 +115,7 @@ def test_0020_links_the_public_league_where_it_is_registered(tmp_path, monkeypat
     eng = sa.create_engine(url)  # the app refuses a DB behind head, so the row goes in as 0019 left the table
     with eng.begin() as c:
         c.execute(sa.text("INSERT INTO leagues (key, provider, provider_id, season, name, team_id, home, added_at) "
-                          "VALUES ('espn:950458410', 'espn', '950458410', 2026, 'public', 1, 0, '2026-10-25')"))
+                          "VALUES ('espn:950458410', 'espn', '950458410', 2026, 'public', 1, false, '2026-10-25')"))
     eng.dispose()
     command.upgrade(db._alembic_config(), "head")
     ref = leagues.get("espn:950458410")

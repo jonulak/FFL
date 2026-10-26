@@ -3,15 +3,16 @@
     uv run python -m ffl.newsdesk bench freeze [--from DATE --to DATE]   # the slice: collected items + sources + index
     uv run python -m ffl.newsdesk bench [--player NAME|ID ...] [--write] [--refresh]
 
-`freeze` copies the collected items (untagged) and the source registry out of `data/ffl.db`, read-only, into
-`data/bench/bench.db`, with the player index beside them in its `bench_index` table, so a later index change never
-moves a result. A run
-copies that to `run.db` and replays it as production would have seen it: each item released at its published time
+`freeze` copies the collected items (untagged) and the source registry out of the database FFL_DB_URL names,
+read-only, into the Postgres database `ffl_bench` on the same server, with the player index beside them in its
+`bench_index` table, so a later index change never moves a result. A run
+makes `ffl_bench_run` from that (CREATE DATABASE ... TEMPLATE) and replays it as production would have seen it:
+each item released at its published time
 + DELAY, `tag.run` at every TICK (and `write.run` after it with --write). Jev's and Haiku's answers are kept in
 `jev-cache.sqlite` keyed by a hash of the question, so a rerun costs nothing and a changed question pays only for
 its own calls (--refresh asks again). The replay is then checked against bench_cases.CASES and diffed against the
-last run of the same scope (the cache's `last_runs` table). Nothing but these SQLite files is written; production
-never reads any of it.
+last run of the same scope (the cache's `last_runs` table, in the stdlib SQLite `jev-cache.sqlite`). Nothing but
+those two bench databases and that file is written; production never reads any of it.
 """
 from __future__ import annotations
 
@@ -19,13 +20,14 @@ import argparse
 import hashlib
 import json
 import os
-import shutil
 import sqlite3
 import time
 from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import sqlalchemy as sa
 
 from .. import claude_cli, db
 from ..adp import norm_name
@@ -34,8 +36,8 @@ from . import bench_cases, jev, tag, write
 from .players import Index
 
 BENCH = DATA / "bench"
-FROZEN = BENCH / "bench.db"  # the slice, and its player index (bench_index)
-RUN = BENCH / "run.db"
+FROZEN_DB = "ffl_bench"  # the slice, and its player index (bench_index): a database on FFL_DB_URL's server
+RUN_DB = "ffl_bench_run"
 CACHE = BENCH / "jev-cache.sqlite"  # saved answers, and each scope's last report (last_runs)
 DELAY = timedelta(minutes=15)  # collected and queued: an item reaches tagging this long after it is published
 TICK = timedelta(minutes=10)  # launchd's pipeline interval
@@ -123,11 +125,35 @@ class Cache:
 
 # --- the frozen slice --------------------------------------------------------------------------------------------
 
-def _migrate(path: Path) -> None:
+def _url_for(name: str) -> str:
+    """FFL_DB_URL with its database replaced: a bench database lives on the server the app's own does."""
+    return sa.engine.make_url(db.url()).set(database=name).render_as_string(hide_password=False)
+
+
+def _create(name: str, template: str | None = None) -> str:
+    """A fresh database `name` (an old one dropped) on FFL_DB_URL's server, optionally copied from `template`; its URL.
+    Never the database FFL_DB_URL itself names, and never a server that is not this machine."""
+    u = sa.engine.make_url(db.url())
+    if u.host not in (None, "", "localhost", "127.0.0.1", "::1") and not u.host.startswith("/"):
+        raise SystemExit(f"bench: {u.host} is not a local server; the bench drops and remakes its databases")
+    if name == u.database:
+        raise SystemExit(f"bench: {name} is the database FFL_DB_URL names; it would be dropped")
+    admin = sa.create_engine(u.set(database="postgres"), isolation_level="AUTOCOMMIT",
+                             poolclass=sa.pool.NullPool)
+    try:
+        with admin.connect() as c:
+            c.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+            c.exec_driver_sql(f'CREATE DATABASE "{name}"' + (f' TEMPLATE "{template}"' if template else ""))
+    finally:
+        admin.dispose()
+    return _url_for(name)
+
+
+def _migrate(url: str) -> None:
     """Alembic's head on a bench DB (a frozen one migrates on each run's copy, so a new revision never breaks it)."""
     from alembic import command
     was = os.environ.get("FFL_DB_URL")
-    os.environ["FFL_DB_URL"] = f"sqlite:///{path}"
+    os.environ["FFL_DB_URL"] = url
     cfg = db._alembic_config()
     cfg.config_file_name = None  # env.py then skips alembic.ini's logging: no INFO line per revision on every run
     try:
@@ -139,13 +165,8 @@ def _migrate(path: Path) -> None:
             os.environ["FFL_DB_URL"] = was
 
 
-def _fresh(path: Path) -> None:
-    for p in (path, path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")):
-        p.unlink(missing_ok=True)
-
-
-def _cols(c: sqlite3.Connection, table: str) -> list[str]:
-    return [r[1] for r in c.execute(f"pragma table_info({table})")]
+def _engine(url: str) -> sa.Engine:
+    return sa.create_engine(url, poolclass=sa.pool.NullPool, json_serializer=db._json_dumps)
 
 
 def _at(s: str) -> datetime:
@@ -159,23 +180,30 @@ def _day(s: str | None, end: bool) -> datetime | None:
     return d + timedelta(days=1) if end and len(s) <= 10 else d
 
 
-def save_index(index: Index, path: Path = FROZEN) -> None:
+def save_index(index: Index, url: str | None = None) -> None:
     """The player index into the frozen slice's own DB (table bench_index, one row): it lives and dies with the
     slice it was frozen beside."""
-    with closing(sqlite3.connect(path)) as c, c:
-        c.execute("create table if not exists bench_index (id integer primary key check (id = 1), doc text not null)")
-        c.execute("insert or replace into bench_index values (1, ?)", (json.dumps(asdict(index)),))
+    eng = _engine(url or _url_for(FROZEN_DB))
+    try:
+        with eng.begin() as c:
+            c.execute(sa.text("create table if not exists bench_index (id integer primary key check (id = 1), "
+                              "doc text not null)"))
+            c.execute(sa.text("insert into bench_index values (1, :d) on conflict (id) do update set doc = :d"),
+                      {"d": json.dumps(asdict(index))})
+    finally:
+        eng.dispose()
 
 
-def load_index(path: Path = FROZEN) -> Index | None:
-    """The index frozen into `path`; None when there is none (no slice, or one frozen before it lived there)."""
-    if not path.exists():
+def load_index(url: str | None = None) -> Index | None:
+    """The index frozen into the database at `url`; None when there is none (no slice, or one frozen before it lived there)."""
+    eng = _engine(url or _url_for(FROZEN_DB))
+    try:
+        with eng.connect() as c:
+            row = c.execute(sa.text("select doc from bench_index where id = 1")).first()
+    except (sa.exc.OperationalError, sa.exc.ProgrammingError):  # no such database, or no such table
         return None
-    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as c:
-        try:
-            row = c.execute("select doc from bench_index where id = 1").fetchone()
-        except sqlite3.OperationalError:  # no such table
-            return None
+    finally:
+        eng.dispose()
     if row is None:
         return None
     d = json.loads(row[0])
@@ -183,32 +211,34 @@ def load_index(path: Path = FROZEN) -> Index | None:
                  owned={int(k): v for k, v in d["owned"].items()}, names={int(k): v for k, v in d.get("names", {}).items()})
 
 
-def freeze(src: Path, since: str | None = None, until: str | None = None, index: Index | None = None) -> dict:
-    """The collected items published in [since, until] (dates are whole days, UTC) and every source, from `src` opened
-    read-only, into FROZEN in untagged form; and the player index. Returns the counts."""
+def freeze(src: str, since: str | None = None, until: str | None = None, index: Index | None = None,
+           name: str = FROZEN_DB) -> dict:
+    """The collected items published in [since, until] (dates are whole days, UTC) and every source, from the database
+    at URL `src` (read-only), into database `name` in untagged form; and the player index. Returns the counts."""
     from . import players
-    BENCH.mkdir(parents=True, exist_ok=True)
     lo, hi = _day(since, False), _day(until, True)
-    tmp = BENCH / "freeze.db"
-    _fresh(tmp)
-    _migrate(tmp)
-    with closing(sqlite3.connect(f"file:{src}?mode=ro", uri=True)) as s, closing(sqlite3.connect(tmp)) as d, d:
+    url = _create(name)
+    _migrate(url)
+    src_eng, dst = db._read_only_engine(src), _engine(url)
+    try:
         n = {}
-        for table in ("news_sources", "news_items"):
-            cols = [c for c in _cols(d, table) if c in set(_cols(s, table))]
-            rows = [dict(zip(cols, r)) for r in s.execute(f"select {', '.join(cols)} from {table}")]
-            if table == "news_items":
-                rows = [{**r, "jev": None, "tagged_at": None, "story_id": None, "player_ids": "[]"} for r in rows
-                        if (lo is None or _at(r["published_at"]) >= lo) and (hi is None or _at(r["published_at"]) < hi)]
-            d.executemany(f"insert into {table} ({', '.join(cols)}) values ({', '.join('?' * len(cols))})",
-                          [tuple(r[c] for c in cols) for r in rows])
-            n[table] = len(rows)
-        span = d.execute("select min(published_at), max(published_at) from news_items").fetchone()
-    save_index(index or players.fetch_index(), tmp)
-    with closing(sqlite3.connect(tmp)) as d:
-        d.execute("pragma journal_mode=delete")  # one file: the WAL folded in
-    _fresh(FROZEN)
-    os.replace(tmp, FROZEN)
+        with src_eng.connect() as s, dst.begin() as d:
+            for t in (db.news_sources_table, db.news_items_table):
+                rows = [dict(r._mapping) for r in s.execute(sa.select(t))]
+                if t is db.news_items_table:
+                    rows = [{**r, "jev": None, "tagged_at": None, "story_id": None, "player_ids": []} for r in rows
+                            if (lo is None or _at(r["published_at"]) >= lo) and (hi is None or _at(r["published_at"]) < hi)]
+                if rows:
+                    d.execute(t.insert(), rows)
+                n[t.name] = len(rows)
+            if n["news_items"]:  # ids kept from the source: the identity sequence has to move past them
+                d.execute(sa.text("select setval(pg_get_serial_sequence('news_items', 'id'), "
+                                  "(select max(id) from news_items))"))
+            span = d.execute(sa.text("select min(published_at), max(published_at) from news_items")).first()
+    finally:
+        src_eng.dispose()
+        dst.dispose()
+    save_index(index or players.fetch_index(), url)
     return {**n, "from": span[0], "to": span[1]}
 
 
@@ -238,20 +268,19 @@ def _ceil(t: datetime) -> datetime:
 
 def replay(index: Index, cache: Cache, selected: set[int] | None = None, do_write: bool = False) -> dict:
     """A fresh copy of the frozen slice, tagged (and written) in time order. With `selected`, only the items naming
-    those players are kept. Returns the run's totals; the DB is left at RUN (FFL_DB_URL points there)."""
-    _fresh(RUN)
-    shutil.copy(FROZEN, RUN)
-    _migrate(RUN)
-    os.environ["FFL_DB_URL"] = f"sqlite:///{RUN}"
+    those players are kept. Returns the run's totals; the DB is left at ffl_bench_run (FFL_DB_URL points there)."""
+    db.reset()  # no engine of ours may hold the frozen database open: it is the copy's template
+    run_url = _create(RUN_DB, template=FROZEN_DB)
+    _migrate(run_url)
+    os.environ["FFL_DB_URL"] = run_url
     db.reset()
-    with closing(sqlite3.connect(RUN)) as c, c:
-        c.row_factory = sqlite3.Row
-        items = [dict(r) for r in c.execute("select * from news_items where withdrawn_at is null")]
+    with db._write() as c:
+        items = [dict(r._mapping) for r in c.execute(sa.text("select * from news_items where withdrawn_at is null"))]
         if selected is not None:
             keep = {i["id"] for i in items if selected & {p["player_id"] for p in tag._players(i, index)}}
-            c.execute(f"delete from news_items where id not in ({','.join(map(str, keep)) or '0'})")
+            c.execute(sa.text("delete from news_items where id <> all(:keep)"), {"keep": list(keep)})
             items = [i for i in items if i["id"] in keep]
-        c.execute("update news_items set tagged_at = ?", (HOLD,))
+        c.execute(sa.text("update news_items set tagged_at = :h"), {"h": HOLD})
     due = sorted((_at(i["published_at"]) + DELAY, i["id"]) for i in items)
     out = {"items": len(items), "ticks": 0, "tagged": 0, "new": 0, "attached": 0, "updated": 0, "reworded": 0,
            "failed": 0, "given_up": 0, "error": None, "written": 0, "write_missing": 0,
@@ -263,10 +292,11 @@ def replay(index: Index, cache: Cache, selected: set[int] | None = None, do_writ
         n = at
         while at < len(due) and due[at][0] <= tick:
             at += 1
-        with closing(sqlite3.connect(RUN)) as c, c:
+        with db._write() as c:
             if at > n:
-                c.executemany("update news_items set tagged_at = null where id = ?", [(i,) for _, i in due[n:at]])
-            waiting = c.execute("select count(*) from news_items where tagged_at is null").fetchone()[0]
+                c.execute(sa.text("update news_items set tagged_at = null where id = any(:ids)"),
+                          {"ids": [i for _, i in due[n:at]]})
+            waiting = c.execute(sa.text("select count(*) from news_items where tagged_at is null")).scalar()
         if waiting:
             got = tag.run(index, ask=cache.ask, now=tick)
             out["ticks"] += 1
@@ -437,7 +467,7 @@ def main(argv: list[str]) -> int:
         ap.add_argument("--from", dest="since")
         ap.add_argument("--to", dest="until")
         a = ap.parse_args(argv[1:])
-        print(json.dumps(freeze(DATA / "ffl.db", a.since, a.until)))
+        print(json.dumps(freeze(db.url(), a.since, a.until)))
         return 0
     ap = argparse.ArgumentParser(prog="python -m ffl.newsdesk bench")
     ap.add_argument("--player", nargs="+", default=[], metavar="NAME|ID")

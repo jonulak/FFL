@@ -1,10 +1,15 @@
+import itertools
 import os
-import shutil
 
 import pytest
 
-# Deploy runs pytest from the main checkout: a leaked thread must fail loudly, not write to the production DB.
-os.environ.setdefault("FFL_DB_URL", "sqlite:////nonexistent/ffl-test-guard.db")
+# Deploy runs pytest from the main checkout: a leaked thread must fail loudly (and fast), not write to the production
+# DB. Every test points FFL_DB_URL at the session's test database (below); this is only what is left outside one.
+os.environ["FFL_DB_URL"] = "postgresql+psycopg://nobody@127.0.0.1:1/none?connect_timeout=2"
+
+# The server the test databases are made on: a role that may CREATE DATABASE (scripts/pg-test-setup.sh; CI sets it
+# to its postgres:16 service). Never the production server's address.
+TEST_PG = os.environ.get("FFL_TEST_PG", "postgresql+psycopg:///postgres")
 
 # The API's lifespan starts the live-scoring socket; a test run must never open it.
 os.environ["FFL_LIVE"] = "0"
@@ -14,14 +19,65 @@ os.environ["FFL_WRITES"] = "0"
 os.environ["FFL_NOTIFY"] = "0"
 
 
+class PgServer:
+    """CREATE / DROP DATABASE on the test server, from an AUTOCOMMIT connection (neither runs in a transaction)."""
+
+    def __init__(self, admin_url: str):
+        import sqlalchemy as sa
+        self.admin = sa.engine.make_url(admin_url)
+        self.engine = sa.create_engine(self.admin, isolation_level="AUTOCOMMIT", poolclass=sa.pool.NullPool)
+        self._n = itertools.count(1)
+
+    def url(self, name: str) -> str:
+        return self.admin.set(database=name).render_as_string(hide_password=False)
+
+    def create(self, name: str, template: str | None = None) -> str:
+        with self.engine.connect() as c:
+            c.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+            c.exec_driver_sql(f'CREATE DATABASE "{name}"' + (f' TEMPLATE "{template}"' if template else ""))
+        return self.url(name)
+
+    def drop(self, name: str) -> None:
+        with self.engine.connect() as c:
+            c.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')  # FORCE: a leaked thread's connection
+
+    def fresh_name(self) -> str:
+        return f"ffl_t_{os.getpid()}_{next(self._n)}"
+
+
 @pytest.fixture(scope="session")
-def _db_template(tmp_path_factory):
-    """One migrated DB per test session (alembic upgrade head is ~0.5 s; per test it would dominate)."""
+def pg_server():
+    server = PgServer(TEST_PG)
+    yield server
+    server.engine.dispose()
+
+
+@pytest.fixture
+def empty_db(pg_server, monkeypatch):
+    """A function that makes an empty database (no schema) and returns its URL; each is dropped after the test.
+    For tests that run migrations themselves (the template is already at head)."""
+    from ffl import db
+    made = []
+
+    def make() -> str:
+        name = pg_server.fresh_name()
+        made.append(name)
+        return pg_server.create(name)
+    yield make
+    db.reset()
+    for name in made:
+        pg_server.drop(name)
+
+
+@pytest.fixture(scope="session")
+def _db_template(tmp_path_factory, pg_server):
+    """One migrated DB per test session (alembic upgrade head takes seconds; per test it would dominate): the
+    working DB below is a `CREATE DATABASE ... TEMPLATE` copy of it, as is a test's own second database."""
     from alembic import command
     from ffl import db
-    path = tmp_path_factory.mktemp("db") / "template.db"
+    name = f"ffl_tpl_{os.getpid()}"
     mp = pytest.MonkeyPatch()
-    mp.setenv("FFL_DB_URL", f"sqlite:///{path}")
+    mp.setenv("FFL_DB_URL", pg_server.create(name))
     # migration 0014 seeds the home league from these, the last time league facts come from the environment
     mp.setenv("LEAGUE_ID", "100000001")
     mp.setenv("SEASON", "2026")
@@ -33,21 +89,70 @@ def _db_template(tmp_path_factory):
     mp.setattr(config, "DATA", tmp_path_factory.mktemp("data"))
     mp.setattr(config, "JOURNAL", tmp_path_factory.mktemp("journal"))
     command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    db.engine().dispose()  # the connect hook switches the file to WAL, as production runs it; copies start there
-    db.reset()
+    db.reset()  # a template takes no copies while anything is connected to it
     mp.undo()
-    return path
+    yield name
+    db.reset()
+    pg_server.drop(name)
+
+
+_SEED = "ffl_seed"  # the schema, in the working DB, holding the template's own rows (the migrations' seeds)
+
+
+@pytest.fixture(scope="session")
+def _db_work(pg_server, _db_template):
+    """The session's working DB, a copy of the template, and the SQL that puts it back as the template left it.
+
+    A `CREATE DATABASE ... TEMPLATE` per test made the suite ~7x slower than SQLite's file copies (179 s against
+    24 s), so tests share this one database, emptied before each test: every table's rows deleted (children first;
+    DELETE, not TRUNCATE, which costs ~20 ms a test in new files) and every id sequence restarted, then the
+    template's rows (the home league, strategies, formats the migrations seed) copied back from `ffl_seed`."""
+    import sqlalchemy as sa
+    from ffl import db
+    name = f"ffl_w_{os.getpid()}"
+    url = pg_server.create(name, template=_db_template)
+    eng = sa.create_engine(url, poolclass=sa.pool.NullPool)
+    with eng.begin() as c:
+        ins = sa.inspect(c)
+        have = set(ins.get_table_names()) - {"alembic_version"}
+        assert have == set(db.metadata.tables), "the template is at head: db.metadata names every table"
+        tables = [t.name for t in db.metadata.sorted_tables]           # parents first
+        seeded = [t for t in tables if c.exec_driver_sql(f'SELECT EXISTS (SELECT 1 FROM "{t}")').scalar()]
+        c.exec_driver_sql(f"CREATE SCHEMA {_SEED}")
+        sql = [f'DELETE FROM public."{t}"' for t in reversed(tables)]
+        for t in seeded:
+            c.exec_driver_sql(f'CREATE TABLE {_SEED}."{t}" AS SELECT * FROM public."{t}"')
+            sql.append(f'INSERT INTO public."{t}" SELECT * FROM {_SEED}."{t}"')
+        for t in tables:
+            for col in ins.get_columns(t):
+                seq = c.exec_driver_sql(f"SELECT pg_get_serial_sequence('public.\"{t}\"', '{col['name']}')").scalar()
+                if seq:  # as a fresh copy has it: next id 1, or past a seeded row's
+                    sql.append(f"SELECT setval('{seq}', COALESCE((SELECT MAX(\"{col['name']}\") FROM public.\"{t}\"), 0)"
+                               " + 1, false)")
+    yield url, eng, ";\n".join(sql)                    # eng: NullPool, so it holds no connection between tests
+    eng.dispose()
+    pg_server.drop(name)
+
+
+def _reset_db(eng, sql: str) -> None:
+    """Back to the template's rows. Any other session still on the DB (a thread a test leaked) is ended first:
+    the DELETEs would wait on its locks, and it must not write into the next test."""
+    with eng.begin() as c:
+        c.exec_driver_sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "   # clients only: not autovacuum
+                          "WHERE datname = current_database() AND pid <> pg_backend_pid() "
+                          "AND backend_type = 'client backend'")
+        c.exec_driver_sql("SET LOCAL lock_timeout = '10s'")
+        c.exec_driver_sql(sql)
 
 
 @pytest.fixture(autouse=True)
-def _db_in_tmp(monkeypatch, tmp_path, _db_template):
-    """Every test gets its own copy of the migrated DB; nothing reaches data/ffl.db."""
+def _db_in_tmp(monkeypatch, _db_work):
+    """Every test starts on the migrated DB as the template left it; nothing reaches the production DB."""
     from ffl import db
-    target = tmp_path / "ffl.db"
-    shutil.copy(_db_template, target)
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{target}")
+    url, eng, sql = _db_work
     db.reset()
+    _reset_db(eng, sql)
+    monkeypatch.setenv("FFL_DB_URL", url)
     yield
     db.reset()
 

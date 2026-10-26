@@ -1,0 +1,36 @@
+name: Verify Branch Protection
+
+# The PR workflow assumes develop and main cannot be deleted or force-pushed, develop takes squash merges
+# only and main merge commits only. This proves the rulesets and classic protection still say so
+# (scripts/verify-branch-protection.sh). Reading rulesets and classic protection needs admin rights the
+# workflow token cannot be granted: without the BRANCH_PROTECTION_TOKEN secret (a fine-grained PAT on this
+# repo, Administration: Read + Contents: Read) the script checks the rules applied to each branch, which
+# contents: read can see, and skips classic protection with a warning.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Mondays 09:00 UTC
+  workflow_dispatch:
+  # workflow_dispatch only exists once the file is on the default branch, so a PR that edits the
+  # workflow or script runs it too, before it merges (not a required check, so the filter is safe).
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'scripts/verify-branch-protection.sh'
+      - '.github/workflows/verify-branch-protection.yml'
+  push:
+    branches: [develop]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify protection
+        env:
+          GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN || secrets.GITHUB_TOKEN }}
+          BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: scripts/verify-branch-protection.sh

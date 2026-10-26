@@ -1,6 +1,6 @@
 """Draft for me from a written queue, for practice runs and as a keyboard-away backup.
 
-    FFL_DATA_DIR=data-mock uv run python -m ffl.autodraft queue.txt
+    FFL_DB_URL=postgresql+psycopg:///ffl_mock FFL_DATA_DIR=data-mock uv run python -m ffl.autodraft queue.txt
     uv run python -m ffl.autodraft queue.txt --live      # the real draft: opt in explicitly
 
 For the current league (FFL_LEAGUE, else the home league). Watches the watcher's state for it (the
@@ -28,6 +28,8 @@ import argparse
 import os
 import time
 from datetime import datetime
+
+import sqlalchemy as sa
 from pathlib import Path
 
 from . import db, leagues
@@ -137,14 +139,27 @@ def run(queue_path: Path, timeout_s: float = 22.0, ref=None):
         time.sleep(2)
 
 
+MOCK_DB = "ffl_mock"  # the database `scripts/devdb.sh mock` makes
+
+
+def practice_db(url: str | None) -> bool:
+    """True when the URL's database is exactly the mock's: the only one this may draft on without --live."""
+    if not url:
+        return False
+    try:
+        return sa.engine.make_url(url).database == MOCK_DB
+    except sa.exc.ArgumentError:
+        return False
+
+
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
+    ap =argparse.ArgumentParser()
     ap.add_argument("queue", nargs="?", default="queue.txt", help="queue file (may be absent)")
     ap.add_argument("--live", action="store_true",
-                    help="required to run against the real league (FFL_DATA_DIR unset)")
+                    help="required to run against the real league (FFL_DB_URL's database is not exactly ffl_mock)")
     ap.add_argument("--timeout", type=float, default=22.0, help="seconds to spend per pick")
     a = ap.parse_args()
-    if not os.environ.get("FFL_DATA_DIR") and not a.live:
-        raise SystemExit("This drafts for real. Set FFL_DATA_DIR=data-mock for a practice run, "
-                         "or pass --live if you mean the real draft.")
+    if not practice_db(os.environ.get("FFL_DB_URL")) and not a.live:
+        raise SystemExit("This drafts for real. Point FFL_DB_URL at the mock database (scripts/devdb.sh mock --no-env) "
+                         "for a practice run, or pass --live if you mean the real draft.")
     run(Path(a.queue), a.timeout)

@@ -7,8 +7,8 @@ candidate table for my next pick.
 
 Outputs, all under the watched league (FFL_LEAGUE, else the home league): the DB's draft_picks
 (the log), draft_states (full state, which ffl.autodraft reads) and draft_feeds (the raw socket
-feed, which ffl.advise / ffl.avail read), and stdout. A practice run (FFL_DATA_DIR) writes the same
-tables in its own data dir's ffl.db.
+feed, which ffl.advise / ffl.avail read), and stdout. A practice run (FFL_DB_URL=...ffl_mock) writes the same
+tables in its own database.
 ESPN's REST mDraftDetail view is useless *during* a live draft — every slot stays at
 playerId -1 until the draft finishes — so live mode reads the draft room's websocket
 over CDP instead (see ffl/draft_socket.py). REST stays for pre-draft checks; whether it backfills after a draft is unverified.
@@ -624,7 +624,8 @@ class Watcher:
         """Write the state to the league's draft_states row when it changed (its clock stamp aside): a tick
         comes about once a second, against the live DB the API writes too. A failed write is one line on
         screen, never the end of the watcher: the next tick sees a state not yet written and tries again."""
-        doc = json.loads(json.dumps(state, default=str))  # plain JSON, numpy scalars and the like as strings
+        # plain JSON, numpy scalars and the like as strings; NaN / Infinity as null (Postgres json refuses them)
+        doc = json.loads(json.dumps(state, default=str), parse_constant=lambda _: None)
         same = {k: v for k, v in doc.items() if k != "ts"}
         if same == self._written:
             return

@@ -52,23 +52,28 @@ def _keep(cols, league: bool) -> tuple:
 
 def _create_copy(bind, spec, league: bool, where: str, params: dict, parent_new: bool = False) -> None:
     """Create `_<name>_new` with the key `spec` gives (with or without league) and copy every row the WHERE keeps
-    in rowid order: the transaction log is read in insert order, and the id tables keep their ids."""
+    in key order; the id tables keep their ids. (Postgres: no rowid, so the transaction log's insert order is 0025's
+    `seq`; a unique constraint's name is schema-wide, so the copy's carries `__new` until `_swap`.)"""
     name, pk, uniques, _indexes, fk = spec
     reflected = sa.inspect(bind).get_columns(name)     # a fresh inspector: the DDL before this changed the schema
-    old_pk = set(sa.inspect(bind).get_pk_constraint(name)["constrained_columns"])
+    old_pk = sa.inspect(bind).get_pk_constraint(name)["constrained_columns"]
     copied = [c["name"] for c in reflected if c["name"] != "league"]
     cols = [sa.Column("league", sa.String(), nullable=False)] if league else []
+    serial = None
     for c in reflected:
         if c["name"] == "league":
             continue
         default = c.get("default")
+        if default is not None and default.startswith("nextval("):
+            # the old table's sequence is dropped with it: the copy's `id` is SERIAL on its own, set past the copy
+            serial, default = c["name"], None
         cols.append(sa.Column(c["name"], c["type"], nullable=c["nullable"],
                               server_default=sa.text(default) if default is not None else None,
                               primary_key=pk is None and c["name"] in old_pk))
     extra = []
     if pk is not None:
         extra.append(sa.PrimaryKeyConstraint(*_keep(pk, league)))
-    extra += [sa.UniqueConstraint(*_keep(u, league), name=n) for n, u in uniques.items()]
+    extra += [sa.UniqueConstraint(*_keep(u, league), name=f"{n}__new") for n, u in uniques.items()]
     if fk is not None:
         fcols, parent = _keep(fk[0], league), fk[1]
         target = f"_{parent}_new" if parent_new else parent
@@ -78,15 +83,37 @@ def _create_copy(bind, spec, league: bool, where: str, params: dict, parent_new:
     names = ", ".join(q(c) for c in copied)
     into = f"league, {names}" if league else names
     select = f":home, {names}" if league else names
-    bind.execute(sa.text(f"INSERT INTO _{name}_new ({into}) SELECT {select} FROM {name} {where} ORDER BY rowid"), params)
+    order = ", ".join(q(c) for c in (old_pk if pk is None else _keep(pk, False)))
+    bind.execute(sa.text(f"INSERT INTO _{name}_new ({into}) SELECT {select} FROM {name} {where} ORDER BY {order}"),
+                 params)
+    if serial is not None:
+        bind.execute(sa.text(f"SELECT setval(pg_get_serial_sequence('_{name}_new', '{serial}'), "
+                             f"COALESCE(MAX({q(serial)}), 0) + 1, false) FROM _{name}_new"))
+
+
+def _rename_parts(bind, name: str, uniques=()) -> None:
+    """The renamed table keeps the names Postgres gave `_<name>_new`'s key, foreign key and SERIAL sequence (and
+    the `__new` uniques): give them the names a fresh `create_table(name)` has, so the schema matches one built
+    at head."""
+    prefix = f"_{name}_new_"
+    for (con,) in bind.execute(sa.text("SELECT conname FROM pg_constraint WHERE conrelid = CAST(:t AS regclass)"),
+                               {"t": name}).all():
+        new = name + "_" + con[len(prefix):] if con.startswith(prefix) else \
+            con.removesuffix("__new") if con.endswith("__new") and con.removesuffix("__new") in uniques else None
+        if new:
+            bind.execute(sa.text(f'ALTER TABLE {name} RENAME CONSTRAINT "{con}" TO "{new}"'))
+    for (seq,) in bind.execute(sa.text("SELECT relname FROM pg_class WHERE relkind = 'S' AND relname = :s"),
+                               {"s": f"{prefix}id_seq"}).all():
+        bind.execute(sa.text(f'ALTER SEQUENCE "{seq}" RENAME TO "{name}_id_seq"'))
 
 
 def _swap(spec, league: bool) -> None:
     """Drop the old table, put the new one in its place and create its named indexes (index names are
-    database-wide in SQLite, so only once the old table and its indexes are gone)."""
-    name, _pk, _uniques, indexes, _fk = spec
+    schema-wide, so only once the old table and its indexes are gone)."""
+    name, _pk, uniques, indexes, _fk = spec
     op.drop_table(name)
     op.rename_table(f"_{name}_new", name)
+    _rename_parts(op.get_bind(), name, tuple(uniques))
     for n, cols in indexes.items():
         op.create_index(n, name, list(_keep(cols, league)))
 
@@ -109,6 +136,8 @@ def _rebuild_all(league: bool, where: str, params: dict) -> None:
     op.drop_table("calibration_snapshots")
     op.rename_table("_calibration_snapshots_new", "calibration_snapshots")
     op.rename_table("_calibration_rows_new", "calibration_rows")
+    _rename_parts(bind, "calibration_snapshots")
+    _rename_parts(bind, "calibration_rows")
 
 
 def _home_or_refuse(bind, what: str, then: str):
