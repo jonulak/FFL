@@ -883,6 +883,24 @@ def test_0023_downgrade_keeps_home(tmp_path, monkeypatch):
     assert sorted(_rows(url, "SELECT season, play_id, player_id FROM called_back")) == [(2026, "p1", 11), (2026, "p1", 12)]
 
 
+def test_0024_makes_home_player_views_every_leagues(tmp_path, monkeypatch):
+    from alembic import command
+    url = _at_0022(tmp_path, monkeypatch)
+    command.upgrade(db._alembic_config(), "0023")
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        for league, v in (("espn:100000001", '{"who": "home"}'), ("espn:999", '{"who": "other"}')):
+            c.execute(sa.text("INSERT INTO league_state (league, season, key, value) VALUES (:l, 2026, 'player_presets', :v)"),
+                      {"l": league, "v": v})
+    eng.dispose()
+    command.upgrade(db._alembic_config(), "0024")
+    assert _rows(url, "SELECT season, value FROM notify_state WHERE key = 'player_presets'") == [(2026, '{"who": "home"}')]
+    assert _rows(url, "SELECT league FROM league_state WHERE key = 'player_presets'") == []
+    command.downgrade(db._alembic_config(), "0023")
+    assert _rows(url, "SELECT league, value FROM league_state WHERE key = 'player_presets'") == [("espn:100000001", '{"who": "home"}')]
+    assert _rows(url, "SELECT key FROM notify_state WHERE key = 'player_presets'") == []
+
+
 def test_called_back_rows_kept_per_league():
     from ffl import leagues
     home, other = leagues.home(), _other_league()

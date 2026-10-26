@@ -33,11 +33,12 @@ export function leagueHref(href: string, league: string | null): string {
   return withLeague(href, league);
 }
 
-// The page every league shares (NFL, News, the device's Settings): a switch stays on it, query and all.
-const SHARED_PAGES = ["/nfl", "/news", "/plays", "/settings"];
+// The pages a switch keeps the query of: every league's (NFL, News, the device's Settings), and Players, whose views,
+// positions and filters are every league's too (0024).
+const SHARED_PAGES = ["/nfl", "/news", "/plays", "/settings", "/players"];
 
 // Where a league switch lands, before the new league is named on it (the switcher): the same page in the other
-// league. A league's own page keeps only its path (its weeks, views and filters are that league's); a page of one
+// league. A league's own page keeps only its path (its weeks and filters are that league's); a page of one
 // team or one week (/team/<id>, /league/<week>[/<team>]) its list, since the other league's ids and weeks differ; a
 // shared page stays exactly where it is, less the league.
 export function switchPath(path: string, search: string): string {

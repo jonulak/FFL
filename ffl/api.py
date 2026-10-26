@@ -1443,7 +1443,8 @@ _PRESETS = threading.Lock()  # one preset write at a time: each reads the store,
 
 
 def _player_presets(*, ref: LeagueRef | None = None) -> dict:
-    return player_views.load(db.get_league_state("player_presets", ref=ref))
+    """The Players table's views: every league's (0024), whichever league the page is open on."""
+    return player_views.load(db.get_state("player_presets"))
 
 
 @app.get("/players")
@@ -1496,7 +1497,7 @@ def _preset_write(change: Callable[[dict], dict], *, ref: LeagueRef | None = Non
             raise HTTPException(422, {"error": str(e)}) from e
         except KeyError as e:
             raise HTTPException(404, {"error": f"no preset {e.args[0]!r}"}) from e
-        db.put_league_state("player_presets", store, ref=ref)
+        db.put_state("player_presets", store)
         return store
 
 

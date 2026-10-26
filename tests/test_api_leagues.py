@@ -208,11 +208,14 @@ def test_watch_per_league(client, two, other):
     assert db.watched_ids(ref=other) == [11] and db.watched_ids() == []
 
 
-def test_presets_per_league(client, other):
+def test_presets_are_every_leagues(client, other):
+    """The Players table's views are the same in every league: one made in one league shows in the other."""
     pid = client.post("/players/presets?league=espn:999", json={"name": "Mine", "pos": "ALL", "fa": True, "cols": ["snap_pct"], "filters": [],
                                                                    "sort": {"id": "snap_pct", "desc": True}}).json()["id"]
     assert pid in {p["id"] for p in client.get("/players/presets?league=espn:999").json()["presets"]}
-    assert pid not in {p["id"] for p in client.get("/players/presets").json()["presets"]}
+    assert pid in {p["id"] for p in client.get("/players/presets").json()["presets"]}
+    client.post("/players/presets/default", json={"id": pid})
+    assert client.get("/players/presets?league=espn:999").json()["default"] == pid
 
 
 def test_decision_other_league_404(client, other):

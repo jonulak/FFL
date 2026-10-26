@@ -74,7 +74,7 @@ describe("switchPath (the page a league switch opens)", () => {
   it("a league's own page opens the same page in the other league, its query left behind", () => {
     expect(switchPath("/roster", "")).toBe("/roster");
     expect(switchPath("/", "?week=3")).toBe("/");
-    expect(switchPath("/players", "?preset=abc&pos=WR&league=espn%3A1")).toBe("/players");
+    expect(switchPath("/players", "?preset=abc&pos=WR&league=espn%3A1")).toBe("/players?preset=abc&pos=WR"); // views are every league's
     expect(switchPath("/transactions", "")).toBe("/transactions");
     expect(switchPath("/settings/league", "?league=espn%3A1")).toBe("/settings/league");
   });

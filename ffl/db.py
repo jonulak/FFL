@@ -463,7 +463,7 @@ notify_state = sa.Table(
 )
 
 # The state keys that belong to one league (what a waiver run or a claim did is that league's), kept in league_state.
-LEAGUE_STATE_KEYS = frozenset({"waiver_run", "pending_claims", "watch_state", "player_presets", "pregame_pulls",
+LEAGUE_STATE_KEYS = frozenset({"waiver_run", "pending_claims", "watch_state", "pregame_pulls",
                                "decision_prefs", "final_plays_done", "news_to_notify", "notify_prefs"})
 league_state = sa.Table(
     "league_state", metadata, _league(), _season(),
