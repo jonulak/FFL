@@ -435,8 +435,10 @@ html[data-league-arriving] .league-roll::before {
   animation: league-roll-out 620ms var(--ease-arrive) both;
 }
 html[data-league-dw] .league-chevron { animation: league-follow 620ms var(--ease-arrive) both; }
-@keyframes league-roll-in { from { translate: 0 110%; opacity: 0; } }
-@keyframes league-roll-out { to { translate: 0 -110%; opacity: 0; } }
+/* a rollover, not a crossfade: both names stay solid and travel as one strip, the slot (overflow hidden) hiding what
+   is outside it. Fading them as they passed left both half-gone at the midpoint, which read as a flicker. */
+@keyframes league-roll-in { from { translate: 0 100%; } }
+@keyframes league-roll-out { to { translate: 0 -100%; } }
 @keyframes league-follow { from { translate: var(--league-dw, 0) 0; } }
 
 /* Reduced motion keeps what carries meaning (a new row still fades in, a scoring play still
