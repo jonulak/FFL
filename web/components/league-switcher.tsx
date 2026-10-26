@@ -18,7 +18,10 @@ function go(l: LeagueEntry, path: string) {
   // the marker carries the open league's name as it reads now and its width: the next page's name rolls over from it.
   // Read before anything re-renders, so it is the league being left.
   const el = document.querySelector(".league-name");
-  const mark = { name: el?.textContent ?? "", w: Math.round(el?.getBoundingClientRect().width ?? 0) };
+  // `cut`: it showed an ellipsis. One that did not rolls out at its natural width: a width rounded down a fraction of a
+  // pixel would ellipsize a name that fit
+  const mark = { name: el?.textContent ?? "", w: el?.getBoundingClientRect().width ?? 0,
+                 cut: el != null && el.scrollWidth > el.clientWidth };
   // the open league's own settings (its gear) change no name: nothing to roll
   if (mark.name !== l.name) try { sessionStorage.setItem(LEAGUE_ARRIVE, JSON.stringify(mark)); } catch { /* storage off: the next page arrives as any load does */ }
   document.cookie = l.home ? `${LEAGUE_COOKIE}=; path=/; max-age=0` : `${LEAGUE_COOKIE}=${encodeURIComponent(l.key)}; path=/; max-age=${365 * 86400}; samesite=lax`;

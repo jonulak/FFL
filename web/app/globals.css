@@ -429,11 +429,12 @@ tr[data-fold="shut"] > td > .fold {
 .league-wait { animation: league-wait 1100ms ease-in-out infinite alternate; }
 @keyframes league-wait { to { opacity: 0.55; } }
 /* The slot clips above and below only: the old name rolls out at the width it stood at on the page left
-   (--league-from-w, with its own ellipsis), which may be wider than the new one, ending where the chevron starts. */
+   (--league-from-w, set only when it showed an ellipsis there; else its natural width), which may be wider than the
+   new one, ending where the chevron starts. */
 .league-roll { position: relative; clip-path: inset(0 -100vw 0 0); }
 html[data-league-arriving] .league-name { animation: league-roll-in 520ms var(--ease-roll) both; }
 html[data-league-arriving] .league-roll::before {
-  content: var(--league-from, ""); position: absolute; top: 0; left: 0; width: var(--league-from-w, 100%);
+  content: var(--league-from, ""); position: absolute; top: 0; left: 0; width: var(--league-from-w, max-content);
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   animation: league-roll-out 520ms var(--ease-roll) both;
 }
