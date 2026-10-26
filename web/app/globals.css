@@ -426,13 +426,20 @@ tr[data-fold="shut"] > td > .fold {
 @keyframes league-wait { to { opacity: 0.55; } }
 /* League switch. The page being left fades back and takes no taps from the pick until the next league's page replaces
    it; a warm page streams in within ~20 ms, so that mostly shows on a cold one. The arrival is the moment: the new
-   league's page is marked arriving before its first paint (layout.tsx ARRIVE_SCRIPT), and its name and the page under
-   it are written in together, left to right, as the pick wrote the name. A clip, not a translate: a transform would
-   make <main> the containing block of its fixed bars (the Players claims bar). */
+   league's page is marked arriving before its first paint (layout.tsx ARRIVE_SCRIPT): a sheet of the page's own ground
+   over everything under the nav draws off to the right, uncovering the new league left to right, while its name slides
+   in beside the wordmark. Transform and opacity only, so the compositor runs it: a warm load hydrates for ~500 ms on the
+   main thread, which froze the clip-path wipe this replaced (it played only on a cold first load). The sheet is its own
+   fixed layer: a transform on <main> would make it the containing block of its fixed bars (the Players claims bar). */
 html[data-league-leaving] main { opacity: 0.3; pointer-events: none; transition: opacity 240ms var(--ease-leave); }
-html[data-league-arriving] main { animation: league-page-in 520ms var(--ease-arrive) both; }
-html[data-league-arriving] .league-name { animation: league-in 520ms var(--ease-arrive) both; }
-@keyframes league-page-in { from { clip-path: inset(0 100% 0 0); opacity: 0.4; } }
+html[data-league-arriving] body::after {
+  content: ""; position: fixed; inset: var(--nav-h) 0 0 0; z-index: 5; pointer-events: none;
+  background: var(--background); transform-origin: right center;
+  animation: league-sheet 760ms var(--ease-arrive) 60ms both;
+}
+html[data-league-arriving] .league-name { animation: league-name-in 600ms var(--ease-arrive) both; }
+@keyframes league-sheet { to { transform: scaleX(0); } }
+@keyframes league-name-in { from { opacity: 0; transform: translateX(-0.5rem); } }
 
 /* Reduced motion keeps what carries meaning (a new row still fades in, a scoring play still
    washes) and drops the travel: no sliding, no opening and folding. */
@@ -448,9 +455,11 @@ html[data-league-arriving] .league-name { animation: league-in 520ms var(--ease-
   .stage-out { animation: stage-fade-out 120ms ease-out both; }
   .group-reveal { animation: log-fade 200ms ease-out both; }
   .league-in, .league-in.league-wait { animation: log-fade 200ms ease-out both; opacity: 0.6; }
-  html[data-league-arriving] main, html[data-league-arriving] .league-name { animation: log-fade 240ms ease-out both; }
+  html[data-league-arriving] body::after { animation: league-sheet-fade 240ms ease-out both; transform: none; }
+  html[data-league-arriving] .league-name { animation: log-fade 240ms ease-out both; }
 }
 @keyframes stage-fade-out { to { opacity: 0; } }
+@keyframes league-sheet-fade { to { opacity: 0; } }
 
 /* Page change (page-transition.tsx, a CSS animation): the page left behind is gone at once, the
    one arriving fades in on the arrival curve. No view transition here: it would snapshot the whole
