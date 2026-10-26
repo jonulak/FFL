@@ -160,6 +160,29 @@ def reruled(before: dict | None, after: dict | None) -> bool:
     return abs(d["53"]) == 1 and d["42"] == -d["24"] and (d["42"] != 0 or d["23"] == -d["53"])
 
 
+def threw_reruled(pid: int, stats_before: dict[int, dict], doc: dict) -> int | None:
+    """The passer's half of `reruled`: his completions moved by one and his passing yards by what a teammate's
+    receiving yards moved, in the frame where that teammate's catch was re-ruled a run (or a run a catch). His
+    own stats read like a completion overturned to an incompletion; the teammate's tell them apart. Read off
+    every player in the doc, a starter or not (Murray, week 7: Addison's catch re-ruled, Addison on no roster).
+    The teammate's id, whose play the row is captioned with (the new wording no longer names the passer)."""
+    rows = doc.get("statistics", {})
+    me = rows.get(str(pid)) or {}
+    before, after = stats_before.get(pid) or {}, me.get("stats") or {}
+    done = _n(after.get("1")) - _n(before.get("1"))
+    if abs(done) != 1:
+        return None
+    yards = _n(after.get("3")) - _n(before.get("3"))
+    for other, row in rows.items():
+        if other == str(pid) or row.get("gameId") != me.get("gameId") or row.get("proTeamId") != me.get("proTeamId"):
+            continue
+        was, now = stats_before.get(int(other)) or {}, row.get("stats") or {}
+        if reruled(was, now) and _n(now.get("53")) - _n(was.get("53")) == done \
+                and _n(now.get("42")) - _n(was.get("42")) == yards:
+            return int(other)
+    return None
+
+
 def revision(before: dict | None, after: dict | None, delta: float, play: dict | None = None,
              dst: bool = False) -> str | None:
     """How a points change that scored no new play reads (a new play moves a count): "reversed"
@@ -231,6 +254,10 @@ def events_from(before: dict[int, float], after: dict[int, float], doc: dict, ro
         named = cache.play_for(game.get("id"), pid) if cache is not None else None
         kind = revision(stats_before.get(pid), row.get("stats"), new - (old or 0.0), named, who["pos"] == "D/ST") \
             if cache is not None and stats_before is not None else None
+        caught = threw_reruled(pid, stats_before, doc) \
+            if stats_before is not None and cache is not None and who["pos"] != "D/ST" else None
+        if caught is not None:
+            kind, named = "adjusted", cache.play_for(game.get("id"), caught) or named
         # no caption beats the next play's: it is what the feed shows when none is the play revised.
         # Points given back are a turnover overturned on review, his newest play: the REVERSED wording
         # lands after the stats, and the row's play_id shows it then (playbook.wording)

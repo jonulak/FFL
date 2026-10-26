@@ -331,7 +331,8 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   the play text, by which time lastPlay is often the next play. `match: "last"` marks the fallback (D/ST).
   A change that scored no new play (no count moved: `plays.revision`) is `match: "reversed"` (labelled Called back, like a
   play called back before it scored: a count fell, or yards fell on a flagged play) or `"adjusted"` (Stat fix: only
-  yards moved, the ball re-spotted, either way; or a catch re-ruled a run, yards kept, `plays.reruled`); ESPN's post-week rows (`"correction"`) are labelled Correction. Rows from before stats were read are
+  yards moved, the ball re-spotted, either way; or a catch re-ruled a run, yards kept, `plays.reruled`, and its passer's lost completion, told from an
+  incompletion by the teammate in the same frame, `plays.threw_reruled`); ESPN's post-week rows (`"correction"`) are labelled Correction. Rows from before stats were read are
   retagged by `plays.old_revisions` (text only, so narrow: ≤0.5 pts within 30 s of the play's first row), run by
   `ffl.playbook backfill`.
   Every NFL play is stored once in `nfl_plays` (`ffl/playbook.py`; FastCast's as the feed sees them, ESPN's core

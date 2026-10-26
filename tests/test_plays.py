@@ -278,6 +278,39 @@ def test_a_catch_re_ruled_a_run_is_a_stat_fix_either_way():
     assert rows[0]["match"] == "adjusted", "a no-gain catch re-ruled moves the carry, not yards"
 
 
+# Brissett to Knight, week 7: a catch for -1 yards re-ruled a run. Knight is not a starter here; his row in the
+# doc is what tells Brissett's lost completion from one overturned to an incompletion.
+KNIGHT = {"playId": "4018730191235", "text": "(Shotgun) Z.Knight right end to DEN 11 for -1 yards (D.Tillman, Z.Allen).",
+          "period": 2, "clock": 900.0, "players": [{"playerId": "2", "type": "rusher"}]}
+
+
+def _pair_doc(qb, rec, team=22):
+    return {"statistics": {"1": {"gameId": "g", "proTeamId": team, "stats": qb},
+                           "2": {"gameId": "g", "proTeamId": 22, "stats": rec}},
+            "events": [{"id": "g", "period": 1, "clock": "14:24", "lastPlay": NEXT, "drive": {"plays": [KNIGHT, NEXT]}}]}
+
+
+def test_a_pass_re_ruled_a_run_is_a_stat_fix_for_the_passer_too():
+    cache = plays.PlayCache()
+    before = {1: {"0": 5.0, "1": 4.0, "3": 30.0}, 2: {"53": 1.0, "42": -1.0}}
+    doc = _pair_doc({"0": 4.0, "1": 3.0, "3": 31.0}, {"53": 0.0, "42": 0.0, "23": 1.0, "24": -1.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 1.2}, {1: 1.24}, doc, QB, AT, 7, cache, before)
+    assert rows[0]["match"] == "adjusted" and rows[0]["play_id"] == KNIGHT["playId"], "captioned with the catch re-ruled"
+    doc = _pair_doc({"0": 4.0, "1": 3.0, "3": 31.0}, {"53": 0.0, "42": 0.0, "23": 1.0, "24": -1.0}, team=9)
+    rows = plays.events_from({1: 1.2}, {1: 1.24}, doc, QB, AT, 7, cache, before)
+    assert rows[0]["match"] != "adjusted", "the other club's catch re-ruled is not his"
+
+
+def test_a_completion_overturned_stays_called_back_beside_a_plain_catch_erased():
+    cache = plays.PlayCache()
+    before = {1: {"0": 5.0, "1": 4.0, "3": 46.0}, 2: {"53": 1.0, "42": 16.0}}
+    doc = _pair_doc({"0": 5.0, "1": 3.0, "3": 30.0}, {"53": 0.0, "42": 0.0})  # McBride's catch ruled incomplete
+    cache.remember(doc)
+    rows = plays.events_from({1: 1.84}, {1: 1.2}, doc, QB, AT, 7, cache, before)
+    assert rows[0]["match"] == "reversed"
+
+
 def test_a_catch_erased_with_its_yards_is_still_a_takeback():
     cache = plays.PlayCache()
     doc = _qb_doc(NEXT, [NEXT], {"53": 4.0, "42": 79.0})
