@@ -151,13 +151,16 @@ def test_schedule_ahead_byes_and_ranks():
     assert all(w["opp_rank"] is None for w in ahead if w["status"] == "upcoming" and w["opp"] not in ranks)
 
 
-def test_schedule_ahead_drops_a_game_past():
-    """Four hours after kickoff a game is no longer ahead, though ESPN has not written its row."""
+def test_schedule_ahead_a_game_past_is_missed():
+    """Four hours after kickoff a game with no row of his is one he did not play (Egbuka, 2026
+    week 7, inactive): it reads as missed, not dropped from the log."""
     every = pc.schedule_ahead(SCHED25, "BUF", 0, {}, now=0)
     kick = next(g["date"] for t in SCHED25["settings"]["proTeams"] if t["abbrev"].upper() == "BUF"
                 for g in t["proGamesByScoringPeriod"]["1"]) / 1000
     later = pc.schedule_ahead(SCHED25, "BUF", 0, {}, now=kick + pc.GAME_S + 1)
-    assert [w["week"] for w in later] == [w["week"] for w in every][1:]
+    assert [w["week"] for w in later] == [w["week"] for w in every]
+    assert later[0] == pc._blank(1, "out") and later[1:] == every[1:]
+    assert pc.schedule_ahead(SCHED25, "BUF", 0, {}, now=kick + pc.GAME_S - 1) == every
     assert pc.schedule_ahead(SCHED25, None, 0, {}, now=0) == []
 
 

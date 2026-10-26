@@ -174,7 +174,8 @@ def parse_pos_ranks(doc: dict, pos: str, season: int) -> dict:
 
 
 # A game is still to play until four hours after its kickoff (season.ros_week's rule). Past that,
-# a week with no row is one ESPN has not written yet, and stays out of the log as it always has.
+# a week with no row is one he did not play (ESPN writes a row as the game goes, and the live week
+# rides on the feed besides): an inactive player's game reads as missed, never drops out of the log.
 GAME_S = 4 * 3600
 
 
@@ -209,9 +210,10 @@ NO_PROJ = {"proj": None}
 
 def schedule_ahead(sched: dict, club: str | None, after: int, ranks: dict[str, dict], now: float,
                    proj: dict[int, dict] | None = None) -> list[dict]:
-    """His club's weeks after `after` through the season's last: a bye, or a game still to play
+    """His club's weeks after `after` through the season's last: a bye, a game still to play
     with the opponent's rank against his position (None where ESPN has none for that club) and his
-    projection for it (week_projections; all None where no source has him)."""
+    projection for it (week_projections; all None where no source has him), or a game past
+    (GAME_S) that he did not play."""
     games: dict[int, tuple[str, bool, float]] = {}
     for t in sched.get("settings", {}).get("proTeams", []):
         for wk, gs in (t.get("proGamesByScoringPeriod") or {}).items():
@@ -230,6 +232,8 @@ def schedule_ahead(sched: dict, club: str | None, after: int, ranks: dict[str, d
             opp, home, _ = games[wk]
             out.append({**_blank(wk, "upcoming"), "opp": opp, "home": home, "opp_rank": ranks.get(opp),
                         **(proj or {}).get(wk, NO_PROJ)})
+        elif wk in games:
+            out.append(_blank(wk, "out"))
     return out
 
 
