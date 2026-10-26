@@ -150,16 +150,29 @@ def _n(v) -> float:
     return float(v or 0)
 
 
+def reruled(before: dict | None, after: dict | None) -> bool:
+    """A catch re-ruled a run, or a run a catch, in one frame: the reception count moved one way and his
+    receiving yards went to rushing yards (or back) to the yard. The play stands; only its credit moved
+    (Smith-Njigba, week 7: a backward pass, 8 yards kept as a run, the catch's point gone)."""
+    before, after = before or {}, after or {}
+    d = {s: _n(after.get(s)) - _n(before.get(s)) for s in ("53", "42", "24", "23")}
+    # a no-gain play moves no yards, so then the carry has to have moved the other way
+    return abs(d["53"]) == 1 and d["42"] == -d["24"] and (d["42"] != 0 or d["23"] == -d["53"])
+
+
 def revision(before: dict | None, after: dict | None, delta: float, play: dict | None = None,
              dst: bool = False) -> str | None:
     """How a points change that scored no new play reads (a new play moves a count): "reversed"
     when it erased one (a count fell: a catch called back; or yards fell on his newest play
     (`play`) and it drew a flag: trimmed back to the foul's spot), "adjusted" when only yards
-    moved (the ball re-spotted, 55 yards to 54, either way). None for a new play. A count falling
-    with none rising is an erasure whichever way the points go: a fumble lost or interception
+    moved (the ball re-spotted, 55 yards to 54, either way) or a catch was re-ruled a run (`reruled`).
+    None for a new play. A count falling with none rising is an erasure whichever way the points go: a
+    fumble lost or interception
     overturned gives them back. With one rising too, a frame held a new play, read by the points.
     A D/ST's yards and points allowed move with no count, so only a count falling revises one."""
     before, after = before or {}, after or {}
+    if not dst and reruled(before, after):
+        return "adjusted"
     if any(_n(after.get(s)) < _n(before.get(s)) for s in COUNTERS):
         rose = any(_n(after.get(s)) > _n(before.get(s)) for s in COUNTERS)
         return "reversed" if delta < 0 or not rose else None

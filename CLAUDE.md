@@ -329,16 +329,16 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   The caption is the newest play *naming the player* (`plays.PlayCache`, fed from every game's lastPlay,
   drive plays and scoringPlays), never simply the game's last play: stats arrive one to three frames after
   the play text, by which time lastPlay is often the next play. `match: "last"` marks the fallback (D/ST).
-  A change that scored no new play (no count moved: `plays.revision`) is `match: "reversed"` (Taken back: a count
-  fell, or yards fell on a flagged play) or `"adjusted"` (Stat fix: only yards moved, the ball re-spotted, either
-  way); ESPN's post-week rows (`"correction"`) are labelled Correction. Rows from before stats were read are
+  A change that scored no new play (no count moved: `plays.revision`) is `match: "reversed"` (labelled Called back, like a
+  play called back before it scored: a count fell, or yards fell on a flagged play) or `"adjusted"` (Stat fix: only
+  yards moved, the ball re-spotted, either way; or a catch re-ruled a run, yards kept, `plays.reruled`); ESPN's post-week rows (`"correction"`) are labelled Correction. Rows from before stats were read are
   retagged by `plays.old_revisions` (text only, so narrow: ≤0.5 pts within 30 s of the play's first row), run by
   `ffl.playbook backfill`.
   Every NFL play is stored once in `nfl_plays` (`ffl/playbook.py`; FastCast's as the feed sees them, ESPN's core
   drives' over them, written by the NFL tab's game page for the live week and by the tick's `final_plays` for each
   game 30 min after it is final). A play keeps every wording with when it was first seen (`texts`,
   `playbook.versioned`); a feed row on a stored play keeps no text of its own and shows, by `play_id`, the wording in
-  force when it happened, a revision row (Taken back, Stat fix, Called back) the newest (`playbook.wording`); a row
+  force when it happened, a revision row (Called back, Stat fix) the newest (`playbook.wording`); a row
   older than every stored wording keeps the text it was written with. A play
   reading NULLIFIED / No Play that names a starter (a D/ST: its club on defence) gets a `called_back` row (play,
   player; `match: "called_back"`, delta 0, `would_be` read off the text before the flag less `kept`), rewritten in

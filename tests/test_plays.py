@@ -259,6 +259,35 @@ def test_a_new_play_is_never_a_revision():
     assert rows[0]["match"] == "player"
 
 
+# Smith-Njigba, week 7: "pass short left to J.Smith-Njigba ... for 8 yards", re-worded 20 s later "J.Smith-Njigba
+# left end ... for 8 yards". The catch's point went, the yards stayed as a run: a stat fix, not a takeback.
+RERULED = {"playId": "4018730221420", "text": "(Shotgun) J.Smith-Njigba left end pushed ob at SEA 48 for 8 yards "
+           "(J.Hicks).", "period": 2, "clock": 323.0, "players": [{"playerId": "1", "type": "rusher"}]}
+
+
+def test_a_catch_re_ruled_a_run_is_a_stat_fix_either_way():
+    cache = plays.PlayCache()
+    doc = _qb_doc(RERULED, [RERULED], {"53": 4.0, "42": 87.0, "23": 1.0, "24": 8.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 10.5}, {1: 9.5}, doc, QB, AT, 7, cache, {1: {"53": 5.0, "42": 95.0}})
+    assert rows[0]["match"] == "adjusted"
+    rows = plays.events_from({1: 9.5}, {1: 10.5}, doc, QB, AT, 7, cache,
+                             {1: {"53": 3.0, "42": 79.0, "23": 1.0, "24": 16.0}})
+    assert rows[0]["match"] == "adjusted", "a run ruled a catch (a forward pitch) is one too"
+    rows = plays.events_from({1: 10.5}, {1: 9.5}, doc, QB, AT, 7, cache, {1: {"53": 5.0, "42": 87.0, "23": 0.0, "24": 8.0}})
+    assert rows[0]["match"] == "adjusted", "a no-gain catch re-ruled moves the carry, not yards"
+
+
+def test_a_catch_erased_with_its_yards_is_still_a_takeback():
+    cache = plays.PlayCache()
+    doc = _qb_doc(NEXT, [NEXT], {"53": 4.0, "42": 79.0})
+    cache.remember(doc)
+    rows = plays.events_from({1: 10.5}, {1: 8.7}, doc, QB, AT, 7, cache, {1: {"53": 5.0, "42": 87.0}})
+    assert rows[0]["match"] == "reversed"
+    rows = plays.events_from({1: 9.9}, {1: 8.9}, doc, QB, AT, 7, cache, {1: {"53": 5.0, "42": 79.0}})
+    assert rows[0]["match"] == "reversed", "a no-gain catch erased: no carry came"
+
+
 def test_a_play_for_lost_yards_is_a_loss_not_a_takeback():
     cache = plays.PlayCache()
     doc = _qb_doc(KNEEL, [KNEEL], {"23": 3.0, "24": 10.0})
