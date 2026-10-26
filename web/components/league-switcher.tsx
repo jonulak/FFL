@@ -15,17 +15,20 @@ import { LEAGUE_ARRIVE, LEAGUE_COOKIE, withLeague } from "@/lib/league";
 // soft navigation would keep the old league's. The cookie is set here too, so the start page ("/") opens on it; home
 // forgets it. A league's settings open it the same way: its pages are under it.
 function go(l: LeagueEntry, path: string) {
-  // the marker carries the name as it reads now and its width: the next page's name rolls over from it
+  // the marker carries the open league's name as it reads now and its width: the next page's name rolls over from it.
+  // Read before anything re-renders, so it is the league being left.
   const el = document.querySelector(".league-name");
   const mark = { name: el?.textContent ?? "", w: Math.round(el?.getBoundingClientRect().width ?? 0) };
-  try { sessionStorage.setItem(LEAGUE_ARRIVE, JSON.stringify(mark)); } catch { /* storage off: the next page arrives as any load does */ }
+  // the open league's own settings (its gear) change no name: nothing to roll
+  if (mark.name !== l.name) try { sessionStorage.setItem(LEAGUE_ARRIVE, JSON.stringify(mark)); } catch { /* storage off: the next page arrives as any load does */ }
   document.cookie = l.home ? `${LEAGUE_COOKIE}=; path=/; max-age=0` : `${LEAGUE_COOKIE}=${encodeURIComponent(l.key)}; path=/; max-age=${365 * 86400}; samesite=lax`;
   window.location.assign(l.home ? path : withLeague(path, l.key));
 }
 
 export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open: LeagueEntry | null }) {
-  // the league picked while its first page loads (a full load, a second or more cold): its name is written in at once
-  // and waits, dimmed, so the pick reads as taken. A page restored from the back-forward cache drops it.
+  // a league picked while its first page loads (a full load, a second or more cold): the open league's name breathes,
+  // dimmed, so the pick reads as taken; the name changes only by the rollover on arrival. A page restored from the
+  // back-forward cache drops it.
   const [pending, setPending] = useState<LeagueEntry | null>(null);
   useEffect(() => {
     const back = (e: PageTransitionEvent) => {
@@ -37,15 +40,15 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
   const pick = (key: string) => {
     const l = leagues.find((x) => x.key === key);
     if (!l || l.key === open?.key) return;
+    go(l, "/"); // the marker first: it must read the name of the league being left
     setPending(l);
-    requestAnimationFrame(() => go(l, "/")); // one frame painted first: the menu closes and the name starts in
   };
   // the open league's name beside the wordmark, home's too, set on its baseline as the wordmark's subtitle: the pages
   // under it are that league's
-  const shown = pending ?? open;
+  const shown = open;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger aria-label={`FFL, league: ${shown?.name ?? "home"}. Switch league`} aria-busy={pending != null || undefined}
+      <DropdownMenuTrigger aria-label={pending ? `FFL, opening ${pending.name}` : `FFL, league: ${shown?.name ?? "home"}. Switch league`} aria-busy={pending != null || undefined}
         className="group -ml-1 flex min-h-11 min-w-0 max-w-full items-center gap-1 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
