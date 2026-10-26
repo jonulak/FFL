@@ -1,6 +1,6 @@
 name: Test
 
-# The merge gate: the Python suite, the web build and the typecheck, the same steps and order as
+# The merge gate: the Python suite, the web build, typecheck, Vitest and ESLint, the same steps and order as
 # scripts/deploy.sh, so a PR that would fail a deploy fails here first. The job's name, `test`, is the
 # required status check on develop and main.
 #
@@ -54,3 +54,11 @@ jobs:
         run: |
           rm -rf .next/dev/types
           pnpm typecheck
+
+      - name: Web tests
+        working-directory: web
+        run: pnpm test
+
+      - name: Lint
+        working-directory: web
+        run: pnpm lint
