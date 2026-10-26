@@ -134,20 +134,27 @@ def prefs(*, ref=None) -> dict:
     return {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {}), "quiet": shared["quiet"]}
 
 
-def put_prefs(p: dict, *, ref=None) -> dict:
-    merged = {**prefs(ref=ref), **{k: v for k, v in p.items() if k in DEFAULT_PREFS}}
+def _checked(merged: dict) -> dict:
     q = merged["quiet"]
     if not (isinstance(q, list) and len(q) == 2 and all(isinstance(s, str) and _HM.match(s) for s in q)):
         raise ValueError(f"quiet must be two HH:MM times, got {q!r}")
     for k in SWITCHES:
         if not isinstance(merged[k], bool):
             raise ValueError(f"{k} must be true or false, got {merged[k]!r}")
-    if _home(ref):
-        db.put_state("prefs", merged)
-    else:
-        db.put_state("prefs", {**db.get_state("prefs", {}), "quiet": merged["quiet"]})
-        db.put_league_state("notify_prefs", {k: merged[k] for k in SWITCHES}, ref=ref)
     return merged
+
+
+def put_prefs(p: dict, *, ref=None) -> dict:
+    """Each row read and written in one locked transaction (db.update_*state): two changes at once both land."""
+    change = {k: v for k, v in p.items() if k in DEFAULT_PREFS}
+    _checked({**prefs(ref=ref), **change})  # refuse before writing anything
+    if _home(ref):
+        return db.update_state("prefs", lambda cur: _checked({**DEFAULT_PREFS, **(cur or {}), **change}), {})
+    quiet = {"quiet": change["quiet"]} if "quiet" in change else {}
+    shared = db.update_state("prefs", lambda cur: {**(cur or {}), **quiet}, {})
+    mine = db.update_league_state("notify_prefs", lambda cur: {k: {**DEFAULT_PREFS, **(cur or {}), **change}[k]
+                                                                for k in SWITCHES}, {}, ref=ref)
+    return {**DEFAULT_PREFS, **mine, "quiet": {**DEFAULT_PREFS, **shared}["quiet"]}
 
 
 def in_quiet(t: datetime, quiet: list[str]) -> bool:

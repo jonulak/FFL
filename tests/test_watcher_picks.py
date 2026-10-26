@@ -1,7 +1,5 @@
 """Where the watcher's pick log and state go: the DB, under the watcher's own league; a practice run's DB is its
-data dir's ffl.db, and nothing is written beside it."""
-import shutil
-
+own database, and nothing is written to its data dir."""
 import sqlalchemy as sa
 
 from ffl import config, db, leagues
@@ -76,19 +74,29 @@ def test_state_is_written_when_it_changes_and_retried_after_a_failure(monkeypatc
     assert len(calls) == 3 and db.draft_state(leagues.home())["on_clock_is_me"] is False
 
 
-def test_practice_run_writes_no_csv(monkeypatch, tmp_path, _db_template):
+def test_practice_run_writes_no_csv(monkeypatch, tmp_path, pg_server, _db_template):
     mock = tmp_path / "data-mock"
     mock.mkdir()
-    shutil.copy(_db_template, mock / "ffl.db")
     monkeypatch.setenv("FFL_DATA_DIR", str(mock))
     monkeypatch.setattr(config, "DATA", mock)
     monkeypatch.setattr(db, "DATA", mock)              # what FFL_DATA_DIR sets at import
-    monkeypatch.delenv("FFL_DB_URL")
+    name = pg_server.fresh_name()                      # the practice run's own database
+    monkeypatch.setenv("FFL_DB_URL", pg_server.create(name, template=_db_template))
     db.reset()
-    assert db.url() == f"sqlite:///{mock / 'ffl.db'}"
-    w, players = _watcher(monkeypatch, tmp_path, None)
-    w.tick(_picks(players), on_clock=3)
-    assert {p.name for p in mock.iterdir()} <= {"ffl.db", "ffl.db-shm", "ffl.db-wal"}, "nothing beside the DB"
-    assert not list(tmp_path.rglob("*.csv")) and not list(tmp_path.rglob("*.json"))
-    assert [r["overall"] for r in db.picks()] == [1, 2]
-    assert db.draft_state(leagues.home())["picks_made"] == 2
+    try:
+        w, players = _watcher(monkeypatch, tmp_path, None)
+        w.tick(_picks(players), on_clock=3)
+        assert not list(mock.iterdir()), "nothing in the data dir"
+        assert not list(tmp_path.rglob("*.csv")) and not list(tmp_path.rglob("*.json"))
+        assert [r["overall"] for r in db.picks()] == [1, 2]
+        assert db.draft_state(leagues.home())["picks_made"] == 2
+    finally:
+        db.reset()
+        pg_server.drop(name)
+
+
+def test_state_with_nan_is_saved_as_null(monkeypatch, tmp_path):
+    """The candidate table carries NaN (a missing ADP, a one-source spread); Postgres json refuses the token."""
+    w, _ = _watcher(monkeypatch, tmp_path, None)
+    w.save_state({"picks_made": 1, "top": [{"adp": float("nan"), "spread": float("inf")}]})
+    assert db.draft_state(w.ref)["top"] == [{"adp": None, "spread": None}]

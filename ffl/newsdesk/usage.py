@@ -27,7 +27,9 @@ def record(key: str, run: dict, now: datetime) -> None:
     """A run's tally into the day's total. Raises db.DBError."""
     if not run["calls"]:
         return
-    days = db.get_state(key, {}) or {}
     day = now.date().isoformat()
-    days[day] = {k: (days.get(day) or {}).get(k, 0) + run[k] for k in run}
-    db.put_state(key, {d: days[d] for d in sorted(days)[-DAYS:]})
+
+    def add(days):
+        days = {**(days or {}), day: {k: ((days or {}).get(day) or {}).get(k, 0) + run[k] for k in run}}
+        return {d: days[d] for d in sorted(days)[-DAYS:]}
+    db.update_state(key, add, {})

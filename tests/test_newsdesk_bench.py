@@ -1,5 +1,7 @@
+import os
+
 from ffl import claude_cli, db
-from ffl.newsdesk import bench, bench_cases, jev
+from ffl.newsdesk import bench,bench_cases, jev
 from ffl.newsdesk.players import Index
 
 GRUPE, HURTS, ADAMS, ROSCHON, SILLS = 4259619, 4040715, 16800, 4430500, 3120000
@@ -37,17 +39,51 @@ def test_jev_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
     assert len(calls) == 3
 
 
-def test_index_lives_in_the_frozen_db(tmp_path):
-    tmp_path = tmp_path / "bench"                                  # apart from the test's own ffl.db
-    tmp_path.mkdir()
-    path = tmp_path / "bench.db"
-    assert bench.load_index(path) is None
+def test_index_lives_in_the_frozen_db(empty_db):
+    url = empty_db()
+    assert bench.load_index(url) is None                           # no tables at all
     idx = Index(by_id=dict(INDEX.by_id), by_club={"LAR": [GRUPE, ADAMS]}, by_full=dict(INDEX.by_full),
                 owned={GRUPE: 12.5}, names={SILLS: {"name": "David Sills", "pos": "WR", "team": None}})
-    bench.save_index(idx, path)
-    bench.save_index(idx, path)                                    # a second freeze replaces it
-    assert bench.load_index(path) == idx
-    assert [p.name for p in tmp_path.iterdir()] == ["bench.db"], "no JSON beside it"
+    bench.save_index(idx, url)
+    bench.save_index(idx, url)                                     # a second freeze replaces it
+    assert bench.load_index(url) == idx
+
+
+class _Asks:
+    """A bench cache stand-in: Jev answers "no" to every question."""
+
+    def ask(self, state, qs):
+        return jev.Answers({k: {"type": "noul", "noul": 0.0} for k in qs})
+
+
+def test_freeze_copies_untagged_items_and_replay_runs_on_a_copy(monkeypatch, pg_server):
+    """freeze: the source's items in range, untagged, into a database of their own; replay: a copy of that with
+    FFL_DB_URL pointed at it, the frozen slice untouched."""
+    src = os.environ["FFL_DB_URL"]
+    for ext, at in (("1", "2026-10-18T12:00:00+00:00"), ("2", "2026-10-19T12:00:00+00:00"),
+                    ("3", "2026-10-25T12:00:00+00:00")):
+        tagged(ext, f"Grupe {ext}", {GRUPE: "down"}, story({GRUPE: "down"}, at), at)
+    db.put_news_sources([{"id": "site:LAR", "kind": "site", "club": "LAR", "name": "Rams", "url": "https://x"}])
+    monkeypatch.setattr(bench, "FROZEN_DB", f"ffl_bf_{os.getpid()}")
+    monkeypatch.setattr(bench, "RUN_DB", f"ffl_br_{os.getpid()}")
+    try:
+        got = bench.freeze(src, "2026-10-18", "2026-10-19", index=INDEX, name=bench.FROZEN_DB)
+        assert got["news_items"] == 2 and got["news_sources"] == 1
+        assert got["from"].startswith("2026-10-18") and got["to"].startswith("2026-10-19")
+        assert bench.load_index() == INDEX
+        assert len(db.all_stories()) == 3, "the source is untouched"
+        out = bench.replay(INDEX, _Asks(), None, False)
+        assert out["items"] == 2 and out["error"] is None
+        assert db.url() == bench._url_for(bench.RUN_DB) == os.environ["FFL_DB_URL"]
+        assert len(db.untagged_items()) == 0, "tagged on the copy"
+        db.reset()
+        os.environ["FFL_DB_URL"] = bench._url_for(bench.FROZEN_DB)
+        assert len(db.untagged_items()) == 2, "the frozen slice is still untagged"
+    finally:
+        db.reset()
+        os.environ["FFL_DB_URL"] = src
+        pg_server.drop(bench.FROZEN_DB)
+        pg_server.drop(bench.RUN_DB)
 
 
 def test_last_runs_live_in_the_cache_db(tmp_path):
@@ -146,3 +182,15 @@ def test_grupe_knee_passes_on_one_story_whose_headline_says_ir():
     db.put_story_words(a, 1, "Grupe doubtful to return", "o", {})
     [r] = bench.evaluate([c for c in bench_cases.CASES if c.id == "grupe-knee"], db.all_stories(), INDEX, write=True)
     assert r["status"] == "FAIL" and "IR" in r["detail"]
+
+
+def test_create_refuses_its_own_database_and_a_remote_server(monkeypatch):
+    import pytest
+    own = os.environ["FFL_DB_URL"]
+    name = db.url().rsplit("/", 1)[-1].split("?")[0]
+    with pytest.raises(SystemExit, match="would be dropped"):
+        bench._create(name)
+    assert db.url() == own
+    monkeypatch.setenv("FFL_DB_URL", "postgresql+psycopg://u@db.abc.rds.amazonaws.com/ffl")
+    with pytest.raises(SystemExit, match="not a local server"):
+        bench._create("ffl_bench")

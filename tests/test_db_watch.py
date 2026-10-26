@@ -28,3 +28,18 @@ def test_unwatch_keeps_signals():
     db.put_watch(10, False)
     assert db.watched_ids() == []
     assert [r["key"] for r in db.watch_signals("2000")] == ["a"]
+
+
+def test_add_watch_signals_inserts_in_key_order(monkeypatch):
+    """Two writers offering overlapping signals in different orders must lock the keys in one order (sorted), or each
+    can hold a key the other waits on: a deadlock. The rows come back in the order offered all the same."""
+    seen = []
+    real = db._upsert
+
+    def spy(table, rows, keys, update):
+        seen.append([r["key"] for r in rows])
+        return real(table, rows, keys, update)
+    monkeypatch.setattr(db, "_upsert", spy)
+    rows = [_sig(k) for k in ("c", "a", "b")]
+    assert db.add_watch_signals(rows) == rows
+    assert seen == [["a", "b", "c"]]

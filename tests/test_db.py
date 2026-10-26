@@ -1,14 +1,13 @@
 import json
 import multiprocessing as mp
-import sqlite3
 
 import sqlalchemy as sa
 import pytest
 from ffl import db
 
 
-def test_fixture_db_is_migrated_and_temp(tmp_path):
-    assert "ffl.db" in db.url() and str(tmp_path) in db.url()
+def test_fixture_db_is_migrated_and_temp():
+    assert sa.engine.make_url(db.url()).database.startswith("ffl_w_"), "the test session's database, never a real one"
     with db._read() as c:
         names = set(sa.inspect(c).get_table_names())
     assert {"transactions", "draft_picks", "results", "plays", "outlooks", "calibration_snapshots",
@@ -16,27 +15,32 @@ def test_fixture_db_is_migrated_and_temp(tmp_path):
             "box_score_corrections"} <= names
 
 
-def test_pragmas():
-    with db._read() as c:
-        assert c.exec_driver_sql("PRAGMA journal_mode").scalar() == "wal"
-        assert c.exec_driver_sql("PRAGMA busy_timeout").scalar() == 5000
-        assert c.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+def test_engine_is_postgres_with_a_small_pool():
+    eng = db.engine()
+    assert eng.dialect.name == "postgresql" and eng.dialect.driver == "psycopg"
+    assert eng.pool.size() == 5 and eng.pool._max_overflow == 5 and eng.pool._pre_ping
 
 
-def test_unmigrated_db_raises(monkeypatch, tmp_path):
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{tmp_path / 'empty.db'}")
+def test_unmigrated_db_raises(monkeypatch, empty_db):
+    monkeypatch.setenv("FFL_DB_URL", empty_db())
     db.reset()
-    with pytest.raises(db.SchemaError, match="alembic upgrade head"):
+    with pytest.raises(db.SchemaError, match="is at schema None.*alembic upgrade head"):
         db.engine()
 
 
-def test_existing_db_without_the_head_schema_raises(monkeypatch, tmp_path):
-    path = tmp_path / "bare.db"
-    sqlite3.connect(path).close()  # the file exists, so the missing-file branch cannot be the one that fires
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{path}")
+def test_unset_url_raises_naming_the_variable(monkeypatch):
+    monkeypatch.delenv("FFL_DB_URL")
     db.reset()
-    with pytest.raises(db.SchemaError, match="is at schema None"):
+    with pytest.raises(db.SchemaError, match="FFL_DB_URL is not set"):
         db.engine()
+
+
+def test_a_sqlite_url_is_refused(monkeypatch, tmp_path):
+    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{tmp_path / 'ffl.db'}")
+    db.reset()
+    with pytest.raises(db.SchemaError, match="postgresql\\+psycopg"):
+        db.engine()
+    assert not (tmp_path / "ffl.db").exists()
 
 
 def test_upsert_insert_then_update_then_nothing():
@@ -64,16 +68,6 @@ def test_write_rolls_back_on_error():
         assert c.execute(sa.select(sa.func.count()).select_from(db.results)).scalar() == 0
 
 
-def test_write_begins_immediate():
-    seen = []
-    sa.event.listen(db.engine(), "before_cursor_execute", lambda conn, cur, stmt, *a: seen.append(stmt))
-    with db._write():
-        pass
-    with db._read() as c:
-        c.exec_driver_sql("SELECT 1")
-    assert [s for s in seen if s.startswith("BEGIN")][:2] == ["BEGIN IMMEDIATE", "BEGIN"]
-
-
 TX = {"id": "1788937502756-6-DROPPED-4688380", "date": "2026-09-09T03:05", "type": "DROPPED",
       "team": "henry's Imposing Team", "player": "Cam Ward", "action": "DROPPED", "bid": 0, "reasoning": ""}
 
@@ -83,6 +77,16 @@ def test_transactions_round_trip_and_dedupe():
     assert db.add_transactions([TX]) == []
     [row] = db.transactions()
     assert row == {**TX, "player_id": 4688380}
+
+
+def test_transactions_keep_insert_order():
+    """The log reads back in insert order (`seq`), not by id or date: a waiver run stamps every claim with one date,
+    and ids lead with epoch ms, which need not follow the order ESPN listed the moves in."""
+    ids = lambda *ms: [{**TX, "id": f"{m}-6-DROPPED-{m % 1000}"} for m in ms]
+    db.add_transactions(ids(1788937502759, 1788937502751, 1788937502755))
+    db.add_transactions(ids(1788937502750, 1788937502758))
+    assert [r["id"].split("-")[0] for r in db.transactions()] == \
+        ["1788937502759", "1788937502751", "1788937502755", "1788937502750", "1788937502758"]
 
 
 def test_transactions_dst_player_id_negative():
@@ -108,7 +112,7 @@ def test_two_processes_same_rows_leave_one_copy():
     for p in procs:
         p.join(30)
     assert [p.exitcode for p in procs] == [0, 0]
-    # one batch per BEGIN IMMEDIATE transaction: one worker inserts all 50, the other finds them all
+    # one batch per transaction: one worker inserts all 50 (the other waits on its keys), the other finds them all
     assert sorted([q.get(timeout=5), q.get(timeout=5)]) == [0, 50]
     assert len(db.transactions()) == 50
 
@@ -180,15 +184,6 @@ def test_claim_plan_round_trip_and_replace():
     assert db.claim_plan(6) == {"week": 6, "groups": [], "submits": []}
 
 
-def test_engine_on_a_missing_sqlite_file_raises_and_creates_nothing(tmp_path, monkeypatch):
-    missing = tmp_path / "nope.db"
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{missing}")
-    db.reset()
-    with pytest.raises(db.SchemaError, match="alembic upgrade head"):
-        db.engine()
-    assert not missing.exists()
-
-
 def _row(**kw):
     return {"at": "2026-10-10T12:00:00-04:00", "week": 6, "kind": "lineup", "source": "app", "title": "Week 6 lineup: A to FLEX",
             "decision": "A (WR) BE → FLEX", "facts": {"moves": []}, "rationale": None, "player_ids": [1, 2], **kw}
@@ -256,6 +251,27 @@ def test_projection_rows_upsert_and_read_back():
     assert {(r["player_id"], r["source"]): r["points"] for r in rows} == {(1, "cbs"): 13.0, (1, "espn"): 14.0}
     assert db.projection_rows("ros") == []
     assert db.put_projection_rows(5, "week", []) == 0
+
+
+def test_upsert_with_a_repeated_key_in_one_call_keeps_the_last_row():
+    """Postgres refuses ON CONFLICT DO UPDATE touching a row twice; SQLite let the last win, and so does _upsert."""
+    n = db.put_projection_rows(5, "week", [{"player_id": 1, "source": "cbs", "points": 1.0},
+                                           {"player_id": 2, "source": "cbs", "points": 7.0},
+                                           {"player_id": 1, "source": "cbs", "points": 2.0}])
+    assert n == 3
+    rows = db.projection_rows("week")
+    assert [(r["player_id"], r["points"]) for r in sorted(rows, key=lambda r: r["player_id"])] == [(1, 2.0), (2, 7.0)]
+
+
+def test_upsert_dedupe_keeps_first_seen_order_and_serves_do_nothing_and_returning():
+    t = db.projection_rows_table
+    rows = [{"a": 1, "b": 1}, {"a": 2, "b": 2}, {"a": 1, "b": 3}]
+    stmt = db._upsert(t, [{"league": "l", "season": 1, "week": 1, "kind": "k", "player_id": r["a"], "source": "s",
+                           "points": float(r["b"]), "taken_at": "x"} for r in rows],
+                      ["league", "season", "week", "kind", "player_id", "source"], None).returning(t.c.player_id, t.c.points)
+    with db._write() as c:
+        got = c.execute(stmt).all()
+    assert [(r.player_id, r.points) for r in got] == [(1, 3.0), (2, 2.0)]
 
 
 def test_source_weights_are_inactive_until_activated():
@@ -329,7 +345,7 @@ def test_draft_inputs_round_trip():
     assert db.adp_feed("2qb", 12, 2026) is None
 
 
-def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch):
+def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch, empty_db):
     """0017 takes espn_players.csv as the home pool under its six formats and the two ADP files as its feeds;
     read back, they are the frames the CSVs were."""
     from pathlib import Path
@@ -351,7 +367,7 @@ def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch):
     feed.to_csv(data / "adp_2qb.csv", index=False)
     feed.assign(adp=[30.0]).to_csv(data / "adp_1qb.csv", index=False)
     monkeypatch.setattr(config, "DATA", data)
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{tmp_path / 'fresh.db'}")
+    monkeypatch.setenv("FFL_DB_URL", empty_db())
     monkeypatch.setenv("LEAGUE_ID", "100000001")
     monkeypatch.setenv("SEASON", "2026")
     monkeypatch.setenv("MY_TEAM_ID", "7")
@@ -399,12 +415,12 @@ def test_draft_feed_and_state_are_kept_per_league():
     assert db.draft_feed(home) == ([], 0) and db.draft_state(home) is None
 
 
-def _at_0017(tmp_path, monkeypatch, seed_home: bool):
+def _at_0017(tmp_path, monkeypatch, empty_db, seed_home: bool):
     """A DB at 0017 holding two draft_picks rows, as the live data/ffl.db stands before 0018."""
     from alembic import command
     from ffl import config
     monkeypatch.setattr(config, "DATA", tmp_path)       # 0015 / 0017 import files from DATA: there are none
-    url = f"sqlite:///{tmp_path / 'm.db'}"
+    url = empty_db()
     monkeypatch.setenv("FFL_DB_URL", url)
     if seed_home:
         monkeypatch.setenv("LEAGUE_ID", "100000001")
@@ -423,9 +439,9 @@ def _at_0017(tmp_path, monkeypatch, seed_home: bool):
     return url
 
 
-def test_migration_backfills_home_league(tmp_path, monkeypatch):
+def test_migration_backfills_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0017(tmp_path, monkeypatch, seed_home=True)
+    url = _at_0017(tmp_path, monkeypatch, empty_db, seed_home=True)
     command.upgrade(db._alembic_config(), "head")
     db.reset()
     eng = sa.create_engine(url)
@@ -440,9 +456,9 @@ def test_migration_backfills_home_league(tmp_path, monkeypatch):
     assert len(db.picks()) == 2
 
 
-def test_migration_refuses_picks_with_no_home_league(tmp_path, monkeypatch):
+def test_migration_refuses_picks_with_no_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    _at_0017(tmp_path, monkeypatch, seed_home=False)
+    _at_0017(tmp_path, monkeypatch, empty_db, seed_home=False)
     with pytest.raises(RuntimeError, match="home league"):
         command.upgrade(db._alembic_config(), "head")
 
@@ -494,13 +510,13 @@ _IX_0021 = {"transactions": {"ix_transactions_player": ["league", "season", "pla
 _IDS = {"plays": [7], "decisions": [9], "box_score_corrections": [11]}
 
 
-def _at_0020(tmp_path, monkeypatch, seed_home: bool = True) -> str:
+def _at_0020(tmp_path, monkeypatch, empty_db, seed_home: bool = True) -> str:
     """A DB at 0020 holding `_SEED`; with seed_home False, no leagues row at all."""
     from alembic import command
     from ffl import config
     monkeypatch.setattr(config, "DATA", tmp_path)       # 0015 / 0017 / 0019 import files: there are none
     monkeypatch.setattr(config, "JOURNAL", tmp_path)
-    url = f"sqlite:///{tmp_path / 'm.db'}"
+    url = empty_db()
     monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.setenv("LEAGUE_ID", "100000001")
     monkeypatch.setenv("SEASON", "2026")
@@ -529,21 +545,21 @@ def _schema(url: str) -> dict:
             out[t] = {"cols": [x["name"] for x in ins.get_columns(t)],
                       "pk": ins.get_pk_constraint(t)["constrained_columns"],
                       "uq": {u["name"]: u["column_names"] for u in ins.get_unique_constraints(t)},
-                      "ix": {i["name"]: i["column_names"] for i in ins.get_indexes(t)},
+                      "ix": {i["name"]: i["column_names"] for i in ins.get_indexes(t)
+                             if not i.get("duplicates_constraint")},  # Postgres lists a unique key's index too
                       "fk": ins.get_foreign_keys(t),
                       "n": c.execute(sa.text(f"SELECT count(*) FROM {t}")).scalar()}
             if "league" in out[t]["cols"]:
                 out[t]["leagues"] = list(c.execute(sa.text(f"SELECT DISTINCT league FROM {t}")).scalars())
             if t in _IDS:
                 out[t]["ids"] = list(c.execute(sa.text(f"SELECT id FROM {t} ORDER BY id")).scalars())
-        out["tx_order"] = list(c.execute(sa.text("SELECT id FROM transactions ORDER BY rowid")).scalars())
     eng.dispose()
     return out
 
 
-def test_0021_files_every_row_under_home(tmp_path, monkeypatch):
+def test_0021_files_every_row_under_home(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0020(tmp_path, monkeypatch)
+    url = _at_0020(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "head")
     s = _schema(url)
     for t, rows in _SEED.items():
@@ -555,16 +571,15 @@ def test_0021_files_every_row_under_home(tmp_path, monkeypatch):
         assert s[t]["ix"] == _IX_0021.get(t, {}), t
     for t, ids in _IDS.items():
         assert s[t]["ids"] == ids, t
-    assert s["tx_order"] == ["b", "a"], "the log's insert order survives the rebuild"
     [fk] = s["calibration_rows"]["fk"]
     assert fk["constrained_columns"] == ["league", "season", "week"]
     assert fk["referred_table"] == "calibration_snapshots"
     assert fk["referred_columns"] == ["league", "season", "week"]
 
 
-def test_0021_downgrade_keeps_home_rows(tmp_path, monkeypatch):
+def test_0021_downgrade_keeps_home_rows(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0020(tmp_path, monkeypatch)
+    url = _at_0020(tmp_path, monkeypatch, empty_db)
     before = _schema(url)
     command.upgrade(db._alembic_config(), "head")
     eng = sa.create_engine(url)
@@ -580,14 +595,13 @@ def test_0021_downgrade_keeps_home_rows(tmp_path, monkeypatch):
         assert after[t]["pk"] == before[t]["pk"] == [c for c in _PK_0021[t] if c != "league"], t
         assert after[t]["uq"] == before[t]["uq"], t
         assert after[t]["ix"] == before[t]["ix"], t
-    assert after["tx_order"] == ["b", "a"]
     [fk] = after["calibration_rows"]["fk"]
     assert fk["constrained_columns"] == ["season", "week"] and fk["referred_table"] == "calibration_snapshots"
 
 
-def test_0021_refuses_rows_with_no_home_league(tmp_path, monkeypatch):
+def test_0021_refuses_rows_with_no_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    _at_0020(tmp_path, monkeypatch, seed_home=False)
+    _at_0020(tmp_path, monkeypatch, empty_db, seed_home=False)
     with pytest.raises(RuntimeError, match="home league"):
         command.upgrade(db._alembic_config(), "head")
 
@@ -639,10 +653,10 @@ def test_league_data_is_kept_per_league():
     assert db.box_weeks(ref=home)[5]["fetched_at"] == 1.0 and db.box_weeks(ref=other)[5]["fetched_at"] == 0.0
 
 
-def _at_0021(tmp_path, monkeypatch, seed_home: bool = True) -> str:
+def _at_0021(tmp_path, monkeypatch, empty_db, seed_home: bool = True) -> str:
     """A DB at 0021 with notify_state and page_cache seeded (state keys of both kinds, two pages)."""
     from alembic import command
-    url = _at_0020(tmp_path, monkeypatch)
+    url = _at_0020(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "0021")
     eng = sa.create_engine(url)
     with eng.begin() as c:
@@ -666,9 +680,9 @@ def _rows(url: str, sql: str) -> list:
     return out
 
 
-def test_0022_moves_league_keys_under_home(tmp_path, monkeypatch):
+def test_0022_moves_league_keys_under_home(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0021(tmp_path, monkeypatch)
+    url = _at_0021(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "0022")
     assert _rows(url, "SELECT league, season, key FROM league_state") == [("espn:100000001", 2026, "waiver_run")]
     assert sorted(_rows(url, "SELECT key FROM notify_state")) == [("news_mutes",), ("source_status",)]
@@ -681,9 +695,9 @@ def test_0022_moves_league_keys_under_home(tmp_path, monkeypatch):
     eng.dispose()
 
 
-def test_0022_downgrade_keeps_home(tmp_path, monkeypatch):
+def test_0022_downgrade_keeps_home(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0021(tmp_path, monkeypatch)
+    url = _at_0021(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "0022")
     eng = sa.create_engine(url)
     with eng.begin() as c:
@@ -693,10 +707,10 @@ def test_0022_downgrade_keeps_home(tmp_path, monkeypatch):
         c.execute(sa.text("INSERT INTO notify_state (season, key, value) VALUES (2026, 'waiver_run', '{\"run\": \"stale\"}')"))
     eng.dispose()
     command.downgrade(db._alembic_config(), "0021")
-    assert _rows(url, "SELECT value FROM notify_state WHERE key = 'waiver_run'") == [('{"run": 1}',)]
+    assert _rows(url, "SELECT value FROM notify_state WHERE key = 'waiver_run'") == [({"run": 1},)]
     assert sorted(_rows(url, "SELECT key FROM notify_state")) == [("news_mutes",), ("source_status",), ("waiver_run",)]
     assert sorted(_rows(url, "SELECT key FROM page_cache")) == [("roster",), ("week:6",)]
-    assert _rows(url, "SELECT name FROM sqlite_master WHERE name = 'league_state'") == []
+    assert _rows(url, "SELECT to_regclass('league_state')") == [(None,)]
     eng = sa.create_engine(url)
     with eng.connect() as c:
         ins = sa.inspect(c)
@@ -705,9 +719,9 @@ def test_0022_downgrade_keeps_home(tmp_path, monkeypatch):
     eng.dispose()
 
 
-def test_0022_refuses_with_no_home_league(tmp_path, monkeypatch):
+def test_0022_refuses_with_no_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0021(tmp_path, monkeypatch, seed_home=False)
+    url = _at_0021(tmp_path, monkeypatch, empty_db, seed_home=False)
     with pytest.raises(RuntimeError, match="home league"):
         command.upgrade(db._alembic_config(), "0022")
     assert len(_rows(url, "SELECT key FROM notify_state")) == 3, "nothing moved"
@@ -784,7 +798,7 @@ def test_models_match_migration():
             assert ins.get_pk_constraint(name)["constrained_columns"] == [x.name for x in t.primary_key.columns], name
             assert {u["name"]: u["column_names"] for u in ins.get_unique_constraints(name)} == \
                 {u.name: [x.name for x in u.columns] for u in t.constraints if isinstance(u, sa.UniqueConstraint)}, name
-            assert {i["name"]: i["column_names"] for i in ins.get_indexes(name)} == \
+            assert {i["name"]: i["column_names"] for i in ins.get_indexes(name) if not i.get("duplicates_constraint")} == \
                 {i.name: [x.name for x in i.columns] for i in t.indexes}, name
             assert [f["constrained_columns"] for f in ins.get_foreign_keys(name)] == \
                 [[x.parent.name for x in f.elements] for f in t.foreign_key_constraints], name
@@ -800,9 +814,9 @@ def test_no_league_named_is_home_whatever_ffl_league_says(monkeypatch):
     assert db.results_rows(ref=leagues.home())[0]["opponent"] == "H" and db.sat_ids(8, ref=leagues.home()) == {1}
 
 
-def test_0021_downgrade_refuses_rows_with_no_home_league(tmp_path, monkeypatch):
+def test_0021_downgrade_refuses_rows_with_no_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0020(tmp_path, monkeypatch)
+    url = _at_0020(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "head")
     eng = sa.create_engine(url)
     with eng.begin() as c:
@@ -813,12 +827,12 @@ def test_0021_downgrade_refuses_rows_with_no_home_league(tmp_path, monkeypatch):
     assert _schema(url)["results"]["n"] == 1, "nothing dropped"
 
 
-def test_0021_upgrades_an_empty_db_with_no_home_league(tmp_path, monkeypatch):
+def test_0021_upgrades_an_empty_db_with_no_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
     from ffl import config
     monkeypatch.setattr(config, "DATA", tmp_path)
     monkeypatch.setattr(config, "JOURNAL", tmp_path)
-    url = f"sqlite:///{tmp_path / 'e.db'}"
+    url = empty_db()
     monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
@@ -842,10 +856,10 @@ def test_state_functions_refuse_the_other_kind():
         db.get_league_state("prefs")
 
 
-def _at_0022(tmp_path, monkeypatch) -> str:
+def _at_0022(tmp_path, monkeypatch, empty_db) -> str:
     """A DB at 0022 with two called-back rows (one play, two players)."""
     from alembic import command
-    url = _at_0021(tmp_path, monkeypatch)
+    url = _at_0021(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "0022")
     eng = sa.create_engine(url)
     with eng.begin() as c:
@@ -856,9 +870,9 @@ def _at_0022(tmp_path, monkeypatch) -> str:
     return url
 
 
-def test_0023_files_called_back_under_home(tmp_path, monkeypatch):
+def test_0023_files_called_back_under_home(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0022(tmp_path, monkeypatch)
+    url = _at_0022(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "0023")
     assert sorted(_rows(url, "SELECT league, season, play_id, player_id, week FROM called_back")) == [
         ("espn:100000001", 2026, "p1", 11, 6), ("espn:100000001", 2026, "p1", 12, 6)]
@@ -870,9 +884,9 @@ def test_0023_files_called_back_under_home(tmp_path, monkeypatch):
     eng.dispose()
 
 
-def test_0023_downgrade_keeps_home(tmp_path, monkeypatch):
+def test_0023_downgrade_keeps_home(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0022(tmp_path, monkeypatch)
+    url = _at_0022(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "0023")
     eng = sa.create_engine(url)
     with eng.begin() as c:
@@ -883,9 +897,9 @@ def test_0023_downgrade_keeps_home(tmp_path, monkeypatch):
     assert sorted(_rows(url, "SELECT season, play_id, player_id FROM called_back")) == [(2026, "p1", 11), (2026, "p1", 12)]
 
 
-def test_0024_makes_home_player_views_every_leagues(tmp_path, monkeypatch):
+def test_0024_makes_home_player_views_every_leagues(tmp_path, monkeypatch, empty_db):
     from alembic import command
-    url = _at_0022(tmp_path, monkeypatch)
+    url = _at_0022(tmp_path, monkeypatch, empty_db)
     command.upgrade(db._alembic_config(), "0023")
     eng = sa.create_engine(url)
     with eng.begin() as c:
@@ -894,10 +908,10 @@ def test_0024_makes_home_player_views_every_leagues(tmp_path, monkeypatch):
                       {"l": league, "v": v})
     eng.dispose()
     command.upgrade(db._alembic_config(), "0024")
-    assert _rows(url, "SELECT season, value FROM notify_state WHERE key = 'player_presets'") == [(2026, '{"who": "home"}')]
+    assert _rows(url, "SELECT season, value FROM notify_state WHERE key = 'player_presets'") == [(2026, {"who": "home"})]
     assert _rows(url, "SELECT league FROM league_state WHERE key = 'player_presets'") == []
     command.downgrade(db._alembic_config(), "0023")
-    assert _rows(url, "SELECT league, value FROM league_state WHERE key = 'player_presets'") == [("espn:100000001", '{"who": "home"}')]
+    assert _rows(url, "SELECT league, value FROM league_state WHERE key = 'player_presets'") == [("espn:100000001", {"who": "home"})]
     assert _rows(url, "SELECT key FROM notify_state WHERE key = 'player_presets'") == []
 
 

@@ -13,12 +13,11 @@ def _clear():
         c.execute(sa.delete(db.leagues_table))
 
 
-def test_migration_seeds_home_from_env(monkeypatch, tmp_path):
+def test_migration_seeds_home_from_env(monkeypatch, tmp_path, empty_db):
     from alembic import command
     monkeypatch.setattr(config, "DATA", tmp_path)       # 0015 / 0017 / 0019 import files from DATA: there are none
     monkeypatch.setattr(config, "JOURNAL", tmp_path)    # 0019 imports journal/draft/*.csv: none here either
-    path = tmp_path / "fresh.db"
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{path}")
+    monkeypatch.setenv("FFL_DB_URL", empty_db())
     monkeypatch.setenv("LEAGUE_ID", "100000001")
     monkeypatch.setenv("SEASON", "2026")
     monkeypatch.setenv("MY_TEAM_ID", "7")
@@ -31,11 +30,11 @@ def test_migration_seeds_home_from_env(monkeypatch, tmp_path):
     assert len(leagues.all_leagues()) == 1
 
 
-def test_migration_without_env_seeds_nothing(monkeypatch, tmp_path):
+def test_migration_without_env_seeds_nothing(monkeypatch, tmp_path, empty_db):
     from alembic import command
     monkeypatch.setattr(config, "DATA", tmp_path)
     monkeypatch.setattr(config, "JOURNAL", tmp_path)
-    monkeypatch.setenv("FFL_DB_URL", f"sqlite:///{tmp_path / 'bare.db'}")
+    monkeypatch.setenv("FFL_DB_URL", empty_db())
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
     command.upgrade(db._alembic_config(), "head")

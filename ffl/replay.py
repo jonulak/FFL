@@ -5,8 +5,8 @@
     uv run python -m ffl.replay ffc:18509038 --team 3 --sims 100  # an FFC log, seat 3
     uv run python -m ffl.replay --human                          # every human seat in every stored FFC log
     uv run python -m ffl.replay --league espn:100000001         # a league's draft, off the DB's draft_picks
-    FFL_DATA_DIR=data-mock uv run python -m ffl.replay --league espn:<mock id>  # a practice draft (its own ffl.db)
-    uv run python -m ffl.replay --keep practice-14-slot2 --from data-mock/ffl.db --league espn:<mock id>  # keep it
+    FFL_DATA_DIR=data-mock uv run python -m ffl.replay --league espn:<mock id>  # a practice draft (FFL_DB_URL=postgresql+psycopg:///ffl_mock)
+    uv run python -m ffl.replay --keep practice-14-slot2 --from postgresql+psycopg:///ffl_mock --league espn:<mock id>  # keep it
 
 For every pick the chosen seat made, rebuild the board as it stood, run `recommend()` and the
 rollout, and report what the seat took, what each would have taken, and how the rollout scores
@@ -61,15 +61,21 @@ def resolve_logs(names: list[str]) -> list[tuple[str, str]]:
     return out
 
 
-def keep(name: str, path, league: str) -> None:
-    """Store `league`'s draft from another ffl.db (a practice run's `data-mock/ffl.db`) as the practice log `name`."""
+def keep(name: str, db_url: str, league: str) -> None:
+    """Store `league`'s draft from another database (a practice run's own, by its URL) as the practice log `name`."""
     try:
-        rows = db.picks_in(path, league)
-    except db.DBError as e:  # not an ffl.db, or one older than the draft_picks league key (0018)
-        raise SystemExit(f"{path}: cannot read its draft_picks ({type(e).__name__}: {e})")
+        src = db.display_url(db_url)
+    except db.DBError as e:
+        raise SystemExit(f"--from: not a database URL ({e})")
+    try:
+        rows = db.picks_from_url(db_url, league)
+    except db.SchemaError as e:  # not a Postgres URL
+        raise SystemExit(f"--from: {e}")
+    except db.DBError as e:  # not an FFL database, or one older than the draft_picks league key (0018)
+        raise SystemExit(f"{src}: cannot read its draft_picks ({type(e).__name__}: {e})")
     if not rows:
-        raise SystemExit(f"{path}: no picks for {league}")
-    if not db.put_draft_log("practice", name, rows, {"from": str(path), "league": league}):
+        raise SystemExit(f"{src}: no picks for {league}")
+    if not db.put_draft_log("practice", name, rows, {"from": src, "league": league}):
         raise SystemExit(f"practice:{name} is already stored; pick another name")
     print(f"kept {len(rows)} picks as practice:{name} (uv run python -m ffl.replay practice:{name})")
 
@@ -177,12 +183,13 @@ def main():
     ap.add_argument("--human", action="store_true", help="every seat marked human in the log (no logs named: every FFC log)")
     ap.add_argument("--sims", type=int, default=100)
     ap.add_argument("--quiet", action="store_true")
-    ap.add_argument("--keep", metavar="NAME", help="store --league's draft from the ffl.db at --from as practice:NAME")
-    ap.add_argument("--from", dest="src", metavar="DB", help="with --keep: the other ffl.db (e.g. data-mock/ffl.db)")
+    ap.add_argument("--keep", metavar="NAME", help="store --league's draft from the database at --from as practice:NAME")
+    ap.add_argument("--from", dest="src", metavar="DB_URL",
+                    help="with --keep: the other database's URL (e.g. postgresql+psycopg:///ffl_mock)")
     a = ap.parse_args()
     if a.keep:
         if not (a.src and a.league):
-            ap.error("--keep NAME needs --from DB and --league KEY")
+            ap.error("--keep NAME needs --from DB_URL and --league KEY")
         keep(a.keep, a.src, a.league)
         return
     if not a.logs and not a.league and not a.human:

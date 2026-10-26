@@ -94,3 +94,12 @@ def test_the_turn_is_read_off_the_leagues_draft_state():
     assert turn(other, 12) is None
     db.put_draft_state(other, {"current_pick": 14, "on_clock_is_me": True, "drafted": True})
     assert turn(other, 12) is None, "the draft is over"
+
+
+def test_practice_db_is_exactly_the_mock():
+    from ffl.autodraft import practice_db
+    assert practice_db("postgresql+psycopg:///ffl_mock")
+    assert practice_db("postgresql+psycopg://u@localhost:5432/ffl_mock")
+    for bad in ("postgresql+psycopg:///ffl_real?host=/tmp/mock", "postgresql+psycopg:///ffl_mock_x", "postgresql+psycopg:///ffl_mockery",
+                "postgresql+psycopg://mock@host/ffl_prod", "", None, "not a url"):
+        assert not practice_db(bad), bad

@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / (os.environ.get("FFL_DATA_DIR") or "data")  # override for mock/practice runs
+DATA = ROOT / (os.environ.get("FFL_DATA_DIR") or "data")  # the data directory only (browser profile, caches); the database is FFL_DB_URL's
 JOURNAL = ROOT / "journal"
 DATA.mkdir(exist_ok=True)
 

@@ -1,22 +1,25 @@
 """The season's shared state in one SQL database (SQLAlchemy Core; Alembic owns the schema).
 
 The only module that talks SQL. Every function takes and returns plain dicts, so season.py stays
-pure. SQLite in WAL mode by default (`<DATA>/ffl.db`); FFL_DB_URL points anywhere else (tests, a
-later Postgres). Writes are one short transaction each, BEGIN IMMEDIATE on SQLite so a second
-writer waits on busy_timeout instead of failing on a lock upgrade.
+pure. Postgres, at FFL_DB_URL (`postgresql+psycopg://...`; required: there is no default database).
+Writes are one short transaction each.
 
     uv run alembic upgrade head          # create / migrate the schema
     uv run python -m ffl.db import       # one-time: the old journal/ and data/ files in (idempotent)
     uv run python -m ffl.db backup       # a checked snapshot into the backup dir (launchd nightly)
+    uv run python -m ffl.db restore S --url U   # a dump (file, dir or s3:// prefix: the newest) back in (local only without --to-rds)
+    uv run python -m ffl.db pgcopy F     # the SQLite file F (schema 0024, read-only) into FFL_DB_URL, checked
 """
 from __future__ import annotations
 
+import json
+import math
 import os
 import threading
 from contextlib import contextmanager
 
 import sqlalchemy as sa
-from sqlalchemy import event
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .config import DATA, ROOT, SEASON
 
@@ -148,6 +151,7 @@ transactions_table = sa.Table(  # not `transactions`: that name is the reader be
     sa.Column("action", sa.String, nullable=False),
     sa.Column("bid", sa.Integer, nullable=False, default=0),
     sa.Column("reasoning", sa.String, nullable=False, default=""),
+    sa.Column("seq", sa.BigInteger, sa.Identity(), nullable=False),  # insert order: the log is read in it
     sa.PrimaryKeyConstraint("league", "season", "id"),
 )
 sa.Index("ix_transactions_player", transactions_table.c.league, transactions_table.c.season,
@@ -288,8 +292,8 @@ box_scores_table = sa.Table(
     sa.Column("doc", sa.JSON, nullable=False),
     sa.Column("hash", sa.String, nullable=False),
     sa.Column("fetched_at", sa.Float, nullable=False),
-    sa.Column("settled", sa.Boolean, nullable=False, default=False, server_default=sa.text("0")),
-    sa.Column("final", sa.Boolean, nullable=False, default=False, server_default=sa.text("0")),
+    sa.Column("settled", sa.Boolean, nullable=False, default=False, server_default=sa.false()),
+    sa.Column("final", sa.Boolean, nullable=False, default=False, server_default=sa.false()),
     sa.PrimaryKeyConstraint("league", "season", "week"),
 )
 
@@ -631,7 +635,35 @@ sa.Index("ix_news_story_players_player", news_story_players.c.season, news_story
 
 
 def url() -> str:
-    return os.environ.get("FFL_DB_URL") or f"sqlite:///{DATA / 'ffl.db'}"
+    u = os.environ.get("FFL_DB_URL")
+    if not u:
+        raise SchemaError("FFL_DB_URL is not set: point it at the Postgres database "
+                          "(postgresql+psycopg://...), in .env or the environment")
+    return _check_url(u, "FFL_DB_URL")
+
+
+def _check_url(u: str, what: str) -> str:
+    if not u.startswith("postgresql+psycopg://"):
+        raise SchemaError(f"{what} must be a postgresql+psycopg:// URL (Postgres is the only database), "
+                          f"not {u.split(':', 1)[0]}:")
+    return u
+
+
+def _finite(o):
+    """`o` with every NaN / ±Infinity float made None, through dicts (order kept) and lists: Postgres's json refuses
+    them, where SQLite stored them."""
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_finite(v) for v in o]
+    return o
+
+
+def _json_dumps(o) -> str:
+    """The engine's JSON writer: json.dumps as SQLAlchemy's default, NaN and ±Infinity written as null."""
+    return json.dumps(_finite(o))
 
 
 _ENGINE: sa.Engine | None = None
@@ -651,21 +683,8 @@ def _head() -> str:
 
 
 def _make_engine() -> sa.Engine:
-    eng = sa.create_engine(url())
-    if eng.dialect.name == "sqlite":
-        @event.listens_for(eng, "connect")
-        def _pragmas(dbapi_conn, _rec):
-            dbapi_conn.isolation_level = None  # we issue BEGIN ourselves (see "begin" below)
-            cur = dbapi_conn.cursor()
-            # busy_timeout first: the WAL switch needs a lock, and without a timeout a second connector fails at once
-            for p in ("busy_timeout=5000", "journal_mode=WAL", "foreign_keys=ON", "synchronous=NORMAL"):
-                cur.execute(f"PRAGMA {p}")
-            cur.close()
-
-        @event.listens_for(eng, "begin")
-        def _begin(conn):
-            conn.exec_driver_sql("BEGIN IMMEDIATE" if conn.info.get("write") else "BEGIN")
-    return eng
+    # a small pool: the RDS micro's connection cap is shared with Cantrip; pre-ping drops a connection the server closed
+    return sa.create_engine(url(), pool_pre_ping=True, pool_size=5, max_overflow=5, json_serializer=_json_dumps)
 
 
 def engine() -> sa.Engine:
@@ -679,17 +698,14 @@ def engine() -> sa.Engine:
 
 
 def _build_checked() -> sa.Engine:
-    u = url()
-    # connecting would create an empty file that looks like a DB; a missing one is a missing migration
-    if u.startswith("sqlite:///") and not os.path.exists(u.removeprefix("sqlite:///")):
-        raise SchemaError(f"{u} does not exist: run: uv run alembic upgrade head")
     eng = _make_engine()
     from alembic.runtime.migration import MigrationContext
     with eng.connect() as c:
         current = MigrationContext.configure(c).get_current_revision()
     if current != _head():
         eng.dispose()
-        raise SchemaError(f"{u} is at schema {current!r}, code wants {_head()!r}: run: uv run alembic upgrade head")
+        raise SchemaError(f"{eng.url!r} is at schema {current!r}, code wants {_head()!r}: "
+                          "run: uv run alembic upgrade head")
     return eng
 
 
@@ -703,13 +719,8 @@ def reset() -> None:
 
 @contextmanager
 def _write():
-    with engine().connect() as c:
-        c.info["write"] = True
-        try:
-            with c.begin():
-                yield c
-        finally:
-            c.info.pop("write", None)
+    with engine().connect() as c, c.begin():
+        yield c
 
 
 @contextmanager
@@ -719,11 +730,10 @@ def _read():
 
 
 def _upsert(table: sa.Table, rows: list[dict], keys: list[str], update: list[str] | None):
-    if engine().dialect.name == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert
-    else:
-        from sqlalchemy.dialects.sqlite import insert
-    stmt = insert(table).values(rows)
+    # Postgres refuses one statement that names a conflict key twice (CardinalityViolation; SQLite let the last
+    # row win): keep one row per key, the last, at the key's first-seen position.
+    rows = list({tuple(r.get(k) for k in keys): r for r in rows}.values())
+    stmt = pg_insert(table).values(rows)
     if update is None:
         return stmt.on_conflict_do_nothing(index_elements=keys)
     return stmt.on_conflict_do_update(index_elements=keys, set_={c: stmt.excluded[c] for c in update})
@@ -933,7 +943,7 @@ def update_plays(rows: list[dict], season: int = SEASON, *, ref=None) -> None:
                       .values(body=r))
 
 
-CHUNK = 400  # rows per multi-row statement: SQLite caps a statement's bound variables
+CHUNK = 400  # rows per multi-row statement: a statement's bound parameters are capped (Postgres: 65535)
 
 
 def put_nfl_plays(rows: list[dict], season: int = SEASON) -> None:
@@ -1008,12 +1018,14 @@ def put_box_doc(week: int, doc: dict, hash: str, fetched_at: float, settled: boo
     t, league = box_scores_table, _league_key(ref)
     key = (t.c.league == league, t.c.season == season, t.c.week == week)
     with _write() as c:
-        old = c.execute(sa.select(t.c.hash).where(*key)).first()
-        if old is None:
-            c.execute(t.insert().values(league=league, season=season, week=week, doc=doc, hash=hash,
-                                        fetched_at=fetched_at, settled=bool(settled), final=final))
+        # insert-if-absent, then lock: two first reads of a week must not both INSERT
+        made = c.execute(_upsert(t, [{"league": league, "season": season, "week": week, "doc": doc, "hash": hash,
+                                      "fetched_at": fetched_at, "settled": bool(settled), "final": final}],
+                                 ["league", "season", "week"], None).returning(t.c.week)).first()
+        if made is not None:
             wrote = True
         else:
+            old = c.execute(sa.select(t.c.hash).where(*key).with_for_update()).one()
             vals: dict = {"fetched_at": fetched_at, "final": final}
             wrote = old.hash != hash
             if wrote:
@@ -1115,9 +1127,9 @@ def add_transactions(rows: list[dict], season: int = SEASON, *, ref=None) -> lis
 
 def transactions(season: int = SEASON, *, ref=None) -> list[dict]:
     t = transactions_table
-    # rowid is SQLite-only (insert order = the CSV's row order); under Postgres order by date, id
+    # insert order (the CSV's row order, then each sync's): a waiver run stamps every claim with one date
     q = sa.select(*[t.c[k] for k in _TX_COLS]).where(t.c.league == _league_key(ref), t.c.season == season) \
-        .order_by(sa.text("rowid"))
+        .order_by(t.c.seq)
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 
@@ -1210,10 +1222,28 @@ def draft_state(ref) -> dict | None:
         return c.execute(sa.select(t.c.doc).where(t.c.league == league, t.c.season == season)).scalar()
 
 
-def picks_in(path, league: str) -> list[dict]:
-    """The league's latest-season draft log (the `_PICK_COLS`) in another SQLite file, opened read-only: a practice
-    run's own `FFL_DATA_DIR` DB, kept before it is deleted (`ffl.replay --keep`)."""
-    eng = sa.create_engine(f"sqlite:///file:{path}?mode=ro&uri=true")
+def display_url(db_url: str) -> str:
+    """A database URL fit to print or store: the password masked."""
+    return sa.engine.make_url(db_url).render_as_string(hide_password=True)
+
+
+def _read_only_engine(db_url: str) -> sa.Engine:
+    """An engine on another database whose every connection is read-only (the session refuses writes). SchemaError
+    on a URL that is not Postgres's, as `url()` gives."""
+    eng = sa.create_engine(_check_url(db_url, "the database URL"), poolclass=sa.pool.NullPool)
+
+    @sa.event.listens_for(eng, "connect")
+    def _read_only(dbapi_conn, _rec):
+        with dbapi_conn.cursor() as cur:
+            cur.execute("SET default_transaction_read_only = on")
+        dbapi_conn.commit()
+    return eng
+
+
+def picks_from_url(db_url: str, league: str) -> list[dict]:
+    """The league's latest-season draft log (the `_PICK_COLS`) in another database, read-only: a practice run's own
+    database, kept before it is dropped (`ffl.replay --keep NAME --from <DB URL>`)."""
+    eng = _read_only_engine(db_url)
     t = draft_picks
     try:
         with eng.connect() as c:
@@ -1231,7 +1261,8 @@ def put_draft_log(source: str, log_id: str, rows: list[dict], meta: dict | None 
     `rows` must be plain JSON (`adp.records` of a frame)."""
     row = {"source": source, "log_id": str(log_id), "meta": meta, "rows": rows, "added_at": added_at or _now()}
     with _write() as c:
-        return c.execute(_upsert(draft_logs, [row], ["source", "log_id"], None)).rowcount > 0
+        return c.execute(_upsert(draft_logs, [row], ["source", "log_id"], None)
+                         .returning(draft_logs.c.log_id)).first() is not None  # rowcount: -1 on psycopg
 
 
 def draft_log_ids(source: str) -> set[str]:
@@ -1340,7 +1371,7 @@ def snapshots(season: int = SEASON, *, ref=None) -> list[dict]:
             sa.select(cs.c.week, cs.c.k).where(cs.c.league == league, cs.c.season == season).order_by(cs.c.week))]
         by_week = {s["week"]: s for s in snaps}
         for r in c.execute(sa.select(cr).where(cr.c.league == league, cr.c.season == season)
-                           .order_by(sa.text("rowid"))):
+                           .order_by(cr.c.week, cr.c.player_id)):
             by_week[r.week]["rows"].append({x: getattr(r, x) for x in _CAL_COLS})
     return snaps
 
@@ -1473,17 +1504,15 @@ def add_watch_signals(rows: list[dict], season: int = SEASON, *, ref=None) -> li
     if not rows:
         return []
     t, league = watch_signals_table, _league_key(ref)
+    offered: dict[str, dict] = {}
+    for r in rows:
+        offered.setdefault(r["key"], {k: r[k] for k in _SIGNAL_COLS})
+    # new = what this INSERT made (RETURNING), so a concurrent writer's rows are not reported twice; the keys go in
+    # sorted, so two writers offering overlapping signals take their row locks in one order and cannot deadlock
     with _write() as c:
-        known = set(c.execute(sa.select(t.c.key).where(t.c.league == league, t.c.season == season)).scalars())
-        new = []
-        for r in rows:
-            if r["key"] not in known:
-                known.add(r["key"])
-                new.append({k: r[k] for k in _SIGNAL_COLS})
-        if new:
-            c.execute(_upsert(t, [{"league": league, "season": season, **v} for v in new],
-                              ["league", "season", "key"], None))
-    return new
+        made = set(c.execute(_upsert(t, [{"league": league, "season": season, **offered[k]} for k in sorted(offered)],
+                                     ["league", "season", "key"], None).returning(t.c.key)).scalars())
+    return [v for k, v in offered.items() if k in made]
 
 
 def watch_signals(since: str, season: int = SEASON, *, ref=None) -> list[dict]:
@@ -1600,6 +1629,32 @@ def put_state(key: str, value, season: int = SEASON) -> None:
     _check_key(key, False)
     with _write() as c:
         c.execute(_upsert(notify_state, [{"season": season, "key": key, "value": value}], ["season", "key"], ["value"]))
+
+
+def _update(table: sa.Table, keys: dict, fn, default):
+    """Read-modify-write of one state row in one transaction: insert it if absent, lock it (SELECT ... FOR UPDATE: a
+    concurrent updater waits, then reads this one's committed value), write fn(value), return it. `fn` is pure and
+    quick (no ESPN call, no other db call: it runs holding the row lock); an exception in it writes nothing."""
+    where = [table.c[k] == v for k, v in keys.items()]
+    with _write() as c:
+        c.execute(_upsert(table, [{**keys, "value": default}], list(keys), None))
+        v = c.execute(sa.select(table.c.value).where(*where).with_for_update()).scalar()
+        new = fn(default if v is None else v)
+        c.execute(sa.update(table).where(*where).values(value=new))
+    return new
+
+
+def update_state(key: str, fn, default=None, season: int = SEASON):
+    """A global state key's value changed by `fn` (its value, or `default` when unset) without losing a concurrent
+    update (a get then a put can). Returns the value written."""
+    _check_key(key, False)
+    return _update(notify_state, {"season": season, "key": key}, fn, default)
+
+
+def update_league_state(key: str, fn, default=None, season: int = SEASON, *, ref=None):
+    """A league's state key changed by `fn`, as update_state."""
+    _check_key(key, True)
+    return _update(league_state, {"league": _league_key(ref), "season": season, "key": key}, fn, default)
 
 
 def get_league_state(key: str, default=None, season: int = SEASON, *, ref=None):
@@ -1777,7 +1832,8 @@ def update_item_text(item_id: int, title: str, text: str, hash: str, at: str, se
     """An edit: the earlier text goes to news_item_versions, and tagged_at clears so the item is tagged again."""
     t = news_items_table
     with _write() as c:
-        old = c.execute(sa.select(t.c.hash, t.c.title, t.c.text).where(t.c.season == season, t.c.id == item_id)).first()
+        old = c.execute(sa.select(t.c.hash, t.c.title, t.c.text).where(t.c.season == season, t.c.id == item_id)
+                        .with_for_update()).first()
         if old is None:
             return
         c.execute(sa.insert(news_item_versions).values(season=season, item_id=item_id, hash=old.hash, title=old.title,
@@ -1810,6 +1866,8 @@ def withdraw_item(item_id: int, at: str, season: int = SEASON) -> dict | None:
         sid = c.execute(sa.select(t.c.story_id).where(t.c.season == season, t.c.id == item_id)).scalar()
         if sid is None:
             return None
+        # the story locked before the count: two of its items withdrawn at once must not each count the other live
+        c.execute(sa.select(s.c.id).where(s.c.season == season, s.c.id == sid).with_for_update())
         live = c.execute(sa.select(sa.func.count()).select_from(t)
                          .where(t.c.season == season, t.c.story_id == sid, t.c.withdrawn_at.is_(None))).scalar()
         cur = c.execute(sa.select(s.c.status).where(s.c.season == season, s.c.id == sid)).scalar()
@@ -2017,6 +2075,8 @@ def put_week_claims(week: int, row: dict, season: int = SEASON, *, ref=None) -> 
     gen = (row.get("facts") or {}).get("gen", 0)
     league = _league_key(ref)
     with _write() as c:
+        # two submits of one week must not both find no row and both insert (held to the transaction's end)
+        c.execute(sa.select(sa.func.pg_advisory_xact_lock(sa.func.hashtext(f"claims:{league}:{season}:{week}"))))
         rows = c.execute(sa.select(t.c.id, t.c.rationale, t.c.facts).where(
             t.c.league == league, t.c.season == season, t.c.week == week, t.c.kind == "claims",
             t.c.source == "app")).all()
@@ -2067,7 +2127,7 @@ def insert_new(table_name: str, rows: list[dict]) -> int:
         return 0
     t = metadata.tables[table_name]
     pk = list(t.primary_key.columns)[0]
-    with _write() as c:  # batches: one multi-row VALUES would pass SQLite's bind-variable limit on a big table
+    with _write() as c:  # batches: one multi-row VALUES would pass the bound-parameter limit on a big table
         return sum(len(c.execute(_upsert(t, rows[i:i + 500], _KEYS[table_name], None).returning(pk)).all())
                    for i in range(0, len(rows), 500))
 
@@ -2091,7 +2151,13 @@ def main(argv: list[str]) -> int:
     if cmd == "backup":
         from . import db_backup
         return db_backup.main(argv[1:])
-    print("usage: python -m ffl.db import | backup [dest_dir]")
+    if cmd == "restore":
+        from . import db_backup
+        return db_backup.restore_main(argv[1:])
+    if cmd == "pgcopy":
+        from . import db_copy
+        return db_copy.main(argv[1:])
+    print("usage: python -m ffl.db import | backup [dest] | restore <src> --url URL [--to-rds] | pgcopy <sqlite file>")
     return 2
 
 

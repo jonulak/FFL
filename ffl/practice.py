@@ -89,8 +89,9 @@ def start(slot: int) -> str:
             raise SystemExit("Draft room tab did not open")
         print(f"practice draft room: {room}")
         print("Register the mock league, then start the watcher against it:\n"
-              "  FFL_DATA_DIR=data-mock uv run python -m ffl.leagues add espn <mock id from that url> --home\n"
-              "  FFL_DATA_DIR=data-mock uv run python -m ffl.draft_watch")
+              "  export FFL_DB_URL=postgresql+psycopg:///ffl_mock FFL_DATA_DIR=data-mock\n"
+              "  uv run python -m ffl.leagues add espn <mock id from that url> --home\n"
+              "  uv run python -m ffl.draft_watch")
         return room
 
 

@@ -52,12 +52,12 @@ def _sample(tmp_path):
     return data, journal, snap
 
 
-def test_migration_imports_each_file_kind_once(tmp_path, monkeypatch):
+def test_migration_imports_each_file_kind_once(tmp_path, monkeypatch, empty_db):
     from alembic import command
     data, journal, snap = _sample(tmp_path)
     monkeypatch.setattr(config, "DATA", data)
     monkeypatch.setattr(config, "JOURNAL", journal)
-    url = f"sqlite:///{tmp_path / 'fresh.db'}"
+    url = empty_db()
     monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
@@ -87,11 +87,11 @@ def test_migration_without_files_imports_nothing(tmp_path, monkeypatch):
         assert _migration().import_files(c) == {"traces": 0, "draft_logs": 0, "props_snapshots": 0, "props_raw": 0}
 
 
-def test_down_to_0018_drops_the_tables_and_up_again(tmp_path, monkeypatch):
+def test_down_to_0018_drops_the_tables_and_up_again(tmp_path, monkeypatch, empty_db):
     from alembic import command
     monkeypatch.setattr(config, "DATA", tmp_path)
     monkeypatch.setattr(config, "JOURNAL", tmp_path)
-    url = f"sqlite:///{tmp_path / 'ud.db'}"
+    url = empty_db()
     monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
@@ -151,27 +151,43 @@ def test_replay_resolves_stored_logs():
     assert int(replay.load_log("ffc:200").team_id[0]) == 2
 
 
-def test_a_practice_draft_is_kept_from_its_own_db(tmp_path, monkeypatch):
-    """A practice run's picks live in data-mock/ffl.db, deleted before the next run: --keep copies them into this
-    DB's draft_logs as a practice log, read-only on the other file."""
-    import shutil
-
+def test_a_practice_draft_is_kept_from_its_own_db(pg_server):
+    """A practice run's picks live in its own database, dropped before the next run: --keep copies them into this
+    DB's draft_logs as a practice log, read-only on the other database."""
     from ffl import leagues, replay
-    other = tmp_path / "mock" / "ffl.db"
-    other.parent.mkdir()
     pick ={"overall": 1, "round": 1, "pick": 1, "team_id": 3, "team": "T3", "player_id": 9, "player": "P", "pos": "QB",
             "nfl": "BUF", "adp_2qb": 1.5, "board_rank_at_pick": 2.0, "proj": 300.0, "ts": "2026-09-07T06:16:15"}
     db.put_picks([pick, {**pick, "overall": 2, "team_id": 4, "player_id": 10}], ref=leagues.home())
-    db.reset()                                                     # the last close folds the WAL into the file
-    shutil.copy(tmp_path / "ffl.db", other)                       # the test's own DB, as a stand-in for data-mock's
-    with db._write() as c:
-        c.execute(sa.delete(db.draft_picks))
-    replay.keep("practice-14-slot2", other, leagues.home().key)
-    [log] = db.draft_logs_rows("practice", "practice-14-slot2")
-    assert [r["player_id"] for r in log["rows"]] == [9, 10] and log["rows"][0]["adp_2qb"] == 1.5
-    assert log["meta"] == {"from": str(other), "league": leagues.home().key}
-    with pytest.raises(SystemExit, match="no picks"):
-        replay.keep("x", other, "espn:999")
+    db.reset()                                                     # a template takes no copies while in use
+    name = pg_server.fresh_name()                                  # the test's own DB, as a stand-in for the mock's
+    other = pg_server.create(name, template=sa.engine.make_url(db.url()).database)
+    try:
+        with db._write() as c:
+            c.execute(sa.delete(db.draft_picks))
+        replay.keep("practice-14-slot2", other, leagues.home().key)
+        [log] = db.draft_logs_rows("practice", "practice-14-slot2")
+        assert [r["player_id"] for r in log["rows"]] == [9, 10] and log["rows"][0]["adp_2qb"] == 1.5
+        assert log["meta"] == {"from": db.display_url(other), "league": leagues.home().key}
+        with pytest.raises(SystemExit, match="no picks"):
+            replay.keep("x", other, "espn:999")
+    finally:
+        pg_server.drop(name)
+
+
+def test_the_other_database_is_read_only(pg_server):
+    """picks_from_url never writes to the database it reads: its connections are read-only."""
+    name = pg_server.fresh_name()
+    other = pg_server.create(name)
+    try:
+        eng = db._read_only_engine(other)
+        try:
+            with pytest.raises(db.DBError, match="read-only transaction"):
+                with eng.begin() as c:
+                    c.exec_driver_sql("CREATE TABLE x (a int)")
+        finally:
+            eng.dispose()
+    finally:
+        pg_server.drop(name)
 
 
 def test_ffc_fetch_stores_new_drafts_and_skips_stored(monkeypatch):
@@ -209,13 +225,13 @@ def test_ffc_fetch_stores_new_drafts_and_skips_stored(monkeypatch):
     assert row["meta"] == {"url": f"{ffc.BASE}/draft/22", "human": [True, False]}
 
 
-def test_a_failed_upgrade_leaves_the_db_where_it_was(tmp_path, monkeypatch):
+def test_a_failed_upgrade_leaves_the_db_where_it_was(tmp_path, monkeypatch, empty_db):
     """Migrations run in one transaction, DDL included: a 0019 that fails part way leaves 0018, re-runnable."""
     from alembic import command
     data, journal, _ = _sample(tmp_path)
     monkeypatch.setattr(config, "DATA", data)
     monkeypatch.setattr(config, "JOURNAL", journal)
-    url = f"sqlite:///{tmp_path / 'fresh.db'}"
+    url = empty_db()
     monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
@@ -232,3 +248,19 @@ def test_a_failed_upgrade_leaves_the_db_where_it_was(tmp_path, monkeypatch):
     command.upgrade(db._alembic_config(), "head")
     db.reset()
     assert len(db.trace_rows()) == 2
+
+
+def test_upgrade_writes_a_nan_in_an_imported_file_as_null(tmp_path, monkeypatch, empty_db):
+    """Postgres's json refuses NaN, which Python's json.dumps writes: the upgrade's engine nulls it as the app's does."""
+    from alembic import command
+    data, journal, snap = _sample(tmp_path)
+    snap["rows"][0]["proj3"] = float("nan")
+    (data / "props" / "week-4-sun.json").write_text(json.dumps(snap))
+    monkeypatch.setattr(config, "DATA", data)
+    monkeypatch.setattr(config, "JOURNAL", journal)
+    monkeypatch.setenv("FFL_DB_URL", empty_db())
+    monkeypatch.delenv("LEAGUE_ID", raising=False)
+    db.reset()
+    command.upgrade(db._alembic_config(), "head")
+    db.reset()
+    assert db.props_snapshot_docs()[0]["rows"][0]["proj3"] is None

@@ -21,6 +21,16 @@ _COLS = ("season", "overall", "round", "pick", "team_id", "team", "player_id", "
          "board_rank_at_pick", "proj", "ts")
 
 
+def _rename_parts(bind, name: str) -> None:
+    """The renamed copy keeps the names Postgres gave `_<name>_new`'s constraints (its key; on PG 18 its NOT NULLs
+    too): give them the names a fresh create_table(name) has, so the schema matches one built at head."""
+    prefix = f"_{name}_new_"
+    for (con,) in bind.execute(sa.text("SELECT conname FROM pg_constraint WHERE conrelid = CAST(:t AS regclass)"),
+                               {"t": name}).all():
+        if con.startswith(prefix):
+            bind.execute(sa.text(f'ALTER TABLE {name} RENAME CONSTRAINT "{con}" TO "{name}_{con[len(prefix):]}"'))
+
+
 def _pick_columns() -> list[sa.Column]:
     return [sa.Column('season', sa.Integer(), nullable=False),
             sa.Column('overall', sa.Integer(), nullable=False),
@@ -50,6 +60,7 @@ def _recreate(league_first: bool, select: str, params: dict) -> None:
     op.get_bind().execute(sa.text(f"INSERT INTO _draft_picks_new ({', '.join(names)}) {select}"), params)
     op.drop_table('draft_picks')
     op.rename_table('_draft_picks_new', 'draft_picks')
+    _rename_parts(op.get_bind(), 'draft_picks')
 
 
 def upgrade() -> None:
