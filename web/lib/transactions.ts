@@ -33,6 +33,19 @@ export function byWeek(moves: TxMove[]): { week: number; moves: TxMove[] }[] {
   return out;
 }
 
+// The newest `n` moves of those weeks, a week cut part way if need be; `count` stays the week's whole count, so
+// its heading reads right while the rest of it is still to draw.
+export function firstMoves(weeks: { week: number; moves: TxMove[] }[], n: number): { week: number; moves: TxMove[]; count: number }[] {
+  const out: { week: number; moves: TxMove[]; count: number }[] = [];
+  let left = n;
+  for (const w of weeks) {
+    if (left <= 0) break;
+    out.push({ week: w.week, moves: w.moves.slice(0, left), count: w.moves.length });
+    left -= w.moves.length;
+  }
+  return out;
+}
+
 export function weekLabel(week: number, current: number): string {
   if (week <= 0) return "Preseason";
   return week === current ? `Week ${week} · this week` : `Week ${week}`;

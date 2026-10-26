@@ -496,6 +496,13 @@ class Runner(threading.Thread):
         befores = [dict(self.state.points_for(ln.key)) for ln in self.lanes]
         stats_before = self.state.stats  # replaced, not mutated, by update: a D/ST's play is read off what moved
         afters = [fc.score_all(doc, ln.table) for ln in self.lanes]
+        if not first:
+            # a player who drops out of one doc keeps his total: read as 0, his whole total posted as one play when
+            # a fuller doc brought him back (HOU-NYG's starters, 2026-10-25 21:00, hours after the final). Each league
+            # on its own points, while its stored week is still the lane's (a new week starts from the doc alone)
+            afters = [{**{p: v for p, v in before.items() if p not in after}, **after}
+                      if self.state.week_for(ln.key) == ln.week else after
+                      for ln, before, after in zip(self.lanes, befores, afters)]
         self.state.update(afters[0], fc.game_states(doc), fc.player_stats(doc), week=self.week,
                           others={ln.key: (a, ln.week) for ln, a in zip(rest, afters[1:])} if rest else None)
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc

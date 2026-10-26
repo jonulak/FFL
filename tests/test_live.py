@@ -569,3 +569,51 @@ def test_a_lane_a_week_behind_never_files_the_nfl_plays_under_its_week(monkeypat
     r._on_doc(copy.deepcopy(FIX))
     assert recorded["home"] == [{"play_id": "p1", "week": 8}]
     assert recorded.get("other", []) == [], "a week behind: none of the NFL's plays under week 7"
+
+
+def test_a_player_missing_from_one_doc_keeps_his_total_and_comes_back_without_a_play(monkeypatch):
+    """2026-10-25 21:00: a finished game's stat rows dropped out of the held doc and a fuller one brought
+    them back; read as 0 in between, Nabers' whole 18.1 posted as one play."""
+    from ffl import plays
+
+    seen = []
+
+    class Recording:
+        def add(self, rows):
+            pass
+
+        def record(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(plays, "events_from", lambda before, after, *a, **k: seen.append((dict(before), dict(after))) or [])
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    current = {"week": 1}
+    r = live.Runner(state=live.State(), settings={"scoring": []},
+                    week_fn=lambda: {"week": current["week"], "games": []})
+    r._on_doc(copy.deepcopy(FIX))  # the baseline
+    r.store = Recording()
+    pid = next(iter(FIX["statistics"]))
+    total = r.state.points[int(pid)]
+    gone = copy.deepcopy(FIX)
+    del gone["statistics"][pid]
+    r._on_doc(gone)
+    assert r.state.points[int(pid)] == total, "dropped out of the doc, not back to 0"
+    r._on_doc(copy.deepcopy(FIX))
+    before, after = seen[-1]
+    assert before[int(pid)] == after[int(pid)] == total
+    current["week"] = 2  # a new week starts from the doc alone
+    r._on_doc(copy.deepcopy(gone))
+    assert int(pid) not in r.state.points
+
+
+def test_another_leagues_player_missing_from_one_doc_keeps_his_total(monkeypatch):
+    monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
+    other = _other()
+    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []},
+                    leagues=[(other, STANDARD, lambda: {"week": 7, "games": []})])
+    r._on_doc(copy.deepcopy(FIX))  # the baseline
+    total = r.state.points_for(other.key)[4426515]
+    gone = copy.deepcopy(FIX)
+    del gone["statistics"]["4426515"]
+    r._on_doc(gone)
+    assert r.state.points_for(other.key)[4426515] == total and r.state.points[4426515] == 12.4
