@@ -235,6 +235,7 @@
 :root {
   --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-leave: cubic-bezier(0.4, 0, 1, 1);
+  --ease-roll: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 /* The sticky nav's height, which anything pinned under it reads (the Players table's heading, a story scrolled to):
@@ -427,16 +428,19 @@ tr[data-fold="shut"] > td > .fold {
    arrives as any page load does. */
 .league-wait { animation: league-wait 1100ms ease-in-out infinite alternate; }
 @keyframes league-wait { to { opacity: 0.55; } }
-.league-roll { position: relative; overflow: hidden; }
-html[data-league-arriving] .league-name { animation: league-roll-in 620ms var(--ease-arrive) both; }
+/* The slot clips above and below only: the old name rolls out at the width it stood at on the page left
+   (--league-from-w, with its own ellipsis), which may be wider than the new one, ending where the chevron starts. */
+.league-roll { position: relative; clip-path: inset(0 -100vw 0 0); }
+html[data-league-arriving] .league-name { animation: league-roll-in 520ms var(--ease-roll) both; }
 html[data-league-arriving] .league-roll::before {
-  content: var(--league-from, ""); position: absolute; inset: 0 0 auto 0;
+  content: var(--league-from, ""); position: absolute; top: 0; left: 0; width: var(--league-from-w, 100%);
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  animation: league-roll-out 620ms var(--ease-arrive) both;
+  animation: league-roll-out 520ms var(--ease-roll) both;
 }
-html[data-league-dw] .league-chevron { animation: league-follow 620ms var(--ease-arrive) both; }
-/* a rollover, not a crossfade: both names stay solid and travel as one strip, the slot (overflow hidden) hiding what
-   is outside it. Fading them as they passed left both half-gone at the midpoint, which read as a flicker. */
+html[data-league-dw] .league-chevron { animation: league-follow 520ms var(--ease-roll) both; }
+/* a rollover, not a crossfade: both names stay solid and travel as one strip on one even ease in and out (a mechanical
+   turn, not an arrival), the chevron with them. Fading them as they passed left both half-gone at the midpoint, which
+   read as a flicker. */
 @keyframes league-roll-in { from { translate: 0 100%; } }
 @keyframes league-roll-out { to { translate: 0 -100%; } }
 @keyframes league-follow { from { translate: var(--league-dw, 0) 0; } }
