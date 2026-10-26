@@ -192,9 +192,11 @@ function CompactRow({ p, pick }: { p: Play; pick?: Pick }) {
           <ItemTitle className={`line-clamp-none block w-full max-w-full -mb-[0.2em] truncate pb-[0.2em] font-display text-[1.125rem] font-semibold leading-none tracking-tight ${mine ? "" : "text-right"}`}>
             <PlayerTrigger p={seed(p)} pick={pick} className={`rounded-sm ${NAME_LINK}`}>{p.name}</PlayerTrigger>
           </ItemTitle>
+          {/* the tag stands under the name, on the line the numeral's own second line already opens:
+              at the inner end, beside the clock, it took the name's width and truncated it to nothing */}
+          {tag && <span className={`${UNIT} mt-1 block max-w-full truncate leading-4`}>{tag}</span>}
         </ItemContent>
         <ItemActions className={`gap-2.5 whitespace-nowrap tabular-nums ${mine ? "" : "flex-row-reverse"}`}>
-          {tag && <span className={UNIT}>{tag}</span>}
           {p.quarter != null && p.clock && <span className="text-xs text-muted-foreground">Q{p.quarter} {p.clock}</span>}
           {/* the delta with the running total beneath it, the way a posted score carries the projection it replaced */}
           <Points p={p} size="text-[1.25rem]" align={mine ? "items-end" : "items-start"} />
