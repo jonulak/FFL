@@ -413,18 +413,26 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
 
 ## Rules for working here
 - Every roster decision made in a session is recorded with `uv run python -m ffl.decisions add` (kind, title, decision, rationale preset or Other + note, alternatives, exit conditions) before committing; outcomes later with `ffl.decisions outcome <id>`. The app records its own moves (lineup, sit, claims, free adds) and the Decisions page asks for the reason; Settings can turn the recording (and its "Why?" prompts) off, and the page off, which holds the recording off too (`decision_prefs` state, `GET/POST /decisions/prefs`, read by the layout). journal/DECISIONS.md is frozen history (to 2026-10-10), imported into the `decisions` table.
-- Commit and push (`git push`) at the end of every session; the GitHub repo is the backup.
-- **Landing a worktree branch on main — only after Jonathan explicitly says to land that branch** (asking whether
-  to land is fine; a finished task is not permission). A worktree session is refused git against the main checkout,
-  so it runs `scripts/land.sh` (ff-only merge + push; the post-merge hook deploys) in the FFL workspace's Herdr tab
-  labelled `Terminal`, a plain shell in `~/Developer/FFL`. Pane IDs change across Herdr restarts: find it with
-  `herdr workspace list` / `herdr tab list --workspace <id>` / `herdr pane list --workspace <id>`, one plain
-  command each with literal IDs. Then: `git rebase main` in the worktree; check the tab is at its prompt
-  (`herdr pane read <pane> --lines 3`); `herdr pane run <pane> "scripts/land.sh <branch>"`;
-  `herdr pane wait-output <pane> --regex "land: done|error|fatal|rejected|Not possible" --timeout 600000`; read
-  the pane (the deploy prints `deployed <sha>`, then `land: stopping pid …` for each of the branch's test servers: every
-  listener whose cwd is inside its worktree, with its `tailscale serve` entry). On any failure stop and report; never fix it in his tab.
-  Without his go-ahead, or outside Herdr, hand him `cd ~/Developer/FFL && scripts/land.sh <branch>`.
+- Commit and push the branch (`git push`) at the end of every session; the GitHub repo is the backup. Work lands through
+  pull requests: `develop` is the default branch (squash-merge PRs only, linear history), `main` is what production runs
+  (merge-commit PRs from develop only). Neither can be deleted or force-pushed (rulesets, checked weekly by the
+  `verify-branch-protection` workflow), and the `test` workflow (pytest, web build, typecheck) runs on every PR.
+- **Landing a worktree branch on develop — only after Jonathan explicitly says to land that branch** (asking whether
+  to land is fine; a finished task is not permission). From the worktree: `git rebase origin/develop`;
+  `git push -u origin <branch>`; `gh pr create --base develop --fill` (title: what the branch does; the body ends with
+  the commit trailers' attribution and the Claude Code line); `gh pr checks --watch` (right after the create it can say
+  no checks reported: wait a few seconds and retry); `gh pr merge --squash --delete-branch` (a local branch-delete error
+  after a successful merge is fine: confirm with `gh pr view --json state`); then `scripts/stop-test-servers.sh` stops the
+  branch's test servers (every listener whose cwd is inside the worktree, with its `tailscale serve` entry; it refuses
+  the main checkout, and `--dry-run` only prints).
+- **Promoting develop to main (a deploy) — only after Jonathan explicitly says to promote.** `gh pr create --base main
+  --head develop --fill`, `gh pr checks --watch`, `gh pr merge --merge`. Then the main checkout pulls it
+  (`cd ~/Developer/FFL && git pull`; its post-merge hook deploys). A worktree session is refused git
+  against the main checkout, so that pull goes through the FFL workspace's Herdr tab labelled `Terminal` (a plain shell
+  in `~/Developer/FFL`; pane IDs change across Herdr restarts: `herdr workspace list` / `herdr tab list --workspace <id>` /
+  `herdr pane list --workspace <id>`, one plain command each with literal IDs): check it is at its prompt
+  (`herdr pane read <pane> --lines 3`), `herdr pane run <pane> "git pull"`, wait for `deployed <sha>`, read the pane.
+  Without his go-ahead, or outside Herdr, hand him the `cd ~/Developer/FFL && git pull` line.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
 - Weekly results go to the `results` table (`journal sync` / the hourly `/transactions/sync`); `journal/results/` is no longer written. Standings are read live from ESPN.
 - UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`

@@ -1,0 +1,56 @@
+name: Test
+
+# The merge gate: the Python suite, the web build and the typecheck, the same steps and order as
+# scripts/deploy.sh, so a PR that would fail a deploy fails here first. The job's name, `test`, is the
+# required status check on develop and main.
+#
+# NO paths: FILTER, deliberately. A required check that a path filter skips never reports, and a
+# PR waiting on a check that never runs is blocked, not passed. It runs on every PR unconditionally.
+#
+# The suite needs neither data/ nor .env: it runs on per-test temp DBs (tests/conftest.py points
+# FFL_DB_URL away from data/ffl.db).
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync
+
+      - run: uv run pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: corepack enable
+
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      # build first: `next build` generates next-env.d.ts, which declares the *.css module types,
+      # so the typecheck fails on a fresh checkout until a build has run.
+      - name: Build
+        working-directory: web
+        env:
+          FFL_API_URL: http://127.0.0.1:8300
+        run: pnpm build
+
+      # tsconfig includes .next/dev/types, which only `pnpm dev` writes; a stale copy fails the typecheck.
+      - name: Typecheck
+        working-directory: web
+        run: |
+          rm -rf .next/dev/types
+          pnpm typecheck

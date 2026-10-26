@@ -109,8 +109,9 @@ class Cache:
         if hit and hit.expires > now:
             return hit.payload, self._stale(hit)
         if hit:
+            stale = self._stale(hit)  # read before the rebuild starts: a thread that fails fast must not flag this reply
             self._revalidate(key)
-            return hit.payload, self._stale(hit)
+            return hit.payload, stale
         return self._flight.do(key, lambda: self._first_build(key, fn, ttl))
 
     def _first_build(self, key: str, fn: Callable[[], object], ttl: float | None):
