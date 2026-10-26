@@ -432,6 +432,12 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `herdr pane list --workspace <id>`, one plain command each with literal IDs): check it is at its prompt
   (`herdr pane read <pane> --lines 3`), `herdr pane run <pane> "git pull"`, wait for `deployed <sha>`, read the pane.
   Without his go-ahead, or outside Herdr, hand him the `cd ~/Developer/FFL && git pull` line.
+  Once the repo variable `DEPLOY_TARGET` is `box` (the cutover, B6), the merge into main deploys through Actions
+  instead (`.github/workflows/deploy.yml`: test.yml on the commit, web built on the runner, the tarball to
+  `s3://ffl-backups/releases/`, then SSM runs `/opt/ffl/release.sh <sha>` on the box): watch the push-to-main run
+  (`gh run list --workflow deploy.yml --branch main -L 1`, then `gh run watch <id> --exit-status`) and read
+  `deployed <sha>` in its last step. Its configuration is repo variables and the `production` environment, no
+  secrets (the workflow's header). Until B6 the Mac's post-merge hook still deploys and that run is tests only.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
 - Weekly results go to the `results` table (`journal sync` / the hourly `/transactions/sync`); `journal/results/` is no longer written. Standings are read live from ESPN.
 - UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`

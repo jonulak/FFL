@@ -513,3 +513,18 @@ def test_start_leagues_writes_each_league_in_turn_and_keeps_each_ones_last(outlo
     t = outlook.start_leagues([(None, lambda: ([card()], 5))], run=lambda p: [TAKE])
     t.join(5)
     assert outlook.last()["generated"] == 1 and outlook.last()["error"] is None
+
+
+def test_workers_from_env(monkeypatch):
+    """FFL_OUTLOOK_WORKERS sets the CLI calls in flight (the box runs 3); unset, 20. Read at import."""
+    import importlib
+    try:
+        monkeypatch.setenv("FFL_OUTLOOK_WORKERS", "3")
+        assert importlib.reload(outlook).WORKERS == 3
+        monkeypatch.setenv("FFL_OUTLOOK_WORKERS", "")  # an empty line in /etc/ffl/env
+        assert importlib.reload(outlook).WORKERS == 20
+        monkeypatch.delenv("FFL_OUTLOOK_WORKERS")
+        assert importlib.reload(outlook).WORKERS == 20
+    finally:
+        monkeypatch.delenv("FFL_OUTLOOK_WORKERS", raising=False)
+        importlib.reload(outlook)

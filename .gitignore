@@ -22,3 +22,9 @@ web/node_modules/
 web/.next/
 web/openapi.json
 .superpowers/
+
+# Terraform (terraform/)
+terraform.tfvars
+.terraform/
+*.tfstate*
+*.tfplan

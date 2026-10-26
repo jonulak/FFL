@@ -1,0 +1,177 @@
+name: Deploy
+
+# Tests, builds and deploys main to the box (ffl-box, AL2023 aarch64), through AWS Systems Manager: no
+# SSH, no Tailscale, no stored AWS keys.
+#
+#   resolve  the commit, once (a dispatch's `ref` may be a branch that moves)
+#   test     test.yml on that commit (workflow_call)
+#   deploy   builds web/.next on the runner (FFL_API_URL=http://127.0.0.1:8300, which `next build` bakes into
+#            the /api rewrite), tars `git archive` of the commit + web/.next (no node_modules: the box installs
+#            its own, arm64 sharp included), takes the ffl-deploy role by OIDC, puts the tarball at
+#            s3://ffl-backups/releases/<sha>.tar.gz and runs the SSM document ffl-release on the box, which runs
+#            only `/opt/ffl/release.sh <sha>` (terraform/deploy.tf). It passes when the command succeeds and
+#            its output ends `deployed <sha>`.
+#
+# Runs on every push to main (a promotion's merge commit). The deploy job runs only when the repo variable
+# DEPLOY_TARGET is `box` (set at the cutover, B6; until then the Mac's post-merge hook deploys and this run
+# is the tests alone), or on a manual dispatch:
+#   gh workflow run deploy.yml --ref <branch> -f ref=<sha or branch>
+# Only a commit on main deploys: the environment's branch policy checks the run's --ref, not the `ref` input,
+# so resolve refuses a commit that is not an ancestor of origin/main. Before the cutover (DEPLOY_TARGET not
+# `box`) a dispatch may pass -f allow_unmerged=true to deploy another commit for testing; once DEPLOY_TARGET
+# is `box` the input is ignored.
+#
+# Configuration (no secrets):
+#   repo variables  DEPLOY_TARGET (`box` deploys on push), AWS_DEPLOY_ROLE_ARN (terraform output
+#                   deploy_role_arn), BOX_INSTANCE_ID (terraform output box_instance_id)
+#   environment     `production`: the role trusts only this environment's jobs
+#                   (sub repo:White-Bridge-Labs/FFL:environment:production), and its deployment branch policy
+#                   (main) decides which branches may deploy at all
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or branch to deploy (default the branch run from)
+        type: string
+        required: false
+      allow_unmerged:
+        description: Deploy a commit not on main (honoured only while DEPLOY_TARGET is not box)
+        type: boolean
+        default: false
+
+# one deploy at a time, never cancelled half way (release.sh also holds a lock on the box)
+concurrency:
+  group: deploy-box
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0   # every branch's history: the ancestry check below needs origin/main's
+      - id: sha
+        env:
+          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
+          ALLOW_UNMERGED: ${{ inputs.allow_unmerged == true }}
+        run: |
+          sha="$(git rev-parse HEAD)"
+          if git merge-base --is-ancestor "$sha" origin/main; then
+            echo "$sha is on main"
+          elif [ "$ALLOW_UNMERGED" = true ] && [ "$DEPLOY_TARGET" != box ]; then
+            echo "::warning::$sha is not on main: deployed anyway (allow_unmerged, before the cutover)"
+          else
+            echo "::error::$sha is not on main; only main's commits deploy"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: resolve
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
+  deploy:
+    needs: [resolve, test]
+    if: vars.DEPLOY_TARGET == 'box' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SHA: ${{ needs.resolve.outputs.sha }}
+      AWS_REGION: us-east-1
+      BOX_INSTANCE_ID: ${{ vars.BOX_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Check configuration
+        env:
+          ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          [ -n "$ROLE" ] || { echo "::error::repo variable AWS_DEPLOY_ROLE_ARN is not set"; exit 1; }
+          [[ "$BOX_INSTANCE_ID" =~ ^i-[0-9a-f]+$ ]] || { echo "::error::repo variable BOX_INSTANCE_ID is not an instance id"; exit 1; }
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::resolved sha '$SHA' is not 40 hex"; exit 1; }
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - run: corepack enable
+
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web
+        working-directory: web
+        env:
+          FFL_API_URL: http://127.0.0.1:8300
+        run: |
+          pnpm build
+          # the rewrite the box's Next serves /api through (memory: web-build-bakes-api-url)
+          grep -q 'http://127.0.0.1:8300/:path\*' .next/routes-manifest.json
+
+      # .next/cache is the build cache and .next/dev the dev server's: neither is read by `next start`
+      - name: Tarball
+        run: |
+          git archive --format=tar -o "$RUNNER_TEMP/release.tar" "$SHA"
+          tar -rf "$RUNNER_TEMP/release.tar" --exclude=web/.next/cache --exclude=web/.next/dev web/.next
+          gzip -9 "$RUNNER_TEMP/release.tar"
+          ls -l "$RUNNER_TEMP/release.tar.gz"
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: ffl-deploy-${{ github.run_id }}
+
+      # one PUT (s3api, not `s3 cp`: no multipart, which the role is not granted)
+      - name: Upload
+        run: |
+          aws s3api put-object --bucket ffl-backups --key "releases/$SHA.tar.gz" \
+            --body "$RUNNER_TEMP/release.tar.gz" --output text --query ETag
+
+      - name: Release on the box
+        run: |
+          id="$(aws ssm send-command --document-name ffl-release --instance-ids "$BOX_INSTANCE_ID" \
+                --parameters "sha=$SHA" --comment "deploy $SHA (run $GITHUB_RUN_ID)" \
+                --query Command.CommandId --output text)"
+          echo "command $id"
+          # `aws ssm wait command-executed` gives up after 100 s; release.sh can take minutes. 15 min cap.
+          status=Pending
+          for _ in $(seq 1 90); do
+            sleep 10
+            # right after the send the invocation may not exist yet: only that error counts as pending
+            if ! status="$(aws ssm get-command-invocation --command-id "$id" --instance-id "$BOX_INSTANCE_ID" \
+                            --query Status --output text 2>"$RUNNER_TEMP/poll.err")"; then
+              if grep -q InvocationDoesNotExist "$RUNNER_TEMP/poll.err"; then status=Pending; continue; fi
+              cat "$RUNNER_TEMP/poll.err"; echo "::error::get-command-invocation failed"; exit 1
+            fi
+            case "$status" in Pending|InProgress|Delayed) continue ;; *) break ;; esac
+          done
+          aws ssm get-command-invocation --command-id "$id" --instance-id "$BOX_INSTANCE_ID" \
+            --query StandardOutputContent --output text > "$RUNNER_TEMP/out.txt" || true
+          aws ssm get-command-invocation --command-id "$id" --instance-id "$BOX_INSTANCE_ID" \
+            --query StandardErrorContent --output text > "$RUNNER_TEMP/err.txt" || true
+          echo "--- stdout"; cat "$RUNNER_TEMP/out.txt"
+          echo "--- stderr"; cat "$RUNNER_TEMP/err.txt"
+          echo "--- status $status"
+          [ "$status" = Success ] || { echo "::error::release on the box: $status"; exit 1; }
+          grep -qx "deployed $SHA" "$RUNNER_TEMP/out.txt" || { echo "::error::no 'deployed $SHA' in the output"; exit 1; }
+          echo "deployed $SHA"

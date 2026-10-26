@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil  # noqa: F401  (tests/test_outlook.py patches outlook.shutil / outlook.subprocess; the modules are claude_cli's too)
 import subprocess  # noqa: F401
 import threading
@@ -77,7 +78,8 @@ def last(ref=None) -> dict:
                                 "last_failure": None, "pending": None})
 # calls in flight at once: a full rewrite is ~15 cards of ~15 s each, so the whole roster goes at once. Lower it if
 # the Claude plan starts refusing calls (they show as failures with the CLI's message in last_failure).
-WORKERS = 20
+# FFL_OUTLOOK_WORKERS overrides it (the box, with 2 GB, runs 3); read at import, so set it before the API starts.
+WORKERS = int(os.environ.get("FFL_OUTLOOK_WORKERS") or 20)  # an empty line in the env file counts as unset
 
 
 class Busy(RuntimeError):
