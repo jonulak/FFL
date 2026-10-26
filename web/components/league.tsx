@@ -113,8 +113,9 @@ function ScoreRow({ side, on, final, now, trailing, won, odds, half }: { side: S
           <p className="mt-0.5 text-xs text-muted-foreground">{est != null ? <>est <Ticker value={est} format={pts} /></> : `proj ${pts(side.proj)}`}</p>
         </Presence>
       </div>
-      {/* the caret's slot is on every row, final or not, so scores line up across tiles in every state */}
-      <span className="-ml-1 flex w-2.5 shrink-0 self-start pt-[0.4375rem] sm:-ml-1.5">
+      {/* the caret's slot is on every row, final or not, so scores line up across tiles in every state. It shows only
+          on a final, whose score stands alone (no est line) centred in the row, so the caret centres with it, as an NFL card's */}
+      <span className="-ml-1 flex w-2.5 shrink-0 items-center self-stretch sm:-ml-1.5">
         <Presence show={won}><span className="flex"><Triangle aria-hidden className="size-2.5 -rotate-90 fill-current" /><span className="sr-only">winner</span></span></Presence>
       </span>
     </li>
