@@ -27,7 +27,8 @@ export const metadata: Metadata = {
 
 // Before the first paint: a league switch's page (the switcher set LEAGUE_ARRIVE just before the load) is marked
 // arriving for the length of its arrival (globals.css, "League switch"), then unmarked; any other load is untouched.
-const ARRIVE_SCRIPT = `try{if(sessionStorage.getItem(${JSON.stringify(LEAGUE_ARRIVE)})){sessionStorage.removeItem(${JSON.stringify(LEAGUE_ARRIVE)});var d=document.documentElement;d.dataset.leagueArriving="";setTimeout(function(){delete d.dataset.leagueArriving},1500)}}catch(e){}`;
+// The marker holds the width the old league's name stood at, which the switcher grows or shrinks the new one from.
+const ARRIVE_SCRIPT = `try{var v=sessionStorage.getItem(${JSON.stringify(LEAGUE_ARRIVE)});if(v){sessionStorage.removeItem(${JSON.stringify(LEAGUE_ARRIVE)});var d=document.documentElement;d.dataset.leagueArriving="";d.dataset.leagueFromW=v;setTimeout(function(){delete d.dataset.leagueArriving},1500)}}catch(e){}`;
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // every page renders under this layout: an API that cannot answer leaves the switches at their defaults, never an error

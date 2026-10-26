@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, Settings } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuTrigger,
@@ -16,7 +16,9 @@ import { LEAGUE_ARRIVE, LEAGUE_COOKIE, withLeague } from "@/lib/league";
 // forgets it. A league's settings open it the same way: its pages are under it.
 function go(l: LeagueEntry, path: string) {
   document.documentElement.dataset.leagueLeaving = ""; // the page left behind fades back while the next loads (globals.css)
-  try { sessionStorage.setItem(LEAGUE_ARRIVE, "1"); } catch { /* storage off: the next page arrives as any load does */ }
+  // the marker carries the width the name stands at now: the next page's name grows or shrinks from it
+  const w = document.querySelector(".league-name")?.getBoundingClientRect().width ?? 0;
+  try { sessionStorage.setItem(LEAGUE_ARRIVE, String(Math.round(w) || 1)); } catch { /* storage off: the next page arrives as any load does */ }
   document.cookie = l.home ? `${LEAGUE_COOKIE}=; path=/; max-age=0` : `${LEAGUE_COOKIE}=${encodeURIComponent(l.key)}; path=/; max-age=${365 * 86400}; samesite=lax`;
   window.location.assign(l.home ? path : withLeague(path, l.key));
 }
@@ -25,6 +27,18 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
   // the league picked while its first page loads (a full load, a second or more cold): its name is written in at once
   // and waits, dimmed, so the pick reads as taken. A page restored from the back-forward cache drops it.
   const [pending, setPending] = useState<LeagueEntry | null>(null);
+  const name = useRef<HTMLSpanElement>(null);
+  // a league switch's arrival: the name takes its new width from the old one's (the marker, layout.tsx), so the chevron
+  // beside it travels rather than jumps. Width, not a transform: the ellipsis has to move with it. One small span.
+  useLayoutEffect(() => {
+    const d = document.documentElement, from = Number(d.dataset.leagueFromW);
+    delete d.dataset.leagueFromW;
+    const el = name.current;
+    if (!el || !(from > 1) || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const to = el.getBoundingClientRect().width;
+    if (Math.abs(to - from) < 2) return;
+    el.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration: 600, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+  }, []);
   useEffect(() => {
     const back = (e: PageTransitionEvent) => {
       if (!e.persisted) return;
@@ -50,7 +64,7 @@ export function LeagueSwitcher({ leagues, open }: { leagues: LeagueEntry[]; open
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
           {shown && (
-            <span key={shown.key} title={shown.name}
+            <span key={shown.key} ref={name} title={shown.name}
                   className={`league-name min-w-0 max-w-[16rem] truncate pb-px font-display text-[0.875rem] font-semibold uppercase leading-none tracking-[0.06em] text-foreground/75 sm:max-w-[9rem] lg:max-w-[13rem] ${pending ? "league-in league-wait" : ""}`}>
               {shown.name}
             </span>
