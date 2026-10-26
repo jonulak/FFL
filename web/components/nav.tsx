@@ -3,6 +3,12 @@ import { NavLinks } from "@/components/nav-links";
 import { SettingsLink } from "@/components/settings-link";
 import type { LeagueEntry } from "@/lib/api";
 
+// A full page load (a league switch, a reload) paints the phone's tab strip scrolled to its start, and NavLinks only
+// brings the current tab into view once it hydrates (~500 ms on a warm load), so a tab past the first few jumped
+// across the strip. This runs as the parser reaches it, before the first paint: the current tab centred, as NavLinks
+// centres it, so its effect then finds nothing to move.
+const CENTER_TAB = `try{var a=document.currentScript.parentNode.querySelector('nav[aria-label="Pages"] a[aria-current="page"]'),l=a&&a.closest('[role="tablist"]');if(l){var r=a.getBoundingClientRect(),s=l.getBoundingClientRect();l.scrollLeft+=r.left+r.width/2-(s.left+s.width/2)}}catch(e){}`;
+
 // The board's top rule: the wordmark (the league switcher), a hairline, the page tabs, and the Settings gear pushed
 // to the right edge. The header is the field at 92% over a blur so the cards slide under it; its bottom rule is
 // ink at 12%, the same hairline the section headings run. Below `lg` (phone, iPad) it is two rows (--nav-h,
@@ -20,6 +26,7 @@ export function Nav({ leagues, league }: { leagues: LeagueEntry[]; league: Leagu
         <NavLinks className="order-last h-10 basis-full lg:order-none lg:h-auto lg:basis-auto" league={away ? league.key : null} />
         <div className="ml-auto flex h-11 shrink-0 items-center gap-0.5 lg:h-auto lg:pl-2"><SettingsLink /></div>
       </div>
+      <script dangerouslySetInnerHTML={{ __html: CENTER_TAB }} />
     </header>
   );
 }
