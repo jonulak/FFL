@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 
 from ffl import db, plays
+from tests.home import home_league
 
 LEAGUE = {"week": 1, "games": [[{"team_id": 7, "lineup": [{"player_id": 1, "name": "Me QB", "pos": "QB", "team": "SF"}]},
                                 {"team_id": 3, "lineup": [{"player_id": 2, "name": "Their WR", "pos": "WR", "team": "CHI"}]}],
@@ -33,7 +34,7 @@ def _row(at, team_id, total=1.0, delta=1.0, week=1):
 
 
 def test_store_latest_filters_to_one_boards_teams():
-    st = plays.Store(1)
+    st = plays.Store(1, ref=home_league())
     st.add([_row("a", 7), _row("b", 5), _row("c", 3), _row("d", 5)])
     assert [r["at"] for r in st.latest(teams={7, 3})] == ["c", "a"]
     assert [r["at"] for r in st.latest(1, teams={5})] == ["d"]
@@ -54,41 +55,41 @@ def test_events_from_skips_unmoved_and_unknown_players():
 
 
 def test_store_appends_and_reloads_newest_first():
-    st = plays.Store(1)
+    st = plays.Store(1, ref=home_league())
     st.add([_row("a", 7, 1.0), _row("b", 7, 3.0)])
     st.add([_row("c", 7, 6.0)])
     assert [r["at"] for r in st.latest(2)] == ["c", "b"]
-    again = plays.Store(1)  # a fresh boot reads the DB
+    again = plays.Store(1, ref=home_league())  # a fresh boot reads the DB
     assert [r["at"] for r in again.latest()] == ["c", "b", "a"]
     assert again.latest() == st.latest()
-    assert plays.Store(2).latest() == [], "another week's feed is separate"
+    assert plays.Store(2, ref=home_league()).latest() == [], "another week's feed is separate"
 
 
 def test_store_reads_and_writes_its_own_league():
     from ffl import leagues
-    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
     db.put_called_back([{"play_id": "p1", "player_id": 2, "week": 1, "who": "other"}], [], ref=other)
     st = plays.Store(1, ref=other)
     st.add([_row("a", 3, 1.0)])
-    assert [r["at"] for r in db.plays_rows(1, ref=other)] == ["a"] and db.plays_rows(1) == []
-    assert plays.Store(1).latest() == [], "home's feed is its own"
+    assert [r["at"] for r in db.plays_rows(1, ref=other)] == ["a"] and db.plays_rows(1, ref=home_league()) == []
+    assert plays.Store(1, ref=home_league()).latest() == [], "home's feed is its own"
     assert plays.Store(1, ref=other).called == {("p1", 2): {"play_id": "p1", "player_id": 2, "week": 1, "who": "other"}}
-    assert plays.Store(1).called == {}
+    assert plays.Store(1, ref=home_league()).called == {}
 
 
 def test_store_keeps_rows_in_memory_when_the_db_write_fails(monkeypatch):
     def boom(rows, **k):
         raise RuntimeError("locked")
     monkeypatch.setattr(db, "add_plays", boom)
-    st = plays.Store(1)
+    st = plays.Store(1, ref=home_league())
     with pytest.raises(RuntimeError):
         st.add([_row("a", 7)])
     assert [r["at"] for r in st.latest()] == ["a"]
 
 
 def test_store_add_nothing_writes_nothing():
-    plays.Store(1).add([])
-    assert db.plays_rows(1) == []
+    plays.Store(1, ref=home_league()).add([])
+    assert db.plays_rows(1, ref=home_league()) == []
 
 
 # The stats patch for a play arrives a frame or three after the play text, by which time the

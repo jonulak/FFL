@@ -4,10 +4,11 @@ from types import SimpleNamespace as NS
 import pytest
 
 from ffl import config, db, draft_watch, espn_season, leagues
+from tests.home import home_league
 
 
 def _other():
-    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
 
 
 def _pick(rnd, rp, team_id, pid, name):
@@ -24,7 +25,7 @@ def _stub(monkeypatch, drafted=True):
 
 
 def test_stores_the_finished_draft_under_its_league(monkeypatch):
-    home, other = leagues.home(), _other()
+    home, other = home_league(), _other()
     _stub(monkeypatch)
     assert draft_watch.store_espn_draft(other) == 3
     rows = db.picks(ref=other)
@@ -59,7 +60,7 @@ def _watched(team_id):
 
 
 def test_refuses_the_home_league_and_keeps_its_watched_picks(monkeypatch):
-    home = leagues.home()
+    home = home_league()
     db.put_picks([_watched(7)], ref=home)
     before = db.picks(ref=home)
     _no_espn(monkeypatch)

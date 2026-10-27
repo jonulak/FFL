@@ -9,6 +9,12 @@ from ffl import rollout as ro
 from ffl import strategy
 
 from .test_board import EMPTY_ADP, make_players
+from tests.home import home_league
+
+
+def _caps():
+    """The home league's caps (QB 3, TE 2, K 1, D/ST 1, RB/WR 7): what the draft tools hand the rollout."""
+    return strategy.caps(ref=home_league())
 
 # The real league's lineup: two QBs, two flex, one of everything else.
 SETTINGS_2QB = {
@@ -62,22 +68,22 @@ def test_season_points_without_byes_equals_full_lineup():
 
 
 def test_opponents_do_not_draft_a_fourth_qb_or_a_third_te():
-    t = ro.Team({"QB": 3, "TE": 2}, picks_left=8)
+    t = ro.Team({"QB": 3, "TE": 2}, picks_left=8, caps=_caps())
     ok = ro.allowed_positions(t, SETTINGS_2QB)
     assert "QB" not in ok and "TE" not in ok
     assert {"RB", "WR"} <= ok
 
 
 def test_opponents_hold_k_and_dst_for_the_run_in():
-    early = ro.Team({}, picks_left=10)
-    late = ro.Team({"QB": 2, "RB": 4, "WR": 4, "TE": 1}, picks_left=3)
+    early = ro.Team({}, picks_left=10, caps=_caps())
+    late = ro.Team({"QB": 2, "RB": 4, "WR": 4, "TE": 1}, picks_left=3, caps=_caps())
     assert "K" not in ro.allowed_positions(early, SETTINGS_2QB)
     assert "D/ST" not in ro.allowed_positions(early, SETTINGS_2QB)
     assert {"K", "D/ST"} <= ro.allowed_positions(late, SETTINGS_2QB)
 
 
 def test_opponents_fill_empty_starters_when_the_picks_run_out():
-    t = ro.Team({"QB": 2, "RB": 5, "WR": 5, "TE": 1, "K": 1}, picks_left=1)  # only D/ST open
+    t = ro.Team({"QB": 2, "RB": 5, "WR": 5, "TE": 1, "K": 1}, picks_left=1, caps=_caps())  # only D/ST open
     assert ro.allowed_positions(t, SETTINGS_2QB) == {"D/ST"}
 
 
@@ -87,7 +93,7 @@ def test_opponent_pick_takes_the_first_usable_player_in_adp_order():
     pool = ro.Pool.from_board(bd)
     order = np.argsort(pool.adp, kind="stable")
     taken = np.zeros(len(pool), dtype=bool)
-    team = ro.Team({"QB": 3}, picks_left=10)
+    team = ro.Team({"QB": 3}, picks_left=10, caps=_caps())
     i = ro.opponent_pick(order, taken, pool, team, SETTINGS_2QB)
     assert pool.pos[i] != "QB"
     # and with nobody taken, it is the first non-QB in the order
@@ -145,7 +151,7 @@ def test_rollout_finishes_every_simulated_roster_legally():
     for _ in range(5):
         order = np.argsort(pool.adp + rng.normal(0, 1, len(pool)) * pool.adp_sd, kind="stable")
         taken = np.zeros(len(pool), dtype=bool)
-        teams = {t: ro.Team({}, n) for t, n in picks_left.items()}
+        teams = {t: ro.Team({}, n, _caps()) for t, n in picks_left.items()}
         mine = []
         for k, t in enumerate(remaining):
             team = teams[t]
@@ -160,7 +166,7 @@ def test_rollout_finishes_every_simulated_roster_legally():
         counts = Counter(pool.pos[i] for i in mine)
         assert counts["QB"] >= 2 and counts["TE"] >= 1 and counts["K"] == 1 and counts["D/ST"] == 1
         assert counts["RB"] >= 2 and counts["WR"] >= 2
-        for p, cap in strategy.caps().items():
+        for p, cap in strategy.caps(ref=home_league()).items():
             assert counts[p] <= cap, counts
         for t, team in teams.items():
             assert team.picks_left == 0
@@ -212,7 +218,7 @@ def test_qb_pace_pulls_only_quarterbacks_forward(monkeypatch):
     monkeypatch.delenv("FFL_QB_PACE", raising=False)
     base = ro.Pool.from_board(bd)
     monkeypatch.setenv("FFL_QB_PACE", "10")
-    fast = ro.Pool.from_board(bd)
+    fast = ro.Pool.from_board(bd, strategy.qb_pace(ref=home_league()))  # the env wins over the league's
     qb = np.array(base.pos) == "QB"
     assert np.allclose(fast.adp[qb], np.maximum(base.adp[qb] - 10, 1.0))
     assert np.allclose(fast.adp[~qb], base.adp[~qb])
@@ -224,7 +230,7 @@ def test_candidates_never_add_a_position_at_its_cap():
     pool = ro.Pool.from_board(bd)
     rec = {"top": []}
     # two TEs rostered, TE slot filled, flex open: the flex must not put a third TE on the list
-    cands = ro.candidate_indices(pool, rec, {"TE": 2, "QB": 2}, SETTINGS_2QB)
+    cands = ro.candidate_indices(pool, rec, {"TE": 2, "QB": 2}, SETTINGS_2QB, caps=_caps())
     assert cands and all(pool.pos[i] != "TE" for i in cands)
     assert {pool.pos[i] for i in cands} >= {"RB", "WR"}
 
@@ -277,7 +283,7 @@ def test_plan_takes_the_position_whose_wait_is_dearest():
     df["repl"] = 100.0
     pool = ro.Pool.from_board(df)
     st = {"team_count": 2, "starters": {"RB": 1, "WR": 1}, "roster_size": 2, "name": "t", "season": 2026}
-    team = ro.Team({}, picks_left=2)
+    team = ro.Team({}, picks_left=2, caps=_caps())
     assert ro.plan_position(pool, np.zeros(len(pool), bool), team, st, [5, 25]) == "RB"
 
 
@@ -296,11 +302,11 @@ def test_rollout_reads_league_caps(monkeypatch):
         return orig(proj, pos, bye, settings)
     monkeypatch.setattr(ro, "season_points", spy)
     tm = {"decide": decide}
-    ro.from_state(bd, SETTINGS_2QB, full, 7, tm, {}, my_roster, rec, n_sims=10, seed=2)
-    assert max(qbs) == 3, "fixture never reaches a QB3 under the default caps, so it cannot show the cap"
+    ro.from_state(bd, SETTINGS_2QB, full, 7, tm, {}, my_roster, rec, n_sims=10, seed=2, caps=_caps())
+    assert max(qbs) == 3, "fixture never reaches a QB3 under the league's caps, so it cannot show the cap"
     qbs.clear()
     ro.from_state(bd, SETTINGS_2QB, full, 7, tm, {}, my_roster, rec, n_sims=10, seed=2,
-                  caps={**strategy.caps(), "QB": 2})
+                  caps={**strategy.caps(ref=home_league()), "QB": 2})
     assert qbs and max(qbs) <= 2, f"a simulated roster of mine held {max(qbs)} QBs under QB=2"
 
 

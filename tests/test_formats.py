@@ -8,6 +8,7 @@ import sqlalchemy as sa
 
 from ffl import db, formats, leagues, settings, sleeper
 from ffl.leagues import LeagueRef
+from tests.home import home_league
 
 FX = Path(__file__).parent / "fixtures" / "home_settings.json"
 HOME = "espn:100000001"
@@ -34,7 +35,7 @@ def keys(tables: dict) -> dict:
 
 
 def other_league(n: int = 999) -> LeagueRef:
-    return leagues.register(LeagueRef(f"espn:{n}", "espn", str(n), 2026, f"league {n}", None, False, None, None))
+    return leagues.register(LeagueRef(f"espn:{n}", "espn", str(n), 2026, f"league {n}", None, None, None), user_id=0)
 
 
 def scoring_format_count() -> int:
@@ -47,7 +48,7 @@ def test_same_scoring_shares_formats():
     b, _ = formats.scoring_from_espn(list(reversed(PPR)))
     assert set(a) == set(formats.POSITIONS)
     assert keys(a) == keys(b), "the order ESPN lists items in is not part of a format"
-    formats.store(leagues.home(), {**fixture(), "scoring_items": PPR})
+    formats.store(home_league(), {**fixture(), "scoring_items": PPR})
     formats.store(other_league(), {**fixture(), "league_id": 999, "scoring_items": list(reversed(PPR))})
     assert scoring_format_count() == 6, "two leagues on one scoring share six rows, not twelve"
 
@@ -90,7 +91,7 @@ def test_points_are_normalized_before_hashing():
 def test_unmapped_abbr_is_recorded():
     _, unmapped = formats.scoring_from_espn(PPR + [item(155, 1), item(9999, 2), item(156, 0)])
     assert unmapped == ["TW", "stat9999"], "a zero-point item scores nothing, mapped or not"
-    formats.store(leagues.home(), {**fixture(), "scoring_items": PPR + [item(155, 1)]})
+    formats.store(home_league(), {**fixture(), "scoring_items": PPR + [item(155, 1)]})
     with db._read() as c:
         rows = c.execute(sa.select(db.league_scoring).where(db.league_scoring.c.league == HOME)).all()
     assert len(rows) == 6 and all(r.unmapped == ["TW"] for r in rows)
@@ -104,40 +105,40 @@ def test_home_list_maps_every_stat():
 
 def test_load_round_trips_todays_settings():
     fx = fixture()
-    ref = formats.store(leagues.home(), copy.deepcopy(fx))
+    ref = formats.store(home_league(), copy.deepcopy(fx))
     assert ref.lineup_format == formats.lineup_key(formats.lineup_from_settings(fx))
     assert ref.name == "2026 Fantasy Football" and ref.team_id == 7, "the registry row keeps its team"
-    got = settings.load(leagues.home())
+    got = settings.load(home_league())
     assert {k: v for k, v in got.items() if k not in ("scoring_tables", "scoring_items")} == \
         {**fx, "first_week": 1, "league_key": HOME}
     assert got["scoring_items"] is None, "settings.json kept no raw items"
-    assert got["scoring_tables"] == formats.league_table(leagues.home())
-    assert settings.load() == settings.load(leagues.home()), "no league named: the home league"
+    assert got["scoring_tables"] == formats.league_table(home_league())
+    assert settings.load(ref=home_league()) == settings.load(home_league()), "no league named: the home league"
 
 
 def test_load_keeps_the_lineup_order():
     fx = fixture()
-    formats.store(leagues.home(), copy.deepcopy(fx))
-    got = settings.load()
+    formats.store(home_league(), copy.deepcopy(fx))
+    got = settings.load(ref=home_league())
     assert list(got["starters"]) == list(fx["starters"]) and list(got["roster_slots"]) == list(fx["roster_slots"])
 
 
 def test_store_keeps_raw_items_and_takes_first_week():
-    formats.store(leagues.home(), {**fixture(), "scoring_items": PPR, "first_week": 2})
-    got = settings.load()
+    formats.store(home_league(), {**fixture(), "scoring_items": PPR, "first_week": 2})
+    got = settings.load(ref=home_league())
     assert got["scoring_items"] == PPR and got["first_week"] == 2
-    assert formats.league_table(leagues.home())["QB"]["pass_int"] == -2
+    assert formats.league_table(home_league())["QB"]["pass_int"] == -2
 
 
 def test_league_table_is_per_position():
-    formats.store(leagues.home(), {**fixture(), "scoring_items": [item(53, 1, s6=1.5), item(89, 0, s16=5)]})
-    t = formats.league_table(leagues.home())
+    formats.store(home_league(), {**fixture(), "scoring_items": [item(53, 1, s6=1.5), item(89, 0, s16=5)]})
+    t = formats.league_table(home_league())
     assert t["TE"] == {"rec": 1.5} and t["WR"] == {"rec": 1.0} and t["D/ST"] == {"pa_0": 5.0}
 
 
 def test_load_without_settings_says_what_to_run():
     with pytest.raises(SystemExit, match="ffl.settings"):
-        settings.load()
+        settings.load(ref=home_league())
 
 
 def test_pass_int_is_intt():
@@ -157,8 +158,8 @@ def test_home_rescoring_unchanged():
 
 
 def test_caps_take_the_lower():
-    formats.store(leagues.home(), fixture())   # provider limits QB 4, RB 8, WR 8, TE 3, K 3, D/ST 3
-    home = leagues.home()
+    formats.store(home_league(), fixture())   # provider limits QB 4, RB 8, WR 8, TE 3, K 3, D/ST 3
+    home = home_league()
     leagues.set_cap(home, "QB", 3)
     leagues.set_cap(home, "K", 3)
     caps = leagues.caps(home)
@@ -170,12 +171,12 @@ def test_caps_take_the_lower():
 
 
 def test_my_cap_above_provider_limit_refused(capsys):
-    formats.store(leagues.home(), fixture())
+    formats.store(home_league(), fixture())
     with pytest.raises(SystemExit, match="the league allows at most 4 QB"):
         leagues.main(["caps", HOME, "QB=5"])
-    assert leagues.caps(leagues.home())["QB"] == 4, "a refused cap stores nothing"
+    assert leagues.caps(home_league())["QB"] == 4, "a refused cap stores nothing"
     assert leagues.main(["caps", HOME, "QB=3", "D/ST=1"]) == 0
-    assert leagues.caps(leagues.home()) == {"QB": 3, "RB": 8, "WR": 8, "TE": 3, "K": 3, "D/ST": 1}
+    assert leagues.caps(home_league()) == {"QB": 3, "RB": 8, "WR": 8, "TE": 3, "K": 3, "D/ST": 1}
     capsys.readouterr()
     assert leagues.main(["caps", HOME]) == 0
     out = capsys.readouterr().out
@@ -183,10 +184,10 @@ def test_my_cap_above_provider_limit_refused(capsys):
 
 
 def test_restore_keeps_my_caps():
-    formats.store(leagues.home(), fixture())
-    leagues.set_cap(leagues.home(), "RB", 7)
-    formats.store(leagues.home(), fixture())
-    assert leagues.caps(leagues.home())["RB"] == 7, "re-reading the league's settings keeps my caps"
+    formats.store(home_league(), fixture())
+    leagues.set_cap(home_league(), "RB", 7)
+    formats.store(home_league(), fixture())
+    assert leagues.caps(home_league())["RB"] == 7, "re-reading the league's settings keeps my caps"
 
 
 def test_migration_imports_settings_json(tmp_path, monkeypatch, empty_db):
@@ -203,7 +204,7 @@ def test_migration_imports_settings_json(tmp_path, monkeypatch, empty_db):
     db.reset()
     command.upgrade(db._alembic_config(), "head")
     db.reset()
-    home = leagues.home()
+    home = leagues.get("espn:100000001")
     got = settings.load(home)
     assert {k: v for k, v in got.items() if k not in ("scoring_tables", "scoring_items")} == \
         {**fixture(), "first_week": 1, "league_key": HOME}
@@ -223,7 +224,7 @@ def test_store_is_one_transaction(monkeypatch):
         writes.append(1)
         return real_write()
     monkeypatch.setattr(db, "_write", counted)
-    formats.store(leagues.home(), fixture())
+    formats.store(home_league(), fixture())
     assert len(writes) == 1, f"store took {len(writes)} write transactions"
 
     other = other_league()
@@ -240,13 +241,13 @@ def test_store_is_one_transaction(monkeypatch):
 
 
 def test_load_without_a_lineup_link_names_the_league():
-    formats.store(leagues.home(), fixture())
+    formats.store(home_league(), fixture())
     t = db.leagues_table
     with db._write() as c:
         c.execute(sa.update(t).where(t.c.key == HOME).values(lineup_format=None))
     with pytest.raises(SystemExit, match=HOME):
-        settings.load()
+        settings.load(ref=home_league())
     with db._write() as c:   # a link to a lineup format that is not stored
         c.execute(sa.update(t).where(t.c.key == HOME).values(lineup_format="ln-gone"))
     with pytest.raises(SystemExit, match=HOME):
-        settings.load()
+        settings.load(ref=home_league())

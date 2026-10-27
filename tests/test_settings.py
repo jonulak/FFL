@@ -2,6 +2,7 @@
 from datetime import date
 
 from ffl.settings import first_week, nfl_week1_start, playoff_weeks
+from tests.home import home_league
 
 PUBLIC_DRAFT_MS = 1792935180000  # 2026-10-25 09:33 EDT, the public league's draft (Sunday of NFL week 7)
 WEEK1 = date(2026, 9, 8)
@@ -53,7 +54,7 @@ def test_main_stores_and_prints_and_writes_no_file(monkeypatch, tmp_path, capsys
     out = capsys.readouterr().out
     assert "# 2026 Fantasy Football" in out and "Key scoring:" in out
     assert list(data.iterdir()) == [], "settings live in the DB: no settings.json, no settings.md"
-    got = settings.load()
+    got = settings.load(ref=home_league())
     assert {k: v for k, v in got.items() if k not in ("scoring_tables", "scoring_items")} == \
         {**fx, "first_week": 1, "league_key": "espn:100000001"}
 
@@ -74,7 +75,7 @@ def test_fetch_reads_first_week_from_espn_status(monkeypatch):
         calls.append(view)
         return raw if view == ["mSettings", "mTeam"] else {"status": {"firstScoringPeriod": 3}}
     monkeypatch.setattr(settings, "raw_league_get", get)
-    d = settings.fetch(leagues.home())
+    d = settings.fetch(home_league())
     assert d["first_week"] == 3 and calls == [["mSettings", "mTeam"], ["mStatus"]]
     assert d["scoring_items"][0]["pointsOverrides"] == {"6": 1.5}, "the raw items, overrides and all"
     assert {x["abbr"]: x["points"] for x in d["scoring"]} == {"REC": 1.0, "PA0": 5.0}, "today's flat list"

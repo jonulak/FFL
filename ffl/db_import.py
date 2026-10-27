@@ -42,7 +42,7 @@ def _picks(journal: Path, season: int):
     ints, floats = ("overall", "round", "pick", "team_id", "player_id"), ("adp_2qb", "board_rank_at_pick", "proj")
     from . import leagues
     rows, path = [], journal / "draft" / "picks.csv"
-    league = leagues.home().key if path.exists() else None  # the old log is the home league's draft
+    league = leagues.acting().key if path.exists() else None  # the old log is the acting user's default league's draft
     for r in _csv(path):
         row = {"league": league, "season": season, **{k: (v if v != "" else None) for k, v in r.items()}}
         row.update({k: _num(r[k], int) for k in ints})
@@ -125,17 +125,17 @@ def _decisions(journal: Path, data: Path, season: int):
     return len(rows), rows
 
 
-def _home():
+def _league():
     from . import leagues
-    return leagues.home()
+    return leagues.acting()  # the old files are all the home league's: FFL_USER's default
 
 
-# the tables run() files under the home league, whose the old files all are (_picks stamps its own; sigma_fits is global)
+# the tables run() files under the acting league (FFL_USER's default), whose the old files all are (_picks stamps its own; sigma_fits is global)
 _LEAGUE_TABLES = {"transactions", "results", "plays", "outlooks", "claim_plans", "decisions"}
 
 
 def run(journal: Path, data: Path, season: int) -> list[dict]:
-    report, home = [], _home()                      # rows are stamped and counted in the same (home) league
+    report, home = [], _league()                      # rows are stamped and counted in the same (home) league
     for table, (source, rows) in [("transactions", _transactions(journal, season)), ("draft_picks", _picks(journal, season)),
                                   ("results", _results(journal, season)), ("plays", _plays(data, season)),
                                   ("outlooks", _outlooks(data, season)), ("sigma_fits", _sigma(data, season)),

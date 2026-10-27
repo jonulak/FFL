@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ffl import api, nfl
+from tests.home import HOME_KEY, home_league
 
 FIX = Path(__file__).parent / "fixtures" / "nfl"
 SB = json.loads((FIX / "scoreboard-w5.json").read_text())
@@ -116,7 +117,7 @@ def test_sides_degrade_to_empty_when_board_fails(monkeypatch):
     def boom(n, team, **k):
         raise api.HTTPException(502, {"source": "espn", "error": "down"})
     monkeypatch.setattr(api, "_board", boom)
-    assert api._nfl_sides(5) is None  # unknown, not "no starters": the game page says so
+    assert api._nfl_sides(5, ref=home_league()) is None  # unknown, not "no starters": the game page says so
 
 
 def test_game_route_names_the_two_fantasy_teams(monkeypatch, c):
@@ -126,10 +127,10 @@ def test_game_route_names_the_two_fantasy_teams(monkeypatch, c):
     board = {"week": 5, "me": {**club(7, "Mine", "Jon", "M", 4), "lineup": ME, "bench": []},
              "opp": {**club(3, "Theirs", "Pat", "T", 1), "lineup": OPP, "bench": []}}
     monkeypatch.setattr(api, "_nfl_board", lambda week, **k: board)
-    assert api._nfl_teams(5) == {"me": club(7, "Mine", "Jon", "M", 4), "opp": club(3, "Theirs", "Pat", "T", 1)}
+    assert api._nfl_teams(5, ref=home_league()) == {"me": club(7, "Mine", "Jon", "M", 4), "opp": club(3, "Theirs", "Pat", "T", 1)}
     assert c.get("/nfl/5/gb").json()["teams"]["opp"]["owner"] == "Pat"
     monkeypatch.setattr(api, "_nfl_board", lambda week, **k: None)
-    assert api._nfl_teams(5) is None and c.get("/nfl/5/gb").json()["teams"] is None
+    assert api._nfl_teams(5, ref=home_league()) is None and c.get("/nfl/5/gb").json()["teams"] is None
 
 
 def test_game_route_says_when_marks_are_off(monkeypatch, c):
@@ -161,7 +162,7 @@ def test_scoreboard_without_espns_week_gates_the_feed_on_the_week_asked(monkeypa
     nfl.reset()
     monkeypatch.setattr(nfl, "_get", lambda url, params=None: sb)
     monkeypatch.setattr(api.live.STATE, "games", FEED)
-    monkeypatch.setattr(api.live.STATE, "week", feed_week)
+    monkeypatch.setattr(api.live.STATE, "leagues", {HOME_KEY: ({}, feed_week)})
     asked = []
     monkeypatch.setattr(api, "_nfl_starters", lambda week, **k: asked.append(week) or (ME, OPP))
     r = c.get("/nfl?week=5").json()
@@ -175,7 +176,7 @@ def test_current_scoreboard_without_espns_week_lays_no_feed(monkeypatch, c):
     nfl.reset()
     monkeypatch.setattr(nfl, "_get", lambda url, params=None: sb)
     monkeypatch.setattr(api.live.STATE, "games", FEED)
-    monkeypatch.setattr(api.live.STATE, "week", 4)
+    monkeypatch.setattr(api.live.STATE, "leagues", {HOME_KEY: ({}, 4)})
     monkeypatch.setattr(api, "_nfl_starters", lambda week, **k: pytest.fail("no week known to mark"))
     r = c.get("/nfl").json()
     gb = next(g for s in r["sections"] for g in s["games"] if g["home"]["abbr"] == "GB")
@@ -193,7 +194,7 @@ def test_scoreboard_marks_of_another_week_come_off_the_box_scores_not_a_priced_b
     side = lambda tid, ps: {"team_id": tid, "lineup": ps}  # noqa: E731
     monkeypatch.setattr(api.espn_season, "league_starters", lambda week, **k: {"week": week, "games": [
         [side(1, []), side(2, OPP)], [side(9, OPP), side(7, ME)]]})
-    assert api._nfl_starters(2) == (ME, OPP)
+    assert api._nfl_starters(2, ref=home_league()) == (ME, OPP)
     assert priced == [None], "only the cached current board is read, never week 2's (7-10 s cold)"
 
 
@@ -201,19 +202,19 @@ def test_scoreboard_marks_of_the_boards_week_read_the_board(monkeypatch):
     monkeypatch.setattr(api, "_board", lambda n, team, **k: {"week": 6})
     monkeypatch.setattr(api, "_nfl_sides", lambda week, **k: (ME, OPP))
     monkeypatch.setattr(api.espn_season, "league_starters", lambda week, **k: pytest.fail("the board has them"))
-    assert api._nfl_starters(6) == (ME, OPP)
+    assert api._nfl_starters(6, ref=home_league()) == (ME, OPP)
 
 
 def test_scoreboard_marks_degrade_to_empty_when_the_box_scores_fail(monkeypatch):
     monkeypatch.setattr(api, "_board", lambda n, team, **k: {"week": 6})
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
-    assert api._nfl_starters(2) == ([], [])
+    assert api._nfl_starters(2, ref=home_league()) == ([], [])
 
 
 
 def test_the_nfl_pages_mark_the_open_leagues_lineups(c, monkeypatch):
     from ffl import leagues
-    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
     asked = []
     monkeypatch.setattr(api, "_nfl_sides", lambda week, *, ref=None: asked.append(("sides", ref)) or (ME, OPP))
     monkeypatch.setattr(api, "_nfl_starters", lambda week, *, ref=None: asked.append(("starters", ref)) or (ME, OPP))
@@ -223,4 +224,4 @@ def test_the_nfl_pages_mark_the_open_leagues_lineups(c, monkeypatch):
     assert asked and {r for _, r in asked} == {other}
     asked.clear()
     c.get("/nfl/5/gb")
-    assert {r for _, r in asked} == {leagues.home()}
+    assert {r for _, r in asked} == {home_league()}

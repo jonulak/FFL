@@ -1,9 +1,11 @@
 """K/D/ST wait for the run-in, and a second backup at a non-flex position is dead weight."""
 from ffl import board as board_mod
 from ffl import draft_watch as dw
+from ffl import strategy
 
 from .test_board import EMPTY_ADP
 from .test_recommend_qb import TWO_QB, deep_pool
+from tests.home import home_league
 
 
 def rec(mine_by_pos: dict[str, int], my_picks_left):
@@ -14,7 +16,7 @@ def rec(mine_by_pos: dict[str, int], my_picks_left):
         mine |= {int(p) for p in sub.head(n).player_id}
     bd = board_mod.build(TWO_QB, players, EMPTY_ADP, drafted_ids=mine)
     return dw.recommend(bd, TWO_QB, bd[bd.player_id.isin(mine)], picks_until_me=10,
-                        my_picks_left=my_picks_left)
+                        my_picks_left=my_picks_left, caps=strategy.caps(ref=home_league()))
 
 
 # starters filled except K and D/ST, which is where draft 6 reached for them in rounds 12-13

@@ -3,7 +3,8 @@ import multiprocessing as mp
 
 import sqlalchemy as sa
 import pytest
-from ffl import db
+from ffl import db, leagues
+from tests.home import home_league
 
 
 def test_fixture_db_is_migrated_and_temp():
@@ -73,9 +74,9 @@ TX = {"id": "1788937502756-6-DROPPED-4688380", "date": "2026-09-09T03:05", "type
 
 
 def test_transactions_round_trip_and_dedupe():
-    assert db.add_transactions([TX]) == [{**TX, "player_id": 4688380}]
-    assert db.add_transactions([TX]) == []
-    [row] = db.transactions()
+    assert db.add_transactions([TX], ref=home_league()) == [{**TX, "player_id": 4688380}]
+    assert db.add_transactions([TX], ref=home_league()) == []
+    [row] = db.transactions(ref=home_league())
     assert row == {**TX, "player_id": 4688380}
 
 
@@ -83,15 +84,15 @@ def test_transactions_keep_insert_order():
     """The log reads back in insert order (`seq`), not by id or date: a waiver run stamps every claim with one date,
     and ids lead with epoch ms, which need not follow the order ESPN listed the moves in."""
     ids = lambda *ms: [{**TX, "id": f"{m}-6-DROPPED-{m % 1000}"} for m in ms]
-    db.add_transactions(ids(1788937502759, 1788937502751, 1788937502755))
-    db.add_transactions(ids(1788937502750, 1788937502758))
-    assert [r["id"].split("-")[0] for r in db.transactions()] == \
+    db.add_transactions(ids(1788937502759, 1788937502751, 1788937502755), ref=home_league())
+    db.add_transactions(ids(1788937502750, 1788937502758), ref=home_league())
+    assert [r["id"].split("-")[0] for r in db.transactions(ref=home_league())] == \
         ["1788937502759", "1788937502751", "1788937502755", "1788937502750", "1788937502758"]
 
 
 def test_transactions_dst_player_id_negative():
-    db.add_transactions([{**TX, "id": "1788937502756-6-DROPPED--16020"}])
-    assert db.transactions()[0]["player_id"] == -16020
+    db.add_transactions([{**TX, "id": "1788937502756-6-DROPPED--16020"}], ref=home_league())
+    assert db.transactions(ref=home_league())[0]["player_id"] == -16020
 
 
 def _sync_worker(url, rows, q):
@@ -99,7 +100,7 @@ def _sync_worker(url, rows, q):
     os.environ["FFL_DB_URL"] = url
     from ffl import db as d
     d.reset()
-    q.put(len(d.add_transactions(rows)))
+    q.put(len(d.add_transactions(rows, ref=home_league())))
 
 
 def test_two_processes_same_rows_leave_one_copy():
@@ -114,14 +115,14 @@ def test_two_processes_same_rows_leave_one_copy():
     assert [p.exitcode for p in procs] == [0, 0]
     # one batch per transaction: one worker inserts all 50 (the other waits on its keys), the other finds them all
     assert sorted([q.get(timeout=5), q.get(timeout=5)]) == [0, 50]
-    assert len(db.transactions()) == 50
+    assert len(db.transactions(ref=home_league())) == 50
 
 
 def test_results_upsert_never_deletes_later_weeks():
     w = lambda wk, r: {"week": wk, "opponent": "X", "my_score": 1.0, "opp_score": 0.0, "result": r}
-    db.put_results([w(1, "W"), w(2, "W"), w(3, "L")])
-    db.put_results([w(1, "L")])  # a stale League that only knows week 1
-    assert [(r["week"], r["result"]) for r in db.results_rows()] == [(1, "L"), (2, "W"), (3, "L")]
+    db.put_results([w(1, "W"), w(2, "W"), w(3, "L")], ref=home_league())
+    db.put_results([w(1, "L")], ref=home_league())  # a stale League that only knows week 1
+    assert [(r["week"], r["result"]) for r in db.results_rows(ref=home_league())] == [(1, "L"), (2, "W"), (3, "L")]
 
 
 PICK = {"overall": 1, "round": 1, "pick": 1, "team_id": 6, "team": "henry's Imposing Team", "player_id": 3918298,
@@ -130,14 +131,14 @@ PICK = {"overall": 1, "round": 1, "pick": 1, "team_id": 6, "team": "henry's Impo
 
 
 def test_picks_keep_every_column_and_upsert():
-    db.put_picks([PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}])
-    db.put_picks([PICK])
-    assert db.picks()[0] == PICK and len(db.picks()) == 2
+    db.put_picks([PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}], ref=home_league())
+    db.put_picks([PICK], ref=home_league())
+    assert db.picks(ref=home_league())[0] == PICK and len(db.picks(ref=home_league())) == 2
 
 
 def test_picks_nullable_numbers():
-    db.put_picks([{**PICK, "adp_2qb": None, "board_rank_at_pick": None, "proj": None}])
-    assert db.picks()[0]["adp_2qb"] is None
+    db.put_picks([{**PICK, "adp_2qb": None, "board_rank_at_pick": None, "proj": None}], ref=home_league())
+    assert db.picks(ref=home_league())[0]["adp_2qb"] is None
 
 
 def _play(pid, total, at="2026-10-01T20:29:28", team=3):
@@ -145,28 +146,28 @@ def _play(pid, total, at="2026-10-01T20:29:28", team=3):
 
 
 def test_plays_round_trip_dedupe_and_order():
-    assert db.add_plays([_play(1, 3.2), _play(2, 1.0)]) == 2
-    assert db.add_plays([_play(1, 3.2)]) == 0
-    assert [r["player_id"] for r in db.plays_rows(4)] == [1, 2]
-    assert db.plays_rows(5) == []
+    assert db.add_plays([_play(1, 3.2), _play(2, 1.0)], ref=home_league()) == 2
+    assert db.add_plays([_play(1, 3.2)], ref=home_league()) == 0
+    assert [r["player_id"] for r in db.plays_rows(4, ref=home_league())] == [1, 2]
+    assert db.plays_rows(5, ref=home_league()) == []
 
 
 def test_outlooks_kinds_are_apart_and_upsert():
-    db.put_outlooks(5, "week", {1: {"hash": "a", "bullets": ["x"]}})
-    db.put_outlooks(5, "waivers-week", {1: {"bullets": ["fa"]}})
-    db.put_outlooks(5, "week", {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}})
-    assert db.outlooks_for(5, "week") == {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}
-    assert db.outlooks_for(5, "waivers-week") == {1: {"bullets": ["fa"]}}
-    assert db.outlooks_for(6, "week") == {}
+    db.put_outlooks(5, "week", {1: {"hash": "a", "bullets": ["x"]}}, ref=home_league())
+    db.put_outlooks(5, "waivers-week", {1: {"bullets": ["fa"]}}, ref=home_league())
+    db.put_outlooks(5, "week", {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}, ref=home_league())
+    assert db.outlooks_for(5, "week", ref=home_league()) == {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}
+    assert db.outlooks_for(5, "waivers-week", ref=home_league()) == {1: {"bullets": ["fa"]}}
+    assert db.outlooks_for(6, "week", ref=home_league()) == {}
 
 
 CAL = {"player_id": 1, "name": "A", "pos": "QB", "model": 234.3, "l3": 13.7, "weight": 1.12, "games_left": 14}
 
 
 def test_snapshot_first_build_of_the_week_stands():
-    assert db.put_snapshot(4, 4, [CAL]) is True
-    assert db.put_snapshot(4, 4, [{**CAL, "model": 1.0}, {**CAL, "player_id": 2}]) is False
-    [snap] = db.snapshots()
+    assert db.put_snapshot(4, 4, [CAL], ref=home_league()) is True
+    assert db.put_snapshot(4, 4, [{**CAL, "model": 1.0}, {**CAL, "player_id": 2}], ref=home_league()) is False
+    [snap] = db.snapshots(ref=home_league())
     assert snap == {"week": 4, "k": 4, "rows": [CAL]}, "a later build adds nothing, not even new players"
 
 
@@ -178,10 +179,10 @@ def test_sigma_latest_wins_and_history_kept():
 
 
 def test_claim_plan_round_trip_and_replace():
-    assert db.claim_plan(6) is None
-    db.put_claim_plan({"week": 6, "groups": [{"targets": [101], "cuts": [1], "open": 0}], "submits": []})
-    db.put_claim_plan({"week": 6, "groups": [], "submits": []})
-    assert db.claim_plan(6) == {"week": 6, "groups": [], "submits": []}
+    assert db.claim_plan(6, ref=home_league()) is None
+    db.put_claim_plan({"week": 6, "groups": [{"targets": [101], "cuts": [1], "open": 0}], "submits": []}, ref=home_league())
+    db.put_claim_plan({"week": 6, "groups": [], "submits": []}, ref=home_league())
+    assert db.claim_plan(6, ref=home_league()) == {"week": 6, "groups": [], "submits": []}
 
 
 def _row(**kw):
@@ -190,76 +191,76 @@ def _row(**kw):
 
 
 def test_add_decision_round_trips_json_and_orders_newest_first():
-    a = db.add_decision(_row())
-    b = db.add_decision(_row(at="2026-10-10T13:00:00-04:00", rationale=["followed_call"], followed_call=True))
-    rows = db.decisions()
+    a = db.add_decision(_row(), ref=home_league())
+    b = db.add_decision(_row(at="2026-10-10T13:00:00-04:00", rationale=["followed_call"], followed_call=True), ref=home_league())
+    rows = db.decisions(ref=home_league())
     assert [r["id"] for r in rows] == [b, a]
     assert rows[0]["rationale"] == ["followed_call"] and rows[1]["rationale"] is None
     assert rows[1]["player_ids"] == [1, 2] and rows[1]["facts"] == {"moves": []}
-    assert db.decision(a)["title"] == "Week 6 lineup: A to FLEX"
-    assert db.decision(9999) is None
+    assert db.decision(a, ref=home_league())["title"] == "Week 6 lineup: A to FLEX"
+    assert db.decision(9999, ref=home_league()) is None
 
 
 def test_update_decision_sets_only_the_fields_given():
-    i = db.add_decision(_row())
-    after = db.update_decision(i, {"rationale": ["matchup"], "rationale_note": "DAL run D"})
+    i = db.add_decision(_row(), ref=home_league())
+    after = db.update_decision(i, {"rationale": ["matchup"], "rationale_note": "DAL run D"}, ref=home_league())
     assert after["rationale"] == ["matchup"] and after["rationale_note"] == "DAL run D" and after["title"].startswith("Week 6")
-    assert db.update_decision(9999, {"outcome": "x"}) is None
+    assert db.update_decision(9999, {"outcome": "x"}, ref=home_league()) is None
 
 
 def test_week_claims_row_updates_in_place_and_keeps_the_rationale():
     first = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", decision="(1) get 1 of 1: A; cut B",
-                                       facts={"submits": 1}))
+                                       facts={"submits": 1}), ref=home_league())
     assert first["needs_rationale"] is True
-    db.update_decision(first["id"], {"rationale": ["best_ros"]})
+    db.update_decision(first["id"], {"rationale": ["best_ros"]}, ref=home_league())
     second = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", decision="(1) get 1 of 1: C; cut B",
-                                        facts={"submits": 2}))
+                                        facts={"submits": 2}), ref=home_league())
     assert second == {"id": first["id"], "needs_rationale": False}
-    row = db.decision(first["id"])
+    row = db.decision(first["id"], ref=home_league())
     assert row["decision"].endswith("C; cut B") and row["rationale"] == ["best_ros"] and row["facts"] == {"submits": 2}
-    assert db.put_week_claims(7, _row(kind="claims", week=7))["id"] != first["id"]
+    assert db.put_week_claims(7, _row(kind="claims", week=7), ref=home_league())["id"] != first["id"]
 
 
 def test_week_claims_row_is_per_plan_generation():
     # after Wednesday's run the week's plan is retired and a new one starts (same ESPN week): its claims are a new decision
-    ran = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", facts={"submits": 1, "gen": 0}))
-    db.update_decision(ran["id"], {"rationale": ["best_ros"], "outcome": "won A"})
+    ran = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", facts={"submits": 1, "gen": 0}), ref=home_league())
+    db.update_decision(ran["id"], {"rationale": ["best_ros"], "outcome": "won A"}, ref=home_league())
     fresh = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", decision="(1) get 1 of 1: C; cut B",
-                                       facts={"submits": 1, "gen": 1}))
+                                       facts={"submits": 1, "gen": 1}), ref=home_league())
     assert fresh["id"] != ran["id"] and fresh["needs_rationale"] is True
-    assert db.decision(ran["id"])["outcome"] == "won A" and db.decision(ran["id"])["facts"]["gen"] == 0
-    again = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", facts={"submits": 2, "gen": 1}))
+    assert db.decision(ran["id"], ref=home_league())["outcome"] == "won A" and db.decision(ran["id"], ref=home_league())["facts"]["gen"] == 0
+    again = db.put_week_claims(6, _row(kind="claims", title="Week 6 waiver claims", facts={"submits": 2, "gen": 1}), ref=home_league())
     assert again == {"id": fresh["id"], "needs_rationale": True}
-    assert len([r for r in db.decisions() if r["kind"] == "claims"]) == 2
+    assert len([r for r in db.decisions(ref=home_league()) if r["kind"] == "claims"]) == 2
 
 
 def test_none_in_a_json_column_is_sql_null():
-    i = db.add_decision(_row(rationale=None, facts=None, player_ids=None))
+    i = db.add_decision(_row(rationale=None, facts=None, player_ids=None), ref=home_league())
     with db.engine().connect() as c:
         assert c.execute(sa.text("SELECT count(*) FROM decisions WHERE rationale IS NULL AND id = :i"), {"i": i}).scalar() == 1
         assert c.execute(sa.text("SELECT count(*) FROM decisions WHERE facts IS NULL AND player_ids IS NULL AND id = :i"),
                          {"i": i}).scalar() == 1
-    assert db.decision(i)["rationale"] is None
+    assert db.decision(i, ref=home_league())["rationale"] is None
 
 
 def test_projection_rows_upsert_and_read_back():
     n = db.put_projection_rows(5, "week", [{"player_id": 1, "source": "cbs", "points": 12.0},
-                                           {"player_id": 1, "source": "espn", "points": 14.0}])
+                                           {"player_id": 1, "source": "espn", "points": 14.0}], ref=home_league())
     assert n == 2
-    db.put_projection_rows(5, "week", [{"player_id": 1, "source": "cbs", "points": 13.0}])
-    rows = db.projection_rows("week")
+    db.put_projection_rows(5, "week", [{"player_id": 1, "source": "cbs", "points": 13.0}], ref=home_league())
+    rows = db.projection_rows("week", ref=home_league())
     assert {(r["player_id"], r["source"]): r["points"] for r in rows} == {(1, "cbs"): 13.0, (1, "espn"): 14.0}
-    assert db.projection_rows("ros") == []
-    assert db.put_projection_rows(5, "week", []) == 0
+    assert db.projection_rows("ros", ref=home_league()) == []
+    assert db.put_projection_rows(5, "week", [], ref=home_league()) == 0
 
 
 def test_upsert_with_a_repeated_key_in_one_call_keeps_the_last_row():
     """Postgres refuses ON CONFLICT DO UPDATE touching a row twice; SQLite let the last win, and so does _upsert."""
     n = db.put_projection_rows(5, "week", [{"player_id": 1, "source": "cbs", "points": 1.0},
                                            {"player_id": 2, "source": "cbs", "points": 7.0},
-                                           {"player_id": 1, "source": "cbs", "points": 2.0}])
+                                           {"player_id": 1, "source": "cbs", "points": 2.0}], ref=home_league())
     assert n == 3
-    rows = db.projection_rows("week")
+    rows = db.projection_rows("week", ref=home_league())
     assert [(r["player_id"], r["points"]) for r in sorted(rows, key=lambda r: r["player_id"])] == [(1, 2.0), (2, 7.0)]
 
 
@@ -287,43 +288,43 @@ def test_source_weights_are_inactive_until_activated():
 
 
 def test_put_box_doc_writes_doc_once_and_moves_fetched_at_every_read():
-    assert db.box_doc(5) is None
-    assert db.put_box_doc(5, {"a": 1}, "h1", 100.0) is True
-    assert db.put_box_doc(5, {"a": 1}, "h1", 200.0) is False   # unchanged: doc untouched
-    row = db.box_doc(5)
+    assert db.box_doc(5, ref=home_league()) is None
+    assert db.put_box_doc(5, {"a": 1}, "h1", 100.0, ref=home_league()) is True
+    assert db.put_box_doc(5, {"a": 1}, "h1", 200.0, ref=home_league()) is False   # unchanged: doc untouched
+    row = db.box_doc(5, ref=home_league())
     assert row == {"doc": {"a": 1}, "hash": "h1", "fetched_at": 200.0, "settled": False, "final": False}
-    assert db.put_box_doc(5, {"a": 2}, "h2", 300.0, settled=True, final=True) is True
-    assert db.box_doc(5) == {"doc": {"a": 2}, "hash": "h2", "fetched_at": 300.0, "settled": True, "final": True}
-    assert db.box_weeks() == {5: {"fetched_at": 300.0, "settled": True, "final": True}}
-    db.put_box_doc(5, {"a": 2}, "h2", 400.0)   # the later read decides final, even with the doc unchanged
-    assert db.box_weeks() == {5: {"fetched_at": 400.0, "settled": True, "final": False}}
+    assert db.put_box_doc(5, {"a": 2}, "h2", 300.0, settled=True, final=True, ref=home_league()) is True
+    assert db.box_doc(5, ref=home_league()) == {"doc": {"a": 2}, "hash": "h2", "fetched_at": 300.0, "settled": True, "final": True}
+    assert db.box_weeks(ref=home_league()) == {5: {"fetched_at": 300.0, "settled": True, "final": True}}
+    db.put_box_doc(5, {"a": 2}, "h2", 400.0, ref=home_league())   # the later read decides final, even with the doc unchanged
+    assert db.box_weeks(ref=home_league()) == {5: {"fetched_at": 400.0, "settled": True, "final": False}}
 
 
 def test_put_box_doc_writes_corrections_in_the_same_transaction():
     c = {"week": 5, "player_id": 7, "team_id": 3, "old": 10.0, "new": 12.5, "at": "2026-10-15T10:00:00-04:00"}
-    db.put_box_doc(5, {"a": 1}, "h1", 1.0, corrections=[c])
-    assert db.box_corrections() == [c]
-    assert db.box_corrections(week=4) == []
+    db.put_box_doc(5, {"a": 1}, "h1", 1.0, corrections=[c], ref=home_league())
+    assert db.box_corrections(ref=home_league()) == [c]
+    assert db.box_corrections(week=4, ref=home_league()) == []
 
 
 def test_expire_live_boxes_zeroes_only_non_final_rows():
-    db.put_box_doc(3, {}, "h", 40.0, settled=True, final=True)
-    db.put_box_doc(4, {}, "h", 50.0, final=True)   # finished, unsettled: its fetched_at is the hourly throttle
-    db.put_box_doc(6, {}, "h", 60.0)
-    db.expire_live_boxes()
-    assert db.box_weeks() == {3: {"fetched_at": 40.0, "settled": True, "final": True},
+    db.put_box_doc(3, {}, "h", 40.0, settled=True, final=True, ref=home_league())
+    db.put_box_doc(4, {}, "h", 50.0, final=True, ref=home_league())   # finished, unsettled: its fetched_at is the hourly throttle
+    db.put_box_doc(6, {}, "h", 60.0, ref=home_league())
+    db.expire_live_boxes(ref=home_league())
+    assert db.box_weeks(ref=home_league()) == {3: {"fetched_at": 40.0, "settled": True, "final": True},
                               4: {"fetched_at": 50.0, "settled": False, "final": True},
                               6: {"fetched_at": 0.0, "settled": False, "final": False}}
 
 
 def test_gap_rows_round_trip():
-    db.put_gap_rows(3, {11: [{"week": 3, "pts": 4.0}], 12: []}, 10.0)
-    assert db.gap_rows(3, [11, 12, 13]) == {11: [{"week": 3, "pts": 4.0}], 12: []}
-    assert db.gap_ids(3) == [11, 12]
-    db.put_gap_rows(3, {11: [{"week": 3, "pts": 6.0}]}, 20.0)
-    assert db.gap_rows(3, [11]) == {11: [{"week": 3, "pts": 6.0}]}
-    db.add_box_corrections([{"week": 3, "player_id": 11, "team_id": None, "old": 4.0, "new": 6.0, "at": "x"}])
-    assert db.box_corrections(week=3)[0]["team_id"] is None
+    db.put_gap_rows(3, {11: [{"week": 3, "pts": 4.0}], 12: []}, 10.0, ref=home_league())
+    assert db.gap_rows(3, [11, 12, 13], ref=home_league()) == {11: [{"week": 3, "pts": 4.0}], 12: []}
+    assert db.gap_ids(3, ref=home_league()) == [11, 12]
+    db.put_gap_rows(3, {11: [{"week": 3, "pts": 6.0}]}, 20.0, ref=home_league())
+    assert db.gap_rows(3, [11], ref=home_league()) == {11: [{"week": 3, "pts": 6.0}]}
+    db.add_box_corrections([{"week": 3, "player_id": 11, "team_id": None, "old": 4.0, "new": 6.0, "at": "x"}], ref=home_league())
+    assert db.box_corrections(week=3, ref=home_league())[0]["team_id"] is None
 
 
 def test_draft_inputs_round_trip():
@@ -374,7 +375,7 @@ def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch, empty_db)
     db.reset()
     command.upgrade(db._alembic_config(), "head")
     db.reset()
-    home = leagues.home()
+    home = leagues.get("espn:100000001")
     want = pd.read_csv(data / "espn_players.csv").assign(on_team_id=0, status="")   # ownership is never imported
     pd.testing.assert_frame_equal(players.pool(home), want)
     stored = db.espn_pool_rows(list(db.league_scoring_keys(home.key).values()), 2026)
@@ -388,22 +389,22 @@ def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch, empty_db)
 
 def _other_league():
     from ffl import leagues
-    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
 
 
 def test_picks_are_kept_per_league():
     from ffl import leagues
-    home, other = leagues.home(), _other_league()
+    home, other = home_league(), _other_league()
     db.put_picks([{**PICK, "overall": i} for i in (1, 2, 3)], ref=home)
     db.put_picks([{**PICK, "overall": i, "player": "Other Man"} for i in (1, 2)], ref=other)
     assert len(db.picks(ref=home)) == 3 and len(db.picks(ref=other)) == 2
     assert db.picks(ref=home)[0]["player"] == "Josh Allen" and db.picks(ref=other)[0]["player"] == "Other Man"
-    assert db.picks() == db.picks(ref=home), "no league named is the current (home) one"
+    assert db.picks(ref=home_league()) == db.picks(ref=home), "no league named is the current (home) one"
 
 
 def test_draft_feed_and_state_are_kept_per_league():
     from ffl import leagues
-    home, other = leagues.home(), _other_league()
+    home, other = home_league(), _other_league()
     assert db.draft_feed(other) == ([], 0) and db.draft_state(other) is None
     first = [{"teamId": 3, "playerId": 11, "lineupSlotId": 0, "overall": 1}]
     both = first + [{"teamId": 4, "playerId": 12, "lineupSlotId": 0, "overall": 2}]
@@ -451,9 +452,9 @@ def test_migration_backfills_home_league(tmp_path, monkeypatch, empty_db):
     eng.dispose()
     assert [r["league"] for r in rows] == ["espn:100000001"] * 2
     assert pk == ["league", "season", "overall"]
-    assert db.picks() == [PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}]
-    db.put_picks([PICK])                                 # the new key upserts
-    assert len(db.picks()) == 2
+    assert db.picks(ref=leagues.get("espn:100000001")) == [PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}]
+    db.put_picks([PICK], ref=leagues.get("espn:100000001"))                                 # the new key upserts
+    assert len(db.picks(ref=leagues.get("espn:100000001"))) == 2
 
 
 def test_migration_refuses_picks_with_no_home_league(tmp_path, monkeypatch, empty_db):
@@ -608,47 +609,47 @@ def test_0021_refuses_rows_with_no_home_league(tmp_path, monkeypatch, empty_db):
 
 def test_league_data_is_kept_per_league():
     from ffl import leagues
-    home, other = leagues.home(), _other_league()
+    home, other = home_league(), _other_league()
     res = lambda opp: [{"week": 1, "opponent": opp, "my_score": 1.0, "opp_score": 0.0, "result": "W"}]
     db.put_results(res("H"), ref=home)
     db.put_results(res("O"), ref=other)
     assert db.results_rows(ref=home)[0]["opponent"] == "H" and db.results_rows(ref=other)[0]["opponent"] == "O"
-    assert db.results_rows() == db.results_rows(ref=home)
+    assert db.results_rows(ref=home_league()) == db.results_rows(ref=home)
 
     db.put_sit(8, 1, True, ref=home)
     db.put_sit(8, 2, True, ref=other)
-    assert db.sat_ids(8, ref=home) == {1} and db.sat_ids(8, ref=other) == {2} and db.sat_ids(8) == {1}
+    assert db.sat_ids(8, ref=home) == {1} and db.sat_ids(8, ref=other) == {2} and db.sat_ids(8, ref=home_league()) == {1}
     db.put_sit(8, 2, False, ref=home)                    # standing up home's absent row leaves other's sit alone
     assert db.sat_ids(8, ref=other) == {2}
 
     db.put_watch(1, True, ref=home)
     db.put_watch(2, True, ref=other)
-    assert db.watched_ids(ref=home) == [1] and db.watched_ids(ref=other) == [2] and db.watched_ids() == [1]
+    assert db.watched_ids(ref=home) == [1] and db.watched_ids(ref=other) == [2] and db.watched_ids(ref=home_league()) == [1]
 
     db.put_seats({1: 5}, ref=home)
     db.put_seats({1: 6}, ref=other)
-    assert db.seat_map(ref=home) == {1: 5} and db.seat_map(ref=other) == {1: 6} and db.seat_map() == {1: 5}
+    assert db.seat_map(ref=home) == {1: 5} and db.seat_map(ref=other) == {1: 6} and db.seat_map(ref=home_league()) == {1: 5}
 
     n = {"key": "waivers:r1", "kind": "waivers", "title": "t", "body": "b", "url": "/", "created_at": "t"}
     assert db.add_notices([n], ref=home) == 1 and db.add_notices([n], ref=other) == 1
     db.mark_notices(["waivers:r1"], "sent", "t", ref=other)
     assert [r["key"] for r in db.unsent_notices(ref=home)] == ["waivers:r1"] and db.unsent_notices(ref=other) == []
-    assert db.unsent_notices() == db.unsent_notices(ref=home)
+    assert db.unsent_notices(ref=home_league()) == db.unsent_notices(ref=home)
 
     assert len(db.add_transactions([TX], ref=home)) == 1 and len(db.add_transactions([TX], ref=other)) == 1
     db.add_transactions([{**TX, "id": "1788937502757-6-DROPPED-1"}], ref=other)
     assert len(db.transactions(ref=home)) == 1 and len(db.transactions(ref=other)) == 2
-    assert db.transactions() == db.transactions(ref=home)
+    assert db.transactions(ref=home_league()) == db.transactions(ref=home)
 
     db.put_claim_plan({"week": 6, "who": "home"}, ref=home)
     db.put_claim_plan({"week": 6, "who": "other"}, ref=other)
     assert db.claim_plan(6, ref=home)["who"] == "home" and db.claim_plan(6, ref=other)["who"] == "other"
-    assert db.claim_plan(6) == db.claim_plan(6, ref=home)
+    assert db.claim_plan(6, ref=home_league()) == db.claim_plan(6, ref=home)
 
     db.put_box_doc(5, {"a": "home"}, "h", 1.0, ref=home)
     db.put_box_doc(5, {"a": "other"}, "o", 2.0, ref=other)
     assert db.box_doc(5, ref=home)["doc"] == {"a": "home"} and db.box_doc(5, ref=other)["doc"] == {"a": "other"}
-    assert db.box_doc(5) == db.box_doc(5, ref=home)
+    assert db.box_doc(5, ref=home_league()) == db.box_doc(5, ref=home)
     db.expire_live_boxes(ref=other)
     assert db.box_weeks(ref=home)[5]["fetched_at"] == 1.0 and db.box_weeks(ref=other)[5]["fetched_at"] == 0.0
 
@@ -729,12 +730,12 @@ def test_0022_refuses_with_no_home_league(tmp_path, monkeypatch, empty_db):
 
 def test_league_state_and_pages_kept_per_league():
     from ffl import leagues
-    home, other = leagues.home(), _other_league()
+    home, other = home_league(), _other_league()
     db.put_league_state("waiver_run", {"who": "home"}, ref=home)
     db.put_league_state("waiver_run", {"who": "other"}, ref=other)
     assert db.get_league_state("waiver_run", ref=home) == {"who": "home"}
     assert db.get_league_state("waiver_run", ref=other) == {"who": "other"}
-    assert db.get_league_state("waiver_run") == {"who": "home"}, "no league named is home"
+    assert db.get_league_state("waiver_run", ref=home_league()) == {"who": "home"}, "no league named is home"
     assert db.get_league_state("pending_claims", default=[], ref=other) == []
 
     db.put_page("roster", {"a": "home"}, 1.0, ref=home)
@@ -742,7 +743,7 @@ def test_league_state_and_pages_kept_per_league():
     db.put_page("week:6", {"a": "home"}, 1.0, ref=home)
     db.put_page("week:6", {"a": "other"}, 2.0, ref=other)
     assert {r["key"]: r["payload"] for r in db.pages(ref=other)}["roster"] == {"a": "other"}
-    assert {r["key"]: r["payload"] for r in db.pages()}["roster"] == {"a": "home"}
+    assert {r["key"]: r["payload"] for r in db.pages(ref=home_league())}["roster"] == {"a": "home"}
     db.drop_page_prefixes(("week",), ref=other)
     assert sorted(r["key"] for r in db.pages(ref=other)) == ["roster"]
     assert sorted(r["key"] for r in db.pages(ref=home)) == ["roster", "week:6"]
@@ -750,15 +751,15 @@ def test_league_state_and_pages_kept_per_league():
     assert db.pages(ref=other) == [] and len(db.pages(ref=home)) == 2
     db.put_page("roster", {}, 3.0, ref=other)
     db.clear_pages(ref=other)
-    assert db.pages(ref=other) == [] and len(db.pages()) == 2
+    assert db.pages(ref=other) == [] and len(db.pages(ref=home_league())) == 2
 
 
 def test_decisions_per_league():
     from ffl import leagues
-    home, other = leagues.home(), _other_league()
+    home, other = home_league(), _other_league()
     i = db.add_decision(_row(), ref=other)
-    assert db.decisions() == [] and [r["id"] for r in db.decisions(ref=other)] == [i]
-    assert db.decision(i) is None and db.decision(i, ref=other)["title"].startswith("Week 6")
+    assert db.decisions(ref=home_league()) == [] and [r["id"] for r in db.decisions(ref=other)] == [i]
+    assert db.decision(i, ref=home_league()) is None and db.decision(i, ref=other)["title"].startswith("Week 6")
     assert db.update_decision(i, {"outcome": "x"}, ref=home) is None
     assert db.update_decision(i, {"outcome": "x"}, ref=other)["outcome"] == "x"
     assert "league" not in db.decision(i, ref=other)
@@ -769,7 +770,7 @@ def test_decisions_per_league():
 
 def test_plays_per_league():
     from ffl import leagues
-    home, other = leagues.home(), _other_league()
+    home, other = home_league(), _other_league()
     assert db.add_plays([_play(1, 3.2)], ref=home) == 1
     assert db.add_plays([_play(1, 3.2)], ref=other) == 1
     assert db.add_plays([_play(2, 1.0)], ref=other) == 1
@@ -780,12 +781,12 @@ def test_plays_per_league():
 
 def test_calibration_per_league():
     from ffl import leagues
-    home, other = leagues.home(), _other_league()
+    home, other = home_league(), _other_league()
     assert db.put_snapshot(4, 4, [CAL], ref=home) is True
     assert db.put_snapshot(4, 5, [CAL, {**CAL, "player_id": 2}], ref=other) is True
     [snap] = db.snapshots(ref=other)
     assert snap["k"] == 5 and len(snap["rows"]) == 2
-    assert db.snapshots() == db.snapshots(ref=home) == [{"week": 4, "k": 4, "rows": [CAL]}]
+    assert db.snapshots(ref=home_league()) == db.snapshots(ref=home) == [{"week": 4, "k": 4, "rows": [CAL]}]
 
 
 def test_models_match_migration():
@@ -807,11 +808,11 @@ def test_models_match_migration():
 def test_no_league_named_is_home_whatever_ffl_league_says(monkeypatch):
     other = _other_league()
     monkeypatch.setenv("FFL_LEAGUE", other.key)          # a draft shell's export must not move home's season data
-    db.put_results([{"week": 1, "opponent": "H", "my_score": 1.0, "opp_score": 0.0, "result": "W"}])
-    db.put_sit(8, 1, True)
+    db.put_results([{"week": 1, "opponent": "H", "my_score": 1.0, "opp_score": 0.0, "result": "W"}], ref=home_league())
+    db.put_sit(8, 1, True, ref=home_league())
     assert db.results_rows(ref=other) == [] and db.sat_ids(8, ref=other) == set()
     from ffl import leagues
-    assert db.results_rows(ref=leagues.home())[0]["opponent"] == "H" and db.sat_ids(8, ref=leagues.home()) == {1}
+    assert db.results_rows(ref=home_league())[0]["opponent"] == "H" and db.sat_ids(8, ref=home_league()) == {1}
 
 
 def test_0021_downgrade_refuses_rows_with_no_home_league(tmp_path, monkeypatch, empty_db):
@@ -851,9 +852,9 @@ def test_state_functions_refuse_the_other_kind():
     with pytest.raises(ValueError):
         db.put_state("watch_state", {})
     with pytest.raises(ValueError):
-        db.put_league_state("source_status", {})
+        db.put_league_state("source_status", {}, ref=home_league())
     with pytest.raises(ValueError):
-        db.get_league_state("prefs")
+        db.get_league_state("prefs", ref=home_league())
 
 
 def _at_0022(tmp_path, monkeypatch, empty_db) -> str:
@@ -917,11 +918,11 @@ def test_0024_makes_home_player_views_every_leagues(tmp_path, monkeypatch, empty
 
 def test_called_back_rows_kept_per_league():
     from ffl import leagues
-    home, other = leagues.home(), _other_league()
+    home, other = home_league(), _other_league()
     row = {"play_id": "p1", "player_id": 11, "week": 6}
     db.put_called_back([{**row, "who": "home"}], [], ref=home)
     db.put_called_back([{**row, "who": "other"}], [], ref=other)
     assert db.called_back_rows(6, ref=home)[0]["who"] == "home" and db.called_back_rows(6, ref=other)[0]["who"] == "other"
-    assert db.called_back_rows(6) == db.called_back_rows(6, ref=home)
+    assert db.called_back_rows(6, ref=home_league()) == db.called_back_rows(6, ref=home)
     db.put_called_back([], [("p1", 11)], ref=other)        # another league dropping its row leaves home's alone
     assert db.called_back_rows(6, ref=other) == [] and len(db.called_back_rows(6, ref=home)) == 1

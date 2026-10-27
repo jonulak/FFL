@@ -8,8 +8,7 @@ candidate by the season points of my best legal lineup at the end, bye weeks inc
 This replaces nothing. `recommend()`'s `score` stays the default ordering; the rollout is
 printed beside it (`FFL_ROLLOUT=1`) so the two can be read against each other. Where they
 disagree, the hard rules in the league's strategy (`uv run python -m ffl.strategy show`) and the human decide. It writes nothing, and
-is pure over its inputs except that `caps` and `qb_pace` default to the league's (`strategy.caps`,
-`strategy.qb_pace`, read from the DB) when the caller passes none.
+is pure over its inputs: the callers pass the league's `caps` and `qb_pace` (`strategy.caps`, `strategy.qb_pace`).
 
 Why a rollout at all: the table estimates survival one player at a time and prices the cost
 of waiting per position. Those are heuristics for a joint question — "given who is likely to
@@ -26,11 +25,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from . import board as board_mod, strategy
+from . import board as board_mod
 from .draft_watch import DEFAULT_ADP_SD, POSITIONS, SEASON_WEEKS, _is_flex
 
 # The roster caps the opponents (and my own later picks) respect are the league's (`strategy.caps`,
-# read once per rollout and handed to every Team): in the home league QB 3 and TE 2 are the
+# passed in by the caller and handed to every Team): in the home league QB 3 and TE 2 are the
 # strategy's blacklists, K/D/ST one each, and RB/WR 7 a sanity cap so a simulated team cannot
 # draft nine running backs when the ADP noise happens to line up that way. Opponents get my caps
 # too: theirs are unknown.
@@ -74,7 +73,7 @@ class Pool:
         # QB with this at 0 (measured 2026-09-07); a league where every manager hurries a QB3
         # is faster, and nothing measures by how much until the real draft. Applied to the
         # opponents' draw order and to my own plan's survival expectations alike.
-        pace = strategy.qb_pace() if qb_pace is None else qb_pace
+        pace = qb_pace or 0.0  # the callers pass the league's (strategy.qb_pace)
         if pace:
             qb = avail.pos == "QB"
             avail.loc[qb, "adp"] = (avail.loc[qb, "adp"] - pace).clip(lower=1.0)
@@ -100,11 +99,11 @@ class Pool:
 class Team:
     counts: dict[str, int]
     picks_left: int
-    caps: dict[str, int] | None = None     # per position, a missing one uncapped; None: the league's
+    caps: dict[str, int] | None = None     # per position, a missing one uncapped; None: none capped
 
     def __post_init__(self):
         if self.caps is None:
-            self.caps = strategy.caps()
+            self.caps = {}
 
 
 def starter_slots(settings: dict) -> tuple[dict[str, int], int, set[str]]:
@@ -430,9 +429,8 @@ def _anyone_left(taken: np.ndarray, pool: Pool, team: Team) -> int:
 def candidate_indices(pool: Pool, rec: dict, my_counts: dict[str, int], settings: dict, n_top: int = 8,
                       caps: dict[str, int] | None = None) -> list[int]:
     """The score top-N plus the best available at every position with an open starting slot
-    (caps: the league's when None)."""
-    if caps is None:
-        caps = strategy.caps()
+    (caps: none capped when None)."""
+    caps = caps or {}
     id_to_idx = {int(pid): i for i, pid in enumerate(pool.ids)}
     out: list[int] = []
     for r in rec["top"][:n_top]:
@@ -465,8 +463,8 @@ def rollout(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, de
     rosters: position counts per team id for everyone drafted so far (mine included).
     my_roster: the board rows of the players I already hold (they are off the pool, so their
         projections and byes ride in here for the final evaluation).
-    caps: the roster caps every simulated team respects; None reads the league's (`strategy.caps`).
-    qb_pace: picks earlier than ADP the room takes its QBs; None reads the league's (`strategy.qb_pace`).
+    caps: the roster caps every simulated team respects (the league's, `strategy.caps`; None: none capped).
+    qb_pace: picks earlier than ADP the room takes its QBs (the league's, `strategy.qb_pace`; None: 0).
     Returns {"rows": [...sorted by roll desc...], "n_sims": achieved, "elapsed": seconds}.
     Each row: player_id, name, pos, roll (mean season lineup points), roll_se, next_pos and
     next_proj (what my following pick most often is, and its mean projection) — the reason
@@ -474,8 +472,7 @@ def rollout(bd: pd.DataFrame, settings: dict, full_order: list[int], me: int, de
     """
     pool = Pool.from_board(bd, qb_pace)
     rng = np.random.default_rng(seed)
-    if caps is None:
-        caps = strategy.caps()
+    caps = caps or {}
     my_counts = dict(rosters.get(me, {}))
     if candidates is None:
         cand = candidate_indices(pool, rec, my_counts, settings, caps=caps)

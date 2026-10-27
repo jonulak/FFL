@@ -243,7 +243,9 @@ def pull(kind: str, force: bool = False) -> None:
     if not os.environ.get("ODDS_API_KEY"):
         print("ODDS_API_KEY is not set in .env: nothing pulled")
         return
-    lg = fresh_league()
+    from . import leagues
+    ref = leagues.acting()  # the trial ran on one league: FFL_USER's
+    lg = fresh_league(ref)
     week = lg.current_week
     if week not in TRIAL_WEEKS:
         print(f"week {week} is outside the props trial {TRIAL_WEEKS}: nothing pulled")
@@ -264,11 +266,11 @@ def pull(kind: str, force: bool = False) -> None:
         db.put_props_raw(week, kind, e["id"], data)
         for who, stats in consensus(data).items():
             market.setdefault(who, {}).update(stats)
-    settings = load()
+    settings = load(ref)
     ks = rescoring(settings)
     sl_rows = fetch_sleeper_rows(week)
     players = []
-    for tid, lineup in _boxes_by_team(lg, week).items():
+    for tid, lineup in _boxes_by_team(lg, week, ref=ref).items():
         players += [flatten_box_player(bp) | {"fantasy_team": tid} for bp in lineup]
     players = baseline(players, parse_sleeper_rows(sl_rows, ks))
     rows = snapshot_rows(players, sleeper_stat_lines(sl_rows), market, ks)
@@ -289,8 +291,10 @@ def score_main() -> None:
     if not by_week:
         print("no props snapshots stored")
         return
-    lg = fresh_league()
-    me, settings = my_team_id(lg), load()
+    from . import leagues
+    ref = leagues.acting()
+    lg = fresh_league(ref)
+    me, settings = my_team_id(lg, ref), load(ref)
     weeks = []
     for w, snaps in sorted(by_week.items()):
         if w >= lg.current_week:

@@ -3,6 +3,7 @@ has to be forgiving of comments and blank lines and exact about which picks a se
 """
 from ffl import autodraft, db, leagues
 from ffl.autodraft import candidates, parse_queue
+from tests.home import home_league
 
 QUEUE = """
 # round 1
@@ -41,27 +42,27 @@ def test_candidates_put_the_queue_first_then_the_table(monkeypatch):
         {"player_id": 4429795, "name": "Jahmyr Gibbs", "score": 30.0},  # already queued
         {"player_id": 2, "name": "Blacklisted", "score": -999.0},
     ]}}
-    got = candidates(state, [(4429795, "Jahmyr Gibbs")])
+    got = candidates(state, [(4429795, "Jahmyr Gibbs")], ref=home_league())
     assert got == [(4429795, "Jahmyr Gibbs"), (1, "Table Man")]
 
 
 def test_blacklisted_players_are_never_offered():
     state = {"recommend": {"top": [{"player_id": 2, "name": "QB4", "score": -999.0}]}}
-    assert candidates(state, []) == []
+    assert candidates(state, [], ref=home_league()) == []
 
 
 def _other():
-    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
 
 
 def test_drafted_ids_come_from_the_leagues_feed():
     other = _other()
     db.put_draft_feed(other, [{"teamId": 1, "playerId": 4429795, "lineupSlotId": 2, "overall": 1}], 0)
     assert autodraft.drafted_ids(other) == {4429795}
-    assert autodraft.drafted_ids(leagues.home()) == set()
+    assert autodraft.drafted_ids(home_league()) == set()
     state = {"recommend": {"top": [{"player_id": 4429795, "name": "Jahmyr Gibbs", "score": 30.0}]}}
     assert candidates(state, [(4429795, "Jahmyr Gibbs")], other) == []
-    assert candidates(state, [], leagues.home()) == [(4429795, "Jahmyr Gibbs")]
+    assert candidates(state, [], home_league()) == [(4429795, "Jahmyr Gibbs")]
 
 
 def test_confirm_drafted_treats_a_busy_db_as_not_yet(monkeypatch):
@@ -79,7 +80,7 @@ def test_confirm_drafted_treats_a_busy_db_as_not_yet(monkeypatch):
     monkeypatch.setattr(db, "draft_feed", flaky)
     monkeypatch.setattr(draft_pick.time, "sleep", lambda s: None)
     assert draft_pick.confirm_drafted(4429795, timeout_s=5, ref=other) is True and len(calls) == 2
-    assert draft_pick.confirm_drafted(1, timeout_s=5, ref=leagues.home()) is None, "no feed running"
+    assert draft_pick.confirm_drafted(1, timeout_s=5, ref=home_league()) is None, "no feed running"
 
 
 def test_the_turn_is_read_off_the_leagues_draft_state():
@@ -89,7 +90,7 @@ def test_the_turn_is_read_off_the_leagues_draft_state():
     db.put_draft_state(other, {"current_pick": 12, "on_clock_is_me": True, "drafted": False})
     assert turn(other, None) == 12
     assert turn(other, 12) is None, "a turn already taken is not taken twice"
-    assert turn(leagues.home(), None) is None, "another league's turn is not mine"
+    assert turn(home_league(), None) is None, "another league's turn is not mine"
     db.put_draft_state(other, {"current_pick": 13, "on_clock_is_me": False, "drafted": False})
     assert turn(other, 12) is None
     db.put_draft_state(other, {"current_pick": 14, "on_clock_is_me": True, "drafted": True})

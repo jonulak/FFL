@@ -79,9 +79,10 @@ def rescore(raw: list[dict], ks: dict) -> pd.DataFrame:
     return df.drop_duplicates(["key", "pos"])
 
 
-def fetch() -> pd.DataFrame:
-    """A fresh fetch this season, scored for the current league (the in-season season lookup reads it live)."""
-    return rescore(fetch_raw(SEASON), rescoring(load()))
+def fetch(settings: dict) -> pd.DataFrame:
+    """A fresh fetch this season, scored for the league `settings` describe (the in-season season lookup reads it
+    live)."""
+    return rescore(fetch_raw(SEASON), rescoring(settings))
 
 
 def stored_raw(season: int, refresh: bool = False) -> list[dict]:
@@ -94,11 +95,9 @@ def stored_raw(season: int, refresh: bool = False) -> list[dict]:
     return raw
 
 
-def season_players(ref=None) -> pd.DataFrame:
+def season_players(ref) -> pd.DataFrame:
     """The league's Sleeper frame, as sleeper_players.csv held it: the stored answer for its season,
     rescored with its scoring."""
-    from . import leagues
-    ref = ref or leagues.current()
     ks = rescoring(load(ref))
     return csv_frame(rescore(stored_raw(ref.season), ks))
 
@@ -107,7 +106,7 @@ def main(argv: list[str] | None = None):
     from . import leagues
     argv = sys.argv[1:] if argv is None else argv
     keys = [a for a in argv if not a.startswith("--")]
-    ref = leagues.get(keys[0]) if keys else leagues.current()
+    ref = leagues.acting(keys[0] if keys else None)
     stored_raw(ref.season, refresh="--refresh" in argv)
     df = season_players(ref)
     print(f"{ref.key} {ref.season}: {len(df)} Sleeper players, scored to the league")

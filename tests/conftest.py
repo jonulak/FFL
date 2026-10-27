@@ -238,43 +238,33 @@ def _fresh_box_scores():
 
 
 @pytest.fixture(autouse=True)
-def _empty_api_cache():
-    """The API's page cache is process-wide, and a logged move rebuilds every page in it (api.on_new_rows): a test
-    that syncs a move must not rebuild pages another test cached with builders that no longer stub ESPN."""
+def _empty_api_caches():
+    """The API's page caches (one per member and league, api.caches) are process-wide, and a logged move rebuilds
+    every page in them (api.on_new_rows): each test starts with none, and what a test made is joined and dropped after
+    it (memory only: the test's DB is a throwaway copy), so no test rebuilds pages another cached with builders that
+    no longer stub ESPN."""
     import sys
     api = sys.modules.get("ffl.api")
     if api is not None:
-        api.cache.clear()
-    yield
-    api = sys.modules.get("ffl.api")
-    if api is not None:
-        api.cache.join()
-        with api.cache._lock:                            # memory only: the test's DB is a throwaway copy
-            api.cache._d.clear()
-
-
-@pytest.fixture(autouse=True)
-def _home_only_caches():
-    """api.caches holds a cache per league that has been asked for: each test starts with home's alone, and what a
-    test made for another league is joined and dropped after it (memory only: the DB is a throwaway copy)."""
-    import sys
-    api = sys.modules.get("ffl.api")
-    if api is not None:
-        from ffl import leagues
         with api._CACHES:
             api.caches.clear()
-            home = leagues.home()
-            api.caches[(home.user_id, home.key)] = api.cache
     yield
     api = sys.modules.get("ffl.api")
     if api is not None:
         with api._CACHES:
-            made = [c for c in api.caches.values() if c is not api.cache]
+            made = list(api.caches.values())
             api.caches.clear()
         for c in made:
             c.join()
             with c._lock:
                 c._d.clear()
+
+
+@pytest.fixture(autouse=True)
+def _acting_user(monkeypatch):
+    """The CLI acts as TEST_USER (FFL_USER), whose default is the home league."""
+    monkeypatch.setenv("FFL_USER", TEST_USER["email"])
+    monkeypatch.delenv("FFL_LEAGUE", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -284,3 +274,11 @@ def _write_fakes_reset():
     espn_write.reset_fakes()
     yield
     espn_write.reset_fakes()
+
+
+@pytest.fixture
+def as_job(monkeypatch):
+    """Requests pass as a job's (the timers' token: no user), not TEST_USER's: the routes a job runs with no league
+    fan out over every league."""
+    from ffl import auth
+    monkeypatch.setattr(auth, "decide", lambda *a, **k: (0, None))

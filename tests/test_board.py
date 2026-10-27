@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from ffl import board as board_mod
+from tests.home import home_league
 
 SETTINGS = {
     "team_count": 10,
@@ -92,7 +93,7 @@ def home_fx() -> dict:
 
 
 def register(n: int, doc: dict) -> LeagueRef:
-    ref = leagues.register(LeagueRef(f"espn:{n}", "espn", str(n), 2026, f"league {n}", None, False, None, None))
+    ref = leagues.register(LeagueRef(f"espn:{n}", "espn", str(n), 2026, f"league {n}", None, None, None), user_id=0)
     return formats.store(ref, {**doc, "league_id": n})
 
 
@@ -119,7 +120,7 @@ def espn(monkeypatch):
 
 
 def test_pool_shared_by_format(espn):
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     other = register(999, home_fx())
     assert players_mod.store_pool(home) == players_mod.POSITIONS
     assert len(espn) == 6
@@ -140,7 +141,7 @@ def test_pool_shared_by_format(espn):
 
 
 def test_pool_is_the_espn_players_frame(espn):
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     players_mod.store_pool(home)
     df = players_mod.pool(home)
     assert list(df.columns) == players_mod.COLUMNS
@@ -162,7 +163,7 @@ def test_pool_never_shows_another_leagues_ownership(espn, monkeypatch):
         return data
 
     monkeypatch.setattr(players_mod, "_fetch_position", owned)
-    a = formats.store(leagues.home(), home_fx())
+    a = formats.store(home_league(), home_fx())
     b = register(999, home_fx())
     players_mod.store_pool(a)
     assert players_mod.store_pool(b) == []
@@ -175,7 +176,7 @@ def test_pool_never_shows_another_leagues_ownership(espn, monkeypatch):
 
 def _age_rows(hours: float, pos: str = "QB"):
     from datetime import datetime, timedelta
-    home = leagues.home()
+    home = home_league()
     key = formats.position_formats(home)[pos]
     rows = db.espn_pool_rows([key], 2026)[key]
     db.put_espn_pool({key: rows}, 2026,
@@ -183,7 +184,7 @@ def _age_rows(hours: float, pos: str = "QB"):
 
 
 def test_a_stale_pool_row_is_refetched(espn):
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     players_mod.store_pool(home)
     _age_rows(25, "QB")
     assert players_mod.store_pool(home) == ["QB"]
@@ -191,14 +192,14 @@ def test_a_stale_pool_row_is_refetched(espn):
 
 
 def test_a_fresh_pool_row_is_reused(espn):
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     players_mod.store_pool(home)
     _age_rows(1, "QB")
     assert players_mod.store_pool(home) == [] and len(espn) == 6
 
 
 def test_pool_missing_says_how_to_fetch_it():
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     with pytest.raises(SystemExit, match="ffl.players"):
         players_mod.pool(home)
 
@@ -217,7 +218,7 @@ def with_pass_td(points: float) -> dict:
 
 def test_sleeper_rescored_per_format(monkeypatch):
     monkeypatch.setattr(sleeper, "fetch_raw", lambda season: pytest.fail("the stored raw is read, not fetched"))
-    four = formats.store(leagues.home(), with_pass_td(4))
+    four = formats.store(home_league(), with_pass_td(4))
     six = register(997, with_pass_td(6))
     db.put_sleeper_season(2026, QB_RAW)
     a, b = sleeper.season_players(four).set_index("key"), sleeper.season_players(six).set_index("key")
@@ -226,7 +227,7 @@ def test_sleeper_rescored_per_format(monkeypatch):
 
 
 def test_sleeper_raw_fetched_once_on_first_use(monkeypatch):
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     fetched = []
     monkeypatch.setattr(sleeper, "fetch_raw", lambda season: fetched.append(season) or QB_RAW)
     sleeper.season_players(home)
@@ -237,7 +238,7 @@ def test_sleeper_raw_fetched_once_on_first_use(monkeypatch):
 
 def test_season_players_is_the_old_csv_frame():
     """The stored raw, rescored, is the frame sleeper_players.csv held: the old fetch written and read back."""
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     db.put_sleeper_season(2026, QB_RAW)
     old = sleeper.rescore(QB_RAW, settings_mod.rescoring(settings_mod.load(home)))
     want = pd.read_csv(io.StringIO(old.to_csv(index=False)))
@@ -268,7 +269,7 @@ def ffc_frame() -> pd.DataFrame:
 
 def test_load_inputs_from_the_db(espn, monkeypatch):
     monkeypatch.delenv("FFL_ADP_MODE", raising=False)
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     players_mod.store_pool(home)
     db.put_sleeper_season(2026, QB_RAW)
     db.put_adp_feed("2qb", 10, 2026, adp.records(ffc_frame()), {})
@@ -338,7 +339,7 @@ def test_banner_only_mid_season():
 
 
 def seed_home():
-    home = formats.store(leagues.home(), home_fx())
+    home = formats.store(home_league(), home_fx())
     players_mod.store_pool(home)
     db.put_sleeper_season(2026, QB_RAW)
     db.put_adp_feed("2qb", 10, 2026, adp.records(ffc_frame()), {})

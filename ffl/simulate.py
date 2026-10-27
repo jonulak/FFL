@@ -30,13 +30,10 @@ def order_for_slot(settings: dict, me: int, slot: int) -> list[int]:
 def run_slot(settings, players, adp, me: int, slot: int, rounds: int, verbose: bool = True,
              rollout_sims: int = 100, pick_by: str = "score", caps: dict[str, int] | None = None,
              qb_pace: float | None = None) -> dict:
-    """caps / qb_pace: the league's (None reads the current league's); main reads them once per run."""
+    """caps / qb_pace: the league's (None: none capped, no pace); main reads them once per run."""
     from . import rollout as _ro
     rollout_mod = _ro if _ro.enabled() else None
-    if caps is None:
-        caps = strategy.caps()
-    if qb_pace is None:
-        qb_pace = strategy.qb_pace()
+    caps, qb_pace = caps or {}, qb_pace or 0.0
     order = order_for_slot(settings, me, slot)
     n = len(order)
     full = snake_order(order, settings["roster_size"])
@@ -131,7 +128,7 @@ def main():
     ap.add_argument("--pick-by", choices=["score", "rollout"], default="score",
                     help="who makes my picks: score (default) or the rollout (needs FFL_ROLLOUT=1)")
     a = ap.parse_args()
-    ref = leagues.current()
+    ref = leagues.acting()
     settings, players, adp = board_mod.load_inputs(ref)
     me = my_team_id(settings, ref)
     caps, qb_pace = strategy.caps(ref), strategy.qb_pace(ref)

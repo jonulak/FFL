@@ -3,7 +3,7 @@ league's stat table, laid over the cached page payloads at serve time.
 
 `Runner` is the background thread. FastCast is NFL-wide, so one socket serves every registered league: each
 document is rescored once per league (its own stat table) into that league's points, and each league's starters
-feed its own play store (a `Lane`). The home league's points are `State.points`, as before any other league. It only holds the socket while games are on: inside the
+feed its own play store (a `Lane`); each league's points are `State.points_for(key)`. It only holds the socket while games are on: inside the
 Thursday-to-Monday window (season.is_live) it connects, and once the checkpoint says no game
 is in progress and the next kickoff is more than IDLE_BEFORE_KICKOFF away it drops the socket
 and sleeps until just before that kickoff. Every checkpoint or patch rescores the document;
@@ -27,7 +27,6 @@ from . import fastcast as fc
 from . import playbook
 from . import plays as P
 from . import season as S
-from .settings import load
 
 IDLE_BEFORE_KICKOFF = 15 * 60  # connect this long before the next kickoff
 ROSTER_REFRESH = 10 * 60  # how often the runner re-reads who starts across the league
@@ -39,58 +38,53 @@ LATE_KICKOFF = 2 * 3600
 
 
 class State:
-    """What the API reads: the latest per-player points and a version that ticks on change."""
+    """What the API reads: each league's latest per-player points and a version that ticks on change."""
 
     def __init__(self):
         self.version = 0
         self.moves = 0  # logged league moves (moved()); the stream sends them as `data: m<n>`
-        self.points: dict[int, float] = {}
+        # every league's {key: (points, week)}, scored off the same documents on its own table. The week is the NFL
+        # week the points were scored for: the socket drops after Monday night and the totals stay here until the next
+        # kickoff; the week payload rolls over on Tuesday, so the API must know these belong to last week and leave
+        # the new week's zeros alone.
+        self.leagues: dict[str, tuple[dict[int, float], int | None]] = {}
         self.games: dict[str, dict] = {}  # team -> {status, quarter, clock, score} (fastcast.game_states)
         self.stats: dict[int, dict] = {}  # player -> raw stat row (fastcast.player_stats)
-        # the NFL week the points were scored for. The socket drops after Monday night and the
-        # totals stay here until the next kickoff; the week payload rolls over on Tuesday, so
-        # the API must know these belong to last week and leave the new week's zeros alone.
-        self.week: int | None = None
         self.at: float | None = None  # when the points last changed
-        # every other league's {key: (points, week)}, scored off the same documents on its own table
-        self.others: dict[str, tuple[dict[int, float], int | None]] = {}
         self.connected = False
         self.error: str | None = None
         self.cond = threading.Condition()
 
-    def update(self, points: dict[int, float], games: dict[str, dict] | None = None,
-               stats: dict[int, dict] | None = None, week: int | None = None,
-               others: dict[str, tuple[dict[int, float], int | None]] | None = None) -> bool:
-        """Store the latest points, game states and stat rows; tick `version` (and wake the
+    def update(self, leagues: dict[str, tuple[dict[int, float], int | None]], games: dict[str, dict] | None = None,
+               stats: dict[int, dict] | None = None) -> bool:
+        """Store every league's latest (points, week), the game states and stat rows; tick `version` (and wake the
         stream) only when a point moved or a game changed status or quarter. The clock alone
         never wakes the page: every GET reads the stored clock, and the 60 s poll keeps it
         fresh enough. A stat that moves without moving points (an incompletion) rides along."""
         games = games if games is not None else self.games
         with self.cond:
-            same_points = points == self.points and (others is None or others == self.others)
+            same_points = ({k: p for k, (p, _) in leagues.items()}
+                           == {k: p for k, (p, _) in self.leagues.items()})
             same_games = _sans_clock(games) == _sans_clock(self.games)
             self.games = games
             if stats is not None:
                 self.stats = stats
-            if week is not None:
-                self.week = week
-            if others is not None:
-                self.others = others
+            self.leagues = leagues
             if same_points and same_games and self.version:
                 return False
-            self.points, self.version = points, self.version + 1
+            self.version += 1
             if not same_points:
                 self.at = time.time()
             self.cond.notify_all()
             return True
 
-    def points_for(self, key: str | None) -> dict[int, float]:
-        """A league's points: home's (`key` None) are `points` itself."""
-        return self.points if key is None else self.others.get(key, ({}, None))[0]
+    def points_for(self, key: str) -> dict[int, float]:
+        """A league's points; none before the runner has scored it."""
+        return self.leagues.get(key, ({}, None))[0]
 
-    def week_for(self, key: str | None) -> int | None:
-        """The NFL week a league's points were scored for (`week` for home)."""
-        return self.week if key is None else self.others.get(key, ({}, None))[1]
+    def week_for(self, key: str) -> int | None:
+        """The NFL week a league's points were scored for."""
+        return self.leagues.get(key, ({}, None))[1]
 
     def moved(self) -> None:
         """A move was logged (api.on_new_rows, once its pages are rebuilt): wake the stream so open pages refetch.
@@ -114,8 +108,8 @@ class State:
     def snapshot(self) -> dict:
         with self.cond:
             return {"version": self.version, "at": self.at, "connected": self.connected,
-                    "error": self.error, "players": len(self.points), "week": self.week,
-                    "leagues": {k: {"players": len(p), "week": w} for k, (p, w) in self.others.items()}}
+                    "error": self.error,
+                    "leagues": {k: {"players": len(p), "week": w} for k, (p, w) in self.leagues.items()}}
 
 
 def stream_open(cur: tuple[int, int]) -> str:
@@ -419,9 +413,9 @@ def idle_for(doc: dict, now: datetime | None = None) -> float | None:
 @dataclass
 class Lane:
     """One league's share of the socket: its stat table, its starters (`week_fn`, as `Runner` takes it), and the
-    play store of the week they start in. `key` None is the home league."""
-    key: str | None
-    ref: object | None
+    play store of the week they start in."""
+    key: str
+    ref: object
     table: dict[str, dict[int, float]]
     week_fn: Callable[[], dict] | None
     roster: dict[int, dict] = dc_field(default_factory=dict)
@@ -430,22 +424,16 @@ class Lane:
     store: P.Store | None = None
 
     def tag(self, msg: str) -> str:
-        """An error of this league's as /live/status shows it: home's untagged, as before."""
-        return msg if self.key is None else f"{self.key}: {msg}"
-
-
-def _home(name: str) -> property:
-    """One of home's lane fields on the runner itself, as the API and the tests read it when it served one league."""
-    return property(lambda self: getattr(self.lanes[0], name), lambda self, v: setattr(self.lanes[0], name, v))
+        """An error of this league's as /live/status shows it."""
+        return f"{self.key}: {msg}"
 
 
 class Runner(threading.Thread):
-    """`week_fn` returns the current week's starters in every game (`espn_season.league_starters`,
-    cached by the API); the play feed is derived for them. None (tests, a dev API) means no feed.
-    `leagues` adds every other league as (ref, settings, week_fn): scored and fed the same way, on its own table."""
+    """Every league as (ref, settings, week_fn), scored on its own table: `week_fn` returns the current week's
+    starters in every game (`espn_season.league_starters`, cached by the API); the league's play feed is derived for
+    them. None (tests, a dev API) means no feed."""
 
-    def __init__(self, state: State = STATE, settings: dict | None = None,
-                 week_fn: Callable[[], dict] | None = None, leagues: list[tuple] = ()):
+    def __init__(self, state: State = STATE, leagues: list[tuple] = ()):
         super().__init__(daemon=True, name="live-fastcast")
         self.state = state
         self.stop = threading.Event()
@@ -454,16 +442,12 @@ class Runner(threading.Thread):
         # errors surface on /live/status as they happen: a callback that raises on every doc
         # would otherwise read as "connected" while the client reconnects in a loop
         self.client = fc.Client(self._on_doc, on_error=lambda e: setattr(self.state, "error", e))
-        self.lanes = [Lane(None, None, fc.scoring_table(settings or load()), week_fn)]
-        self.lanes += [Lane(ref.key, ref, fc.scoring_table(s), fn) for ref, s, fn in leagues]
+        self.lanes = [Lane(ref.key, ref, fc.scoring_table(s), fn) for ref, s, fn in leagues]
         self.plays = P.PlayCache()
 
-    def lane(self, key: str | None) -> Lane | None:
-        """The lane of the league `key` names (None: home); None when the runner does not score it."""
+    def lane(self, key: str) -> Lane | None:
+        """The lane of the league `key` names; None when the runner does not score it."""
         return next((ln for ln in self.lanes if ln.key == key), None)
-
-    table, week_fn, roster, week, store, roster_at = (_home(n) for n in
-                                                      ("table", "week_fn", "roster", "week", "store", "roster_at"))
 
     def _refresh_roster(self) -> None:
         for lane in self.lanes:
@@ -491,7 +475,6 @@ class Runner(threading.Thread):
 
     def _on_doc(self, doc: dict) -> None:
         self._refresh_roster()
-        rest = self.lanes[1:]
         first = self.state.version == 0
         befores = [dict(self.state.points_for(ln.key)) for ln in self.lanes]
         stats_before = self.state.stats  # replaced, not mutated, by update: a D/ST's play is read off what moved
@@ -503,15 +486,16 @@ class Runner(threading.Thread):
             afters = [{**{p: v for p, v in before.items() if p not in after}, **after}
                       if self.state.week_for(ln.key) == ln.week else after
                       for ln, before, after in zip(self.lanes, befores, afters)]
-        self.state.update(afters[0], fc.game_states(doc), fc.player_stats(doc), week=self.week,
-                          others={ln.key: (a, ln.week) for ln, a in zip(rest, afters[1:])} if rest else None)
+        self.state.update({ln.key: (a, ln.week) for ln, a in zip(self.lanes, afters)}, fc.game_states(doc),
+                          fc.player_stats(doc))
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if not first:
             now = datetime.now()
-            # the doc's plays are the NFL's, one table for every league, filed under home's week once: a lane still on
-            # another week (its starters not rolled over) records none of them, or it would refile them under its own
-            nfl_week = self.week
+            # the doc's plays are the NFL's, one table for every league, filed once under the newest week a lane has
+            # rolled to: a lane still on another week (its starters not rolled over) records none of them, or it would
+            # refile them under its own
+            nfl_week = max((ln.week for ln in self.lanes if ln.week is not None), default=None)
             entries = playbook.from_fastcast(doc, nfl_week, now) if nfl_week is not None else []
             for lane, before, after in zip(self.lanes, befores, afters):
                 if lane.store is None:

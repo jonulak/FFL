@@ -95,11 +95,10 @@ def merged(two: pd.DataFrame, one: pd.DataFrame) -> pd.DataFrame:
     return csv_frame(m.sort_values("adp", na_position="last"))
 
 
-def store(ref=None) -> dict[str, pd.DataFrame]:
+def store(ref) -> dict[str, pd.DataFrame]:
     """Fetch the league's 2QB and 1QB feeds and store them; returns {"2qb": frame, "1qb": frame}."""
-    from . import db, leagues
+    from . import db
     from .settings import load
-    ref = ref or leagues.current()
     out = {}
     for mode, (fmt, teams, year) in feed_keys(load(ref)).items():
         df = fetch(fmt, teams, year)
@@ -111,7 +110,7 @@ def store(ref=None) -> dict[str, pd.DataFrame]:
 def main(argv: list[str] | None = None):
     from . import leagues
     argv = sys.argv[1:] if argv is None else argv
-    ref = leagues.get(argv[0]) if argv else leagues.current()
+    ref = leagues.acting(argv[0] if argv else None)
     from .settings import load
     one_fmt = feed_keys(load(ref))["1qb"][0]
     got = store(ref)

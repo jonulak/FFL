@@ -25,7 +25,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-from . import board as board_mod
+from . import board as board_mod, leagues
 from . import db
 from .adp import norm_name, records
 
@@ -119,7 +119,7 @@ def resolve(picks: list[dict], players: pd.DataFrame) -> list[dict]:
 
 
 def fetch(n: int, pause: float = PAUSE_S) -> list[int]:
-    settings, players, _ = board_mod.load_inputs()
+    settings, players, _ = board_mod.load_inputs(leagues.acting())
     r = requests.get(INDEX, headers=UA, timeout=30)
     r.raise_for_status()
     ids = index_ids(r.text)[:n]

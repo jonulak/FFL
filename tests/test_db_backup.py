@@ -4,6 +4,7 @@ import pytest
 import sqlalchemy as sa
 
 from ffl import db, db_backup
+from tests.home import home_league
 
 
 def _count(url, table):
@@ -17,7 +18,7 @@ def _count(url, table):
 
 def _tx():
     db.add_transactions([{"id": "1-6-DROPPED-1", "date": "d", "type": "DROPPED", "team": "t", "player": "p",
-                          "action": "DROPPED", "bid": 0, "reasoning": ""}])
+                          "action": "DROPPED", "bid": 0, "reasoning": ""}], ref=home_league())
 
 
 def test_backup_writes_checked_dump(tmp_path):
@@ -224,7 +225,7 @@ def test_counts_side_by_side_equal_then_differs(tmp_path, empty_db, capsys, monk
     assert "all" in out and "equal" in out and "transactions" in out
 
     db.add_transactions([{"id": "1-6-DROPPED-2", "date": "d", "type": "DROPPED", "team": "t", "player": "q",
-                          "action": "DROPPED", "bid": 0, "reasoning": ""}])
+                          "action": "DROPPED", "bid": 0, "reasoning": ""}], ref=home_league())
     assert db.main(["counts", db.url(), fresh]) == 1
     out = capsys.readouterr().out
     assert "transactions" in out.split("differ:")[1] and "leagues" not in out.split("differ:")[1]

@@ -8,6 +8,7 @@ import requests
 from espn_api.requests.espn_requests import ESPNAccessDenied, ESPNInvalidLeague, ESPNUnknownError
 
 from ffl import espn_write as W, leagues
+from tests.home import home_league
 
 FX = Path(__file__).parent / "fixtures" / "espn_write"
 
@@ -61,13 +62,13 @@ def test_parse_pending_ignores_other_teams_and_non_waiver():
 
 def test_writes_off_is_a_fake_store(monkeypatch):
     monkeypatch.setenv("FFL_WRITES", "0")
-    W._fake(leagues.home()).claims.clear()
+    W._fake(home_league()).claims.clear()
     monkeypatch.setattr(W.requests, "post", lambda *a, **k: pytest.fail("network"))
-    a = W.submit_claim(101, 1, 6)
-    b = W.submit_claim(102, None, 6)
-    assert [c["add"] for c in W.pending_claims()] == [101, 102]
-    W.cancel_claim(a, 6)
-    assert W.pending_claims() == [{"id": b, "add": 102, "drop": None, "priority": 1}]
+    a = W.submit_claim(101, 1, 6, ref=home_league())
+    b = W.submit_claim(102, None, 6, ref=home_league())
+    assert [c["add"] for c in W.pending_claims(ref=home_league())] == [101, 102]
+    W.cancel_claim(a, 6, ref=home_league())
+    assert W.pending_claims(ref=home_league()) == [{"id": b, "add": 102, "drop": None, "priority": 1}]
 
 
 def test_add_body_matches_the_freeagent_request():
@@ -89,10 +90,10 @@ def test_add_body_items_agree_with_espns_executed_record():
 
 def test_add_free_agent_writes_off_records_without_network(monkeypatch):
     monkeypatch.setenv("FFL_WRITES", "0")
-    W._fake(leagues.home()).adds.clear()
+    W._fake(home_league()).adds.clear()
     monkeypatch.setattr(W.requests, "post", lambda *a, **k: pytest.fail("network"))
-    W.add_free_agent(101, 1, 6)
-    assert W._fake(leagues.home()).adds == [{"add": 101, "drop": 1}]
+    W.add_free_agent(101, 1, 6, ref=home_league())
+    assert W._fake(home_league()).adds == [{"add": 101, "drop": 1}]
 
 
 def test_http_error_raises_write_error(monkeypatch):
@@ -105,7 +106,7 @@ def test_http_error_raises_write_error(monkeypatch):
     monkeypatch.setattr(W.requests, "post", lambda *a, **k: R())
     monkeypatch.setattr(W, "_team_id", lambda **k: 7)
     with pytest.raises(W.WriteError) as e:
-        W.submit_claim(101, 1, 6)
+        W.submit_claim(101, 1, 6, ref=home_league())
     assert e.value.expired and "not authorized" in e.value.detail
 
 
@@ -125,12 +126,12 @@ def test_live_submit_and_cancel_send_what_espn_expects(monkeypatch):
 
     monkeypatch.setattr(W.requests, "post", post)
     monkeypatch.setattr(W, "_team_id", lambda **k: 7)
-    assert W.submit_claim(101, 1, 5) == "abc-123"
-    W.cancel_claim("abc-123", 5)
+    assert W.submit_claim(101, 1, 5, ref=home_league()) == "abc-123"
+    W.cancel_claim("abc-123", 5, ref=home_league())
     assert sent[0][1]["executionType"] == "EXECUTE" and sent[1][1]["executionType"] == "CANCEL"
     assert sent[1][1]["relatedTransactionId"] == "abc-123"
-    assert W.write_url() == "https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/100000001/transactions/"
-    assert all(u == W.write_url() for u, _, _ in sent)
+    assert W.write_url(ref=home_league()) == "https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/100000001/transactions/"
+    assert all(u == W.write_url(ref=home_league()) for u, _, _ in sent)
     assert sent[0][2]["x-fantasy-source"] == "kona" and sent[0][2]["x-fantasy-platform"] == "espn-fantasy-web"
 
 
@@ -142,7 +143,7 @@ def _read_fails(monkeypatch, exc):
 
     monkeypatch.setattr(W.config, "raw_league_get", boom)
     with pytest.raises(W.WriteError) as e:
-        W.pending_claims()
+        W.pending_claims(ref=home_league())
     return e.value
 
 
@@ -203,14 +204,14 @@ def test_an_unreadable_pending_document_is_a_write_error(monkeypatch, doc):
     monkeypatch.setattr(W.config, "raw_league_get", lambda view, **k: doc)
     monkeypatch.setattr(W, "_team_id", lambda **k: 7)
     with pytest.raises(W.WriteError) as e:
-        W.pending_state()
+        W.pending_state(ref=home_league())
     assert e.value.status == 0 and not e.value.expired and e.value.message == W.UNREACHABLE
 
 
 def test_submit_claim_without_an_id_in_the_answer_is_a_write_error(monkeypatch):
     _live_add(monkeypatch, {"status": "PENDING"})
     with pytest.raises(W.WriteError) as e:
-        W.submit_claim(101, 1, 5)
+        W.submit_claim(101, 1, 5, ref=home_league())
     assert e.value.status == 200 and not e.value.expired and "no id" in e.value.message
 
 
@@ -227,12 +228,12 @@ def test_pending_state_reads_the_scoring_period(monkeypatch):
     monkeypatch.setenv("FFL_WRITES", "1")
     monkeypatch.setattr(W.config, "raw_league_get", lambda view, **k: {"scoringPeriodId": 5, "pendingTransactions": []})
     monkeypatch.setattr(W, "_team_id", lambda **k: 7)
-    assert W.pending_state() == ([], 5)
+    assert W.pending_state(ref=home_league()) == ([], 5)
 
 
 def test_pending_state_writes_off_returns_the_fake_period(monkeypatch):
-    monkeypatch.setattr(W._fake(leagues.home()), "period", 9)
-    assert W.pending_state()[1] == 9
+    monkeypatch.setattr(W._fake(home_league()), "period", 9)
+    assert W.pending_state(ref=home_league())[1] == 9
 
 
 def _live_add(monkeypatch, body):
@@ -251,13 +252,13 @@ def _live_add(monkeypatch, body):
 def test_add_free_agent_200_but_pending_is_a_write_error(monkeypatch):
     _live_add(monkeypatch, {"id": "x", "status": "PENDING"})
     with pytest.raises(W.WriteError) as e:
-        W.add_free_agent(101, 1, 5)
+        W.add_free_agent(101, 1, 5, ref=home_league())
     assert "PENDING" in str(e.value)
 
 
 def test_add_free_agent_executed_is_landed(monkeypatch):
     _live_add(monkeypatch, {"id": "x", "status": "EXECUTED"})
-    W.add_free_agent(101, 1, 5)
+    W.add_free_agent(101, 1, 5, ref=home_league())
 
 
 def test_reorder_body_matches_what_espn_sent():
@@ -285,7 +286,7 @@ def test_pending_read_asks_for_the_team_view(monkeypatch):
 
     monkeypatch.setattr(W.config, "raw_league_get", fake)
     monkeypatch.setattr(W, "_team_id", lambda **k: 7)
-    W.pending_state()
+    W.pending_state(ref=home_league())
     assert "mTeam" in seen["view"]  # without it ESPN leaves subOrder null
 
 
@@ -306,18 +307,18 @@ def test_reorder_posts_to_the_team_pending_url(monkeypatch):
         return R()
 
     monkeypatch.setattr(W.requests, "post", post)
-    W.reorder_claims(["x", "y"])
+    W.reorder_claims(["x", "y"], ref=home_league())
     assert calls[0][0].endswith("/teams/7/pendingTransactions")
     assert calls[0][1] == [{"id": "x", "subOrder": 1}, {"id": "y", "subOrder": 2}]
 
 
 def test_fake_reorder_sets_the_order(monkeypatch):
     monkeypatch.setenv("FFL_WRITES", "0")
-    W._fake(leagues.home()).claims.clear()
-    a = W.submit_claim(101, 1, 6)
-    b = W.submit_claim(102, 1, 6)
-    W.reorder_claims([b, a])
-    assert [(c["id"], c["priority"]) for c in W.pending_claims()] == [(b, 1), (a, 2)]
+    W._fake(home_league()).claims.clear()
+    a = W.submit_claim(101, 1, 6, ref=home_league())
+    b = W.submit_claim(102, 1, 6, ref=home_league())
+    W.reorder_claims([b, a], ref=home_league())
+    assert [(c["id"], c["priority"]) for c in W.pending_claims(ref=home_league())] == [(b, 1), (a, 2)]
 
 
 def test_lineup_body_matches_the_captured_swap():
@@ -328,9 +329,9 @@ def test_lineup_body_matches_the_captured_swap():
 
 def test_move_lineup_under_fake_writes_moves_the_fake_slots(monkeypatch):
     monkeypatch.setenv("FFL_WRITES", "0")
-    monkeypatch.setattr(W._fake(leagues.home()), "slots", {})
-    W.move_lineup([(1, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], 5)
-    assert W.fake_slots() == {1: "RB/WR/TE", 2: "BE"}
+    monkeypatch.setattr(W._fake(home_league()), "slots", {})
+    W.move_lineup([(1, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], 5, ref=home_league())
+    assert W.fake_slots(ref=home_league()) == {1: "RB/WR/TE", 2: "BE"}
 
 
 def test_move_lineup_raises_unless_espn_says_executed(monkeypatch):
@@ -338,7 +339,7 @@ def test_move_lineup_raises_unless_espn_says_executed(monkeypatch):
     monkeypatch.setattr(W, "_team_id", lambda **k: 7)
     monkeypatch.setattr(W, "_post", lambda body, url=None, **k: {"status": "PENDING"})
     with pytest.raises(W.WriteError):
-        W.move_lineup([(1, "BE", "RB")], 5)
+        W.move_lineup([(1, "BE", "RB")], 5, ref=home_league())
 
 
 PENDING_DOC = {"scoringPeriodId": 7, "status": {"waiverLastExecutionDate": 1792652400000},
@@ -356,25 +357,25 @@ def _counted_reads(monkeypatch):
 
 def test_one_pending_read_serves_the_claims_and_the_last_run_inside_max_age(monkeypatch):
     reads = _counted_reads(monkeypatch)
-    assert [c["id"] for c in W.pending_state(max_age=60)[0]] == ["c1"]
-    assert W.last_waiver_run(max_age=60) == datetime.fromtimestamp(1792652400).isoformat(timespec="seconds")
-    assert W.pending_state(max_age=60)[1] == 7
+    assert [c["id"] for c in W.pending_state(max_age=60, ref=home_league())[0]] == ["c1"]
+    assert W.last_waiver_run(max_age=60, ref=home_league()) == datetime.fromtimestamp(1792652400).isoformat(timespec="seconds")
+    assert W.pending_state(max_age=60, ref=home_league())[1] == 7
     assert len(reads) == 1
 
 
 def test_without_max_age_every_call_reads_espn(monkeypatch):
     reads = _counted_reads(monkeypatch)
-    W.pending_state(max_age=60)
-    W.pending_claims()
-    W.last_waiver_run()
+    W.pending_state(max_age=60, ref=home_league())
+    W.pending_claims(ref=home_league())
+    W.last_waiver_run(ref=home_league())
     assert len(reads) == 3
 
 
 def test_a_write_drops_the_reused_read(monkeypatch):
     reads = _counted_reads(monkeypatch)
-    W.pending_state(max_age=60)
-    W.submit_claim(102, None, 7)
-    W.pending_state(max_age=60)
+    W.pending_state(max_age=60, ref=home_league())
+    W.submit_claim(102, None, 7, ref=home_league())
+    W.pending_state(max_age=60, ref=home_league())
     assert len(reads) == 2
 
 
@@ -383,17 +384,17 @@ def test_a_read_that_spans_a_write_is_not_reused(monkeypatch):
 
     def read_during_a_write(view, **k):
         reads.append(view)
-        W.submit_claim(102, None, 7)  # lands while this read is in flight: its answer may predate the claim
+        W.submit_claim(102, None, 7, ref=home_league())  # lands while this read is in flight: its answer may predate the claim
         return PENDING_DOC
 
     monkeypatch.setattr(W.config, "raw_league_get", read_during_a_write)
-    W.pending_state(max_age=60)
+    W.pending_state(max_age=60, ref=home_league())
     monkeypatch.setattr(W.config, "raw_league_get", lambda view, **k: reads.append(view) or PENDING_DOC)
-    W.pending_state(max_age=60)
+    W.pending_state(max_age=60, ref=home_league())
     assert len(reads) == 2
 
 
 def test_last_waiver_run_is_none_when_the_read_fails(monkeypatch):
     _counted_reads(monkeypatch)
     monkeypatch.setattr(W.config, "raw_league_get", lambda view, **k: (_ for _ in ()).throw(RuntimeError("down")))
-    assert W.last_waiver_run(max_age=60) is None
+    assert W.last_waiver_run(max_age=60, ref=home_league()) is None

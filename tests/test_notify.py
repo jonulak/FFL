@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from ffl import db, journal, notify
+from tests.home import home_league
 
 AT = "2026-10-09T10:00:00-04:00"
 
@@ -30,15 +31,15 @@ def test_sync_transactions_queues_only_new_rows():
     team = SimpleNamespace(team_id=6, team_name="Henry", roster=[])
     lg = SimpleNamespace(year=2026, player_map={5083754: "Ryan Flournoy"}, get_team_data=lambda tid: team,
                          espn_request=SimpleNamespace(league_get=lambda extend="", params=None, headers=None: topics))
-    first = journal.sync_transactions(lg)
-    second = journal.sync_transactions(lg)
+    first = journal.sync_transactions(lg, ref=home_league())
+    second = journal.sync_transactions(lg, ref=home_league())
     assert len(first) == 1 and second == []
-    assert [n["body"] for n in db.unsent_notices()] == ["Henry +Ryan Flournoy"]
+    assert [n["body"] for n in db.unsent_notices(ref=home_league())] == ["Henry +Ryan Flournoy"]
 
 
 def test_rows_already_logged_before_notify_never_fire():
-    db.add_transactions([_tx(1, "WAIVER ADDED")])          # the log as it stood at deploy
-    assert db.unsent_notices() == []
+    db.add_transactions([_tx(1, "WAIVER ADDED")], ref=home_league())          # the log as it stood at deploy
+    assert db.unsent_notices(ref=home_league()) == []
 
 
 def _flag(slot, injury, locked=False, name="Isiah Pacheco"):
@@ -64,10 +65,10 @@ def test_locked_bench_ir_and_unslotted_players_are_skipped():
 
 
 def test_same_status_twice_is_one_notice_a_new_status_another():
-    db.add_notices(notify.injury_notices({9: _flag("RB", "DOUBTFUL")}, 5, AT))
-    db.add_notices(notify.injury_notices({9: _flag("RB", "DOUBTFUL")}, 5, AT))
-    db.add_notices(notify.injury_notices({9: _flag("RB", "OUT")}, 5, AT))
-    assert [n["key"] for n in db.unsent_notices()] == ["injury:5:9:DOUBTFUL", "injury:5:9:OUT"]
+    db.add_notices(notify.injury_notices({9: _flag("RB", "DOUBTFUL")}, 5, AT), ref=home_league())
+    db.add_notices(notify.injury_notices({9: _flag("RB", "DOUBTFUL")}, 5, AT), ref=home_league())
+    db.add_notices(notify.injury_notices({9: _flag("RB", "OUT")}, 5, AT), ref=home_league())
+    assert [n["key"] for n in db.unsent_notices(ref=home_league())] == ["injury:5:9:DOUBTFUL", "injury:5:9:OUT"]
 
 
 PENDING = [{"id": "a", "add": 11, "drop": 21, "priority": 1}, {"id": "b", "add": 12, "drop": None, "priority": 2}]
@@ -127,7 +128,7 @@ def test_a_source_switched_off_here_raises_no_notice_and_shows_no_status(monkeyp
                                    "sharks-ros": {"error": "403", "failing_since": since},
                                    "cbs": {"error": "down", "failing_since": since}})
     added = []
-    monkeypatch.setattr(notify.db, "add_notices", lambda ns: added.extend(ns) or len(ns))
+    monkeypatch.setattr(notify.db, "add_notices", lambda ns, *, ref: added.extend(ns) or len(ns))
     monkeypatch.setenv("FFL_SOURCES_OFF", "sharks")
     notify.check_sources()
     assert [n["key"] for n in added] == [f"source:cbs:{since}"]
@@ -138,23 +139,23 @@ def test_a_source_switched_off_here_raises_no_notice_and_shows_no_status(monkeyp
 
 
 def test_put_prefs_accepts_news_bool():
-    assert notify.prefs()["news"] is True
-    assert notify.put_prefs({"news": False})["news"] is False and notify.prefs()["news"] is False
+    assert notify.prefs(ref=home_league())["news"] is True
+    assert notify.put_prefs({"news": False}, ref=home_league())["news"] is False and notify.prefs(ref=home_league())["news"] is False
     with pytest.raises(ValueError):
-        notify.put_prefs({"news": "yes"})
-    assert notify.prefs()["news"] is False
+        notify.put_prefs({"news": "yes"}, ref=home_league())
+    assert notify.prefs(ref=home_league())["news"] is False
 
 
 def test_notify_prefs_watch_bool():
     from datetime import datetime
-    assert notify.prefs()["watch"] is True
+    assert notify.prefs(ref=home_league())["watch"] is True
     with pytest.raises(ValueError):
-        notify.put_prefs({"watch": "yes"})
+        notify.put_prefs({"watch": "yes"}, ref=home_league())
     t = datetime(2026, 10, 22, 12, 0).astimezone()
     n = {"key": "watch:5:2026-10-22", "kind": "watch", "title": "A", "body": "B Out", "url": "/watch",
          "created_at": t.isoformat()}
-    pushes, _ = notify.plan([n], notify.prefs(), t)
+    pushes, _ = notify.plan([n], notify.prefs(ref=home_league()), t)
     assert [p["url"] for p in pushes] == ["/watch"]
-    assert notify.put_prefs({"watch": False})["watch"] is False
-    pushes, marks = notify.plan([n], notify.prefs(), t)
+    assert notify.put_prefs({"watch": False}, ref=home_league())["watch"] is False
+    pushes, marks = notify.plan([n], notify.prefs(ref=home_league()), t)
     assert pushes == [] and marks["off"] == ["watch:5:2026-10-22"]

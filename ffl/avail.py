@@ -6,7 +6,7 @@
 
 Sorted by projection, not score, so it shows the players the candidate table hides once a
 position sits at replacement level. Use it before naming anyone late in the draft. For the current
-league (FFL_LEAGUE, else the home league): the board is the pre-draft one, rebuilt from the DB's
+league (FFL_LEAGUE, else FFL_USER's default): the board is the pre-draft one, rebuilt from the DB's
 draft inputs; the picks gone come from its pick feed (the DB's draft_feeds).
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from . import db, leagues
 
 
 def main(pos: str, n: int = 8):
-    ref = leagues.current()
+    ref = leagues.acting()
     gone = {p["playerId"] for p in db.draft_feed(ref)[0]}
     b = board_mod.build(*board_mod.load_inputs(ref))
     left = b[(b.pos == pos.upper()) & ~b.player_id.isin(gone)].sort_values("proj", ascending=False)

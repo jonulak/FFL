@@ -5,7 +5,7 @@ candidate table for my next pick.
     uv run python -m ffl.draft_watch once       # single REST snapshot (pre-draft sanity check)
     uv run python -m ffl.draft_watch rest       # REST polling loop (post-draft recap only)
 
-Outputs, all under the watched league (FFL_LEAGUE, else the home league): the DB's draft_picks
+Outputs, all under the watched league (FFL_LEAGUE, else FFL_USER's default): the DB's draft_picks
 (the log), draft_states (full state, which ffl.autodraft reads) and draft_feeds (the raw socket
 feed, which ffl.advise / ffl.avail read), and stdout. A practice run (FFL_DB_URL=...ffl_mock) writes the same
 tables in its own database.
@@ -48,7 +48,7 @@ INJURY_SHORT = {"ACTIVE": "", "QUESTIONABLE": "Q", "DOUBTFUL": "D", "OUT": "OUT"
                 "INJURY_RESERVE": "IR", "SUSPENSION": "SUSP"}
 
 
-def my_team_id(settings: dict, ref=None) -> int:
+def my_team_id(settings: dict, ref) -> int:
     """Which team is mine, in *this* league: `leagues.my_team_id` (the SWID wins over the registry)."""
     return leagues.my_team_id(settings, ref)
 
@@ -134,7 +134,7 @@ def turn_math(full_order: list[int], me: int, current: int) -> dict:
             "horizon": horizon, "window": window, "my_picks_left": my_picks_left}
 
 
-def fetch_picks(ref=None) -> dict:
+def fetch_picks(ref) -> dict:
     d = raw_league_get("mDraftDetail", ref=ref)
     dd = d.get("draftDetail", {})
     # before the draft ESPN returns the whole slate as placeholders with playerId == -1
@@ -285,11 +285,10 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
         survive if I pass on him. Defaults to picks_until_me for callers that predate it.
     opp_demand: per position, how many picks in that horizon belong to teams that can still start
         the position (see `opponent_demand`).
-    caps: how many I may roster at each position (a position missing is uncapped); None reads the
-        current league's (`strategy.caps`).
+    caps: how many I may roster at each position (a position missing is uncapped; None: none capped). The
+        callers pass the league's (`strategy.caps`).
     """
-    if caps is None:
-        caps = strategy.caps()
+    caps = caps or {}
     avail = bd[~bd.drafted].copy()
     counts = my_roster.pos.value_counts().to_dict() if len(my_roster) else {}
     left = open_slots(settings, counts)
@@ -496,10 +495,10 @@ def candidate_table(rows: list[dict], n: int = 10) -> str:
 
 
 class Watcher:
-    """Board state + logging for one league (None: the current one), driven by whatever pick feed it is handed."""
+    """Board state + logging for one league, driven by whatever pick feed it is handed."""
 
-    def __init__(self, ref=None):
-        self.ref = ref or leagues.current()
+    def __init__(self, ref):
+        self.ref = ref
         self.settings, self.players, self.adp = board_mod.load_inputs(self.ref)
         self.me = my_team_id(self.settings, self.ref)
         # the league's caps and QB pace, read once: every tick (one a second live) would read the DB, and a
@@ -710,7 +709,7 @@ def run_socket():
     """Live mode: read picks off the draft room websocket via the open Chrome tab."""
     from .draft_socket import DraftFeed, FeedStore
 
-    w = Watcher()
+    w = Watcher(leagues.acting())
     n_teams = len(w.order)
     total = n_teams * w.rounds
     with DraftFeed(w.ref.provider_id, store=FeedStore(w.ref)) as feed:
@@ -758,7 +757,7 @@ def run(once: bool = False):
     ESPN leaves mDraftDetail at playerId -1 for the whole live draft, so this sees nothing
     while picks are actually happening. Use run_socket() during the draft.
     """
-    w = Watcher()
+    w = Watcher(leagues.acting())
     w.banner("REST mDraftDetail (pre/post-draft only)")
     printed = False
     while True:
@@ -789,9 +788,9 @@ def store_espn_draft(ref) -> int:
     ESPN keeps no pick times and the board never saw it, so ts and the board columns stay None."""
     from . import espn_season
     # put_picks overwrites every column of a pick it finds, which would wipe a watched draft's board columns
-    if ref.home or db.picks(ref=ref):
-        raise SystemExit(f"{ref.key}: refusing: the home league's draft is the watcher's, and a league with "
-                         "picks stored already has its record; nothing stored")
+    if db.picks(ref=ref):
+        raise SystemExit(f"{ref.key}: refusing: a league with picks stored already has its record (a watched draft's "
+                         "board columns would be wiped); nothing stored")
     if not fetch_picks(ref)["drafted"]:
         raise SystemExit(f"{ref.key}: ESPN says the draft is not finished; nothing stored")
     picks = config.league(ref).draft
@@ -808,7 +807,7 @@ def store_espn_draft(ref) -> int:
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "socket"
     if cmd == "store":
-        ref = leagues.current()
+        ref = leagues.acting()
         print(f"{ref.key}: stored {store_espn_draft(ref)} picks")
     elif cmd == "once":
         run(once=True)

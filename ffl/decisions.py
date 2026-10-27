@@ -202,6 +202,8 @@ def main(argv: list[str]) -> int:
         print(msg, file=sys.stderr)
         return 2
 
+    from . import leagues
+    ref = leagues.acting()  # FFL_USER's league (FFL_LEAGUE, else their default)
     if args.cmd == "add":
         keys = args.rationale.split(",") if args.rationale else None
         if err := validate_rationale(args.kind, keys, args.note):
@@ -209,13 +211,13 @@ def main(argv: list[str]) -> int:
         i = db.add_decision({"at": now_iso(), "week": args.week, "kind": args.kind, "source": "session", "title": args.title,
                              "decision": args.decision, "rationale": keys, "rationale_note": args.note,
                              "alternatives": args.alternatives, "exit_conditions": args.exit_conditions,
-                             "player_ids": _ids(args.players)})
+                             "player_ids": _ids(args.players)}, ref=ref)
         print(f"decision {i}")
         return 0
     if args.cmd == "outcome":
-        return 0 if db.update_decision(args.id, {"outcome": args.text, "outcome_at": now_iso()}) else fail(f"no decision {args.id}")
+        return 0 if db.update_decision(args.id, {"outcome": args.text, "outcome_at": now_iso()}, ref=ref) else fail(f"no decision {args.id}")
     if args.cmd == "rationale":
-        row = db.decision(args.id)
+        row = db.decision(args.id, ref=ref)
         if row is None:
             return fail(f"no decision {args.id}")
         keys = args.keys.split(",")
@@ -223,11 +225,11 @@ def main(argv: list[str]) -> int:
         note = row["rationale_note"] if args.note is None else args.note
         if err := validate_rationale(row["kind"], keys, note):
             return fail(err)
-        db.update_decision(args.id, {"rationale": keys} | ({} if args.note is None else {"rationale_note": args.note}))
+        db.update_decision(args.id, {"rationale": keys} | ({} if args.note is None else {"rationale_note": args.note}), ref=ref)
         return 0
-    rows = db.decisions()
+    rows = db.decisions(ref=ref)
     if args.cmd == "show":
-        row = db.decision(args.id)
+        row = db.decision(args.id, ref=ref)
         return fail(f"no decision {args.id}") if row is None else print(to_markdown(row)) or 0
     if args.cmd == "list":
         for r in rows:

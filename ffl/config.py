@@ -43,24 +43,6 @@ def league_url(ref) -> str:
     return _espn_page(ref, "league")
 
 
-_HOME_ATTRS = ("LEAGUE_ID", "MY_TEAM_ID", "DRAFT_ROOM_URL", "LEAGUE_URL")
-
-
-def __getattr__(name: str):
-    """TRANSITIONAL (phase 1b removes): the home league's facts for callers not yet converted to `ffl.leagues`.
-    Lazy, because leagues -> db -> config: reading them at config import time would be circular.
-    Any other name is an ordinary missing attribute, so hasattr/getattr-with-default behave."""
-    if name not in _HOME_ATTRS:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    from . import leagues
-    ref = leagues.home()
-    if name == "LEAGUE_ID":
-        return int(ref.provider_id)
-    if name == "MY_TEAM_ID":
-        return ref.team_id or 0
-    return draft_room_url(ref) if name == "DRAFT_ROOM_URL" else league_url(ref)
-
-
 SOURCES_KNOWN = frozenset({"sharks", "youtube_captions"})  # the names FFL_SOURCES_OFF can switch off
 _WARNED: set[str] = set()
 
@@ -92,15 +74,12 @@ _LEAGUES: dict[tuple[str, int, bool], object] = {}  # (provider_id, season, fetc
 _LEAGUES_LOCK = threading.Lock()
 
 
-def league(ref=None, fetch_league: bool = True):
-    """The espn-api League for `ref` (None: the home league), built once per (league, season, fetch_league).
+def league(ref, fetch_league: bool = True):
+    """The espn-api League for `ref`, built once per (league, season, fetch_league).
     A League is a snapshot of one league's week, teams and settings, not a connection. The cache is a dict
     behind a lock, not an lru_cache, so one league's League can be dropped (`league.evict(ref)`) when its
     hour is up without the other leagues' being rebuilt; the build (an ESPN call) runs outside the lock,
     and two threads asking at once may both build, the first install standing."""
-    if ref is None:
-        from . import leagues
-        ref = leagues.home()
     key = (ref.provider_id, ref.season, fetch_league)
     with _LEAGUES_LOCK:
         hit = _LEAGUES.get(key)
@@ -113,11 +92,8 @@ def league(ref=None, fetch_league: bool = True):
         return _LEAGUES.setdefault(key, built)
 
 
-def _evict(ref=None) -> None:
-    """Drop every cached League of `ref` (None: the home league), whichever fetch_league it was built with."""
-    if ref is None:
-        from . import leagues
-        ref = leagues.home()
+def _evict(ref) -> None:
+    """Drop every cached League of `ref`, whichever fetch_league it was built with."""
     with _LEAGUES_LOCK:
         for key in [k for k in _LEAGUES if k[:2] == (ref.provider_id, ref.season)]:
             del _LEAGUES[key]
@@ -133,8 +109,8 @@ league.evict = _evict
 league.cache_clear = _cache_clear
 
 
-def raw_league_get(view, extend: str = "", headers: dict | None = None, *, ref=None, **params) -> dict:
-    """Direct call to ESPN's league endpoint with the given view(s), for `ref` (None: the home league)."""
+def raw_league_get(view, extend: str = "", headers: dict | None = None, *, ref, **params) -> dict:
+    """Direct call to ESPN's league endpoint with the given view(s), for `ref`."""
     lg = league(ref)
     params = {"view": view, **params}
     return lg.espn_request.league_get(params=params, headers=headers, extend=extend)

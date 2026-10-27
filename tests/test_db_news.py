@@ -1,6 +1,7 @@
 import sqlalchemy as sa
 
 from ffl import db
+from tests.home import home_league
 
 
 def item(ext, source="site:LAR", at="2026-10-18T10:00:00", **kw):
@@ -233,7 +234,7 @@ def test_reword_rewrites_at_the_same_rev():
 def test_notice_keys_only_sent():
     rows = [{"key": k, "kind": "news", "title": "t", "body": "b", "url": "u", "created_at": "t"}
             for k in ("news:1", "news:2", "news:3", "move:1")]
-    db.add_notices(rows)
-    db.mark_notices(["news:1", "move:1"], "sent", "t")
-    db.mark_notices(["news:2"], "off", "t")
-    assert db.notice_keys("news:") == ["news:1"]
+    db.add_notices(rows, ref=home_league())
+    db.mark_notices(["news:1", "move:1"], "sent", "t", ref=home_league())
+    db.mark_notices(["news:2"], "off", "t", ref=home_league())
+    assert db.notice_keys("news:", ref=home_league()) == ["news:1"]

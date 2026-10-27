@@ -41,7 +41,7 @@ def move_notices(rows: list[dict], at: str) -> list[dict]:
     return out
 
 
-def enqueue_moves(rows: list[dict], *, ref=None) -> int:
+def enqueue_moves(rows: list[dict], *, ref) -> int:
     """Queue a league's new log rows. Never fails the sync that found them: a DB error is logged."""
     try:
         return db.add_notices(move_notices(rows, now()), ref=ref)
@@ -107,9 +107,19 @@ def source_notices(status: dict, t: datetime, at: str, hours: int = 24) -> list[
     return out
 
 
+def app_notices(rows: list[dict]) -> int:
+    """Queue notices about the app itself (a source failing, fitted weights) once, not once per league: under the
+    oldest registered league, whose queue every device already gets, until notices are per user (6.2.3). None
+    registered: nothing queued."""
+    from . import leagues
+    if not rows or not leagues.all_leagues():
+        return 0
+    return db.add_notices(rows, ref=leagues.oldest())
+
+
 def check_sources() -> int:
     from .sources import on_only  # a source switched off here raises nothing, whatever another host left failing
-    return db.add_notices(source_notices(on_only(db.get_state("source_status", {}) or {}), datetime.now().astimezone(), now()))
+    return app_notices(source_notices(on_only(db.get_state("source_status", {}) or {}), datetime.now().astimezone(), now()))
 
 
 DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "news": True, "watch": True, "quiet": ["23:00", "07:00"]}
@@ -121,18 +131,14 @@ _HM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 SWITCHES = ("move", "injury", "waivers", "news", "watch")
 
 
-def _home(ref) -> bool:
-    return ref is None or ref.home
+def prefs(*, ref) -> dict:
+    """A league's push switches (its own `notify_prefs` state) and the quiet hours (`quiet`, every league's)."""
+    return {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {}), "quiet": quiet()}
 
 
-def prefs(*, ref=None) -> dict:
-    """A league's push switches (home when `ref` is None) and the quiet hours, which are every league's. Home's
-    switches live beside the quiet hours in the global `prefs` row, as before any other league; another league's in
-    its own `notify_prefs` state."""
-    shared = {**DEFAULT_PREFS, **db.get_state("prefs", {})}
-    if _home(ref):
-        return shared
-    return {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {}), "quiet": shared["quiet"]}
+def quiet() -> list[str]:
+    """The quiet hours, every league's: the global `prefs` row."""
+    return {**DEFAULT_PREFS, **db.get_state("prefs", {})}["quiet"]
 
 
 def _checked(merged: dict) -> dict:
@@ -145,12 +151,10 @@ def _checked(merged: dict) -> dict:
     return merged
 
 
-def put_prefs(p: dict, *, ref=None) -> dict:
+def put_prefs(p: dict, *, ref) -> dict:
     """Each row read and written in one locked transaction (db.update_*state): two changes at once both land."""
     change = {k: v for k, v in p.items() if k in DEFAULT_PREFS}
     _checked({**prefs(ref=ref), **change})  # refuse before writing anything
-    if _home(ref):
-        return db.update_state("prefs", lambda cur: _checked({**DEFAULT_PREFS, **(cur or {}), **change}), {})
     quiet = {"quiet": change["quiet"]} if "quiet" in change else {}
     shared = db.update_state("prefs", lambda cur: {**(cur or {}), **quiet}, {})
     mine = db.update_league_state("notify_prefs", lambda cur: {k: {**DEFAULT_PREFS, **(cur or {}), **change}[k]
@@ -298,10 +302,8 @@ def league_label(ref) -> str:
 
 
 def league_url(url: str, ref) -> str:
-    """A push's page in its league: home's as it always was, another's with ?league= so a tap (or a push queued
-    before the open league changed) opens that league, never the last one used."""
-    if _home(ref):
-        return url
+    """A push's page in its league, with ?league= so a tap (or a push queued before the open league changed) opens
+    that league, never the last one used."""
     return f"{url}{'&' if '?' in url else '?'}league={ref.key}"
 
 
@@ -309,7 +311,7 @@ def for_league(push: dict, ref, named: bool) -> dict:
     """A planned push dressed for its league: the label after the title when more than one league is registered,
     the league's page, and a tag of its own (a device replaces a notification with the same tag)."""
     title = f"{push['title']} · {league_label(ref)}" if named else push["title"]
-    tag = push["tag"] if _home(ref) else f"{ref.key}:{push['tag']}"
+    tag = f"{ref.key}:{push['tag']}"
     return {**push, "title": title, "url": league_url(push["url"], ref), "tag": tag, "ref": ref}
 
 
@@ -336,7 +338,7 @@ def flush(t: datetime | None = None, send=None) -> dict:
     t = t or datetime.now().astimezone()
     refs = leagues.all_leagues()
     unsent = {r.key: db.unsent_notices(ref=r) for r in refs}
-    if in_quiet(t, prefs()["quiet"]):
+    if in_quiet(t, quiet()):
         return {"held": sum(len(u) for u in unsent.values())}
     at = t.isoformat(timespec="seconds")
     pushes, counts = [], {"off": 0, "expired": 0}
@@ -364,8 +366,8 @@ def send_test(send=None) -> dict:
 
 # --- I/O: the tick (POST /notify/tick, every 15 min from launchd/com.jonulak.ffl-notify) ---
 
-def check_injuries(*, ref=None) -> int:
-    """My starters in the league `ref` names (None: home) off one fresh mRoster read; queues the ones
+def check_injuries(*, ref) -> int:
+    """My starters in the league `ref` names off one fresh mRoster read; queues the ones
     OUT/Doubtful/IR before their lock."""
     from . import espn_season
     lg = espn_season.fresh_league(ref)
@@ -375,7 +377,7 @@ def check_injuries(*, ref=None) -> int:
     return db.add_notices(injury_notices(flags, week, now()), ref=ref)
 
 
-def check_waivers(synced: bool = True, *, ref=None) -> int:
+def check_waivers(synced: bool = True, *, ref) -> int:
     """Compare ESPN's last waiver run with the one seen before; on a new run, the claims pending at the last tick are
     won (my WAIVER ADDED rows after the previous run) or lost. Then remember this run and today's pending claims.
     Nothing is touched when the run is unreadable, or when it is new and the log did not sync this tick (its
@@ -409,8 +411,8 @@ def _steps(out: dict, steps) -> dict:
     return out
 
 
-def league_tick(ref=None) -> dict:
-    """One league's share of the tick (None: home): sync its log (moves queue themselves), check its injuries and
+def league_tick(ref) -> dict:
+    """One league's share of the tick: sync its log (moves queue themselves), check its injuries and
     waivers, record its projections."""
     from . import espn_season, journal
     out: dict = {}
@@ -421,14 +423,11 @@ def league_tick(ref=None) -> dict:
 
 
 def tick() -> dict:
-    """Every league's share (home's at the top of the answer, the others under `leagues`), then the global work
+    """Every league's share (under `leagues`, by key), then the global work
     once: the sources' health, the flush. A step that fails is reported and the rest still run: an ESPN outage must
     not hold back notices already queued, nor one league's another's."""
     from . import leagues
-    out = league_tick()
-    others = {r.key: league_tick(r) for r in leagues.all_leagues() if not r.home}
-    if others:
-        out["leagues"] = others
+    out: dict = {"leagues": {r.key: league_tick(r) for r in leagues.all_leagues()}}
     _steps(out, (("sources", check_sources),))
     try:
         out["flush"] = flush()

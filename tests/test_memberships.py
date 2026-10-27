@@ -6,13 +6,14 @@ from fastapi.testclient import TestClient
 
 from ffl import api, auth, db, leagues
 from tests.conftest import TEST_USER
+from tests.home import home_league
 
-OTHER = leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None)
+OTHER = leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None)
 
 
 @pytest.fixture
 def other():
-    return leagues.register(OTHER)
+    return leagues.register(OTHER, user_id=TEST_USER["id"])
 
 
 @pytest.fixture
@@ -29,14 +30,14 @@ def _as(monkeypatch, uid: int):
 # --- the registry ---
 
 def test_the_test_user_holds_home():
-    home = leagues.home()
+    home = home_league()
     assert home.user_id == TEST_USER["id"] and home.is_default and home.owner
     assert leagues.for_user(TEST_USER["id"]) == [home]
 
 
-def test_register_files_the_league_under_its_owner(other):
+def test_register_files_the_league_under_the_user_named(other):
     assert other.user_id == TEST_USER["id"] and other.team_id == 3 and not other.is_default and other.owner
-    assert [r.key for r in leagues.for_user(TEST_USER["id"])] == [leagues.home().key, "espn:999"]
+    assert [r.key for r in leagues.for_user(TEST_USER["id"])] == [home_league().key, "espn:999"]
 
 
 def test_join_and_membership(other):
@@ -72,7 +73,7 @@ def test_rename_is_the_members_own(other):
 
 def test_a_rename_stays_off_the_league_row(other):
     leagues.rename(other, "Renamed")
-    leagues.register(leagues.get("espn:999"))            # formats.store and add write the row back this way
+    leagues.register(leagues.get("espn:999"), user_id=TEST_USER["id"])  # formats.store and add write it back so
     with db._read() as c:
         assert c.execute(sa.select(db.leagues_table.c.name).where(db.leagues_table.c.key == "espn:999")).scalar() == "other"
     assert leagues.get("espn:999").name == "Renamed"
@@ -108,7 +109,7 @@ def test_a_non_member_is_answered_as_an_unknown_league(client, other, monkeypatc
     uid = db.create_user("b@example.com", None)
     leagues.join("espn:999", "b@example.com", team_id=5, default=True)
     _as(monkeypatch, uid)
-    home = leagues.home().key
+    home = home_league().key
     paths = _league_routes()
     assert len(paths) > 10
     for p in paths:
@@ -150,13 +151,13 @@ def test_caches_are_per_user(other):
     mine, theirs = leagues.get("espn:999"), leagues.membership(uid, "espn:999")
     assert api.cache_for(mine) is not api.cache_for(theirs)
     assert api.cache_for(mine) is api.cache_for(leagues.get("espn:999"))
-    assert api.cache_for(leagues.home()) is api.cache
+    assert api.cache_for(home_league()) is api.cache_for(home_league())
 
 
 def test_a_second_member_of_home_does_not_get_homes_cache():
     uid = db.create_user("b@example.com", None)
-    leagues.join(leagues.home().key, "b@example.com", team_id=4)
-    assert api.cache_for(leagues.membership(uid, leagues.home().key)) is not api.cache
+    leagues.join(home_league().key, "b@example.com", team_id=4)
+    assert api.cache_for(leagues.membership(uid, home_league().key)) is not api.cache_for(home_league())
 
 
 def test_stored_pages_are_per_user(other):
@@ -214,7 +215,7 @@ def test_migration_files_every_league_under_the_first_user(empty_db, monkeypatch
     assert [(r["user_id"], r["league"], r["team_id"], r["is_default"], r["name"], r["strategy"]) for r in rows] == [
         (me, "espn:100000001", 7, True, None, "2qb-10team")]
     assert page_users == [me]
-    assert leagues.home().name == "Renamed"
+    assert leagues.get("espn:100000001").name == "Renamed"
 
 
 def test_migration_without_a_user_files_nothing(empty_db, monkeypatch):
@@ -222,7 +223,8 @@ def test_migration_without_a_user_files_nothing(empty_db, monkeypatch):
     with db._read() as c:
         assert c.execute(sa.select(sa.func.count()).select_from(db.memberships)).scalar() == 0
         assert c.execute(sa.select(db.page_cache.c.user_id)).scalars().all() == [0]  # no user's: served as before
-    assert leagues.home().user_id is None and leagues.home().team_id == 7
+    # no member: 0029 dropped the leagues row's team with nobody to hold it (production has its user)
+    assert leagues.get("espn:100000001").user_id is None and leagues.get("espn:100000001").team_id is None
 
 
 def test_sign_in_never_makes_a_membership(monkeypatch):
@@ -255,12 +257,12 @@ def test_a_non_owner_member_never_writes_to_espn_with_the_owners_cookies(other, 
 
 
 # Routes that open no league: global (health, the switcher's list, live, sources, news, devices, traces, presets) or a
-# job that resolves its own ?league= through open_league (outlook refresh, transactions sync). A new route that is
+# job that resolves its own ?league= through open_league (outlook refresh, transactions sync, refresh). A new route that is
 # neither must open the league (Depends(open_league)) or be added here on purpose: a league route without it would
 # serve the owner's league to any signed-in user.
 GLOBAL_ROUTES = {
-    "/health", "/leagues", "/live", "/live/status", "/sources/status", "/decisions/presets", "/outlook/refresh",
-    "/transactions/sync", "/notify/subscribe", "/notify/unsubscribe", "/notify/test", "/trace", "/notify/recent",
+    "/health", "/leagues", "/live", "/live/status", "/sources/status", "/decisions/presets", "/outlook/refresh", "/refresh",
+    "/transactions/sync", "/notify/subscribe", "/notify/unsubscribe", "/notify/test", "/trace",
     "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status",
 }
 
@@ -275,10 +277,7 @@ def test_every_route_opens_the_league_or_is_global_on_purpose():
     assert {p for p in bare if not p.startswith("/auth/")} == GLOBAL_ROUTES
 
 
-def test_no_route_reads_the_module_cache_directly():
-    """A route on `cache` itself rather than cache_for(ref) would serve the home owner's pages to every member."""
-    import inspect
-    import re
-    src = inspect.getsource(api)
-    hits = [m.group(0) for m in re.finditer(r"(?<![\w.])cache\.(\w+)\(", src)]
-    assert sorted(set(hits)) == ["cache.get_or_build(", "cache.load("], hits  # the lifespan's boot load and live runner
+def test_there_is_no_module_page_cache():
+    """Every page cache is a member's of one league (cache_for): a module-level one would serve one member's pages to
+    every member."""
+    assert not hasattr(api, "cache")

@@ -204,15 +204,15 @@ def _weeks(arg: str) -> list[int]:
     return list(range(int(lo), int(hi or lo) + 1))
 
 
-def backfill(weeks: list[int]) -> None:
-    """Each week's finished games' plays from ESPN's drives, through that week's feed store."""
+def backfill(weeks: list[int], *, ref) -> None:
+    """Each week's finished games' plays from ESPN's drives, through the league's feed store of that week."""
     from . import db, espn_season, nfl, plays
     from .settings import load
-    table = fc.scoring_table(load())
-    done = set(db.get_league_state("final_plays_done", []))  # the tick's record (api.final_plays): these need no read
+    table = fc.scoring_table(load(ref))
+    done = set(db.get_league_state("final_plays_done", [], ref=ref))  # the tick's record (api.final_plays): these need no read
     for w in weeks:
-        roster = plays.roster_index(espn_season.league_starters(w))
-        store = plays.Store(w)
+        roster = plays.roster_index(espn_season.league_starters(w, ref=ref))
+        store = plays.Store(w, ref=ref)
         games = [g for g in nfl.scoreboard(w)[0]["games"] if g["status"] == "post"]
         n = 0
         for g in games:
@@ -222,14 +222,15 @@ def backfill(weeks: list[int]) -> None:
             store.record(entries, roster, table)
             n += len(entries)
             done.add(g["event_id"])
-        db.update_league_state("final_plays_done", lambda cur: sorted(set(cur or []) | done), [])
+        db.update_league_state("final_plays_done", lambda cur: sorted(set(cur or []) | done), [], ref=ref)
         fixed = plays.old_revisions(store.rows)
-        db.update_plays(fixed)
+        db.update_plays(fixed, ref=ref)
         print(f"week {w}: {len(games)} games, {n} plays, {len(store.called)} called back, {len(fixed)} old rows retagged")
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "backfill":
-        backfill(_weeks(sys.argv[2]))
+        from . import leagues
+        backfill(_weeks(sys.argv[2]), ref=leagues.acting())
     else:
         sys.exit(__doc__)

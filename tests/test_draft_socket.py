@@ -6,6 +6,7 @@ import sqlalchemy as sa
 
 from ffl import db, leagues
 from ffl.draft_socket import DraftFeed, FeedStore
+from tests.home import home_league
 
 ME, NEXT = 7, 6
 
@@ -116,7 +117,7 @@ def test_a_failed_save_warns_once_and_the_next_pump_retries(capsys):
 
 def test_feed_resumes_from_the_db():
     """A watcher restarted mid-draft starts from the picks its league's feed already holds."""
-    ref = leagues.home()
+    ref = home_league()
     stored = [{"teamId": 3, "playerId": 11, "lineupSlotId": 0, "overall": 1}]
     db.put_draft_feed(ref, stored, 2)
     f = DraftFeed(ref.provider_id, store=FeedStore(ref))

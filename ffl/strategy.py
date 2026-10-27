@@ -30,9 +30,8 @@ def _strategy(row: dict) -> Strategy:
     return Strategy(row["key"], row["version"], row["name"], row["prose"], dict(row["constants"]))
 
 
-def for_league(ref: leagues.LeagueRef | None = None) -> Strategy:
-    """The league's linked preset, its latest version (None: the current league)."""
-    ref = ref or leagues.current()
+def for_league(ref: leagues.LeagueRef) -> Strategy:
+    """The league's linked preset, its latest version."""
     if not ref.strategy:
         raise SystemExit(f"{ref.key} plays no strategy preset (leagues.strategy is unset)")
     row = db.strategy_row(ref.strategy)
@@ -41,10 +40,9 @@ def for_league(ref: leagues.LeagueRef | None = None) -> Strategy:
     return _strategy(row)
 
 
-def caps(ref: leagues.LeagueRef | None = None) -> dict[str, int]:
+def caps(ref: leagues.LeagueRef) -> dict[str, int]:
     """`leagues.caps(ref)`, after any position with no cap of mine takes the preset's suggestion (never above
     the league's limit). A league with no preset keeps only the caps it has."""
-    ref = ref or leagues.current()
     if ref.strategy:
         rows = db.caps_rows(ref.key)
         unset = [p for p in leagues.CAP_POSITIONS if rows.get(p, {}).get("my_cap") is None]
@@ -60,7 +58,7 @@ def caps(ref: leagues.LeagueRef | None = None) -> dict[str, int]:
     return leagues.caps(ref)
 
 
-def qb_pace(ref: leagues.LeagueRef | None = None) -> float:
+def qb_pace(ref: leagues.LeagueRef) -> float:
     """Picks earlier than FFC ADP that this room takes its QBs: FFL_QB_PACE when set, else the preset's."""
     env = os.environ.get("FFL_QB_PACE")
     if env:
@@ -68,7 +66,6 @@ def qb_pace(ref: leagues.LeagueRef | None = None) -> float:
             return float(env)
         except ValueError:
             return 0.0
-    ref = ref or leagues.current()
     if not ref.strategy:
         return 0.0
     return float(for_league(ref).constants.get("qb_pace") or 0.0)
@@ -77,7 +74,7 @@ def qb_pace(ref: leagues.LeagueRef | None = None) -> float:
 def main(argv: list[str]) -> int:
     if argv[:1] == ["show"]:
         rest = argv[1:]
-        ref = leagues.get(rest[rest.index("--league") + 1]) if "--league" in rest else None
+        ref = leagues.acting(rest[rest.index("--league") + 1] if "--league" in rest else None)
         print(for_league(ref).prose, end="")
         return 0
     if argv[:1] == ["list"]:

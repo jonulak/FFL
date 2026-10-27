@@ -20,7 +20,7 @@ draft_picks for `--league`, or a stored log in the `draft_logs` table, named `<s
 when only one source has it; a bare source, `ffc` or `practice`, is every log in it). Source `practice`
 holds the practice and mock drafts once kept as journal/draft/*.csv (their file stems), `ffc` what
 `ffl.ffc fetch` stored, with `human` marking the seats people sat in. The board is the league's
-(`--league`, else FFL_LEAGUE, else the home league).
+(`--league`, else FFL_LEAGUE, else FFL_USER's default).
 """
 from __future__ import annotations
 
@@ -80,17 +80,21 @@ def keep(name: str, db_url: str, league: str) -> None:
     print(f"kept {len(rows)} picks as practice:{name} (uv run python -m ffl.replay practice:{name})")
 
 
-def load_log(name: str | None = None, ref=None) -> pd.DataFrame:
-    """A pick log: the stored log `name` (see resolve_logs; one log), or `ref`'s draft_picks. A stored log
-    reads back as the frame pd.read_csv gave from the file it once was."""
-    if name is not None:
-        [(source, log_id)] = resolve_logs([name])
-        rows = db.draft_logs_rows(source, log_id)[0]["rows"]
-        log = adp_mod.csv_frame(pd.DataFrame(rows)) if rows else pd.DataFrame()
-        name = f"{source}:{log_id}"
-    else:
-        log = pd.DataFrame(db.picks(ref))
-        name = f"{ref.key} draft_picks"
+def load_log(name: str) -> pd.DataFrame:
+    """The stored pick log `name` (see resolve_logs; one log), read back as the frame pd.read_csv gave from the file
+    it once was."""
+    [(source, log_id)] = resolve_logs([name])
+    rows = db.draft_logs_rows(source, log_id)[0]["rows"]
+    log = adp_mod.csv_frame(pd.DataFrame(rows)) if rows else pd.DataFrame()
+    return _checked_log(log, f"{source}:{log_id}")
+
+
+def league_log(ref) -> pd.DataFrame:
+    """The league's own draft_picks as a pick log."""
+    return _checked_log(pd.DataFrame(db.picks(ref)), f"{ref.key} draft_picks")
+
+
+def _checked_log(log: pd.DataFrame, name: str) -> pd.DataFrame:
     if not len(log):
         raise SystemExit(f"{name}: no picks")
     need = {"overall", "round", "team_id", "player_id"}
@@ -109,11 +113,8 @@ def seats(log: pd.DataFrame, human_only: bool) -> list[int]:
 def replay(log: pd.DataFrame, me: int, settings: dict, players: pd.DataFrame, adp: pd.DataFrame,
            n_sims: int, verbose: bool = True, sims_budget_s: float = 8.0, caps: dict[str, int] | None = None,
            qb_pace: float | None = None) -> dict:
-    """caps / qb_pace: the league's (None reads the current league's); main reads them once per run."""
-    if caps is None:
-        caps = strategy.caps()
-    if qb_pace is None:
-        qb_pace = strategy.qb_pace()
+    """caps / qb_pace: the league's (None: none capped, no pace); main reads them once per run."""
+    caps, qb_pace = caps or {}, qb_pace or 0.0
     round1 = log[log["round"] == 1].sort_values("overall")
     order = [int(t) for t in round1.team_id]
     rounds = int(log["round"].max())
@@ -194,13 +195,13 @@ def main():
         return
     if not a.logs and not a.league and not a.human:
         ap.error("name stored logs, or --league KEY, or --human for every FFC log")
-    ref = leagues.get(a.league) if a.league else leagues.current()
+    ref = leagues.acting(a.league)
     settings, players, adp = board_mod.load_inputs(ref)
     caps, qb_pace = strategy.caps(ref), strategy.qb_pace(ref)
     names = [f"{s}:{i}" for s, i in resolve_logs(a.logs or (["ffc"] if a.human and not a.league else []))]
     logs = [(name, load_log(name)) for name in names]
     if a.league:
-        logs.append((f"{ref.key} draft_picks", load_log(ref=ref)))
+        logs.append((f"{ref.key} draft_picks", league_log(ref)))
     summary = []
     for path, log in logs:
         if a.human:

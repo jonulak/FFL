@@ -85,7 +85,8 @@ def _league_players() -> list[dict]:
     """Same records through the league's kona view, which needs the league cookies."""
     filters = {"players": {"filterSlotIds": {"value": [0, 2, 4, 6, 17]}, "limit": 1500,
                            "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}}
-    data = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filters)})
+    from .. import leagues  # the pool is the NFL's, the same through any league's view
+    data = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filters)}, ref=leagues.oldest())
     return [e["player"] for e in data.get("players") or [] if e.get("player")]
 
 

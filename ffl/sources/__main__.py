@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sys
 
-from .. import db, espn_season as E
+from .. import db, espn_season as E, leagues
 from . import status_snapshot
 
 
@@ -18,14 +18,14 @@ def _old(vals: dict[str, float], keep: tuple[str, ...]) -> float | None:
     return round(sum(have) / len(have), 1) if have else None
 
 
-def compare() -> None:
-    lg = E.fresh_league()
-    settings = E.load()
+def compare(*, ref) -> None:
+    lg = E.fresh_league(ref)
+    settings = E.load(ref)
     week = lg.current_week
     rw = E.ros_week_for(lg, week)
-    players = [E.flatten_box_player(bp) for lineup in E._boxes_by_team(lg, week).values() for bp in lineup]
+    players = [E.flatten_box_player(bp) for lineup in E._boxes_by_team(lg, week, ref=ref).values() for bp in lineup]
     # the season lookup first: it sets the ESPN pool keys the weekly unmatched-name log is read against
-    lookup = E.season_lookup(settings, rw)
+    lookup = E.season_lookup(settings, rw, ref)
     src = E.weekly_sources(week, settings)
     print("sources this week:", {name: len(d) for name, d in src.items()})
     rows = []
@@ -43,7 +43,7 @@ def compare() -> None:
 
 def main(argv: list[str]) -> None:
     if argv[:1] == ["compare"]:
-        compare()
+        compare(ref=leagues.acting())
     elif argv[:1] == ["status"]:
         print(json.dumps({**(db.get_state("source_status", {}) or {}), **status_snapshot()}, indent=2))
     else:

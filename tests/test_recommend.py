@@ -5,6 +5,7 @@ from ffl import board as board_mod
 from ffl import draft_watch as dw
 
 from .test_board import EMPTY_ADP, SETTINGS, make_players
+from tests.home import home_league
 
 
 def board_with(drafted):
@@ -88,6 +89,6 @@ def _te_scores(caps):
 def test_te_cap_from_league_caps():
     """The TE3 rule is the league's TE cap, not a constant: raise it and a third TE is priced again."""
     from ffl import strategy
-    raised = _te_scores({**strategy.caps(), "TE": 3})
+    raised = _te_scores({**strategy.caps(ref=home_league()), "TE": 3})
     assert raised and all(s > -999 for s in raised), "TE cap 3 with two held: a third TE is still blacklisted"
-    assert all(s == -999 for s in _te_scores(None)), "default caps (TE 2): a third TE must be off the board"
+    assert all(s == -999 for s in _te_scores(strategy.caps(ref=home_league()))), "the league's caps (TE 2): a third TE must be off the board"

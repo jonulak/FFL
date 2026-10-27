@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from ffl import espn_season, player_card, season
 from tests.test_espn_season import bp
 from tests.test_season import TWO_QB, P, roster
+from tests.home import home_league
 
 # web/lib/api.ts: type Player
 PLAYER = {"player_id", "name", "pos", "team", "slot", "bye", "injury", "proj", "spread", "n_src", "proj_src", "actual", "game_played", "season_proj",
@@ -84,7 +85,7 @@ def test_standings_row_keys(monkeypatch):
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: {"reg_season_weeks": 14, "playoff_teams": 6,
                                                       "playoff_weeks": [15, 16, 17]})
-    st = espn_season.league_state(2)
+    st = espn_season.league_state(2, ref=home_league())
     assert set(st) == LEAGUE
     assert st["weeks"] == 17 and st["playoff_weeks"] == [15, 16, 17]  # the picker runs through the playoffs
     assert st["week"] == 2 and st["current_week"] == 3 and st["live"] is False
@@ -95,8 +96,8 @@ def test_standings_row_keys(monkeypatch):
     assert set(st["scoreboard"][0]["home"]) == SCORE_SIDE and st["scoreboard"][0]["home"]["me"] is True
     # a box score without lineups keeps ESPN's side projection and has no odds to give
     assert st["scoreboard"][0]["away"]["proj"] == 101.0 and st["scoreboard"][0]["win_prob"] is None
-    assert ahead_has_no_odds(espn_season.league_state(5))
-    ahead = espn_season.league_state(5)  # beyond current_week: schedule pairings, projection 0
+    assert ahead_has_no_odds(espn_season.league_state(5, ref=home_league()))
+    ahead = espn_season.league_state(5, ref=home_league())  # beyond current_week: schedule pairings, projection 0
     assert ahead["scoreboard"][0]["home"]["abbrev"] == "THEM" and ahead["scoreboard"][0]["home"]["proj"] == 0
 
 
@@ -118,7 +119,7 @@ def test_score_starter_keys(monkeypatch):
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: {"reg_season_weeks": 14, "playoff_teams": 6})
     monkeypatch.setattr(espn_season, "_sleeper_for", lambda week, settings: {})
-    row = espn_season.league_state(1)["scoreboard"][0]
+    row = espn_season.league_state(1, ref=home_league())["scoreboard"][0]
     assert set(row["home"]["starters"][0]) == SCORE_STARTER
     assert set(row["win_prob"]) == {"away", "home"}
 
@@ -130,7 +131,7 @@ def test_week_state_top_level_keys(monkeypatch):
     monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     monkeypatch.setattr(espn_season, "my_team_id", lambda lg, *a, **k: 7)
-    assert set(espn_season.week_state(week=1, sources={}, season={}, injuries={})) == WEEK
+    assert set(espn_season.week_state(week=1, sources={}, season={}, injuries={}, ref=home_league())) == WEEK
 
 
 # web/lib/api.ts: type PlayerLog / SeasonLog / WeekLog / SeasonTotals
@@ -190,7 +191,7 @@ def test_player_card_io(monkeypatch):
             raise RuntimeError("down")  # one season failing leaves the others
         return rows24
     monkeypatch.setattr(espn_season, "past_stats", past_stats)
-    log = espn_season.player_card(3918298)
+    log = espn_season.player_card(3918298, ref=home_league())
     assert seen["view"] == "kona_playercard" and seen["filter"]["players"]["filterIds"]["value"] == [3918298]
     assert set(log) == PLAYER_LOG and log["seasons"][1]["weeks"][0]["opp"] is None
     assert sorted(past) == list(range(espn_season.FIRST_SEASON, 2025))  # every season ESPN has before last
@@ -212,10 +213,10 @@ def test_opponent_ranks_io(monkeypatch):
     monkeypatch.setattr(espn_season, "raw_league_get", fake_get)
     monkeypatch.setattr(espn_season, "_RANKS", {})
     want = {"QB": {"KC": {"rank": 1, "of": 1, "allowed": 8.9}}}
-    assert espn_season.opponent_ranks() == want and espn_season.opponent_ranks() == want
+    assert espn_season.opponent_ranks(ref=home_league()) == want and espn_season.opponent_ranks(ref=home_league()) == want
     assert calls == ["kona_player_info"]
     espn_season._RANKS["espn:100000001"] = (0, want)  # expired
-    assert espn_season.opponent_ranks() == want and len(calls) == 2
+    assert espn_season.opponent_ranks(ref=home_league()) == want and len(calls) == 2
 
 
 def test_position_ranks_io(monkeypatch):
@@ -234,11 +235,11 @@ def test_position_ranks_io(monkeypatch):
     monkeypatch.setattr(espn_season, "raw_league_get", fake_get)
     monkeypatch.setattr(espn_season, "_POS_RANKS", {})
     want = {"season": {7: 1}, "weeks": {1: {7: 1}}}
-    assert espn_season.position_ranks("WR") == want and espn_season.position_ranks("WR") == want
+    assert espn_season.position_ranks("WR", ref=home_league()) == want and espn_season.position_ranks("WR", ref=home_league()) == want
     view, filt = calls[0]
     assert len(calls) == 1 and view == "kona_player_info" and filt["filterSlotIds"]["value"] == [4]
     espn_season._POS_RANKS[("espn:100000001", "WR")] = (0, want)  # expired
-    assert espn_season.position_ranks("WR") == want and len(calls) == 2
+    assert espn_season.position_ranks("WR", ref=home_league()) == want and len(calls) == 2
 
 
 # web/lib/api.ts: type Claims (GET/POST /claims; the web type lands with the claims UI)
@@ -256,7 +257,7 @@ def test_claims_keys(monkeypatch):
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 6, "roster": roster, "positions": pool})
     monkeypatch.setattr(api, "_roster_size", lambda **k: 17)
     monkeypatch.setattr(api, "_limits", lambda **k: {})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     assert set(TestClient(api.app).get("/claims").json()) == CLAIMS
 
 
@@ -272,7 +273,7 @@ def test_decision_keys():
     from ffl import api, db
 
     i = db.add_decision({"at": "2026-10-10T12:00:00-04:00", "week": 6, "kind": "lineup", "source": "app",
-                         "title": "Week 6 lineup: A to FLEX", "decision": "A (WR) BE → FLEX", "rationale": None})
+                         "title": "Week 6 lineup: A to FLEX", "decision": "A (WR) BE → FLEX", "rationale": None}, ref=home_league())
     client = TestClient(api.app)
     body = client.get("/decisions").json()
     assert set(body) == DECISIONS and set(body["decisions"][0]) == DECISION
