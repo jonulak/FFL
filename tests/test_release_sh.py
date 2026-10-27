@@ -84,3 +84,129 @@ def test_prune_skips_symlinks_and_files(tmp_path):
     (rel / "file").write_text("x")
     (rel / ".hidden").mkdir()
     assert prune(rel, 3, rel / ("d" * 40)) == ["a" * 40]
+
+
+# --- the env guard (ffl-soc.6.2.1): runs before `current` is switched, on /etc/ffl/env (a path argument here)
+GOOD = {
+    "FFL_APP_URL": "https://ffl.example",
+    "FFL_GOOGLE_CLIENT_ID": "cid-SECRETVALUE-1",
+    "FFL_GOOGLE_CLIENT_SECRET": "csecret-SECRETVALUE-2",
+    "FFL_SIGNUP_EMAILS": "me@example.com",
+    "FFL_JOB_TOKEN": "",
+    "FFL_AUTH_SECRET": "",
+}
+
+
+def _env(tmp_path: Path, **over) -> Path:
+    vals = {**GOOD, **over}
+    p = tmp_path / "env"
+    p.write_text("ESPN_S2=keepme\n" + "".join(f"{k}={v}\n" for k, v in vals.items() if v is not None) + "TZ=America/New_York\n")
+    p.chmod(0o640)
+    return p
+
+
+def guard(p: Path) -> subprocess.CompletedProcess:
+    return bash('release_env "$1"', str(p))
+
+
+def _value(p: Path, name: str) -> str:
+    for line in p.read_text().splitlines():
+        if line.startswith(name + "="):
+            return line.split("=", 1)[1]
+    return ""
+
+
+def test_release_refuses_dev_signin(tmp_path):
+    r = guard(_env(tmp_path, FFL_DEV_SIGNIN="1"))
+    assert r.returncode != 0
+    assert "FFL_DEV_SIGNIN" in r.stderr
+
+
+def test_release_refuses_missing_google_client(tmp_path):
+    for name in ("FFL_GOOGLE_CLIENT_ID", "FFL_GOOGLE_CLIENT_SECRET"):
+        for val in ("", None):
+            r = guard(_env(tmp_path, **{name: val}))
+            assert r.returncode != 0, (name, val)
+            assert name in r.stderr
+            assert "SECRETVALUE" not in r.stderr + r.stdout
+
+
+def test_release_refuses_empty_signup_list(tmp_path):
+    r = guard(_env(tmp_path, FFL_SIGNUP_EMAILS=""))
+    assert r.returncode != 0 and "FFL_SIGNUP_EMAILS" in r.stderr
+
+
+def test_release_refuses_empty_app_url(tmp_path):
+    r = guard(_env(tmp_path, FFL_APP_URL=""))
+    assert r.returncode != 0 and "FFL_APP_URL" in r.stderr
+
+
+def test_release_fills_job_token_and_auth_secret(tmp_path):
+    p = _env(tmp_path, FFL_AUTH_SECRET=None)
+    before = p.stat()
+    r = guard(p)
+    assert r.returncode == 0, r.stderr
+    for name in ("FFL_JOB_TOKEN", "FFL_AUTH_SECRET"):
+        v = _value(p, name)
+        assert len(v) == 64 and all(c in "0123456789abcdef" for c in v), name
+        assert v not in r.stdout + r.stderr
+    text = p.read_text()
+    assert "ESPN_S2=keepme\n" in text and "TZ=America/New_York\n" in text
+    assert p.stat().st_mode == before.st_mode and p.stat().st_uid == before.st_uid
+    assert [x.name for x in tmp_path.iterdir()] == ["env"]
+    tok = _value(p, "FFL_JOB_TOKEN")
+    assert guard(p).returncode == 0 and _value(p, "FFL_JOB_TOKEN") == tok
+
+
+def test_release_fills_nothing_when_it_refuses(tmp_path):
+    p = _env(tmp_path, FFL_SIGNUP_EMAILS="")
+    assert guard(p).returncode != 0
+    assert _value(p, "FFL_JOB_TOKEN") == ""
+
+
+def test_release_refuses_whitespace_only_values(tmp_path):
+    for val in (" ", "\t ", '" "', "''"):
+        r = guard(_env(tmp_path, FFL_SIGNUP_EMAILS=val))
+        assert r.returncode != 0 and "FFL_SIGNUP_EMAILS" in r.stderr, repr(val)
+
+
+def test_release_accepts_a_quoted_value_and_pads(tmp_path):
+    assert guard(_env(tmp_path, FFL_SIGNUP_EMAILS='"me@example.com"')).returncode == 0
+    assert guard(_env(tmp_path, FFL_SIGNUP_EMAILS=" me@example.com ")).returncode == 0
+
+
+def test_a_failed_fill_leaves_the_env_file_untouched(tmp_path):
+    p = _env(tmp_path)
+    original = p.read_bytes()
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    for tool in ("sed", "cat"):
+        (stubs / tool).write_text("#!/bin/sh\nexit 1\n")
+        (stubs / tool).chmod(0o755)
+    env = {**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}"}
+    r = subprocess.run(["bash", "-c", f'source "{SCRIPT}"; release_env "$1"', "t", str(p)],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode != 0
+    assert p.read_bytes() == original
+    assert [x.name for x in tmp_path.iterdir() if x.name.startswith("env.")] == []
+
+
+def test_a_failed_mktemp_leaves_the_env_file_untouched(tmp_path):
+    p = _env(tmp_path)
+    original = p.read_bytes()
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    (stubs / "mktemp").write_text("#!/bin/sh\nexit 1\n")
+    (stubs / "mktemp").chmod(0o755)
+    env = {**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}"}
+    r = subprocess.run(["bash", "-c", f'source "{SCRIPT}"; release_env "$1"', "t", str(p)],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode != 0 and p.read_bytes() == original
+
+
+def test_units_carry_the_job_token():
+    d = SCRIPT.parent / "systemd"
+    for n in ("notify", "news", "transactions", "outlook"):
+        t = (d / f"ffl-{n}.service").read_text()
+        assert '-H "x-ffl-job: ${FFL_JOB_TOKEN}"' in t, n
+        assert "EnvironmentFile=/etc/ffl/env" in t

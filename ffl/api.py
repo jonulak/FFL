@@ -22,6 +22,7 @@ import itertools
 import json
 import logging
 import os
+import secrets
 import threading
 import time
 import uuid
@@ -35,9 +36,10 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import fastcast, news, playbook, watch
+from . import auth, fastcast, news, playbook, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -449,6 +451,15 @@ def warm() -> None:
 
 
 app = FastAPI(title="FFL season API", lifespan=lifespan)
+# Google's round trip (authlib's state, the saved `next`) in a signed cookie. Added first, so it sits inside
+# AuthMiddleware, which decides before anything else. Unset FFL_AUTH_SECRET: a per-process random key keeps the app
+# starting (dev, tests) while /auth/google/* answer 503 (auth.google_enabled reads the env per request).
+app.add_middleware(SessionMiddleware, secret_key=auth.oidc_secret() or secrets.token_urlsafe(32),
+                   session_cookie=auth.OIDC_COOKIE, max_age=auth.OIDC_MAX_AGE, same_site="lax",
+                   https_only=auth.cookie_secure())
+app.add_middleware(auth.AuthMiddleware)  # every route needs a session or the job token (auth.decide)
+app.add_exception_handler(auth.SignedOut, auth.signed_out_handler)
+app.include_router(auth.router)
 
 
 def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: LeagueRef | None = None) -> dict:
@@ -456,7 +467,7 @@ def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: L
     return {**payload, "stale_since": stale}
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])  # HEAD for uptime checks
 def health():
     return {"ok": True}
 

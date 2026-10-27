@@ -57,6 +57,35 @@ leagues_table = sa.Table(
     sa.Column("added_at", sa.String, nullable=False),
 )
 
+# Accounts (ffl-soc.6.2.1): a user, the identities that sign in as them, and their sessions. Times are UTC ISO strings.
+users = sa.Table(
+    "users", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("email", sa.String, nullable=False),
+    sa.Column("name", sa.String),
+    sa.Column("created_at", sa.String, nullable=False),
+    sa.Column("plan", sa.String, nullable=False, server_default="free"),
+    sa.Column("plan_until", sa.String),
+)
+identities = sa.Table(
+    "identities", metadata,
+    sa.Column("provider", sa.String, nullable=False),    # "google"
+    sa.Column("subject", sa.String, nullable=False),     # the provider's stable id for the person
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("email", sa.String, nullable=False),
+    sa.Column("created_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("provider", "subject"),
+)
+sessions = sa.Table(
+    "sessions", metadata,
+    sa.Column("token_hash", sa.String, primary_key=True),  # sha256 hex of the cookie's token; the token is never stored
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("created_at", sa.String, nullable=False),
+    sa.Column("last_seen", sa.String, nullable=False),
+    sa.Column("expires_at", sa.String, nullable=False),
+    sa.Column("ua", sa.String),
+)
+
 # Strategy presets (ffl/strategy.py): shared, and not user-editable; only migrations add a key or a version.
 strategies = sa.Table(
     "strategies", metadata,
@@ -2141,6 +2170,105 @@ def count(table_name: str, season: int = SEASON, *, ref=None) -> int:
         q = q.where(t.c.league == _league_key(ref))
     with _read() as c:
         return c.execute(q).scalar()
+
+
+# ---- accounts ----
+
+SESSION_DAYS = 90
+_SLIDE_AFTER_S = 3600
+
+
+def _utc_now():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt) -> str:
+    return dt.isoformat(timespec="seconds")  # UTC with +00:00, so strings compare as times
+
+
+def _token_hash(token: str) -> str:
+    import hashlib
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def create_user(email: str, name: str | None) -> int:
+    with _write() as c:
+        return c.execute(sa.insert(users).values(email=email, name=name, created_at=_iso(_utc_now()))
+                         .returning(users.c.id)).scalar_one()
+
+
+def user_by_email(email: str) -> dict | None:
+    with _read() as c:
+        r = c.execute(sa.select(users).where(sa.func.lower(users.c.email) == email.lower()).order_by(users.c.id)).first()
+    return dict(r._mapping) if r else None
+
+
+def user_row(user_id: int) -> dict | None:
+    with _read() as c:
+        r = c.execute(sa.select(users).where(users.c.id == user_id)).first()
+    return dict(r._mapping) if r else None
+
+
+def identity_user(provider: str, subject: str) -> int | None:
+    with _read() as c:
+        return c.execute(sa.select(identities.c.user_id).where(
+            identities.c.provider == provider, identities.c.subject == subject)).scalar()
+
+
+def link_identity(user_id: int, provider: str, subject: str, email: str) -> None:
+    """Map (provider, subject) to the user; a repeat is a no-op (an existing mapping is never moved)."""
+    row = {"provider": provider, "subject": subject, "user_id": user_id, "email": email,
+           "created_at": _iso(_utc_now())}
+    with _write() as c:
+        c.execute(_upsert(identities, [row], ["provider", "subject"], None))
+
+
+def create_session(user_id: int, ua: str) -> str:
+    """A new session; returns the raw token (the cookie's value). Only its hash is stored."""
+    import secrets
+    from datetime import timedelta
+    token = secrets.token_urlsafe(32)
+    now = _utc_now()
+    with _write() as c:
+        c.execute(sa.insert(sessions).values(
+            token_hash=_token_hash(token), user_id=user_id, created_at=_iso(now), last_seen=_iso(now),
+            expires_at=_iso(now + timedelta(days=SESSION_DAYS)), ua=ua))
+    return token
+
+
+def session_user(token: str) -> dict | None:
+    """The user row for a live session; None when the token is unknown or past expires_at. A session last seen
+    over an hour ago slides: expires_at moves to now + 90 days and last_seen to now."""
+    return session_lookup(token)[0]
+
+
+def session_lookup(token: str) -> tuple[dict | None, bool]:
+    """`session_user`, and whether this read slid the session (so the caller re-sends the cookie's Max-Age). Runs on
+    every request: a read, with a write transaction only for the slide (once an hour per session)."""
+    from datetime import datetime, timedelta
+    h = _token_hash(token)
+    now = _utc_now()
+    with _read() as c:
+        r = c.execute(sa.select(sessions.c.expires_at, sessions.c.last_seen, users)
+                      .join(users, users.c.id == sessions.c.user_id).where(sessions.c.token_hash == h)).first()
+    if r is None:
+        return None, False
+    r = dict(r._mapping)
+    expires_at, last_seen = r.pop("expires_at"), r.pop("last_seen")
+    if datetime.fromisoformat(expires_at) <= now:
+        return None, False
+    if (now - datetime.fromisoformat(last_seen)).total_seconds() <= _SLIDE_AFTER_S:
+        return r, False
+    with _write() as c:
+        c.execute(sa.update(sessions).where(sessions.c.token_hash == h).values(
+            last_seen=_iso(now), expires_at=_iso(now + timedelta(days=SESSION_DAYS))))
+    return r, True
+
+
+def delete_session(token: str) -> None:
+    with _write() as c:
+        c.execute(sa.delete(sessions).where(sessions.c.token_hash == _token_hash(token)))
 
 
 def main(argv: list[str]) -> int:

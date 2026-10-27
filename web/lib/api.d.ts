@@ -4,6 +4,112 @@
  */
 
 export interface paths {
+    "/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Providers */
+        get: operations["providers_auth_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/google/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Google Start */
+        get: operations["google_start_auth_google_start_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/google/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Google Callback */
+        get: operations["google_callback_auth_google_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/dev": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dev Signin
+         * @description Local dev only: sign in as any email (created if absent), FFL_SIGNUP_EMAILS ignored. Off, it is a route that
+         *     does not exist: the body is read only after that check, so it is 404 whatever is posted.
+         */
+        post: operations["dev_signin_auth_dev_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/signout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Signout */
+        post: operations["signout_auth_signout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -15,6 +121,67 @@ export interface paths {
         get: operations["health_health_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leagues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * League List
+         * @description Every registered league, home first: the switcher's rows (name · provider · format).
+         */
+        get: operations["league_list_leagues_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leagues/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * League Rename
+         * @description Rename the open league (League settings). 422 on a blank or overlong name.
+         */
+        post: operations["league_rename_leagues_name_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/caps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Caps Get */
+        get: operations["caps_get_caps_get"];
+        put?: never;
+        /**
+         * Caps Set
+         * @description My cap at one position of the open league (`ffl.leagues caps`' rows): never above the league's limit (422).
+         */
+        post: operations["caps_set_caps_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -50,6 +217,27 @@ export interface paths {
         put?: never;
         /** Claims Submit */
         post: operations["claims_submit_claims_submit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/claims/submit/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Claims Submit Answer
+         * @description A send's answer by the dialog's token: running, or the status and body the POST answered (404: never arrived,
+         *     or another league's).
+         */
+        get: operations["claims_submit_answer_claims_submit__token__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -93,6 +281,61 @@ export interface paths {
          *     over each other.
          */
         post: operations["roster_sit_roster_sit__player_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/watch/ids": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Watch Ids */
+        get: operations["watch_ids_watch_ids_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/watch/{player_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Watch Set
+         * @description Watch him or stop. Nothing reaches ESPN and nothing is a decision. A newly watched player the cached pool
+         *     has no row for (a free agent deeper than its lists) rebuilds it behind the next request.
+         */
+        post: operations["watch_set_watch__player_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Watch Page */
+        get: operations["watch_page_watch_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -167,7 +410,7 @@ export interface paths {
         };
         /**
          * Team
-         * @description Any fantasy team's roster for the current week (the team page), live points laid on.
+         * @description Any fantasy team's roster for the current week (the team page), the league's live points laid on.
          */
         get: operations["team_team__team_id__get"];
         put?: never;
@@ -228,7 +471,7 @@ export interface paths {
         };
         /**
          * Player
-         * @description One player's game log, this season and last (the season modal), the live week from the feed.
+         * @description One player's game log, this season and last (the season modal), the live week from the feed (home's league only).
          */
         get: operations["player_player__player_id__get"];
         put?: never;
@@ -590,7 +833,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Outlook Refresh */
+        /**
+         * Outlook Refresh
+         * @description The hourly run (launchd/com.jonulak.ffl-outlook): every league in turn, one run, home's cards read first so
+         *     a failure to read them is this answer's 502. With ?league= only that league, an empty one home's (the Roster
+         *     page's button, which must not start every league's run).
+         */
         post: operations["outlook_refresh_outlook_refresh_post"];
         delete?: never;
         options?: never;
@@ -634,7 +882,8 @@ export interface paths {
          * @description The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
          *     the DB's transactions table, so the record keeps up with no page open, and the weekly results into
          *     `results` (the nav's Refresh did that until it went). Concurrent syncs are safe: the table's
-         *     (season, id) key dedupes.
+         *     (season, id) key dedupes. With ?league= that league alone; with none every league, home's answer at the top
+         *     (its failure the 502, as before) and each other's under `leagues` (a failure reported there).
          */
         post: operations["transactions_sync_transactions_sync_post"];
         delete?: never;
@@ -650,7 +899,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Notify Config */
+        /**
+         * Notify Config
+         * @description The devices and quiet hours (every league's) and the open league's switches.
+         */
         get: operations["notify_config_notify_config_get"];
         put?: never;
         post?: never;
@@ -740,7 +992,8 @@ export interface paths {
         /**
          * Trace
          * @description On-device trace of the push tap path (ffl-e9x.10): the worker and the page beacon each step here, and the
-         *     server stamps the time, since uvicorn's access log carries none. One JSON line per event in data/trace.jsonl.
+         *     server stamps the time, since uvicorn's access log carries none. One row per event in the `traces` table
+         *     (`db.trace_rows()` reads them back as the old trace.jsonl lines).
          */
         post: operations["trace_trace_post"];
         delete?: never;
@@ -815,7 +1068,7 @@ export interface paths {
         };
         /**
          * News Get
-         * @description The feed; stories in which every player is ● (no change) only with `quiet=1`.
+         * @description The feed: the stories that move somebody; one in which every player is ● (no change) never shows.
          */
         get: operations["news_get_news_get"];
         put?: never;
@@ -835,7 +1088,7 @@ export interface paths {
         };
         /**
          * News Story
-         * @description One written story, shaped as the feed shapes it: a push's target, which the feed may hide (quiet) or have paged past.
+         * @description One written story, shaped as the feed shapes it: a push's target, which the feed may hide (it moves nobody) or have paged past.
          */
         get: operations["news_story_news_story__story_id__get"];
         put?: never;
@@ -939,6 +1192,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** CapIn */
+        CapIn: {
+            /** Pos */
+            pos: string;
+            /** My Cap */
+            my_cap: number;
+        };
         /** DecisionEdit */
         DecisionEdit: {
             /** Rationale */
@@ -996,6 +1256,11 @@ export interface components {
             /** Muted */
             muted: boolean;
         };
+        /** NameIn */
+        NameIn: {
+            /** Name */
+            name: string;
+        };
         /** PlanIn */
         PlanIn: {
             /** Groups */
@@ -1018,6 +1283,8 @@ export interface components {
              * @default []
              */
             expect_now: components["schemas"]["MoveIn"][];
+            /** Token */
+            token?: string | null;
         };
         /** SubscriptionIn */
         SubscriptionIn: {
@@ -1058,6 +1325,11 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** WatchIn */
+        WatchIn: {
+            /** Watched */
+            watched: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -1067,6 +1339,137 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    providers_auth_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    google_start_auth_google_start_get: {
+        parameters: {
+            query?: {
+                next?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    google_callback_auth_google_callback_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    dev_signin_auth_dev_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    signout_auth_signout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    me_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     health_health_get: {
         parameters: {
             query?: never;
@@ -1087,10 +1490,132 @@ export interface operations {
             };
         };
     };
+    league_list_leagues_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    league_rename_leagues_name_post: {
+        parameters: {
+            query?: {
+                league?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NameIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    caps_get_caps_get: {
+        parameters: {
+            query?: {
+                league?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    caps_set_caps_post: {
+        parameters: {
+            query?: {
+                league?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     claims_get_claims_get: {
         parameters: {
             query?: {
                 fresh?: boolean;
+                league?: string | null;
             };
             header?: never;
             path?: never;
@@ -1120,7 +1645,9 @@ export interface operations {
     };
     claims_save_claims_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1153,7 +1680,9 @@ export interface operations {
     };
     claims_submit_claims_submit_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1184,9 +1713,44 @@ export interface operations {
             };
         };
     };
+    claims_submit_answer_claims_submit__token__get: {
+        parameters: {
+            query?: {
+                league?: string | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     lineup_lineup_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1219,7 +1783,9 @@ export interface operations {
     };
     roster_sit_roster_sit__player_id__post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 player_id: number;
@@ -1252,9 +1818,11 @@ export interface operations {
             };
         };
     };
-    week_current_week_get: {
+    watch_ids_watch_ids_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1270,6 +1838,114 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    watch_set_watch__player_id__post: {
+        parameters: {
+            query?: {
+                league?: string | null;
+            };
+            header?: never;
+            path: {
+                player_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    watch_page_watch_get: {
+        parameters: {
+            query?: {
+                league?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    week_current_week_get: {
+        parameters: {
+            query?: {
+                league?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     plays__plays_get: {
@@ -1277,6 +1953,7 @@ export interface operations {
             query?: {
                 team?: number | null;
                 week?: number | null;
+                league?: string | null;
             };
             header?: never;
             path?: never;
@@ -1308,6 +1985,7 @@ export interface operations {
         parameters: {
             query?: {
                 team?: number | null;
+                league?: string | null;
             };
             header?: never;
             path: {
@@ -1339,7 +2017,9 @@ export interface operations {
     };
     team_team__team_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 team_id: number;
@@ -1372,6 +2052,7 @@ export interface operations {
         parameters: {
             query?: {
                 week?: number | null;
+                league?: string | null;
             };
             header?: never;
             path?: never;
@@ -1401,7 +2082,9 @@ export interface operations {
     };
     nfl_game_nfl__week___team__get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 week: number;
@@ -1433,7 +2116,9 @@ export interface operations {
     };
     player_player__player_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 player_id: number;
@@ -1532,6 +2217,7 @@ export interface operations {
                 cols?: string | null;
                 sort?: string | null;
                 f?: string[] | null;
+                league?: string | null;
             };
             header?: never;
             path?: never;
@@ -1561,7 +2247,9 @@ export interface operations {
     };
     player_presets_players_presets_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1577,11 +2265,22 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     player_preset_create_players_presets_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1616,7 +2315,9 @@ export interface operations {
     };
     player_preset_default_players_presets_default_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1651,7 +2352,9 @@ export interface operations {
     };
     player_preset_update_players_presets__pid__post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 pid: string;
@@ -1688,7 +2391,9 @@ export interface operations {
     };
     player_preset_delete_players_presets__pid__delete_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 pid: string;
@@ -1721,6 +2426,7 @@ export interface operations {
         parameters: {
             query?: {
                 week?: number | null;
+                league?: string | null;
             };
             header?: never;
             path?: never;
@@ -1750,7 +2456,9 @@ export interface operations {
     };
     logo_logo__team_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 team_id: number;
@@ -1781,7 +2489,9 @@ export interface operations {
     };
     transactions_transactions_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1797,6 +2507,15 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     decisions__decisions_get: {
@@ -1805,6 +2524,7 @@ export interface operations {
                 week?: number | null;
                 kind?: string | null;
                 open?: boolean;
+                league?: string | null;
             };
             header?: never;
             path?: never;
@@ -1854,7 +2574,9 @@ export interface operations {
     };
     decision_prefs_decisions_prefs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1870,11 +2592,22 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     decision_prefs_set_decisions_prefs_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1909,7 +2642,9 @@ export interface operations {
     };
     decision_edit_decisions__decision_id__post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 decision_id: number;
@@ -1944,7 +2679,9 @@ export interface operations {
     };
     player_transactions_player__player_id__transactions_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 player_id: number;
@@ -1975,7 +2712,9 @@ export interface operations {
     };
     roster__roster_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1991,11 +2730,22 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     card_outlook_outlook__player_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 player_id: number;
@@ -2026,7 +2776,9 @@ export interface operations {
     };
     card_outlook_write_outlook__player_id__post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 player_id: number;
@@ -2057,7 +2809,9 @@ export interface operations {
     };
     outlook_refresh_outlook_refresh_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2073,11 +2827,22 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     waiver_outlook_waivers_outlook__player_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 player_id: number;
@@ -2108,7 +2873,9 @@ export interface operations {
     };
     waiver_outlook_write_waivers_outlook__player_id__post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 player_id: number;
@@ -2139,7 +2906,9 @@ export interface operations {
     };
     transactions_sync_transactions_sync_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2155,11 +2924,22 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     notify_config_notify_config_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2173,6 +2953,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2245,7 +3034,9 @@ export interface operations {
     };
     notify_prefs_notify_prefs_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2397,7 +3188,7 @@ export interface operations {
                 filter?: "all" | "mine" | "fa" | "others";
                 before?: string | null;
                 limit?: number;
-                quiet?: boolean;
+                league?: string | null;
             };
             header?: never;
             path?: never;
@@ -2427,7 +3218,9 @@ export interface operations {
     };
     news_story_news_story__story_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path: {
                 story_id: number;
@@ -2462,6 +3255,7 @@ export interface operations {
                 days?: number;
                 before?: string | null;
                 limit?: number;
+                league?: string | null;
             };
             header?: never;
             path: {
@@ -2579,7 +3373,9 @@ export interface operations {
     };
     refresh_refresh_post: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2593,6 +3389,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

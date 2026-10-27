@@ -157,6 +157,19 @@ def _db_in_tmp(monkeypatch, _db_work):
     db.reset()
 
 
+TEST_USER = {"id": 0, "email": "test@example.com", "name": "Test"}
+
+
+@pytest.fixture(autouse=True)
+def _signed_in(request, monkeypatch):
+    """Every API request passes as TEST_USER (job routes too), as before sign-in existed; a test marked `real_auth`
+    runs the real middleware (tests/test_auth_routes.py)."""
+    if request.node.get_closest_marker("real_auth"):
+        return
+    from ffl import auth
+    monkeypatch.setattr(auth, "decide", lambda *a, **k: (0, TEST_USER))
+
+
 @pytest.fixture(autouse=True)
 def _sources_reset():
     from ffl import consensus, sources
