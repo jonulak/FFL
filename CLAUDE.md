@@ -10,7 +10,7 @@ pre-draft board/strategy and a live draft assistant; then in-season tracking of 
 ```
 uv run alembic upgrade head            # create / migrate the DB schema (deploy.sh runs it)
 uv run python -m ffl.db import         # one-time: old journal/ + data/ files into the DB (idempotent; done 2026-10-08, originals in data/pre-db/)
-uv run python -m ffl.db backup [dest]  # checked pg_dump -Fc to dest (dir or s3://bucket/prefix/; FFL_BACKUP_DEST, else Drive), keeps 14 (launchd nightly 03:30)
+uv run python -m ffl.db backup [dest]  # checked pg_dump -Fc to dest (dir or s3://bucket/prefix/; FFL_BACKUP_DEST, else Drive), keeps 14 (`ffl-backup.timer` on the box nightly 03:30, to s3://ffl-backups/db/)
 uv run python -m ffl.db restore <src> --url URL [--to-rds]  # newest dump in a dir/s3 prefix, or a .dump file, into URL (required, or `--url-from-env`: FFL_DB_URL from the environment, e.g. `uv run --env-file .env.rds ...`, so the RDS password stays out of argv; the target host/db is printed first; pg_restore --clean; a non-local target, or an RDS through the loopback tunnel (asked of the server: `rds_superuser`), needs --to-rds). Restore into an empty or disposable DB with the API stopped: the DROPs wait on live queries, objects not in the dump stay
 scripts/devdb.sh [name] [--from-dump F | --from DB_URL | --from-sqlite F] [--replace] [--no-env]   # a local Postgres database ffl_<name> (default: the worktree's directory name), empty + alembic head or restored from a pg_dump -Fc file / a live DB / the old SQLite file; writes FFL_DB_URL into .env (--no-env: print it; mock, bench)
 uv run python -m ffl.db pgcopy data/ffl.db   # the SQLite file (schema 0024, opened read-only) into FFL_DB_URL (at head): emptied, copied, sequences advanced, counts checked; exit 1 on any difference; a non-local or RDS destination needs --to-rds
@@ -39,26 +39,26 @@ uv run python -m ffl.draft_watch once  # one-shot REST snapshot (pre-draft sanit
 FFL_LEAGUE=<key> uv run python -m ffl.draft_watch store   # a finished draft nobody watched: ESPN's own record -> that league's draft_picks (no pick times; once)
 uv run python -m ffl.journal sync      # in-season: transactions + weekly results into the DB
 uv run python -m ffl.playbook backfill 1-6   # finished weeks' NFL plays from ESPN's drives, and their called-back rows (the tick keeps new games current)
-uv run python -m ffl.newsdesk run      # one news-desk run (collect, tag, write, queue pushes); seed / status (launchd POSTs /news/run every 10 min)
+uv run python -m ffl.newsdesk run      # one news-desk run (collect, tag, write, queue pushes); seed / status (`ffl-news.timer` POSTs /news/run every 10 min)
 uv run python -m ffl.newsdesk bench    # replay frozen news (`bench freeze` first) through tagging with saved Jev answers, against ffl/newsdesk/bench_cases.py; --player grupe, --write (Haiku too), --refresh
 uv run python -m ffl.decisions list --open   # decisions still needing a rationale or outcome; add / outcome / rationale / show / export
 uv run python -m ffl.calibrate         # in-season: score the K of the league's strategy (`uv run python -m ffl.strategy show`) (usage-adjusted ROS) against the weekly snapshots in the DB (calibration_*)
-uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (sigma_fits) + Brier; launchd runs `calibrate wednesday` (winprob, then sources) Wed 07:00
+uv run python -m ffl.calibrate winprob # in-season: fit the win meter's σ per position (sigma_fits) + Brier; `ffl-winprob.timer` runs `calibrate wednesday` (winprob, then sources) Wed 07:00
 uv run python -m ffl.pace              # in-season: who is beating his projection, every roster + the wire (write-up rules: .claude/skills/pace-report)
 uv run python -m ffl.sources compare   # old (ESPN+Sleeper) vs consensus projection for every rostered player; status: source health
 uv run python -m ffl.calibrate sources   # fit per-source weights (stored inactive); --activate <fitted_at> applies them
 uv run python -m ffl.props score       # props trial (weeks 4-6, ended 2026-10-21: failed): ESPN+Sleeper vs +props MAE and the verdict, off props_snapshots
-uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (launchd runs this; dev only)
-curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (launchd does this hourly)
-curl -X POST 127.0.0.1:8300/notify/tick   # sync + injury/waiver checks + push flush + pre-game pull (launchd every 15 min)
+uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # season API (production: ffl-api.service on the box; this line is dev only)
+curl -X POST 127.0.0.1:8300/outlook/refresh   # regenerate Roster-page outlooks whose facts changed (`ffl-outlook.timer` does this at :05 hourly)
+curl -X POST 127.0.0.1:8300/notify/tick   # sync + injury/waiver checks + push flush + pre-game pull (`ffl-notify.timer` every 15 min)
 curl -X POST 127.0.0.1:8300/refresh       # force every page, projection and injury cache to refetch now, and wait (no UI button)
 uv run python -m ffl.notify keys       # one-time: VAPID keys for .env
-uv run python scripts/pageload.py       # load time of every season page on a throttled phone (default: prod :3300)
+uv run python scripts/pageload.py       # load time of every season page on a throttled phone (default: prod :3300; point it at https://ffl.whitebridgelabs.com for production)
 curl 127.0.0.1:8300/live/status        # the live-scoring feed: connected?, version, players scored (FFL_LIVE=0 keeps a dev API off it)
 cd web && pnpm dev                     # season UI on :3301 against the API above
-scripts/deploy.sh                      # rebuild + restart the launchd agents (post-merge hook runs it, only while ~/Library/LaunchAgents holds com.jonulak.ffl-api.plist: Mac production)
+scripts/deploy.sh                      # Mac-only rebuild + restart of the launchd agents (the post-merge hook runs it only while ~/Library/LaunchAgents holds com.jonulak.ffl-api.plist, i.e. during a fallback); production deploys through Actions + the box's release.sh
 scripts/install.sh --tunnel            # only the ffl-rds tunnel agent: the safe one, any time
-scripts/install.sh                     # one-time Mac production: tunnel + agents, hooks path, tailscale serve :3300; refused while the box's ffl-api is active/enabled or the box does not answer (--force)
+scripts/install.sh                     # Mac production (fallback only): tunnel + launchd agents, hooks path, tailscale serve :3300; refused while the box's ffl-api is active/enabled or the box does not answer (--force)
 uv run --env-file .env.rds python -m ffl.avail WR 3   # any draft tool against the RDS through the ffl-rds tunnel (see Config)
 scripts/fallback.sh to-mac|to-box --dry-run [--assume up|gone]   # cold fallback between the box and the Mac: prints the plan (real: no --assume; box gone needs --box-gone and EC2 saying not running)
 ```
@@ -73,8 +73,9 @@ Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_N
 News: `TYPESAFE_API_KEY` in `.env` is Jev's (TypeSafe AI), which tags and groups the newsdesk's items (`ffl/newsdesk/jev.py`); without it the tag stage stops and nothing new reaches the feed.
 `FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.
 `FFL_DB_URL` (`postgresql+psycopg://...`, in `.env` or the environment) names the one database; Postgres is the only one, and unset or any other scheme is a `SchemaError`. A worktree makes its own with `scripts/devdb.sh` (local servers only; it writes that one `.env` line); an env var beats `.env`.
-The Mac's path to the RDS (production's database once the box runs it): the launchd agent `com.jonulak.ffl-rds-tunnel`
-(`launchd/`, loaded by `scripts/install.sh --tunnel`; log `~/Library/Logs/ffl-rds-tunnel.log`) owns `ssh -N ffl-rds`, a `Host ffl-rds`
+**Production** is the box `ffl-box` (EC2 t4g.small, AL2023 aarch64, us-east-1; tailnet 100.64.0.10, public 203.0.113.10, ssh alias `ffl-box`; cutover 2026-10-26), systemd units from `deploy/box/` (`setup.sh` builds the box, `release.sh <sha>` installs a release): `ffl-api` (uvicorn 127.0.0.1:8300), `ffl-web` (`next start` 127.0.0.1:3300), Caddy on :443 for https://ffl.whitebridgelabs.com (`deploy/box/Caddyfile`; DNS-only A record to the tailnet IP, DNS-01 cert: tailnet-only), and timers `ffl-notify` (15 min), `ffl-news` (10 min), `ffl-outlook` (:05), `ffl-transactions` (:35), `ffl-winprob` (Wed 07:00), `ffl-backup` (03:30; pg_dump to s3://ffl-backups/db/, versioned). The curl timer jobs start after `ffl-api.service` and retry a refused connection. Env is `/etc/ffl/env` (names in `deploy/box/env.example`; `FFL_SOURCES_OFF=sharks,youtube_captions` there). Code is `/opt/ffl/current` -> `/opt/ffl/releases/<sha>`, data dir `/var/lib/ffl/data`. Logs and timers over ssh: `journalctl -u ffl-api`, `systemctl list-timers 'ffl-*'`. The database is Postgres `ffl` on the Cantrip RDS (`shared-db`, PG 16); the Mac's local `ffl` database and `data/ffl.db` are cold history, kept as they are. The Mac's launchd production agents are removed (only the tunnel's plist remains) and its `tailscale serve` :3300 is off: the old https://macbook-pro.tailnet.ts.net:3300 address is retired and comes back only with `scripts/fallback.sh to-mac`.
+The Mac's path to the RDS (production's database; draft tools run against it): the launchd agent `com.jonulak.ffl-rds-tunnel`
+(`launchd/`, loaded by `scripts/install.sh --tunnel`, the one agent the Mac keeps; log `~/Library/Logs/ffl-rds-tunnel.log`) owns `ssh -N ffl-rds`, a `Host ffl-rds`
 block in `~/.ssh/config` (the box `203.0.113.10`, `ec2-user`, `~/.ssh/cantrip-ec2`, `LocalForward 5434
 db.example.internal:5432`, ExitOnForwardFailure, ServerAlive 30/3, IdentitiesOnly, ControlMaster no):
 the RDS's security group admits only the box. Local 5434, since Postgres.app's `cantrip_db` holds 5433; the public IP, since
@@ -83,7 +84,7 @@ public SSH needs that rule first, or this tunnel and `cantrip-beads` both die). 
 line, `FFL_DB_URL=postgresql+psycopg://ffl:<pw>@127.0.0.1:5434/ffl?sslmode=require`, the password the box's
 `/etc/ffl/env` holds) points a draft tool there: `uv run --env-file .env.rds python -m ffl.<tool>` (the env var beats
 `.env`). Each checkout keeps its own copy, the main checkout's too (copied by hand; `scripts/fallback.sh` reads
-`~/Developer/FFL/.env.rds`). A draft at the RDS writes the RDS's draft tables: production's, once the box runs.
+`~/Developer/FFL/.env.rds`). A draft at the RDS writes the RDS's draft tables: production's.
 **Cold fallback** (`scripts/fallback.sh`; review the `--dry-run` plan first; `--assume up|gone` is dry-run only).
 `to-mac` with the box up reads the RDS through the tunnel first (a preflight, before anything stops). It then stops and
 disables the box's ffl-* units and timers and checks all 14 are inactive. It deletes the repo variable `DEPLOY_TARGET`
@@ -241,12 +242,11 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
 - **Season reads take `ref`** (`espn_season`, `journal`: every page builder, `fresh_league`, `box_scores`, `transactions_state`, `sync_*`; keyword `ref=None` = the home league, never `FFL_LEAGUE`): the League, my team, the box/gap/rank caches and the db rows are the league's own; every league queues its own pushes (4.8: `notify.flush` plans each league's queue apart, names the league after the title once two are registered (`league_label`), opens it with `?league=` (`league_url`; home's URL and tag as before) and tags it `<key>:<tag>`; quiet hours and devices are global, the switches per league: home's in the global `prefs` row as before, another's in its `notify_prefs` state; `/notify/config` and `/notify/prefs` follow `?league=`; the news desk queues each league's own (`pipeline._notify_league`, its own `news_to_notify` queue and owners)) and sees no fake lineup store (4.5); `journal.ON_NEW_ROWS` listeners fire for every league (`ref=`, each dropping and rewarming its own league's pages).
 - **The open league** (`api.open_league`, the `?league=<key>` query parameter on every league route and `POST /refresh`): no parameter is the home league and behaves as before, except the jobs' routes (`POST /transactions/sync`, `/outlook/refresh`, `/notify/tick`), which with none run every registered league (home's first, its answer at the top level as before, each other's under `leagues`; one league failing is its own line) and the global work once (sources, flush, final plays); an unknown key is 404 `unknown_league`. Pages cache per league (`cache_for(ref)`); every league's pages carry its own live points, play feed and outlooks. `sync_all(ref=)` syncs and refreshes that league. The pro schedule (`espn_season._schedule_doc`) is the NFL's: one document for every league, `refresh_league()` drops it.
 - **The league switcher** (ffl-soc.4.13, mockup A): the web's open league is the page URL's `?league=<key>` (none: home). `web/proxy.ts` copies it into the `x-ffl-league` request header, which `lib/api.ts`'s server calls append to every API path; `app/api-client.ts` appends it off `window.location`; the decisions are `lib/league.ts` (`decide`, `withLeague`, `tabsFor`; tested). The start page (`/`, and the Home Screen launch: the manifest's start_url `lib/league.START_URL` = `/roster?launch=1`, so a plain `/roster` link from a push still opens home) opens the last league used (cookie `ffl-league`, written by the proxy on full page loads of league pages only (`Sec-Fetch-Dest: document`: Next hides its prefetch/RSC headers from the proxy), never NFL/News/Settings; forgotten on a home league page). An iPhone install made before this keeps `/roster` as its start: re-add it to the Home Screen. `GET /leagues` lists them (name, provider, format). Every league opens every page (4.9): `components/league-link.tsx` is the app's `Link` and `useRouter` (imported in place of Next's everywhere but `sw-register.tsx`, whose push targets name their own league), carrying the open league onto every in-app link and router move (`lib/league.ts leagueHref`: a link that names a league keeps it; `/api/`, outside and relative links untouched); the nav's tabs and the gear carry it too, the NFL and News pages mark the open league's lineups and owners, and the Matchup page `/?league=` counts as a league page for the cookie. The "FFL ▾" wordmark (`league-switcher.tsx`) switches by a **full page load**, never `router.push`: the root layout (watch stars, decision switches, `LeagueProvider`) is read once per document for its URL's league. 
-- **Jobs per league** (4.7): `notify.tick` runs `league_tick(ref)` (moves, injuries, waivers, projections) for each league, then the sources' health and the flush once; `/notify/tick` adds each league's correction pass, watch pass and pregame pull (`_tick_steps`), the final plays once (each league's `final_plays_done`). Outlooks: one `outlook.LOCK` run walks every league in turn (`outlook.start_leagues`, a league's cards read when the run reaches it; `outlook.last(ref)` its counts), one-off writes keyed by (league, player). The launchd agents are unchanged.
+- **Jobs per league** (4.7): `notify.tick` runs `league_tick(ref)` (moves, injuries, waivers, projections) for each league, then the sources' health and the flush once; `/notify/tick` adds each league's correction pass, watch pass and pregame pull (`_tick_steps`), the final plays once (each league's `final_plays_done`). Outlooks: one `outlook.LOCK` run walks every league in turn (`outlook.start_leagues`, a league's cards read when the run reaches it; `outlook.last(ref)` its counts), one-off writes keyed by (league, player). On the box these are the systemd timers (`deploy/box/systemd/`).
 - **Season UI** (`web/`, Next 16 + shadcn; `ffl/api.py`, FastAPI on 127.0.0.1:8300): pages are server
   components fetching the API through a `/api/*` rewrite; `ffl/season.py` is pure (lineup-optimal,
   waiver deltas, `add` — formula in the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`)), `ffl/espn_season.py` is the I/O. Production
-  runs from the main checkout under launchd (`launchd/`), on :3300, exposed tailnet-only via
-  `tailscale serve` at https://macbook-pro.tailnet.ts.net:3300. Ports 3000/8000 are other projects'.
+  runs on the box (see Config) at https://ffl.whitebridgelabs.com: Caddy :443 -> ffl-web :3300 -> ffl-api :8300. Dev servers on the Mac use :3301 for the UI; 3000/8000 are other projects'.
 - **Players page** (`/players`, was Waivers; `/waivers` redirects with its query): `GET /players?preset=&pos=&fa=&cols=&f=&sort=&q=`.
   `espn_season.free_agent_pool` returns `positions` (free agents only, `POOL_SIZE` deep per position: claims,
   the waiver outlook and the calibration snapshot read it, so it must never carry a rostered player) and
@@ -285,7 +285,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `media.run_all` (transcripts split per player) → `tag.run` (Jev: effect ▲/▼/●, kind, story) → `write.run` (Haiku through
   `claude -p`: headline, overview, a line per player it moves ▲/▼; one it only names gets no line and no place on his news page) → notices → `health.notices`, each stage tried alone (the index's
   stages skipped without one), the stage dict in state `news_last_run`. `POST /news/run` (202; 409 while `_NEWS` is held)
-  runs it on a thread and flushes after if `_NOTIFY` is free; `launchd/com.jonulak.ffl-news` POSTs it every 10 min;
+  runs it on a thread and flushes after if `_NOTIFY` is free; `ffl-news.timer` POSTs it every 10 min;
   `GET /news/status` is the sources' health and the last run. A push (`notices.for_story`, kind `news`, the `news` pref)
   is a written revision's ▼ on my roster or ▲ on a free agent at `NEWS_PUSH_PROB`, with a line, unflagged, not muted
   (`news_mutes`; a K or D/ST only as a ▼ on mine for an injury or a release read off the line, `QUIET_POS`/`RELEASED`), key `news:<id>:<rev>`; at most one per player and kind a day (`notices.recent`, off the notices table
@@ -325,7 +325,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   The log is kept current three ways (`journal.sync_transactions`; the table's `(season, id)` key dedupes, so concurrent syncs need no lock): every `/transactions` build syncs
   first; every fresh current-week `espn_season.box_scores` fetch (every page's rosters come through it) syncs
   when ESPN's owners disagree with the draft replayed through the log (`reconcile_log`, once per distinct
-  disagreement); and `launchd/com.jonulak.ffl-transactions`
+  disagreement); and `ffl-transactions.timer`
   POSTs `/transactions/sync` hourly at :35.
   `espn_season.transactions_state` dresses sides with the current club (teams get renamed) and players with
   pos/NFL team (`tx_player_info`: one `kona_player_info` call per 40 ids, no `limit` in the filter (ESPN 400s on
@@ -413,13 +413,13 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   drops IR players) with that teammate's newest three stories, where return dates are written (ids off one
   `kona_player_info` call). Twenty calls at a time (`WORKERS`, the whole roster), each card saved as it lands, cached in
   the `outlooks` table (kind `week`) under a hash of the facts, the stories (id, rev, status, sources) and the day (so at least daily).
-  GETs never generate. `POST /outlook/refresh` starts a locked background run; `launchd/com.jonulak.ffl-outlook`
+  GETs never generate. `POST /outlook/refresh` starts a locked background run; `ffl-outlook.timer`
   curls it at five past every hour. One card is rewritten on a click (the card footer's Rewrite):
   `POST /outlook/{id}` → `outlook.start_one(kind=ROSTER)`, stored with the fact hash so the hourly run skips
   him; it and the full run refuse each other (409), since a full run started before the click would write its own older card over the newer single one. A free agent's outlook is written only on a click (the Players row's
   "outlook" dialog): `POST /waivers/outlook/{id}` runs `outlook.start_one` (same sheet with `free_agent=True`:
   no call, a claim-framed Take; WORKERS in flight at most) into `outlooks` with kind `waivers-week`, apart
-  from the Roster's; the dialog polls `GET /waivers/outlook/{id}`. The CLI must be logged in for the launchd user (`claude -p` from a plain
+  from the Roster's; the dialog polls `GET /waivers/outlook/{id}`. The CLI must be logged in for the service user (`ffl` on the box) (`claude -p` from a plain
   terminal answers; from inside a Claude Code session it says "Not logged in").
   The page groups rows by ESPN's slot (lineup order, then bench, IR) with the call as chips beside it (a ring when
   ESPN's lineup and the call disagree); rows are compact, detail expands, and the name opens the shared player
@@ -463,21 +463,21 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   branch's test servers (every listener whose cwd is inside the worktree, with its `tailscale serve` entry; it refuses
   the main checkout, and `--dry-run` only prints).
 - **Promoting develop to main (a deploy) — only after Jonathan explicitly says to promote.** `gh pr create --base main
-  --head develop --fill`, `gh pr checks --watch`, `gh pr merge --merge`. Then the main checkout pulls it
-  (`cd ~/Developer/FFL && git pull`; its post-merge hook deploys). A worktree session is refused git
+  --head develop --fill`, `gh pr checks --watch`, `gh pr merge --merge`. The push to main is the deploy (below). Afterwards the main checkout pulls it
+  (`cd ~/Developer/FFL && git pull`) only to keep the Mac's checkout current (tunnel, fallback, draft tools); its post-merge
+  hook deploys nothing on the box. A worktree session is refused git
   against the main checkout, so that pull goes through the FFL workspace's Herdr tab labelled `Terminal` (a plain shell
   in `~/Developer/FFL`; pane IDs change across Herdr restarts: `herdr workspace list` / `herdr tab list --workspace <id>` /
   `herdr pane list --workspace <id>`, one plain command each with literal IDs): check it is at its prompt
-  (`herdr pane read <pane> --lines 3`), `herdr pane run <pane> "git pull"`, wait for `deployed <sha>`, read the pane.
+  (`herdr pane read <pane> --lines 3`), `herdr pane run <pane> "git pull"`, read the pane.
   Without his go-ahead, or outside Herdr, hand him the `cd ~/Developer/FFL && git pull` line.
-  Once the repo variable `DEPLOY_TARGET` is `box` (the cutover, B6), the merge into main deploys through Actions
-  instead (`.github/workflows/deploy.yml`: test.yml on the commit, web built on the runner, the tarball to
-  `s3://ffl-backups/releases/`, then SSM runs `/opt/ffl/release.sh <sha>` on the box): watch the push-to-main run
+  The deploy is the Actions run on the push to main (repo variable `DEPLOY_TARGET=box`; `.github/workflows/deploy.yml`:
+  test.yml on the commit, web built on the runner, the tarball to `s3://ffl-backups/releases/`, OIDC role `ffl-deploy`,
+  SSM document `ffl-release` runs `/opt/ffl/release.sh <sha>` on the box): watch it
   (`gh run list --workflow deploy.yml --branch main -L 1`, then `gh run watch <id> --exit-status`) and read
   `deployed <sha>` in its last step. Its configuration is repo variables and the `production` environment, no
-  secrets (the workflow's header). Until B6 the Mac's post-merge hook still deploys and that run is tests only. The hook
-  deploys only while `~/Library/LaunchAgents/com.jonulak.ffl-api.plist` exists (Mac production: `install.sh`,
-  `fallback.sh to-mac`), so after `fallback.sh to-box` removes it a pull deploys nothing on the Mac.
+  secrets (the workflow's header). The Mac's post-merge hook deploys only while
+  `~/Library/LaunchAgents/com.jonulak.ffl-api.plist` exists (a fallback: `fallback.sh to-mac`), so otherwise a pull deploys nothing there.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
 - Weekly results go to the `results` table (`journal sync` / the hourly `/transactions/sync`); `journal/results/` is no longer written. Standings are read live from ESPN.
 - UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`
