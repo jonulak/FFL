@@ -57,8 +57,9 @@ def run(prompt: str, *, model: str, schema: dict, tools: str, cwd: Path, timeout
     if not exe:
         raise RuntimeError("claude CLI not on PATH")
     # A Claude Code session marks its children with CLAUDE* variables; drop them so the CLI does not
-    # treat this as a nested session. Harmless under launchd, where they never exist.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    # treat this as a nested session. Harmless under launchd, where they never exist. The OAuth token stays:
+    # it is how the box's CLI is logged in (`claude setup-token`, in /etc/ffl/env), with no keychain.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE") or k == "CLAUDE_CODE_OAUTH_TOKEN"}
     # No --bare: it skips the keychain, and every call then answers "Not logged in". The CLI reads
     # CLAUDE.md from its working directory, so run it from a neutral one, not the repo — the prompt
     # is the whole input. Hooks off: the user's global ones (moshi's phone notifications, plugin

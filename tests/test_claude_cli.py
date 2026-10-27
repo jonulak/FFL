@@ -37,6 +37,7 @@ def test_parse_envelope_carries_usage():
 
 def test_run_passes_model_and_strips_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)  # kept on purpose; this test is about the rest
     monkeypatch.setattr(claude_cli.shutil, "which", lambda name: "/bin/claude")
     seen = {}
 
@@ -56,3 +57,22 @@ def test_run_passes_model_and_strips_env(monkeypatch, tmp_path):
     assert not any(k.startswith("CLAUDE") for k in seen["env"])
     assert seen["cwd"] == str(cwd) and cwd.is_dir()
     assert seen["input"] == "hi" and seen["timeout"] == 9
+
+
+def test_run_keeps_the_oauth_token(monkeypatch, tmp_path):
+    """The box logs the CLI in with CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`); the nested-session markers go,
+    the token stays."""
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda name: "/bin/claude")
+    seen = {}
+
+    def fake_run(args, **kw):
+        seen.update(kw)
+        return subprocess.CompletedProcess(args, 0, json.dumps({"structured_output": {}}), "")
+
+    monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
+    claude_cli.run("hi", model="haiku", schema={"type": "object"}, tools="", cwd=tmp_path, timeout=9)
+    assert [k for k in seen["env"] if k.startswith("CLAUDE")] == ["CLAUDE_CODE_OAUTH_TOKEN"]
+    assert seen["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "tok"

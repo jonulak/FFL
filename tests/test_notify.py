@@ -117,6 +117,26 @@ def test_source_notices_after_a_day_failing():
     assert out[0]["kind"] == "source" and "sharks" in out[0]["title"] and out[0]["url"] == "/players"
 
 
+def test_a_source_switched_off_here_raises_no_notice_and_shows_no_status(monkeypatch):
+    """The box runs on the Mac's DB copy: a sharks failure recorded there must not notify from a host that never asks it."""
+    from datetime import datetime, timedelta
+
+    from ffl import api, db, sources
+    since = (datetime.now().astimezone() - timedelta(hours=30)).isoformat()
+    db.put_state("source_status", {"sharks": {"error": "403", "failing_since": since},
+                                   "sharks-ros": {"error": "403", "failing_since": since},
+                                   "cbs": {"error": "down", "failing_since": since}})
+    added = []
+    monkeypatch.setattr(notify.db, "add_notices", lambda ns: added.extend(ns) or len(ns))
+    monkeypatch.setenv("FFL_SOURCES_OFF", "sharks")
+    notify.check_sources()
+    assert [n["key"] for n in added] == [f"source:cbs:{since}"]
+    sources.reset()
+    assert set(api.sources_status()) == {"cbs"}
+    monkeypatch.delenv("FFL_SOURCES_OFF")
+    assert set(api.sources_status()) == {"sharks", "sharks-ros", "cbs"}, "the Mac shows every source"
+
+
 def test_put_prefs_accepts_news_bool():
     assert notify.prefs()["news"] is True
     assert notify.put_prefs({"news": False})["news"] is False and notify.prefs()["news"] is False

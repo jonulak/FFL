@@ -1,6 +1,7 @@
 """Environment/config loading and League factory."""
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from datetime import date
@@ -58,6 +59,27 @@ def __getattr__(name: str):
     if name == "MY_TEAM_ID":
         return ref.team_id or 0
     return draft_room_url(ref) if name == "DRAFT_ROOM_URL" else league_url(ref)
+
+
+SOURCES_KNOWN = frozenset({"sharks", "youtube_captions"})  # the names FFL_SOURCES_OFF can switch off
+_WARNED: set[str] = set()
+
+
+def sources_off() -> frozenset[str]:
+    """FFL_SOURCES_OFF (a comma list, read at each call) as the known names it holds: outside sources this host does
+    not ask at all, absent rather than failing. The box sets `sharks,youtube_captions` (both refuse AWS addresses;
+    ffl-soc.6.1.14/.15). An unknown name (a typo, or a source with no switch such as `sleeper`) is ignored, with one
+    warning per process."""
+    names = {s.strip() for s in (os.environ.get("FFL_SOURCES_OFF") or "").split(",") if s.strip()}
+    if (unknown := sorted(names - SOURCES_KNOWN - _WARNED)):
+        _WARNED.update(unknown)
+        logging.getLogger(__name__).warning("FFL_SOURCES_OFF: ignoring unknown %s (known: %s)",
+                                            ", ".join(unknown), ", ".join(sorted(SOURCES_KNOWN)))
+    return frozenset(names & SOURCES_KNOWN)
+
+
+def source_off(name: str) -> bool:
+    return name in sources_off()
 
 
 def cookies() -> dict | None:

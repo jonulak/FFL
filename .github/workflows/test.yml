@@ -1,8 +1,12 @@
 name: Test
 
-# The merge gate: the Python suite, the web build, typecheck, Vitest and ESLint, the same steps and order as
-# scripts/deploy.sh, so a PR that would fail a deploy fails here first. The job's name, `test`, is the
-# required status check on develop and main.
+# The merge gate: the Python suite, the web build, typecheck, Vitest and ESLint. scripts/deploy.sh (the Mac's
+# deploy) runs the first three in this order, so a PR that would fail a deploy fails here first. The job's
+# name, `test`, is the required status check on develop and main.
+#
+# deploy.yml calls this workflow (workflow_call, `ref`: the commit it then deploys) on every push to main, so
+# main is not in the push list below: the suite would otherwise run twice per promotion. On a PR or a push
+# `inputs.ref` is empty and checkout takes the event's commit, as before.
 #
 # NO paths: FILTER, deliberately. A required check that a path filter skips never reports, and a
 # PR waiting on a check that never runs is blocked, not passed. It runs on every PR unconditionally.
@@ -14,7 +18,13 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop, main]
+    branches: [develop]
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to test (deploy.yml passes the one it deploys)
+        type: string
+        required: true
 
 jobs:
   test:
@@ -34,9 +44,11 @@ jobs:
           --health-timeout 5s
           --health-retries 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
 
       # the backup tests run pg_dump / pg_restore, whose major must be >= the service's 16 (the image's own, else the
       # distribution's newest client; ffl/db_backup.py checks the version and says so)
@@ -48,7 +60,7 @@ jobs:
         env:
           FFL_TEST_PG: postgresql+psycopg://postgres:ffl-ci@127.0.0.1:5432/postgres
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 

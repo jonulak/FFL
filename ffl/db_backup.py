@@ -11,6 +11,7 @@ objects the dump does not hold stay.
 
     uv run python -m ffl.db backup [dest]    # dest: FFL_BACKUP_DEST, else the Drive folder (Mac)
     uv run python -m ffl.db restore <src> --url URL [--to-rds]   # src: a .dump, a directory or s3:// prefix (newest)
+    uv run --env-file .env.rds python -m ffl.db restore <src> --url-from-env --to-rds   # target: FFL_DB_URL (no pw in argv)
 """
 from __future__ import annotations
 
@@ -196,11 +197,30 @@ def backup(dest: str | None = None, keep: int = 14, today: date | None = None, c
     return store.uri(name)
 
 
-def is_local(url: str) -> bool:
+def _local_host(url: str) -> bool:
     u = sa.engine.make_url(url)
     host = u.host or u.query.get("host") or ""
     host = host if isinstance(host, str) else host[0]
     return host in _LOCAL_HOSTS or host.startswith("/")  # a socket directory is local
+
+
+def server_is_rds(url: str) -> bool:
+    """Ask the server (a read): every Amazon RDS Postgres has the `rds_superuser` role, a plain server has none.
+    A loopback address can be the RDS (the ffl-rds tunnel: 127.0.0.1:5434), so the host alone never says local.
+    An unreachable server raises SystemExit: locality unknown is never taken as local."""
+    eng = sa.create_engine(url, poolclass=sa.pool.NullPool)
+    try:
+        with eng.connect() as c:
+            return bool(c.execute(sa.text("select count(*) from pg_roles where rolname = 'rds_superuser'")).scalar())
+    except sa.exc.DBAPIError as e:
+        raise SystemExit(f"cannot ask {sa.engine.make_url(url).host or 'the local socket'} whether it is an RDS: {e.orig}")
+    finally:
+        eng.dispose()
+
+
+def is_local(url: str) -> bool:
+    """A local server: a loopback/socket host AND not an RDS (a tunnel to the RDS is loopback too)."""
+    return _local_host(url) and not server_is_rds(url)
 
 
 _NEWER_SETTING = re.compile(r'unrecognized configuration parameter "transaction_timeout"')
@@ -216,7 +236,8 @@ def _only_newer_settings(stderr: str) -> bool:
 def restore(src: str, url: str, to_rds: bool = False, client=None) -> None:
     """The newest dump in a directory / s3 prefix, or the named .dump, into `url` (--clean --if-exists)."""
     if not to_rds and not is_local(url):
-        raise SystemExit(f"restore target {sa.engine.make_url(url).host} is not a local server: pass --to-rds to restore there")
+        raise SystemExit(f"restore target {sa.engine.make_url(url).host} is not a local server (or is an RDS through a "
+                         "tunnel): pass --to-rds to restore there")
     with tempfile.TemporaryDirectory() as tmp:
         if src.endswith(".dump") and not src.startswith("s3://"):
             local = Path(src)
@@ -246,19 +267,37 @@ def main(argv: list[str]) -> int:
     return 0
 
 
+RESTORE_USAGE = ("usage: python -m ffl.db restore <src> (--url URL | --url-from-env) [--to-rds]  (--url or --url-from-env "
+                 "is required: the target is named, never the app's DB by default; --url-from-env takes FFL_DB_URL "
+                 "from the environment, e.g. `uv run --env-file .env.rds ...`, so no password is in argv)")
+
+
 def restore_main(argv: list[str]) -> int:
-    args, url, to_rds = list(argv), None, False
+    """The target is explicit, exactly one of: `--url URL`, or `--url-from-env` for FFL_DB_URL as the environment
+    holds it (uv's --env-file sets it; without one, ffl.config's load of the checkout's .env fills it, which is then
+    the app's own database). Either way the line printed before anything is restored names the host and database."""
+    args, url, to_rds, from_env = list(argv), None, False, False
     if "--to-rds" in args:
         args.remove("--to-rds")
         to_rds = True
+    if "--url-from-env" in args:
+        args.remove("--url-from-env")
+        from_env = True
     if "--url" in args:
         i = args.index("--url")
+        if i + 1 >= len(args):
+            raise SystemExit(RESTORE_USAGE)
         url = args[i + 1]
         del args[i:i + 2]
-    if len(args) != 1 or not url:
-        raise SystemExit("usage: python -m ffl.db restore <src> --url URL [--to-rds]  (--url is required: never the app's DB by default)")
+    if len(args) != 1 or from_env == bool(url):
+        raise SystemExit(RESTORE_USAGE)
+    if from_env:
+        url = os.environ.get("FFL_DB_URL")
+        if not url:
+            raise SystemExit("restore --url-from-env: FFL_DB_URL is not set in the environment")
     u = sa.engine.make_url(url)
-    print(f"restoring {args[0]} into database {u.database!r} on {u.host or u.query.get('host') or 'the local socket'}")
+    print(f"restoring {args[0]} into database {u.database!r} on {u.host or u.query.get('host') or 'the local socket'}"
+          f"{' (FFL_DB_URL from the environment)' if from_env else ''}")
     restore(args[0], url, to_rds)
     print("restored")
     return 0

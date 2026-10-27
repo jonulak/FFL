@@ -16,7 +16,7 @@ from typing import Callable
 
 import requests
 
-from .. import db
+from .. import config, db
 from ..flight import Flight
 
 log = logging.getLogger(__name__)
@@ -73,6 +73,12 @@ def _now() -> str:
 def status_snapshot() -> dict:
     with _LOCK:
         return {k: dict(v) for k, v in STATUS.items()}
+
+
+def on_only(status: dict) -> dict:
+    """A health record without the sources switched off on this host (FFL_SOURCES_OFF; `sharks` covers `sharks` and
+    `sharks-ros`): a row copied with the DB from a host that still asks them shows nothing and raises no notice here."""
+    return {k: v for k, v in status.items() if not config.source_off(k.split("-")[0])}
 
 
 def _load() -> None:

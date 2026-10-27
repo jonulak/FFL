@@ -11,9 +11,10 @@ pre-draft board/strategy and a live draft assistant; then in-season tracking of 
 uv run alembic upgrade head            # create / migrate the DB schema (deploy.sh runs it)
 uv run python -m ffl.db import         # one-time: old journal/ + data/ files into the DB (idempotent; done 2026-10-08, originals in data/pre-db/)
 uv run python -m ffl.db backup [dest]  # checked pg_dump -Fc to dest (dir or s3://bucket/prefix/; FFL_BACKUP_DEST, else Drive), keeps 14 (launchd nightly 03:30)
-uv run python -m ffl.db restore <src> --url URL [--to-rds]  # newest dump in a dir/s3 prefix, or a .dump file, into URL (required; pg_restore --clean; non-local host needs --to-rds). Restore into an empty or disposable DB with the API stopped: the DROPs wait on live queries, objects not in the dump stay
+uv run python -m ffl.db restore <src> --url URL [--to-rds]  # newest dump in a dir/s3 prefix, or a .dump file, into URL (required, or `--url-from-env`: FFL_DB_URL from the environment, e.g. `uv run --env-file .env.rds ...`, so the RDS password stays out of argv; the target host/db is printed first; pg_restore --clean; a non-local target, or an RDS through the loopback tunnel (asked of the server: `rds_superuser`), needs --to-rds). Restore into an empty or disposable DB with the API stopped: the DROPs wait on live queries, objects not in the dump stay
 scripts/devdb.sh [name] [--from-dump F | --from DB_URL | --from-sqlite F] [--replace] [--no-env]   # a local Postgres database ffl_<name> (default: the worktree's directory name), empty + alembic head or restored from a pg_dump -Fc file / a live DB / the old SQLite file; writes FFL_DB_URL into .env (--no-env: print it; mock, bench)
-uv run python -m ffl.db pgcopy data/ffl.db   # the SQLite file (schema 0024, opened read-only) into FFL_DB_URL (at head): emptied, copied, sequences advanced, counts checked; exit 1 on any difference
+uv run python -m ffl.db pgcopy data/ffl.db   # the SQLite file (schema 0024, opened read-only) into FFL_DB_URL (at head): emptied, copied, sequences advanced, counts checked; exit 1 on any difference; a non-local or RDS destination needs --to-rds
+uv run --env-file .env.rds python -m ffl.db counts postgresql+psycopg:///ffl env   # every public table's rows in A and B side by side (`env`: FFL_DB_URL), read-only, one snapshot each; exit 1 on any difference (a table on one side only too)
 uv run python -m ffl.settings          # league settings from ESPN -> the DB (formats, league_settings, caps); prints the summary (run first)
 uv run python -m ffl.leagues list      # the registry: key, season, my team, home, name
 uv run python -m ffl.leagues add espn <id> [--season N] [--home]   # register a league and store its settings, formats and caps (reads ESPN)
@@ -55,8 +56,11 @@ uv run python -m ffl.notify keys       # one-time: VAPID keys for .env
 uv run python scripts/pageload.py       # load time of every season page on a throttled phone (default: prod :3300)
 curl 127.0.0.1:8300/live/status        # the live-scoring feed: connected?, version, players scored (FFL_LIVE=0 keeps a dev API off it)
 cd web && pnpm dev                     # season UI on :3301 against the API above
-scripts/deploy.sh                      # rebuild + restart the launchd agents (post-merge hook runs it)
-scripts/install.sh                     # one-time: launchd agents, hooks path, tailscale serve :3300
+scripts/deploy.sh                      # rebuild + restart the launchd agents (post-merge hook runs it, only while ~/Library/LaunchAgents holds com.jonulak.ffl-api.plist: Mac production)
+scripts/install.sh --tunnel            # only the ffl-rds tunnel agent: the safe one, any time
+scripts/install.sh                     # one-time Mac production: tunnel + agents, hooks path, tailscale serve :3300; refused while the box's ffl-api is active/enabled or the box does not answer (--force)
+uv run --env-file .env.rds python -m ffl.avail WR 3   # any draft tool against the RDS through the ffl-rds tunnel (see Config)
+scripts/fallback.sh to-mac|to-box --dry-run [--assume up|gone]   # cold fallback between the box and the Mac: prints the plan (real: no --assume; box gone needs --box-gone and EC2 saying not running)
 ```
 Pipeline order: settings -> players -> adp -> (browser + draft_watch); Sleeper is fetched on first use, and every
 draft tool builds the board from the DB (`board.load_inputs(ref)` + `build`; the ADP feed is `board.adp_mode(settings)`:
@@ -69,6 +73,40 @@ Push: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env`; `FFL_N
 News: `TYPESAFE_API_KEY` in `.env` is Jev's (TypeSafe AI), which tags and groups the newsdesk's items (`ffl/newsdesk/jev.py`); without it the tag stage stops and nothing new reaches the feed.
 `FFL_RECORD_FAKE=1` (worktree test server only): fake moves (FFL_WRITES=0) record their decisions anyway, titled `[fake] …` with `facts.fake`.
 `FFL_DB_URL` (`postgresql+psycopg://...`, in `.env` or the environment) names the one database; Postgres is the only one, and unset or any other scheme is a `SchemaError`. A worktree makes its own with `scripts/devdb.sh` (local servers only; it writes that one `.env` line); an env var beats `.env`.
+The Mac's path to the RDS (production's database once the box runs it): the launchd agent `com.jonulak.ffl-rds-tunnel`
+(`launchd/`, loaded by `scripts/install.sh --tunnel`; log `~/Library/Logs/ffl-rds-tunnel.log`) owns `ssh -N ffl-rds`, a `Host ffl-rds`
+block in `~/.ssh/config` (the box `203.0.113.10`, `ec2-user`, `~/.ssh/cantrip-ec2`, `LocalForward 5434
+db.example.internal:5432`, ExitOnForwardFailure, ServerAlive 30/3, IdentitiesOnly, ControlMaster no):
+the RDS's security group admits only the box. Local 5434, since Postgres.app's `cantrip_db` holds 5433; the public IP, since
+Tailscale SSH on the box intercepts :22 on its tailnet IP and the tailnet policy has no ssh rule for it (closing the box's
+public SSH needs that rule first, or this tunnel and `cantrip-beads` both die). `.env.rds` (gitignored, mode 0600; one
+line, `FFL_DB_URL=postgresql+psycopg://ffl:<pw>@127.0.0.1:5434/ffl?sslmode=require`, the password the box's
+`/etc/ffl/env` holds) points a draft tool there: `uv run --env-file .env.rds python -m ffl.<tool>` (the env var beats
+`.env`). Each checkout keeps its own copy, the main checkout's too (copied by hand; `scripts/fallback.sh` reads
+`~/Developer/FFL/.env.rds`). A draft at the RDS writes the RDS's draft tables: production's, once the box runs.
+**Cold fallback** (`scripts/fallback.sh`; review the `--dry-run` plan first; `--assume up|gone` is dry-run only).
+`to-mac` with the box up reads the RDS through the tunnel first (a preflight, before anything stops). It then stops and
+disables the box's ffl-* units and timers and checks all 14 are inactive. It deletes the repo variable `DEPLOY_TARGET`
+(a promotion must not run alembic on the RDS from Actions ahead of the Mac's code), sets the main checkout's `.env`
+`FFL_DB_URL` to `.env.rds`'s line (the old `.env` kept as `.env.bak-fallback-<ts>`), bootstraps the Mac's agents on
+the RDS and turns `tailscale serve` :3300 back on: nothing lost. During a fallback the devices use
+https://macbook-pro.tailnet.ts.net:3300, and a `git pull` in the main checkout deploys to the Mac (the post-merge
+hook runs only while `~/Library/LaunchAgents/com.jonulak.ffl-api.plist` exists). "Box gone" needs two things: ssh to port 22 failing three times, and EC2 (`aws ec2
+describe-instances`, a read) saying the instance is not running. If EC2 can't be read, `--console-checked` stands in for
+it. A real run also needs `--box-gone`. Then it restores the newest `s3://ffl-backups/db/` dump into a new local
+database `ffl_fallback` (local `ffl` is left as it is), points `.env` there and runs on that. The dump's date is printed:
+up to a day is lost. The Mac's pg_restore 18 reads the box's 16 dumps. If ssh fails while EC2 says running, it refuses:
+the box may still be serving. The box-gone path cannot disable the box's units: an instance that comes back starts
+them (the plan prints the ssh line to run at once). `to-box` boots the Mac's agents out, checks none is left and
+removes their plists from `~/Library/LaunchAgents` (a bootout alone lasts until the next login; the tunnel's plist
+stays; removal rather than `launchctl disable`, which would make every later bootstrap fail until an `enable`). It
+turns `tailscale serve` :3300 off, puts `.env` back on local `ffl`, enables the box's units, checks the API answers
+`GET /leagues` (a database read: a schema mismatch fails there) and the notify/news timers have a next run, then sets
+`DEPLOY_TARGET=box`. It will not start the box while the Mac's newer writes are off the RDS: Mac production on local
+`ffl` (before the cutover) or on `ffl_fallback`. Pass `--data-moved` once the RDS has them; for `ffl_fallback` it
+prints the move: from the Mac, `ffl.db backup <dir>` then `uv run --env-file .env.rds python -m ffl.db restore <dir>
+--url-from-env --to-rds` through the tunnel (pg_restore 18 into the RDS's 16 works; the `transaction_timeout` error is
+the one tolerated) and `ffl.db counts`. It never runs both sides; a box that answers while the RDS is down has no path.
 Mock/practice runs: `FFL_DB_URL=postgresql+psycopg:///ffl_mock` (`scripts/devdb.sh mock --no-env`; the mock league registered as
 home in it) keeps the real board and pick log untouched. `FFL_DATA_DIR` (`data-mock`) chooses only the data directory (browser profile, caches); it implies no database, and `ffl.autodraft` refuses unless `FFL_DB_URL` names a `*mock*` database or `--live`.
 Full practice-draft procedure (both modes, and what a practice draft cannot test): `journal/PRACTICE_DRAFT.md`.
@@ -110,7 +148,7 @@ Full practice-draft procedure (both modes, and what a practice draft cannot test
   CBS, FantasySharks and FleaFlicker. `ffl/sources/` holds cbs, sharks, fleaflicker (`Cached`: TTL + last good + thin guard; each entry the parsed stat lines keyed by week (or `ros`) alone, one download for every league, scored at read with the league's tables (`sources.scored`, the parsers' rounding; ffl-soc.4.16: a second league's cold build fell from 29 s to under 5); `_sleeper_for` likewise keeps Sleeper's raw rows per week (`_SL`) and each scoring's parse (`_SL_SCORED`); only sharks' ROS sum, which downloads nothing, is keyed by `sources.scoring_key`; every good fetch written
   through to the `source_cache` table and restored on a source's first read after a restart, inside its TTL as fresh, past it as last good;
   without it a restart's cold Matchup build took ~27 s, ~3 s with it); health is
-  `STATUS` / the `source_status` state, `GET /sources/status`, `ffl.sources status`, and a notice after 24 h failing. K and D/ST use
+  `STATUS` / the `source_status` state, `GET /sources/status`, `ffl.sources status`, and a notice after 24 h failing. `FFL_SOURCES_OFF` (comma list of `config.SOURCES_KNOWN`, an unknown name warned and ignored; `config.source_off`) drops a source on one host, absent rather than failing (`espn_season._on`; a finished week's late keep stops waiting for it; `sources.on_only` keeps it out of `/sources/status` and the 24 h notice): the box sets `sharks,youtube_captions` (both refuse AWS addresses; ffl-soc.6.1.14/.15), `media.run_all` then takes no video for captions, the Mac sets none. K and D/ST use
   Sleeper's standard points. Merge is on normalized name + position (D/ST on team): `espn_season.weekly_sources(week, settings)` →
   `merge_weekly(players, sources)`. A finished week's board (`week_state`, week < ESPN's) prices from `projection_rows` (kind `week`, the kickoff record; else kind `week_late`, what Sleeper and FantasySharks answered the first time the week was opened, saved so it is fetched once; CBS's week page serves the current week whatever week is asked, FleaFlicker has no past weeks) and takes today's ROS lookup. The payload carries only `proj`/`spread`/`n_src` and `ros_proj`/`ros_spread`/`ros_n`. Each source's
   number is written to `projection_rows` by the notify tick (`record_projections`, frozen at kickoff); `source_weights` are fitted
@@ -194,7 +232,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   (`uv run alembic revision --autogenerate -m ...`, batch mode, under `migrations/`). `uv run python -m ffl.db import`
   (`ffl/db_import.py`) is insert-if-absent from the old files, with per-table counts and dupes; it exits 1 when short or when a
   non-plays table has shared keys (the cutover ran it 2026-10-08; the originals are in `data/pre-db/`). `scripts/deploy.sh`
-  runs `alembic upgrade head` after tests and build, before the restart. `uv run python -m ffl.db backup` (`ffl/db_backup.py`) takes a checked `pg_dump -Fc` (client major >= the server's, found on PATH or under Homebrew/Debian's `postgresql@N`; the dump's `alembic_version` must equal head) to `ffl-YYYY-MM-DD.dump` in a directory or S3 prefix (`ffl/db_backup.py`'s `DirStore`/`S3Store`, boto3), keeping 14; a .dump opens with `pg_restore` as it is (no WAL copy step), `ffl.db restore` refuses a non-local target without `--to-rds`. Tests run on one shared Postgres database per session (a copy of a template built by `alembic upgrade head`), its rows reset by DELETE (and sequences restarted, the migrations' seed rows put back) before each test; the autouse fixture sets `FFL_DB_URL` to it and nothing reaches any other database. `FFL_TEST_PG` is the admin URL tests create their databases through (default `postgresql+psycopg:///postgres`, the local socket as you; CI: its postgres:16 service; `scripts/pg-test-setup.sh` starts the local server and makes the `ffl_test_admin` role). `ffl.db pgcopy` loads the old SQLite file into a database at head. A worktree makes its own database with `scripts/devdb.sh` (a dump of the main one, a live DB, or empty + `alembic upgrade head`); a dev API there needs nothing more.
+  runs `alembic upgrade head` after tests and build, before the restart. `uv run python -m ffl.db backup` (`ffl/db_backup.py`) takes a checked `pg_dump -Fc` (client major >= the server's, found on PATH or under Homebrew/Debian's `postgresql@N`; the dump's `alembic_version` must equal head) to `ffl-YYYY-MM-DD.dump` in a directory or S3 prefix (`ffl/db_backup.py`'s `DirStore`/`S3Store`, boto3), keeping 14; a .dump opens with `pg_restore` as it is (no WAL copy step), `ffl.db restore` and `ffl.db pgcopy` refuse a non-local target without `--to-rds`: local means a loopback/socket host whose server has no `rds_superuser` role (`db_backup.is_local`, asked of the server, so the ffl-rds tunnel's 127.0.0.1:5434 is the RDS; unreachable is not local). Tests run on one shared Postgres database per session (a copy of a template built by `alembic upgrade head`), its rows reset by DELETE (and sequences restarted, the migrations' seed rows put back) before each test; the autouse fixture sets `FFL_DB_URL` to it and nothing reaches any other database. `FFL_TEST_PG` is the admin URL tests create their databases through (default `postgresql+psycopg:///postgres`, the local socket as you; CI: its postgres:16 service; `scripts/pg-test-setup.sh` starts the local server and makes the `ffl_test_admin` role). `ffl.db pgcopy` loads the old SQLite file into a database at head. A worktree makes its own database with `scripts/devdb.sh` (a dump of the main one, a live DB, or empty + `alembic upgrade head`); a dev API there needs nothing more.
 - **Box scores** (`espn_season.box_scores(lg, week, *, ref=None)`; the caches and tables are per league): a week before the league's `first_week` (a mid-season draft: `espn:950458410` starts at 8) has no box scores and answers `[]` with no ESPN or DB read (settings unreadable: taken as 1), so `_roster_games` fills those form weeks from `_gap_games`, and `correct_boxes(lg, ref=)` runs `first_week..current-1`; a finished week is read from the `box_scores` table (ESPN only when it has no `final` row: one read after the week finished; the current week's last, maybe mid-game, read is not); the current
   week ESPN-first, a row under 60 s old (off `fetched_at`) counting as the hit and the row serving when ESPN fails; a league move
   (`forget_current_boxes` → `db.expire_live_boxes`, non-final rows only) expires it. The tick's `correct_boxes` (`api.correction_pass`) re-reads each unsettled finished week hourly
@@ -432,6 +470,14 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `herdr pane list --workspace <id>`, one plain command each with literal IDs): check it is at its prompt
   (`herdr pane read <pane> --lines 3`), `herdr pane run <pane> "git pull"`, wait for `deployed <sha>`, read the pane.
   Without his go-ahead, or outside Herdr, hand him the `cd ~/Developer/FFL && git pull` line.
+  Once the repo variable `DEPLOY_TARGET` is `box` (the cutover, B6), the merge into main deploys through Actions
+  instead (`.github/workflows/deploy.yml`: test.yml on the commit, web built on the runner, the tarball to
+  `s3://ffl-backups/releases/`, then SSM runs `/opt/ffl/release.sh <sha>` on the box): watch the push-to-main run
+  (`gh run list --workflow deploy.yml --branch main -L 1`, then `gh run watch <id> --exit-status`) and read
+  `deployed <sha>` in its last step. Its configuration is repo variables and the `production` environment, no
+  secrets (the workflow's header). Until B6 the Mac's post-merge hook still deploys and that run is tests only. The hook
+  deploys only while `~/Library/LaunchAgents/com.jonulak.ffl-api.plist` exists (Mac production: `install.sh`,
+  `fallback.sh to-mac`), so after `fallback.sh to-box` removes it a pull deploys nothing on the Mac.
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
 - Weekly results go to the `results` table (`journal sync` / the hourly `/transactions/sync`); `journal/results/` is no longer written. Standings are read live from ESPN.
 - UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`

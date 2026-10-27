@@ -108,7 +108,8 @@ def source_notices(status: dict, t: datetime, at: str, hours: int = 24) -> list[
 
 
 def check_sources() -> int:
-    return db.add_notices(source_notices(db.get_state("source_status", {}), datetime.now().astimezone(), now()))
+    from .sources import on_only  # a source switched off here raises nothing, whatever another host left failing
+    return db.add_notices(source_notices(on_only(db.get_state("source_status", {}) or {}), datetime.now().astimezone(), now()))
 
 
 DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "news": True, "watch": True, "quiet": ["23:00", "07:00"]}

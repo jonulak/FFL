@@ -126,3 +126,21 @@ def test_cli_prints_counts_and_exits_1_on_error(tmp_path, capsys):
     (tmp_path / "old").mkdir()
     assert db.main(["pgcopy", str(_source(tmp_path / "old", revision="0001"))]) == 1
     assert "0001" in capsys.readouterr().out
+
+
+def test_copy_refuses_an_rds_through_the_tunnel_without_to_rds(tmp_path, monkeypatch):
+    """The ffl-rds tunnel makes 127.0.0.1:5434 the production RDS: a loopback host is not enough to empty it."""
+    from ffl import db_backup
+    monkeypatch.setattr(db_backup, "server_is_rds", lambda url: True)
+    before = _rows("select count(*) from leagues")
+    with pytest.raises(db_copy.CopyError, match="--to-rds"):
+        db_copy.copy(_source(tmp_path))
+    assert _rows("select count(*) from leagues") == before, "nothing emptied"
+    (tmp_path / "x").mkdir()
+    assert db.main(["pgcopy", str(_source(tmp_path / "x"))]) == 1
+
+
+def test_copy_into_an_rds_with_to_rds(tmp_path, monkeypatch):
+    from ffl import db_backup
+    monkeypatch.setattr(db_backup, "server_is_rds", lambda url: True)
+    assert db_copy.copy(_source(tmp_path), to_rds=True)

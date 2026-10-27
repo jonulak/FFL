@@ -40,6 +40,18 @@ class Resp:
             raise collect.requests.HTTPError(f"{self.status_code}")
 
 
+_CAPTIONS = media.captions  # the real one, before the fixture below stubs it
+
+
+def test_captions_switched_off_read_nothing(monkeypatch):
+    """FFL_SOURCES_OFF=youtube_captions (the box: YouTube refuses AWS addresses): no transcript, no read, no GAP_S wait."""
+    monkeypatch.setenv("FFL_SOURCES_OFF", "sharks,youtube_captions")
+    monkeypatch.setattr(media, "YouTubeTranscriptApi", lambda: pytest.fail("caption read"))
+    monkeypatch.setattr(media.time, "sleep", lambda s: pytest.fail("waited"))
+    monkeypatch.setattr(media, "_LAST", [time.monotonic()])
+    assert _CAPTIONS(PRESSER_ID) is None
+
+
 @pytest.fixture(autouse=True)
 def _offline(monkeypatch):
     monkeypatch.setattr(media, "_get", lambda url, **kw: pytest.fail(f"unexpected fetch {url}"))
@@ -155,6 +167,19 @@ def test_missing_captions_kept_pending_then_lag_recorded(monkeypatch):
     stored = db.news_media(PRESSER_ID)
     assert stored["segs"] == SEGS and stored["source_id"] == "yt:SF"
     assert [i["ext_id"] for i in items_of("yt:SF")] == [f"{PRESSER_ID}#1", f"{PRESSER_ID}#2"]
+    assert db.news_sources()[0]["ok_at"] is not None
+
+
+def test_captions_switched_off_take_no_video_and_keep_no_books(monkeypatch):
+    """FFL_SOURCES_OFF=youtube_captions: no video pends, and a block copied from another host marks no channel failing."""
+    monkeypatch.setenv("FFL_SOURCES_OFF", "youtube_captions")
+    db.put_news_sources([YT])
+    serve(monkeypatch, {YT["url"]: channel()})
+    db.put_state("news_captions_blocked", {"until": (NOW + timedelta(hours=1)).isoformat(timespec="seconds"),
+                                           "minutes": 60, "source": "yt:SF", "error": "RequestBlocked"})
+    got = media.run_all(INDEX, now=NOW)  # captions would fail the test
+    assert got["new"] == 0 and got["pending"] == 0 and got["failed"] == [] and got["captions_paused_until"] is None
+    assert (db.get_state("news_pending_media") or {}) == {} and (db.get_state("news_pending_tried") or {}) == {}
     assert db.news_sources()[0]["ok_at"] is not None
 
 
