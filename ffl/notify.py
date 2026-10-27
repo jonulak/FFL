@@ -240,8 +240,8 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
     return pushes, marks
 
 
-# Where a notification opens: Declarative Web Push wants the absolute URL (the app on the tailnet, scripts/install.sh).
-APP_URL = os.environ.get("FFL_APP_URL", "https://macbook-pro.tailnet.ts.net:3300")
+# Where a notification opens: Declarative Web Push wants the absolute URL (production; setup.sh sets it).
+APP_URL = os.environ.get("FFL_APP_URL", "https://ffl.whitebridgelabs.com")
 
 
 def payload_for(push: dict, app_url: str = APP_URL) -> dict:

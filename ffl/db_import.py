@@ -1,6 +1,6 @@
 """One-time import of the old flat files into the DB (`uv run python -m ffl.db import`).
 
-Insert-if-absent everywhere, never upsert: deploy.sh runs this on every deploy while the files exist,
+Insert-if-absent everywhere, never upsert: the old Mac deploy ran this on every deploy while the files existed,
 and a stale file must not overwrite rows the API has written since. Each reader returns
 (source_count, rows); a missing file is skipped (source 0).
 """
