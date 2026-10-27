@@ -1,7 +1,7 @@
 name: Test
 
-# The merge gate: the Python suite, the web build, typecheck, Vitest and ESLint. scripts/deploy.sh (the Mac's
-# deploy) runs the first three in this order, so a PR that would fail a deploy fails here first. The job's
+# The merge gate: the Python suite, the web build, typecheck, Vitest and ESLint. A deploy (deploy.yml) runs it
+# on the commit first, so a PR that would fail a deploy fails here first. The job's
 # name, `test`, is the required status check on develop and main.
 #
 # deploy.yml calls this workflow (workflow_call, `ref`: the commit it then deploys) on every push to main, so

@@ -4,7 +4,7 @@
     uv run --env-file .env.rds python -m ffl.db counts postgresql+psycopg:///ffl env   # rows per table, A vs B
 
 `counts` (table_counts / counts_main) is the read-only half on its own, for any two Postgres databases: the
-cutover's local-vs-RDS check and fallback.sh's after a move.
+cutover's local-vs-RDS check, or after any restore.
 
 The file is opened read-only (the API may still be writing it: a WAL reader sees one consistent snapshot) and must
 be at SOURCE_REVISION, the last SQLite schema; the destination must already be at Alembic's head. In one transaction

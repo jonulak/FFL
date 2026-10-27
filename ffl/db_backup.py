@@ -11,7 +11,7 @@ objects the dump does not hold stay.
 
     uv run python -m ffl.db backup [dest]    # dest: FFL_BACKUP_DEST, else the Drive folder (Mac)
     uv run python -m ffl.db restore <src> --url URL [--to-rds]   # src: a .dump, a directory or s3:// prefix (newest)
-    uv run --env-file .env.rds python -m ffl.db restore <src> --url-from-env --to-rds   # target: FFL_DB_URL (no pw in argv)
+    uv run --env-file ~/.config/ffl/rds-rw.env python -m ffl.db restore <src> --url-from-env --to-rds   # target: FFL_DB_URL (no pw in argv)
 """
 from __future__ import annotations
 
@@ -269,7 +269,7 @@ def main(argv: list[str]) -> int:
 
 RESTORE_USAGE = ("usage: python -m ffl.db restore <src> (--url URL | --url-from-env) [--to-rds]  (--url or --url-from-env "
                  "is required: the target is named, never the app's DB by default; --url-from-env takes FFL_DB_URL "
-                 "from the environment, e.g. `uv run --env-file .env.rds ...`, so no password is in argv)")
+                 "from the environment, e.g. `uv run --env-file ~/.config/ffl/rds-rw.env ...`, so no password is in argv)")
 
 
 def restore_main(argv: list[str]) -> int:

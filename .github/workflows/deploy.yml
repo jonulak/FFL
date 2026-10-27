@@ -13,7 +13,7 @@ name: Deploy
 #            its output ends `deployed <sha>`.
 #
 # Runs on every push to main (a promotion's merge commit). The deploy job runs only when the repo variable
-# DEPLOY_TARGET is `box` (set at the cutover, B6; until then the Mac's post-merge hook deploys and this run
+# DEPLOY_TARGET is `box` (set at the cutover, B6; before it the Mac deployed and this run
 # is the tests alone), or on a manual dispatch:
 #   gh workflow run deploy.yml --ref <branch> -f ref=<sha or branch>
 # Only a commit on main deploys: the environment's branch policy checks the run's --ref, not the `ref` input,
