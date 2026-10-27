@@ -305,9 +305,9 @@ class Store:
     written through to the DB as they happen and reloaded from it at boot. Beside them the week's
     NFL plays (`book`, ffl/playbook.py), whose text a row on a play shows, and the plays called back
     that cost a starter points (`called`, by play and player), merged into the feed by time. The rows and the
-    called-back rows are the league `ref` names (None: home); the plays are the NFL's, one copy for every league."""
+    called-back rows are the league `ref` names; the plays are the NFL's, one copy for every league."""
 
-    def __init__(self, week: int, *, ref=None):
+    def __init__(self, week: int, *, ref):
         self.week, self.ref = week, ref
         self._lock = threading.Lock()
         self._record = threading.Lock()  # one record() at a time: the live feed, the NFL tab, the tick

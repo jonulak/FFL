@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 
 from ffl import config, db
+from tests.home import home_league
 
 ROOT = config.ROOT
 
@@ -157,17 +158,17 @@ def test_a_practice_draft_is_kept_from_its_own_db(pg_server):
     from ffl import leagues, replay
     pick ={"overall": 1, "round": 1, "pick": 1, "team_id": 3, "team": "T3", "player_id": 9, "player": "P", "pos": "QB",
             "nfl": "BUF", "adp_2qb": 1.5, "board_rank_at_pick": 2.0, "proj": 300.0, "ts": "2026-09-07T06:16:15"}
-    db.put_picks([pick, {**pick, "overall": 2, "team_id": 4, "player_id": 10}], ref=leagues.home())
+    db.put_picks([pick, {**pick, "overall": 2, "team_id": 4, "player_id": 10}], ref=home_league())
     db.reset()                                                     # a template takes no copies while in use
     name = pg_server.fresh_name()                                  # the test's own DB, as a stand-in for the mock's
     other = pg_server.create(name, template=sa.engine.make_url(db.url()).database)
     try:
         with db._write() as c:
             c.execute(sa.delete(db.draft_picks))
-        replay.keep("practice-14-slot2", other, leagues.home().key)
+        replay.keep("practice-14-slot2", other, home_league().key)
         [log] = db.draft_logs_rows("practice", "practice-14-slot2")
         assert [r["player_id"] for r in log["rows"]] == [9, 10] and log["rows"][0]["adp_2qb"] == 1.5
-        assert log["meta"] == {"from": db.display_url(other), "league": leagues.home().key}
+        assert log["meta"] == {"from": db.display_url(other), "league": home_league().key}
         with pytest.raises(SystemExit, match="no picks"):
             replay.keep("x", other, "espn:999")
     finally:
@@ -213,7 +214,7 @@ def test_ffc_fetch_stores_new_drafts_and_skips_stored(monkeypatch):
         return R('<a href="/draft/11">x</a><a href="/draft/22">y</a>' if url == ffc.INDEX else page)
 
     monkeypatch.setattr(ffc.requests, "get", get)
-    monkeypatch.setattr(ffc.board_mod, "load_inputs", lambda: ({}, players, None))
+    monkeypatch.setattr(ffc.board_mod, "load_inputs", lambda ref: ({}, players, None))
     db.put_draft_log("ffc", "11", [{"overall": 1}])
     assert ffc.fetch(5, pause=0) == [11, 22]
     assert asked == [ffc.INDEX, f"{ffc.BASE}/draft/22"], "a stored draft is never fetched again"

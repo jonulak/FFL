@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from ffl import db
 from ffl.newsdesk import collect, health
 from ffl.newsdesk.players import Index
+from tests.home import home_league
 
 FIX = Path(__file__).parent / "fixtures" / "newsdesk"
 NOW = datetime(2026, 10, 19, 18, 0, tzinfo=timezone.utc)
@@ -125,7 +126,7 @@ def test_rotowire_ids_rostered_plus_top_free_agents(monkeypatch):
         "positions": {"QB": [{"player_id": 1, "pos": "QB", "add": 2.0}, {"player_id": 2, "pos": "QB", "add": None}],
                       "RB": [{"player_id": 3, "pos": "RB", "add": 5.0}, {"player_id": 4, "pos": "RB", "add": None}],
                       "D/ST": [{"player_id": -16001, "pos": "D/ST", "add": 9.0}]},
-        "rostered": {"WR": [{"player_id": 7, "pos": "WR"}, {"player_id": 8, "pos": "WR"}]}}, 0.0)
+        "rostered": {"WR": [{"player_id": 7, "pos": "WR"}, {"player_id": 8, "pos": "WR"}]}}, 0.0, ref=home_league())
     assert collect._rotowire_ids(Index()) == [1, 3, 7, 8]  # the two best adds; no D/ST
     monkeypatch.setattr(collect, "ROTOWIRE_FA", 3)
     # no add: the more-owned of the rest comes next
@@ -134,8 +135,8 @@ def test_rotowire_ids_rostered_plus_top_free_agents(monkeypatch):
 
 def test_rotowire_ids_include_watched(monkeypatch):
     monkeypatch.setattr(collect, "ROTOWIRE_FA", 1)
-    db.put_page("waivers", {"positions": {"RB": [{"player_id": 3, "pos": "RB", "add": 5.0}]}, "rostered": {}}, 0.0)
-    db.put_watch(99, True)
+    db.put_page("waivers", {"positions": {"RB": [{"player_id": 3, "pos": "RB", "add": 5.0}]}, "rostered": {}}, 0.0, ref=home_league())
+    db.put_watch(99, True, ref=home_league())
     assert collect._rotowire_ids(Index()) == [3, 99]  # a watched id outside the top is polled too
 
 

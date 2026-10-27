@@ -6,6 +6,7 @@ a trade is every TRADE_* row of one timestamp, one side per team. No network her
 from datetime import date
 
 from ffl import season as S
+from tests.home import home_league
 
 W1 = date(2026, 9, 8)
 
@@ -129,9 +130,9 @@ def test_draft_picks_read_the_db(monkeypatch):
     from ffl import db
     from ffl import espn_season as E
     db.put_picks([{**r, "player": "", "pos": None, "nfl": None, "adp_2qb": None, "board_rank_at_pick": None,
-                   "proj": None, "ts": r["at"]} for r in PICKS])
+                   "proj": None, "ts": r["at"]} for r in PICKS], ref=home_league())
     monkeypatch.setattr(E, "fresh_league", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no ESPN call")))
-    assert E.draft_picks() == PICKS
+    assert E.draft_picks(ref=home_league()) == PICKS
 
 
 def test_draft_picks_fall_back_to_espn_when_the_db_is_empty(monkeypatch):
@@ -142,7 +143,7 @@ def test_draft_picks_fall_back_to_espn_when_the_db_is_empty(monkeypatch):
     draft = [SimpleNamespace(playerId=7, round_num=1, round_pick=1, team=t),
              SimpleNamespace(playerId=101, round_num=1, round_pick=2, team=t)]
     monkeypatch.setattr(E, "fresh_league", lambda *a, **k: SimpleNamespace(draft=draft))
-    got = E.draft_picks()
+    got = E.draft_picks(ref=home_league())
     assert got[1] == {"overall": 2, "round": 1, "pick": 2, "team_id": 6, "team": "Daejon Love Fan Club",
                       "player_id": 101, "at": None}
 
@@ -157,7 +158,7 @@ def test_player_info_reads_kona_and_derives_a_dst(monkeypatch):
                             {"player": {"id": 102, "defaultPositionId": 2, "proTeamId": 0}}]}
 
     monkeypatch.setattr(E, "raw_league_get", fake_get)
-    info = E.tx_player_info({101, 102, -16020})
+    info = E.tx_player_info({101, 102, -16020}, ref=home_league())
     assert info[101] == {"pos": "WR", "team": "ATL"}
     assert info[102] == {"pos": "RB", "team": None}, "a player out of the NFL has no club"
     assert info[-16020] == {"pos": "D/ST", "team": "NYJ"}
@@ -169,7 +170,7 @@ def test_player_info_asks_in_chunks(monkeypatch):
     from ffl import espn_season as E
     asked = []
     monkeypatch.setattr(E, "raw_league_get", lambda view, headers=None, **kw: asked.append(headers) or {"players": []})
-    E.tx_player_info(set(range(1, E.TX_CHUNK * 2 + 2)))
+    E.tx_player_info(set(range(1, E.TX_CHUNK * 2 + 2)), ref=home_league())
     assert len(asked) == 3
 
 
@@ -180,7 +181,7 @@ def test_player_info_failure_keeps_the_dsts(monkeypatch):
         raise RuntimeError("espn down")
 
     monkeypatch.setattr(E, "raw_league_get", boom)
-    assert E.tx_player_info({101, -16020}) == {-16020: {"pos": "D/ST", "team": "NYJ"}}
+    assert E.tx_player_info({101, -16020}, ref=home_league()) == {-16020: {"pos": "D/ST", "team": "NYJ"}}
 
 
 def test_state_dresses_sides_with_the_current_club(monkeypatch):
@@ -195,7 +196,7 @@ def test_state_dresses_sides_with_the_current_club(monkeypatch):
     monkeypatch.setattr(E, "my_team_id", lambda lg, *a, **k: 7)
     monkeypatch.setattr(E, "load", lambda *a, **k: {"week1_start": "2026-09-08"})
     monkeypatch.setattr("ffl.journal.sync_transactions", lambda lg, **k: None)
-    got = E.transactions_state()
+    got = E.transactions_state(ref=home_league())
     assert got["me"] == 7 and got["current_week"] == 5
     sides = {m["sides"][0]["team_id"]: m["sides"][0] for m in got["moves"]}
     assert sides[6]["team"] == "Daejon Love Fan Club" and sides[6]["logo"] == "x.png"
@@ -221,7 +222,7 @@ def test_state_syncs_the_feed_before_reading_the_log(monkeypatch):
     log = []
     E, lg = _state_env(monkeypatch, [], log)
     monkeypatch.setattr(journal, "sync_transactions", lambda league, **k: log.append(("sync", league)))
-    E.transactions_state()
+    E.transactions_state(ref=home_league())
     assert log == [("sync", lg), "read"]
 
 
@@ -234,7 +235,7 @@ def test_state_serves_the_log_when_the_sync_fails(monkeypatch):
     E, _ = _state_env(monkeypatch, [row(1, 6, "FA ADDED", -16020, "Jets D/ST")], [])
     monkeypatch.setattr(journal, "sync_transactions", boom)
     monkeypatch.setattr(E, "tx_player_info", lambda ids, **k: INFO)
-    assert len(E.transactions_state()["moves"]) == 1
+    assert len(E.transactions_state(ref=home_league())["moves"]) == 1
 
 
 def test_log_owners_replays_the_draft_then_the_log():
@@ -272,9 +273,9 @@ def test_current_week_box_scores_reconcile_the_log(monkeypatch):
     seen = []
     monkeypatch.setattr(E, "reconcile_log", lambda lg, owners, **k: seen.append(owners))
     lg = SimpleNamespace(current_week=5, box_scores=lambda week: [box])
-    E.box_scores(lg, 5)
-    E.box_scores(lg, 5)  # cached
-    E.box_scores(lg, 4)  # finished week
+    E.box_scores(lg, 5, ref=home_league())
+    E.box_scores(lg, 5, ref=home_league())  # cached
+    E.box_scores(lg, 4, ref=home_league())  # finished week
     assert seen == [{4241474: 6}]
 
 
@@ -285,7 +286,7 @@ def test_box_scores_stand_when_the_reconcile_fails(monkeypatch):
     monkeypatch.setattr(E, "reconcile_log", lambda lg, owners, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     lg = SimpleNamespace(current_week=5, box_scores=lambda week: ["box"])
     monkeypatch.setattr(E, "owners_in", lambda boxes: {})
-    assert E.box_scores(lg, 5) == ["box"]
+    assert E.box_scores(lg, 5, ref=home_league()) == ["box"]
 
 
 def test_reconcile_syncs_once_per_disagreement(monkeypatch):
@@ -301,7 +302,7 @@ def test_reconcile_syncs_once_per_disagreement(monkeypatch):
     monkeypatch.setattr(E, "draft_picks", lambda **k: [{"player_id": 101, "team_id": 1}])
     monkeypatch.setattr(E, "_RECONCILED", {})
     lg = SimpleNamespace()
-    assert E.reconcile_log(lg, {101: 1}) is False and synced == []
-    assert E.reconcile_log(lg, {101: 1, 105: 6}) is True and synced == [1]
-    assert E.reconcile_log(lg, {101: 1, 105: 6}) is False and synced == [1]
-    assert E.reconcile_log(lg, {105: 6}) is True and synced == [1, 1]
+    assert E.reconcile_log(lg, {101: 1}, ref=home_league()) is False and synced == []
+    assert E.reconcile_log(lg, {101: 1, 105: 6}, ref=home_league()) is True and synced == [1]
+    assert E.reconcile_log(lg, {101: 1, 105: 6}, ref=home_league()) is False and synced == [1]
+    assert E.reconcile_log(lg, {105: 6}, ref=home_league()) is True and synced == [1, 1]

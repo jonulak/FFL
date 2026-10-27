@@ -9,6 +9,7 @@ import pytest
 from ffl import fastcast as fc
 from ffl import formats, leagues, live, settings, sleeper
 from ffl.sources import scoring_key
+from tests.home import home_league
 
 FIX = Path(__file__).parent / "fixtures"
 HOME_ITEMS = json.loads((FIX / "home_scoring_items.json").read_text())   # ESPN's raw items, D/ST overrides kept
@@ -28,8 +29,8 @@ def te_premium(items: list[dict]) -> list[dict]:
 
 
 def test_te_premium_reaches_rescoring_at_te_only():
-    formats.store(leagues.home(), {**home_settings(), "scoring_items": te_premium(HOME_ITEMS)})
-    ks = settings.rescoring(settings.load())
+    formats.store(home_league(), {**home_settings(), "scoring_items": te_premium(HOME_ITEMS)})
+    ks = settings.rescoring(settings.load(ref=home_league()))
     assert ks["TE"]["rec"] == 1.5 and ks["WR"]["rec"] == ks["RB"]["rec"] == ks["QB"]["rec"] == 1.0
     raw = [{"player": {"position": p, "first_name": n, "last_name": "X", "team": "KC"},
             "stats": {"gp": 17, "rec": 80, "rec_yd": 800}} for p, n in (("TE", "Tight"), ("WR", "Wide"))]

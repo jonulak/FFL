@@ -3,7 +3,7 @@
     FFL_DB_URL=postgresql+psycopg:///ffl_mock FFL_DATA_DIR=data-mock uv run python -m ffl.autodraft queue.txt
     uv run python -m ffl.autodraft queue.txt --live      # the real draft: opt in explicitly
 
-For the current league (FFL_LEAGUE, else the home league). Watches the watcher's state for it (the
+For the current league (FFL_LEAGUE, else FFL_USER's default). Watches the watcher's state for it (the
 DB's draft_states row); when it says I am on the clock it drafts the first
 player in the queue who is still available, falling back to the candidate table's own order.
 `ffl.draft_pick` does the clicking and verifies against the socket feed.
@@ -63,15 +63,15 @@ def parse_queue(text: str, current: int) -> list[tuple[int, str]]:
     return out
 
 
-def drafted_ids(ref=None) -> set[int]:
-    """Every player the league's pick feed has seen go (None: the current league)."""
+def drafted_ids(ref) -> set[int]:
+    """Every player the league's pick feed has seen go."""
     try:
         return {p["playerId"] for p in db.draft_feed(ref)[0]}
     except db.DBError:
         return set()
 
 
-def candidates(state: dict, queue: list[tuple[int, str]], ref=None) -> list[tuple[int, str]]:
+def candidates(state: dict, queue: list[tuple[int, str]], ref) -> list[tuple[int, str]]:
     """Queue first, then the candidate table's own order; drafted and blacklisted removed."""
     gone = drafted_ids(ref)
     out = [(pid, nm) for pid, nm in queue if pid not in gone]
@@ -105,8 +105,7 @@ def my_turn(state: dict | None, last_pick: int | None) -> int | None:
     return None if current == last_pick else current
 
 
-def run(queue_path: Path, timeout_s: float = 22.0, ref=None):
-    ref = ref or leagues.current()
+def run(queue_path: Path, timeout_s: float = 22.0, *, ref):
     last_pick = None
     log(f"watching the draft state of {ref.key} — queue {queue_path}")
     while True:
@@ -162,4 +161,4 @@ if __name__ == "__main__":
     if not practice_db(os.environ.get("FFL_DB_URL")) and not a.live:
         raise SystemExit("This drafts for real. Point FFL_DB_URL at the mock database (scripts/devdb.sh mock --no-env) "
                          "for a practice run, or pass --live if you mean the real draft.")
-    run(Path(a.queue), a.timeout)
+    run(Path(a.queue), a.timeout, ref=leagues.acting())

@@ -10,6 +10,7 @@ import requests
 from fastapi.testclient import TestClient
 
 from ffl import api, db, leagues
+from tests.home import HOME_KEY, home_league
 
 
 @pytest.fixture
@@ -34,12 +35,10 @@ def client(monkeypatch, tmp_path):
                              "reason": "starts at RB: no bench alternative", "group": "starter", "gap": None}]})
     monkeypatch.setattr(api.outlook.news, "gather", lambda cards, week: {c["player_id"]: {"depth": None, "teammates": [], "stories": []} for c in cards})
     monkeypatch.setattr(api.outlook, "OUTLOOK_DIR", tmp_path / "outlook")
-    # start()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
-    monkeypatch.setattr(api.outlook, "LAST",
-                        {"at": None, "generated": 0, "skipped": 0, "failed": 0, "error": None,
-                         "last_failure": None, "pending": None})
+    # start()'s thread looks LASTS up by name at call time, so a fresh dict per test keeps runs apart
+    monkeypatch.setattr(api.outlook, "LASTS", {})
     monkeypatch.setattr(api, "sync_all", lambda **k: {"transactions": 0})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     c = TestClient(api.app)
     c.calls = calls
     return c
@@ -79,6 +78,23 @@ def test_refresh_502s_when_espn_is_down(client, monkeypatch):
     assert r.status_code == 502 and r.json()["detail"] == {"source": "espn", "error": "espn down"}
 
 
+def test_a_jobs_bare_refresh_refreshes_every_league(client, monkeypatch, request):
+    """The documented curl names no league: as a job it is every league, one failing its own line."""
+    from ffl import leagues
+    leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
+
+    def sync(*, ref):
+        if ref.key == "espn:999":
+            raise RuntimeError("espn down")
+        return {"transactions": True}
+    monkeypatch.setattr(api, "sync_all", sync)
+    request.getfixturevalue("as_job")
+    r = client.post("/refresh")
+    assert r.status_code == 200 and set(r.json()["leagues"]) == {HOME_KEY, "espn:999"}
+    assert r.json()["leagues"][HOME_KEY]["synced"] == {"transactions": True}
+    assert r.json()["leagues"]["espn:999"] == {"error": {"source": "espn", "error": "espn down"}}
+
+
 def test_transactions_sync_answers_the_new_count(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: "LG")
     monkeypatch.setattr(api, "load", lambda *a, **k: {})
@@ -109,16 +125,16 @@ def test_sync_all_rebuilds_the_league(monkeypatch):
     monkeypatch.setattr(api, "load", lambda *a, **k: {})
     monkeypatch.setattr(api, "sync_transactions", lambda lg, **k: None)
     monkeypatch.setattr(api, "sync_results", lambda lg, s, **k: None)
-    assert api.sync_all() == {"transactions": True, "results": True}
+    assert api.sync_all(ref=home_league()) == {"transactions": True, "results": True}
     assert hits == {"refresh": 1, "fresh": 1}
 
 
 def test_stale_payload_served_when_source_fails(client, monkeypatch):
     client.get("/week/3")
     monkeypatch.setattr(api.espn_season, "week_state", lambda week=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
-    api.cache.expire_all()
+    api.cache_for(home_league()).expire_all()
     client.get("/week/3")  # answered from the old payload; the rebuild behind it fails
-    api.cache.join()
+    api.cache_for(home_league()).join()
     r = client.get("/week/3")
     assert r.status_code == 200 and r.json()["stale_since"] is not None
 
@@ -137,7 +153,7 @@ def test_expired_entry_is_served_at_once_and_rebuilt_behind(client, monkeypatch)
 
     monkeypatch.setattr(api.espn_season, "week_state", slow_week)
     assert client.get("/week/3").json()["me"]["team"] == "me1"
-    api.cache.expire_all()
+    api.cache_for(home_league()).expire_all()
     t0 = time.time()
     r = client.get("/week/3").json()
     assert time.time() - t0 < 1, "the request did not wait on the rebuild"
@@ -145,22 +161,22 @@ def test_expired_entry_is_served_at_once_and_rebuilt_behind(client, monkeypatch)
     assert client.get("/week/3").json()["me"]["team"] == "me1"
     assert seen["n"] == 2, "one rebuild in flight per key, however many requests arrive"
     gate.set()
-    api.cache.join()
+    api.cache_for(home_league()).join()
     assert client.get("/week/3").json()["me"]["team"] == "me2"
 
 
 def test_failed_background_rebuild_keeps_the_old_payload_and_flags_it(client, monkeypatch):
     client.get("/week/3")
     monkeypatch.setattr(api.espn_season, "week_state", lambda week=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
-    api.cache.expire_all()
+    api.cache_for(home_league()).expire_all()
     assert client.get("/week/3").json()["stale_since"] is None, "not known to be down yet"
-    api.cache.join()
+    api.cache_for(home_league()).join()
     r = client.get("/week/3")
     assert r.status_code == 200 and r.json()["me"]["team"] == "me" and r.json()["stale_since"] is not None
     monkeypatch.setattr(api.espn_season, "week_state",
                         lambda week=None, **k: {"week": 3, "live": False, "me": {"team": "back"}, "opp": None})
     client.get("/week/3")  # still flagged and expired: this get starts the retry
-    api.cache.join()
+    api.cache_for(home_league()).join()
     assert client.get("/week/3").json()["stale_since"] is None, "a good build clears the flag"
 
 
@@ -175,9 +191,9 @@ def test_refresh_rebuilds_the_hot_keys_inline(client):
 
 def test_startup_warms_the_page_caches(client):
     with TestClient(api.app):
-        api.cache.join()
+        api.cache_for(home_league()).join()
     assert client.calls["week"] == 1
-    assert all(api.cache.has(k) for k in ("week:current", "roster", "league:current", "waivers"))
+    assert all(api.cache_for(home_league()).has(k) for k in ("week:current", "roster", "league:current", "waivers"))
 
 
 def test_logo_serves_bytes_and_404s_when_missing(client, monkeypatch):
@@ -238,8 +254,7 @@ def test_player_transactions_survive_a_failed_draft_read(client, monkeypatch):
 
 
 def test_team_overlays_live_points(client, monkeypatch):
-    monkeypatch.setattr(api.live.STATE, "points", {1: 14.5})
-    monkeypatch.setattr(api.live.STATE, "week", 3)
+    monkeypatch.setattr(api.live.STATE, "leagues", {HOME_KEY: ({1: 14.5}, 3)})
     body = client.get("/team/4").json()
     assert body["club"]["rank"] == 2 and body["mine"] is False and body["stale_since"] is None
     assert body["side"]["lineup"][0]["actual"] == 14.5 and body["side"]["actual_total"] == 14.5
@@ -271,7 +286,7 @@ def test_roster_attaches_the_cached_outlook_on_every_get(client):
     assert body["outlook_run"] == {"at": None, "generated": 0, "skipped": 0, "failed": 0,
                                    "error": None, "last_failure": None, "pending": None, "running": False}
     take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
-    api.outlook.save(3, {1: {"hash": "h", "card_hash": api.outlook.card_hash(body["cards"][0]), "bullets": [take], "generated_at": "t"}})
+    api.outlook.save(3, {1: {"hash": "h", "card_hash": api.outlook.card_hash(body["cards"][0]), "bullets": [take], "generated_at": "t"}}, ref=home_league())
     assert client.get("/roster").json()["cards"][0]["outlook"] == [take], "no TTL wait for new bullets"
 
 
@@ -306,7 +321,7 @@ def _fa_pool(monkeypatch):
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
                         lambda week=None, **k: {"week": 3, "positions": {"RB": [row], "WR": []}})
     monkeypatch.setattr(api.outlook, "_WRITING", {})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     return row
 
 
@@ -340,11 +355,17 @@ def test_live_points_from_another_week_never_overlay_the_current_page(client, mo
     """After Monday night the feed still holds last week's totals until the next kickoff; the
     week payload rolls over first, and last week's points must not land on it."""
     st = api.live.State()
-    st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=2)
+    st.update({HOME_KEY: ({1: 24.7}, 2)}, {"DET": {"status": "post"}}, {1: {"3": 200.0}})
     monkeypatch.setattr(api.live, "STATE", st)
-    assert api._live_points(3) == {} and api._live_games(3) == {} and api._live_stats(3) == {}
-    st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=3)
-    assert api._live_points(3) == {1: 24.7}
+    assert api._live_points(3, ref=home_league()) == {} and api._live_games(3, ref=home_league()) == {} and api._live_stats(3, ref=home_league()) == {}
+    st.update({HOME_KEY: ({1: 24.7}, 3)}, {"DET": {"status": "post"}}, {1: {"3": 200.0}})
+    assert api._live_points(3, ref=home_league()) == {1: 24.7}
+
+
+def _lane_runner(**lane):
+    """A runner with one lane (week, store, ...), whatever league it is asked for."""
+    ln = SimpleNamespace(**lane)
+    return SimpleNamespace(lanes=[ln], lane=lambda key: ln)
 
 
 def _store(rows):
@@ -355,10 +376,10 @@ def test_week_plays_come_only_from_the_runner_scoring_that_week(client, monkeypa
     monkeypatch.setattr(api.espn_season, "week_state",
                         lambda week=None, **k: {"week": week or 3, "live": False, "me": {"team_id": 7}, "opp": {"team_id": 3}})
     store = _store([{"delta": 6.0, "team_id": 7}])
-    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=2, store=store), raising=False)
+    monkeypatch.setattr(api.app.state, "runner", _lane_runner(week=2, store=store), raising=False)
     assert client.get("/week").json()["plays"] == []
-    api.cache.clear()
-    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=3, store=store), raising=False)
+    api.cache_for(home_league()).clear()
+    monkeypatch.setattr(api.app.state, "runner", _lane_runner(week=3, store=store), raising=False)
     assert client.get("/week").json()["plays"] == [{"delta": 6.0, "team_id": 7, "side": "me"}]
 
 
@@ -375,7 +396,7 @@ def test_every_board_carries_its_own_games_plays_sided_from_its_left(client, mon
 
     monkeypatch.setattr(api.espn_season, "week_state", fake_week)
     store = _store([{"delta": 6.0, "team_id": 7}, {"delta": 2.0, "team_id": 5}, {"delta": 1.0, "team_id": 4}])
-    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=3, store=store), raising=False)
+    monkeypatch.setattr(api.app.state, "runner", _lane_runner(week=3, store=store), raising=False)
     assert [(p["delta"], p["side"]) for p in client.get("/week/3").json()["plays"]] == [(6.0, "me")]
     r = client.get("/week/3?team=4").json()
     assert r["me"]["team"] == "t4" and [(p["delta"], p["side"]) for p in r["plays"]] == [(2.0, "opp"), (1.0, "me")]
@@ -393,7 +414,7 @@ def test_plays_page_opens_the_week_it_was_linked_from(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "week_state", lambda week=None, team=None, **k: {
         "week": week or 6, "live": False, "me": {"team": "t", "team_id": team or 7, "abbrev": "L"},
         "opp": {"team": "x", "team_id": 5, "abbrev": "R"}, "mine": team in (None, 7)})
-    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=_store([{"delta": 6.0, "team_id": 7}])),
+    monkeypatch.setattr(api.app.state, "runner", _lane_runner(week=6, store=_store([{"delta": 6.0, "team_id": 7}])),
                         raising=False)
     monkeypatch.setattr(api.db, "plays_rows", lambda week, **k: [{"delta": 2.0, "team_id": 7, "week": week}])
     past = client.get("/plays?week=5").json()
@@ -410,11 +431,11 @@ def test_roster_cards_never_carry_last_weeks_live_overlay(client, monkeypatch):
     holds last week's points, final scores and stat lines, and none of them may reach this
     week's cards."""
     st = api.live.State()
-    st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=2)
+    st.update({HOME_KEY: ({1: 24.7}, 2)}, {"DET": {"status": "post"}}, {1: {"3": 200.0}})
     monkeypatch.setattr(api.live, "STATE", st)
     card = client.get("/roster").json()["cards"][0]
     assert card.get("actual") in (None, 0) and "game" not in card and not card.get("stat_line")
-    st.update({1: 24.7}, {"DET": {"status": "post"}}, {1: {"3": 200.0}}, week=3)
+    st.update({HOME_KEY: ({1: 24.7}, 3)}, {"DET": {"status": "post"}}, {1: {"3": 200.0}})
     card = client.get("/roster").json()["cards"][0]
     assert card["game"]["status"] == "post"
 
@@ -459,10 +480,9 @@ def test_player_502(client, monkeypatch):
 def test_player_live_week(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "player_card", lambda pid, **k: {**PLAYER_LOG, "player_id": pid})
     monkeypatch.setattr(api.live.STATE, "stats", {9: {"0": 10, "1": 7, "3": 80}})
-    monkeypatch.setattr(api.live.STATE, "points", {9: 3.2})
-    monkeypatch.setattr(api.live.STATE, "week", 4)
+    monkeypatch.setattr(api.live.STATE, "leagues", {HOME_KEY: ({9: 3.2}, 4)})
     monkeypatch.setattr(api.live.STATE, "games", {"BUF": {"status": "in"}})
-    monkeypatch.setattr(api, "_scoring", lambda: [{"stat_id": 3, "label": "Passing yards", "points": 0.04}])
+    monkeypatch.setattr(api, "_scoring", lambda *, ref: [{"stat_id": 3, "label": "Passing yards", "points": 0.04}])
     weeks = client.get("/player/9").json()["seasons"][0]["weeks"]
     assert [(w["week"], w["status"], w["pts"]) for w in weeks] == [(4, "live", 3.2)]
 
@@ -473,7 +493,7 @@ def test_players_search_spans_every_position(client, monkeypatch):
     qb = {**rb, "player_id": 9, "name": "Cam Ward", "pos": "QB", "team": "TEN", "add": 3.0}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
                         lambda week=None, **k: {"week": 3, "positions": {"RB": [rb], "WR": [wr], "QB": [qb]}})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     body = client.get("/players?q=b").json()
     assert [r["player_id"] for r in body["rows"]] == [8, 7], "every pool, by add, best first"
     assert body["pos"] is None and body["q"] == "b" and all("has_outlook" in r for r in body["rows"])
@@ -492,10 +512,10 @@ def claims_env(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "pool_status", lambda **k: {r["player_id"]: {"status": r["status"], "waiver_date": None} for rows in pool.values() for r in rows})
     monkeypatch.setattr(api, "_roster_size", lambda **k: 17)
     monkeypatch.setattr(api, "_limits", lambda **k: {})
-    api.espn_write._fake(leagues.home()).claims.clear()
-    api.espn_write._fake(leagues.home()).adds.clear()
-    api.espn_write._fake(leagues.home()).fail_adds.clear()
-    api.cache.clear()
+    api.espn_write._fake(home_league()).claims.clear()
+    api.espn_write._fake(home_league()).adds.clear()
+    api.espn_write._fake(home_league()).fail_adds.clear()
+    api.cache_for(home_league()).clear()
     client.pool = pool
     return client
 
@@ -532,24 +552,24 @@ def test_submit_happy_path_and_decision(claims_env, monkeypatch):
     g = claims_env.get("/claims").json()
     assert g["edited_since_submit"] is False and all(p["from_app"] for p in g["pending"])
     assert _titles() == ["Week 6 waiver claims"]
-    assert r["decisions"] == [{"id": db.decisions()[0]["id"], "needs_rationale": True}]
+    assert r["decisions"] == [{"id": db.decisions(ref=home_league())[0]["id"], "needs_rationale": True}]
 
 
 def test_a_resubmit_updates_the_weeks_claims_row_and_keeps_its_rationale(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     first = claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"][0]
-    db.update_decision(first["id"], {"rationale": ["best_ros"]})
+    db.update_decision(first["id"], {"rationale": ["best_ros"]}, ref=home_league())
     claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [1], "open": 0}]})
     again = claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"]
     assert again == [{"id": first["id"], "needs_rationale": False}]
-    assert len(db.decisions()) == 1 and "Mims" in db.decisions()[0]["decision"]
+    assert len(db.decisions(ref=home_league())) == 1 and "Mims" in db.decisions(ref=home_league())[0]["decision"]
 
 
 def test_a_dev_api_submit_records_no_decision(claims_env):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     assert claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"] == []
-    assert db.decisions() == []
+    assert db.decisions(ref=home_league()) == []
 
 
 def test_a_test_server_records_a_fake_claim_only_when_asked(claims_env, monkeypatch):
@@ -557,13 +577,13 @@ def test_a_test_server_records_a_fake_claim_only_when_asked(claims_env, monkeypa
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     assert claims_env.get("/claims").json()["writes"] is False
     assert claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"] == []
-    assert db.decisions() == [] and api.espn_write._fake(leagues.home()).claims, "the fake took the claim; the decisions table did not"
+    assert db.decisions(ref=home_league()) == [] and api.espn_write._fake(home_league()).claims, "the fake took the claim; the decisions table did not"
     # FFL_RECORD_FAKE=1 (a worktree test server, own DB): recorded, marked fake, as /lineup and sit do
     monkeypatch.setenv("FFL_RECORD_FAKE", "1")
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]}).json()
-    rows = {row["id"]: row for row in db.decisions()}
+    rows = {row["id"]: row for row in db.decisions(ref=home_league())}
     assert [rows[d["id"]]["title"] for d in r["decisions"]] == ["[fake] Week 6 waiver claims", "[fake] Week 6 add: Mims, drop R1"]
     assert all(row["facts"]["fake"] is True for row in rows.values())
 
@@ -576,7 +596,7 @@ def test_claims_say_when_writes_are_real(claims_env, monkeypatch):
 def test_an_empty_plan_withdraws_the_claims_sent_from_here(claims_env):
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 1}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
-    outside = api.espn_write.submit_claim(-16020, 3, 6)                 # filed on ESPN's site, not here
+    outside = api.espn_write.submit_claim(-16020, 3, 6, ref=home_league())                 # filed on ESPN's site, not here
     claims_env.post("/claims", json={"groups": []})
     r = claims_env.post("/claims/submit", json={"replace_outside": False}).json()
     assert r["sent"] == [] and r["match"] and [c["id"] for c in r["pending"]] == [outside], "ours gone, the outside one kept"
@@ -584,12 +604,12 @@ def test_an_empty_plan_withdraws_the_claims_sent_from_here(claims_env):
     assert g["last_submit"]["claims"] == [] and g["last_submit"]["ids"] == [] and g["errors"] == []
     assert [c["from_app"] for c in g["pending"]] == [False]
     r = claims_env.post("/claims/submit", json={"replace_outside": True}).json()
-    assert r["pending"] == [] and api.espn_write._fake(leagues.home()).claims == [], "the box ticked: the outside claim goes too"
+    assert r["pending"] == [] and api.espn_write._fake(home_league()).claims == [], "the box ticked: the outside claim goes too"
 
 
 def test_an_undesignated_ir_player_blocks_the_submit(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     pool_fn = api.espn_season.free_agent_pool
 
     def with_bad_ir(week=None, **k):
@@ -603,9 +623,9 @@ def test_an_undesignated_ir_player_blocks_the_submit(claims_env, monkeypatch):
     assert g["players"]["99"]["name"] == "Stuck", "the panel can name him"
     r = claims_env.post("/claims/submit", json={"replace_outside": False})
     assert r.status_code == 422 and r.json()["detail"]["errors"][0]["player_id"] == 99
-    assert api.espn_write._fake(leagues.home()).claims == [], "nothing reached the writer"
+    assert api.espn_write._fake(home_league()).claims == [], "nothing reached the writer"
     # a fake lineup move (FFL_WRITES=0) took him off IR: the claims read the fake's slots, as the Roster page does
-    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "slots", {99: "BE"})
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "slots", {99: "BE"})
     assert claims_env.get("/claims").json()["errors"] == []
     assert claims_env.post("/claims/submit", json={"replace_outside": False}).status_code == 200
 
@@ -637,25 +657,25 @@ def _counting_board(monkeypatch):
         return {"week": 3, "v": builds["n"]}
 
     monkeypatch.setattr(api.espn_season, "week_state", week_state)
-    assert api._board(None, None)["v"] == 1
+    assert api._board(None, None, ref=home_league())["v"] == 1
     return builds
 
 
 def test_a_lineup_move_shows_on_the_matchup_board_at_once(lineup_env, monkeypatch):
     _counting_board(monkeypatch)
     assert lineup_env.post("/lineup", json=SWAP).status_code == 200
-    assert api._board(None, None)["v"] == 2, "the first open after the move is the moved lineup, never the old board"
+    assert api._board(None, None, ref=home_league())["v"] == 2, "the first open after the move is the moved lineup, never the old board"
 
 
 def test_waiver_run_retires_the_submitted_plan(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
-    api.espn_write._fake(leagues.home()).claims.clear()                               # the run processed the claims
-    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "last_run", "2999-01-01T00:00:00")
+    api.espn_write._fake(home_league()).claims.clear()                               # the run processed the claims
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "last_run", "2999-01-01T00:00:00")
     g = claims_env.get("/claims").json()
     assert g["groups"] == [] and g["last_submit"] is None and g["errors"] == []
     claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [2], "open": 0}]})
-    saved = db.claim_plan(6)
+    saved = db.claim_plan(6, ref=home_league())
     assert saved["submits"] == [] and saved["retired"][0]["groups"][0]["targets"] == [101]
     assert claims_env.get("/claims").json()["groups"][0]["targets"] == [102], "a plan saved after the run stays"
 
@@ -664,13 +684,13 @@ def test_a_plan_after_the_waiver_run_is_a_new_claims_decision(claims_env, monkey
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     ran = claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"][0]
-    db.update_decision(ran["id"], {"rationale": ["best_ros"]})
-    api.espn_write._fake(leagues.home()).claims.clear()                               # the run processed the claims
-    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "last_run", "2999-01-01T00:00:00")
+    db.update_decision(ran["id"], {"rationale": ["best_ros"]}, ref=home_league())
+    api.espn_write._fake(home_league()).claims.clear()                               # the run processed the claims
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "last_run", "2999-01-01T00:00:00")
     claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [2], "open": 0}]})
     fresh = claims_env.post("/claims/submit", json={"replace_outside": False}).json()["decisions"]
     assert fresh[0]["id"] != ran["id"] and fresh[0]["needs_rationale"] is True
-    rows = {r["id"]: r for r in db.decisions()}
+    rows = {r["id"]: r for r in db.decisions(ref=home_league())}
     assert "Addison" in rows[ran["id"]]["decision"] and rows[ran["id"]]["rationale"] == ["best_ros"]
     assert "Mims" in rows[fresh[0]["id"]]["decision"] and rows[fresh[0]["id"]]["facts"]["gen"] == 1
 
@@ -680,7 +700,7 @@ def test_submit_free_agent_is_instant(claims_env):
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]}).json()
     assert r["now"] == [{"group": 0, "add": 102, "drop": 1}] and [(c["add"], c["drop"]) for c in r["sent"]] == [(101, 2)]
-    assert api.espn_write._fake(leagues.home()).adds == [{"add": 102, "drop": 1}]
+    assert api.espn_write._fake(home_league()).adds == [{"add": 102, "drop": 1}]
 
 
 def test_instant_add_rebuilds_only_the_roster_pages_inline(claims_env):
@@ -692,12 +712,12 @@ def test_instant_add_rebuilds_only_the_roster_pages_inline(claims_env):
             return {}
         return fn
     for key in built:
-        api.cache.get_or_build(key, builder(key))
+        api.cache_for(home_league()).get_or_build(key, builder(key))
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [1], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert built == {"week:current": 2, "player:9": 1}         # the player card waits for its next request
-    assert api.cache._d["player:9"].expires == 0.0
+    assert api.cache_for(home_league())._d["player:9"].expires == 0.0
 
 
 def test_submit_uses_fresh_status(claims_env):
@@ -729,7 +749,7 @@ def test_submit_status_flip_since_preview_is_409(claims_env):
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": shown})
     assert r.status_code == 409
     assert r.json()["detail"] == {"error": "statuses changed — review again", "now": [{"group": 0, "add": 101, "drop": None}]}
-    assert api.espn_write._fake(leagues.home()).claims == [] and api.espn_write._fake(leagues.home()).adds == []
+    assert api.espn_write._fake(home_league()).claims == [] and api.espn_write._fake(home_league()).adds == []
 
 
 def test_instant_adds_gate_off_rejects_free_agent_targets(claims_env, monkeypatch):
@@ -739,22 +759,22 @@ def test_instant_adds_gate_off_rejects_free_agent_targets(claims_env, monkeypatc
     assert api.claims_mod.INSTANT_OFF in [e["reason"] for e in claims_env.get("/claims").json()["errors"]]
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert r.status_code == 422 and "FFL_INSTANT_ADDS" in str(r.json())
-    assert api.espn_write._fake(leagues.home()).claims == [] and api.espn_write._fake(leagues.home()).adds == []
+    assert api.espn_write._fake(home_league()).claims == [] and api.espn_write._fake(home_league()).adds == []
     monkeypatch.delenv("FFL_INSTANT_ADDS")                     # unset is on
     assert claims_env.get("/claims").json()["errors"] == []
 
 
 def test_submit_espn_week_changed_is_409(claims_env, monkeypatch):
-    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "period", 7)     # the pool is cached at week 6
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "period", 7)     # the pool is cached at week 6
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     r = claims_env.post("/claims/submit", json={"replace_outside": False})
     assert r.status_code == 409 and r.json()["detail"] == {"error": "ESPN's week changed — reload"}
-    assert api.espn_write._fake(leagues.home()).claims == [] and api.espn_write._fake(leagues.home()).adds == []
-    assert not api.cache.has("waivers")                        # the reload builds the new week's pool
+    assert api.espn_write._fake(home_league()).claims == [] and api.espn_write._fake(home_league()).adds == []
+    assert not api.cache_for(home_league()).has("waivers")                        # the reload builds the new week's pool
 
 
 def test_submit_writes_carry_espn_period(claims_env, monkeypatch):
-    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "period", 6)
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "period", 6)
     weeks = []
     real_submit, real_add = api.espn_write.submit_claim, api.espn_write.add_free_agent
     monkeypatch.setattr(api.espn_write, "submit_claim", lambda a, d, wk, **k: weeks.append(wk) or real_submit(a, d, wk, **k))
@@ -772,12 +792,12 @@ def test_landed_add_rebuilds_the_pool_before_returning(claims_env, monkeypatch):
     def pool_fn(week=None, **k):
         calls["n"] += 1
         r = roster
-        if api.espn_write._fake(leagues.home()).adds:                          # ESPN now has the add: Mims on, R1 off
+        if api.espn_write._fake(home_league()).adds:                          # ESPN now has the add: Mims on, R1 off
             r = [p for p in roster if p["player_id"] != 1] + [{**roster[0], "player_id": 102, "name": "Mims"}]
         return {"week": 6, "roster": r, "positions": claims_env.pool}
 
     monkeypatch.setattr(api.espn_season, "free_agent_pool", pool_fn)
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
     before = calls["n"]
@@ -796,7 +816,7 @@ def test_submit_rejects_invalid(claims_env):
 
 def test_submit_rejects_undroppable(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [3], "open": 0}]})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     pool_fn = api.espn_season.free_agent_pool
 
     def with_undroppable(week=None, **k):
@@ -856,7 +876,7 @@ def _roll_week(claims_env, monkeypatch):
     roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
     pool = claims_env.pool
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 7, "roster": roster, "positions": pool})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
 
 
 def test_a_plan_carries_over_the_week_rollover(claims_env, monkeypatch):
@@ -866,9 +886,9 @@ def test_a_plan_carries_over_the_week_rollover(claims_env, monkeypatch):
     _roll_week(claims_env, monkeypatch)
     r = claims_env.get("/claims").json()
     assert r["week"] == 7 and r["groups"] == g
-    assert db.claim_plan(6)["groups"] == g, "last week's row is untouched"
+    assert db.claim_plan(6, ref=home_league())["groups"] == g, "last week's row is untouched"
     claims_env.post("/claims", json={"groups": g + [{"targets": [102], "cuts": [2], "open": 0}]})
-    assert db.claim_plan(7)["week"] == 7 and len(db.claim_plan(7)["groups"]) == 2, "a save writes the new week's row"
+    assert db.claim_plan(7, ref=home_league())["week"] == 7 and len(db.claim_plan(7, ref=home_league())["groups"]) == 2, "a save writes the new week's row"
 
 
 def test_a_sent_plan_carries_over_with_its_submit(claims_env, monkeypatch):
@@ -883,8 +903,8 @@ def test_a_sent_plan_carries_over_with_its_submit(claims_env, monkeypatch):
 def test_a_processed_plan_does_not_carry_over(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
-    api.espn_write._fake(leagues.home()).claims.clear()                               # the run processed the claims
-    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "last_run", "2999-01-01T00:00:00")
+    api.espn_write._fake(home_league()).claims.clear()                               # the run processed the claims
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "last_run", "2999-01-01T00:00:00")
     _roll_week(claims_env, monkeypatch)
     r = claims_env.get("/claims").json()
     assert r["week"] == 7 and r["groups"] == [] and r["last_submit"] is None
@@ -908,9 +928,9 @@ def test_submit_readback_failure_still_journals(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "pending_claims", down)
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert r.status_code == 200 and r.json()["error"] and r.json()["match"] is False
-    plan = db.claim_plan(6)
+    plan = db.claim_plan(6, ref=home_league())
     assert len(plan["submits"]) == 1 and plan["submits"][0]["now"] == [{"group": 0, "add": 102, "drop": 1}]
-    assert db.decisions(), "the landed add is recorded"
+    assert db.decisions(ref=home_league()), "the landed add is recorded"
 
 
 def test_failed_cancel_keeps_app_claim_tracked(claims_env, monkeypatch):
@@ -928,7 +948,7 @@ def test_failed_cancel_keeps_app_claim_tracked(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "cancel_claim", flaky)
     r = claims_env.post("/claims/submit", json={"replace_outside": False}).json()
     assert r["error"] and r["sent"] == []
-    plan = db.claim_plan(6)
+    plan = db.claim_plan(6, ref=home_league())
     assert set(plan["submits"][-1]["ids"]) == set(old) - {old[0]}   # the first was cancelled, the rest still held
     assert old[1] in plan["submits"][-1]["ids"]
     pend = claims_env.get("/claims").json()["pending"]
@@ -936,11 +956,11 @@ def test_failed_cancel_keeps_app_claim_tracked(claims_env, monkeypatch):
 
 
 def test_save_during_submit_is_409(claims_env):
-    assert api._SUBMIT.acquire(blocking=False)
+    assert api._lock("submit", home_league()).acquire(blocking=False)
     try:
         r = claims_env.post("/claims", json={"groups": []})
     finally:
-        api._SUBMIT.release()
+        api._lock("submit", home_league()).release()
     assert r.status_code == 409
     assert claims_env.post("/claims", json={"groups": []}).status_code == 200   # released
 
@@ -962,10 +982,10 @@ def test_a_submits_answer_is_kept_under_its_token(claims_env):
 
 def test_a_running_submit_reads_as_running(claims_env):
     api._SUBMITS.clear()
-    api._keep_submit("t", None)
+    api._keep_submit("t", None, ref=home_league())
     assert claims_env.get("/claims/submit/t").json() == {"state": "running"}
     for i in range(api._SUBMITS_KEPT):
-        api._keep_submit(f"x{i}", {"status": 200, "body": {}})
+        api._keep_submit(f"x{i}", {"status": 200, "body": {}}, ref=home_league())
     assert claims_env.get("/claims/submit/t").status_code == 404, "only the latest few are kept"
 
 
@@ -977,7 +997,7 @@ def test_instant_add_is_consumed_from_the_plan(claims_env, monkeypatch):
               for i in range(2, 17)] + [{"player_id": 102, "slot": "BE", "name": "Mims", "pos": "WR", "droppable": True, "locked": False}]
     pool = {"WR": [claims_env.pool["WR"][0]]}   # Mims left the pool, R1 left the roster
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 6, "roster": roster, "positions": pool})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     r = claims_env.get("/claims").json()
     assert r["groups"] == [{"targets": [101], "cuts": [2], "open": 0}]
     assert r["errors"] == [] and r["edited_since_submit"] is False
@@ -987,16 +1007,16 @@ def test_on_espn_checks_espn_not_the_record(claims_env):
     assert claims_env.get("/claims").json()["on_espn"] is False             # never sent
     claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 1}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
-    plan = db.claim_plan(6)
+    plan = db.claim_plan(6, ref=home_league())
     assert plan["submits"][-1]["match"] is True
     assert claims_env.get("/claims").json()["on_espn"] is True
-    api.espn_write._fake(leagues.home()).claims.pop(1)                                             # one cancelled on ESPN's site
+    api.espn_write._fake(home_league()).claims.pop(1)                                             # one cancelled on ESPN's site
     g = claims_env.get("/claims").json()
     assert g["on_espn"] is False and g["edited_since_submit"] is False
 
 
 def test_on_espn_ignores_kept_outside_claims(claims_env):
-    api.espn_write._fake(leagues.home()).claims.append({"id": "outside-1", "add": 201, "drop": 5})  # filed on ESPN directly
+    api.espn_write._fake(home_league()).claims.append({"id": "outside-1", "add": 201, "drop": 5})  # filed on ESPN directly
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
     assert claims_env.get("/claims").json()["on_espn"] is True
@@ -1009,15 +1029,15 @@ def test_target_on_my_roster_is_an_error(claims_env):
 
 def test_save_plan_failure_keeps_the_old_plan(claims_env, monkeypatch):
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
-    good = db.claim_plan(6)
+    good = db.claim_plan(6, ref=home_league())
 
     def crash(*a, **k):
         raise db.DBError("disk full")
 
     monkeypatch.setattr(db, "_upsert", crash)
     with pytest.raises(db.DBError):
-        api._save_plan({**good, "groups": []})
-    assert db.claim_plan(6) == good
+        api._save_plan({**good, "groups": []}, ref=home_league())
+    assert db.claim_plan(6, ref=home_league()) == good
 
 
 def _league_pool(monkeypatch, positions_rb=None):
@@ -1032,7 +1052,7 @@ def _league_pool(monkeypatch, positions_rb=None):
             "rostered": {"RB": [theirs, mine], "WR": []}}
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: pool)
     monkeypatch.setattr(api.outlook, "_WRITING", {})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     return pool
 
 
@@ -1064,7 +1084,7 @@ def test_players_one_row_when_espn_lists_a_rostered_player_as_free(client, monke
 def test_players_pool_cached_before_rostered_existed(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
                         lambda week=None, **k: {"week": 3, "positions": {"RB": [{"player_id": 7, "name": "B", "pos": "RB", "team": "MIA", "add": 1.0}]}})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     assert [r["player_id"] for r in client.get("/players?pos=RB&fa=0").json()["rows"]] == [7]
 
 
@@ -1106,7 +1126,7 @@ ORIGINAL_MOVE_LINEUP = api.espn_write.move_lineup
 
 
 def _titles():
-    return [r["title"] for r in db.decisions()]
+    return [r["title"] for r in db.decisions(ref=home_league())]
 
 
 def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env):
@@ -1115,7 +1135,7 @@ def test_lineup_swap_writes_once_logs_it_and_returns_the_fresh_roster(lineup_env
     assert lineup_env.sent == [([(3, "BE", "RB/WR/TE"), (2, "RB/WR/TE", "BE")], 3)]
     assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {3: "RB/WR/TE", 2: "BE"}, "read back, not echoed"
     assert _titles() == ["Week 3 lineup: Bench to FLEX, Flex to the bench"]
-    assert r.json()["decision"] == {"id": db.decisions()[0]["id"], "needs_rationale": False}, "Bench START in, Flex BENCH out: the call"
+    assert r.json()["decision"] == {"id": db.decisions(ref=home_league())[0]["id"], "needs_rationale": False}, "Bench START in, Flex BENCH out: the call"
 
 
 def test_a_decision_the_db_cannot_take_never_fails_the_move(lineup_env, monkeypatch, caplog):
@@ -1130,7 +1150,7 @@ def test_a_test_server_can_record_fake_moves(lineup_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "writes", lambda: False)
     monkeypatch.setenv("FFL_RECORD_FAKE", "1")
     r = lineup_env.post("/lineup", json=SWAP)
-    row = db.decisions()[0]
+    row = db.decisions(ref=home_league())[0]
     assert row["title"].startswith("[fake] Week 3 lineup") and row["facts"]["fake"] is True and r.json()["decision"]["id"] == row["id"]
 
 
@@ -1138,7 +1158,7 @@ def test_logging_off_in_settings_records_no_move(lineup_env):
     assert lineup_env.get("/decisions/prefs").json() == {"log": True, "page": True}
     assert lineup_env.post("/decisions/prefs", json={"log": False}).json() == {"log": False, "page": True}
     r = lineup_env.post("/lineup", json=SWAP)
-    assert r.status_code == 200 and r.json()["decision"] is None and db.decisions() == []
+    assert r.status_code == 200 and r.json()["decision"] is None and db.decisions(ref=home_league()) == []
     assert lineup_env.post("/decisions/prefs", json={"page": "no"}).status_code == 422
     assert lineup_env.get("/decisions/prefs").json() == {"log": False, "page": True}, "a refused change leaves the switches"
 
@@ -1147,7 +1167,7 @@ def test_turning_the_decisions_page_off_turns_logging_off(lineup_env):
     assert lineup_env.post("/decisions/prefs", json={"page": False}).json() == {"log": False, "page": False}
     assert lineup_env.post("/decisions/prefs", json={"log": True}).json() == {"log": False, "page": False}, "no logging without the page"
     r = lineup_env.post("/lineup", json=SWAP)
-    assert r.status_code == 200 and r.json()["decision"] is None and db.decisions() == []
+    assert r.status_code == 200 and r.json()["decision"] is None and db.decisions(ref=home_league()) == []
     assert lineup_env.post("/decisions/prefs", json={"page": True, "log": True}).json() == {"log": True, "page": True}
 
 
@@ -1161,25 +1181,25 @@ def test_unreadable_decision_prefs_never_fail_a_move(lineup_env, monkeypatch, ca
 
 def test_lineup_keeps_the_row_the_moved_player_took(lineup_env):
     assert lineup_env.post("/lineup", json=SWAP).status_code == 200
-    assert db.seat_map() == {3: 2}, "Bench stands in Flex's place in ESPN's order; Flex went to the bench"
+    assert db.seat_map(ref=home_league()) == {3: 2}, "Bench stands in Flex's place in ESPN's order; Flex went to the bench"
 
 
 def test_lineup_fake_writes_validate_the_second_swap_against_the_first(lineup_env, monkeypatch):
     # FFL_WRITES=0: ESPN never moves, the fake store does; roster_state shows the fake slots, and so must the validator
     monkeypatch.setenv("FFL_WRITES", "0")
-    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "slots", {})
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "slots", {})
     monkeypatch.setattr(api.espn_write, "move_lineup", ORIGINAL_MOVE_LINEUP)
     monkeypatch.setattr(api.espn_write, "writes", ORIGINAL_WRITES)
     real = api.espn_season.roster_state
     monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None, flags=None, **k: {
-        **(d := real(week)), "cards": [{**c, "slot": api.espn_write.fake_slots().get(c["player_id"], c["slot"])} for c in d["cards"]]})
+        **(d := real(week)), "cards": [{**c, "slot": api.espn_write.fake_slots(ref=home_league()).get(c["player_id"], c["slot"])} for c in d["cards"]]})
     assert lineup_env.post("/lineup", json=SWAP).status_code == 200
     back = {"moves": [{"player_id": 3, "to_slot": "BE"}, {"player_id": 2, "to_slot": "RB/WR/TE"}]}
     r = lineup_env.post("/lineup", json=back)
     assert r.status_code == 200
-    assert api.espn_write.fake_slots() == {3: "BE", 2: "RB/WR/TE"}, "the second move ran from the first one's slots"
+    assert api.espn_write.fake_slots(ref=home_league()) == {3: "BE", 2: "RB/WR/TE"}, "the second move ran from the first one's slots"
     assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {3: "BE", 2: "RB/WR/TE"}
-    assert db.decisions() == [], "a fake move is not a decision: logged, never journaled"
+    assert db.decisions(ref=home_league()) == [], "a fake move is not a decision: logged, never journaled"
 
 
 def test_lineup_read_back_reuses_the_flags_it_read_with_the_moves_applied(lineup_env):
@@ -1194,7 +1214,7 @@ def test_lineup_fake_move_logs_instead_of_journaling(lineup_env, monkeypatch, ca
     monkeypatch.setattr(api.espn_write, "writes", lambda: False)
     with caplog.at_level("INFO", logger=api.log.name):
         assert lineup_env.post("/lineup", json=SWAP).status_code == 200
-    assert db.decisions() == []
+    assert db.decisions(ref=home_league()) == []
     assert "Week 3 lineup: Bench to FLEX" in caplog.text
 
 
@@ -1232,11 +1252,11 @@ def test_lineup_refuses_when_espns_week_rolled(lineup_env, monkeypatch):
 
 
 def test_lineup_refuses_a_second_move_while_one_runs(lineup_env):
-    assert api._LINEUP.acquire(blocking=False)
+    assert api._lock("lineup", home_league()).acquire(blocking=False)
     try:
         assert lineup_env.post("/lineup", json=SWAP).status_code == 409
     finally:
-        api._LINEUP.release()
+        api._lock("lineup", home_league()).release()
 
 
 def test_lineup_reports_espns_refusal(lineup_env, monkeypatch):
@@ -1277,8 +1297,8 @@ def test_lineup_timeout_may_have_moved_so_it_says_so_journals_it_and_drops_the_p
     monkeypatch.setattr(api.espn_write, "move_lineup", slow)
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["moved"] is True and "did not answer" in r.json()["detail"]["error"]
-    assert db.decisions()[0]["facts"]["uncertain"] is True
-    assert not api.cache.has("roster")
+    assert db.decisions(ref=home_league())[0]["facts"]["uncertain"] is True
+    assert not api.cache_for(home_league()).has("roster")
 
 
 def test_lineup_posts_the_from_slots_espn_has_now_not_the_cached_ones(lineup_env):
@@ -1290,7 +1310,7 @@ def test_lineup_posts_the_from_slots_espn_has_now_not_the_cached_ones(lineup_env
 
 
 def test_cache_put_beats_a_revalidate_that_started_before_it():
-    c = api.Cache(60.0)
+    c = api.Cache(60.0, ref=home_league())
     gate, release = threading.Event(), threading.Event()
     def slow():
         gate.set()
@@ -1311,7 +1331,7 @@ def test_cache_put_beats_a_revalidate_that_started_before_it():
 def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch):
     # FFL_WRITES=0: the IR occupant to the bench and an Out bench player onto IR, through the fake store, and back
     monkeypatch.setenv("FFL_WRITES", "0")
-    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "slots", {})
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "slots", {})
     monkeypatch.setattr(api.espn_write, "move_lineup", ORIGINAL_MOVE_LINEUP)
     monkeypatch.setattr(api.espn_write, "writes", ORIGINAL_WRITES)
     cards = [{"player_id": 5, "name": "Hurt", "pos": "WR", "slot": "IR", "injury": "INJURY_RESERVE", "call": "IR",
@@ -1320,20 +1340,20 @@ def test_lineup_fake_ir_move_round_trips(lineup_env, monkeypatch):
               "gap": None, "group": "bench", "locked": False}]
     monkeypatch.setattr(api.espn_season, "roster_state", lambda week=None, flags=None, **k: {
         "week": 3, "live": False, "empty_slots": [], "writes": False,
-        "cards": [{**c, "slot": api.espn_write.fake_slots().get(c["player_id"], c["slot"])} for c in cards]})
+        "cards": [{**c, "slot": api.espn_write.fake_slots(ref=home_league()).get(c["player_id"], c["slot"])} for c in cards]})
     monkeypatch.setattr(api.espn_season, "roster_flags",
                         lambda lg, **k: {c["player_id"]: {"locked": False, "slot": c["slot"]} for c in cards})
     monkeypatch.setattr(api.espn_season, "load", lambda *a, **k: {"starters": {"RB/WR/TE": 1}, "ir_size": 1})
     r = lineup_env.post("/lineup", json={"moves": [{"player_id": 5, "to_slot": "BE"}, {"player_id": 7, "to_slot": "IR"}]})
     assert r.status_code == 200, r.json()
     assert {c["player_id"]: c["slot"] for c in r.json()["cards"]} == {5: "BE", 7: "IR"}
-    assert api.espn_write.fake_slots() == {5: "BE", 7: "IR"}
+    assert api.espn_write.fake_slots(ref=home_league()) == {5: "BE", 7: "IR"}
     # validated against the fake slots: IR is full now
     r = lineup_env.post("/lineup", json={"moves": [{"player_id": 5, "to_slot": "IR"}]})
     assert r.status_code == 409 and r.json()["detail"]["errors"] == ["IR: 2 players for 1 spots"]
     assert lineup_env.post("/lineup", json={"moves": [{"player_id": 7, "to_slot": "BE"}, {"player_id": 5, "to_slot": "IR"}]}).status_code == 200
-    assert api.espn_write.fake_slots() == {5: "IR", 7: "BE"}
-    assert db.decisions() == [], "a fake move is not a decision"
+    assert api.espn_write.fake_slots(ref=home_league()) == {5: "IR", 7: "BE"}
+    assert db.decisions(ref=home_league()) == [], "a fake move is not a decision"
 
 
 @pytest.fixture
@@ -1344,7 +1364,7 @@ def sit_env(client, monkeypatch):
 
     def roster_state(week=None, flags=None, **k):
         state["builds"] += 1
-        rows = api.espn_season.with_sits(roster(), db.sat_ids(3))
+        rows = api.espn_season.with_sits(roster(), db.sat_ids(3, ref=home_league()))
         return {"week": 3, "live": False, "empty_slots": [], "writes": False,
                 "cards": season.roster_cards(rows, TWO_QB, 3)}
     monkeypatch.setattr(api.espn_season, "roster_state", roster_state)
@@ -1361,7 +1381,7 @@ def test_sit_remakes_the_call_without_an_espn_read_and_journals_it(sit_env):
     cards = {c["player_id"]: c for c in r.json()["cards"]}
     assert cards[3]["call"] == "SIT" and cards[3]["sat"] is True and cards[2]["call"] == "START"
     assert sit_env.state["builds"] == 1, "the cards are re-called, not rebuilt from ESPN"
-    assert db.sat_ids(3) == {3}
+    assert db.sat_ids(3, ref=home_league()) == {3}
     assert _titles() == ["Week 3 sit: QB C"] and r.json()["decision"]["needs_rationale"] is True
     assert {c["player_id"]: c["call"] for c in sit_env.get("/roster").json()["cards"]}[3] == "SIT", "cached as sat"
 
@@ -1369,31 +1389,31 @@ def test_sit_remakes_the_call_without_an_espn_read_and_journals_it(sit_env):
 def test_a_sit_shows_on_the_matchup_board_at_once(sit_env, monkeypatch):
     _counting_board(monkeypatch)
     assert sit_env.post("/roster/sit/3", json={"sat": True}).status_code == 200
-    assert api._board(None, None)["v"] == 2, "the first open after the sit is built without him"
+    assert api._board(None, None, ref=home_league())["v"] == 2, "the first open after the sit is built without him"
 
 
 def test_unsit_puts_him_back_and_a_repeat_is_not_journaled_twice(sit_env):
     sit_env.post("/roster/sit/3", json={"sat": True})
     assert sit_env.post("/roster/sit/3", json={"sat": True}).json()["decision"] is None
     r = sit_env.post("/roster/sit/3", json={"sat": False})
-    assert {c["player_id"]: c["call"] for c in r.json()["cards"]}[3] == "START" and db.sat_ids(3) == set()
+    assert {c["player_id"]: c["call"] for c in r.json()["cards"]}[3] == "START" and db.sat_ids(3, ref=home_league()) == set()
     assert sorted(_titles()) == ["Week 3 sit: QB C", "Week 3 unsit: QB C"]
 
 
 def test_a_dev_api_sits_but_does_not_journal(sit_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "writes", lambda: False)
     assert sit_env.post("/roster/sit/3", json={"sat": True}).status_code == 200
-    assert db.sat_ids(3) == {3} and db.decisions() == []
+    assert db.sat_ids(3, ref=home_league()) == {3} and db.decisions(ref=home_league()) == []
 
 
 def test_sit_refuses_a_player_off_the_roster_and_a_running_move(sit_env):
     assert sit_env.post("/roster/sit/999", json={"sat": True}).status_code == 404
-    api._LINEUP.acquire()
+    api._lock("lineup", home_league()).acquire()
     try:
         assert sit_env.post("/roster/sit/3", json={"sat": True}).status_code == 409
     finally:
-        api._LINEUP.release()
-    assert db.sat_ids(3) == set()
+        api._lock("lineup", home_league()).release()
+    assert db.sat_ids(3, ref=home_league()) == set()
 
 
 def test_notify_routes(client, monkeypatch):
@@ -1428,7 +1448,7 @@ ROSTER_KEYS = ["transactions", "roster", "waivers", "week:current", "week:5:3", 
 def test_a_build_a_move_drops_partway_is_not_installed():
     """A page whose build began before a move read the rosters from before it: once the move drops the page, that
     build must not install itself (a first build or a revalidate), or the rewarm finds it fresh and serves it."""
-    c = api.Cache(120)
+    c = api.Cache(120, ref=home_league())
 
     def before_the_move():
         c.drop_prefixes(("roster",))      # the move lands while this build runs
@@ -1445,7 +1465,7 @@ def test_a_build_a_move_drops_partway_is_not_installed():
 
 
 def test_every_rewarm_thread_is_joined():
-    c = api.Cache(120)
+    c = api.Cache(120, ref=home_league())
     gate = threading.Event()
     api._start_rewarm(c, [("a", lambda: gate.wait(2) or {"a": 1}, 120.0)])
     api._start_rewarm(c, [("b", lambda: {"b": 1}, 120.0)])
@@ -1468,28 +1488,28 @@ def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypat
             return {"key": key, "n": built[key]}
         return fn
     for key in ROSTER_KEYS + ["player:9", "logo:3", "draft_picks"]:
-        api.cache.get_or_build(key, builder(key))
+        api.cache_for(home_league()).get_or_build(key, builder(key))
     monkeypatch.setattr(espn_season, "_BOXES", {("espn:100000001", 4): (math.inf, None, ["done"]), ("espn:100000001", 5): (9e18, None, ["now"])})
     monkeypatch.setattr(live, "STATE", live.State())
 
-    journal.sync_transactions(_move_lg())
-    api.cache.join()
+    journal.sync_transactions(_move_lg(), ref=home_league())
+    api.cache_for(home_league()).join()
 
     assert all(built[k] == 2 for k in ROSTER_KEYS), built          # rebuilt behind the move
-    assert built["player:9"] == 1 and not api.cache.has("player:9")  # dropped, built on its next open
-    assert built["logo:3"] == built["draft_picks"] == 1 and api.cache.has("logo:3")
+    assert built["player:9"] == 1 and not api.cache_for(home_league()).has("player:9")  # dropped, built on its next open
+    assert built["logo:3"] == built["draft_picks"] == 1 and api.cache_for(home_league()).has("logo:3")
     assert list(espn_season._BOXES) == [("espn:100000001", 4)], "the current week's box scores are refetched, finished weeks kept"
     assert live.STATE.moves == 1 and live.STATE.version == 0
 
-    journal.sync_transactions(_move_lg())  # nothing new: nothing rebuilt, no tick
-    api.cache.join()
+    journal.sync_transactions(_move_lg(), ref=home_league())  # nothing new: nothing rebuilt, no tick
+    api.cache_for(home_league()).join()
     assert built["roster"] == 2 and live.STATE.moves == 1
 
 
 def test_notify_tick_409s_while_another_runs(client, monkeypatch):
     monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
-    monkeypatch.setattr(api, "pregame_pull", lambda: [])
-    monkeypatch.setattr(api, "correction_pass", lambda: {})
+    monkeypatch.setattr(api, "pregame_pull", lambda **k: [])
+    monkeypatch.setattr(api, "correction_pass", lambda **k: {})
     assert api._NOTIFY.acquire(blocking=False)
     try:
         assert client.post("/notify/tick").status_code == 409
@@ -1502,7 +1522,7 @@ def test_notify_tick_409s_while_another_runs(client, monkeypatch):
 def _dec(**kw):
     row = {"at": "2026-10-10T12:00:00-04:00", "week": 6, "kind": "lineup", "source": "app", "title": "Week 6 lineup: A to FLEX",
            "decision": "A (WR) BE → FLEX", "rationale": None, "player_ids": [11, 12], **kw}
-    return db.add_decision(row)
+    return db.add_decision(row, ref=home_league())
 
 
 def test_decisions_list_filters(client):
@@ -1550,7 +1570,7 @@ def test_an_unchanged_reason_is_not_revalidated(client):
 def test_player_transactions_carry_his_decisions(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "transactions_state", lambda **k: {"moves": [], "teams": [], "stale_since": None})
     monkeypatch.setattr(api.espn_season, "draft_picks", lambda **k: [])
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     i = _dec()
     _dec(player_ids=[99])
     assert [d["id"] for d in client.get("/player/11/transactions").json()["decisions"]] == [i]
@@ -1572,12 +1592,12 @@ def test_notify_tick_pulls_once_before_a_kickoff(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: "LG")
     monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg, **k: {6: [kick, kick]})
     client.get("/week/3")
-    assert client.post("/notify/tick").json()["pregame"] == [kick.isoformat()]
-    api.cache.join()
+    assert client.post("/notify/tick").json()["leagues"][HOME_KEY]["pregame"] == [kick.isoformat()]
+    api.cache_for(home_league()).join()
     assert client.calls["week"] == 2, "rebuilt behind the tick"
-    assert client.post("/notify/tick").json()["pregame"] == [], "once per kickoff"
+    assert client.post("/notify/tick").json()["leagues"][HOME_KEY]["pregame"] == [], "once per kickoff"
     monkeypatch.setattr(api.espn_season, "kickoffs_by_week", lambda lg, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
-    assert client.post("/notify/tick").json()["pregame"] == {"error": "espn down"}
+    assert client.post("/notify/tick").json()["leagues"][HOME_KEY]["pregame"] == {"error": "espn down"}
 
 
 def test_trace_stores_a_stamped_row(client):
@@ -1592,8 +1612,8 @@ def test_trace_stores_a_stamped_row(client):
 # --- page payloads in SQL (ffl-iq3): no cold load after a restart ---
 
 def test_a_page_built_before_a_restart_is_served_at_once_then_rebuilt():
-    api.Cache(120, persist=True).get_or_build("roster", lambda: {"n": 1})
-    after = api.Cache(120, persist=True)
+    api.Cache(120, persist=True, ref=home_league()).get_or_build("roster", lambda: {"n": 1})
+    after = api.Cache(120, persist=True, ref=home_league())
     after.load()
     calls = []
 
@@ -1604,12 +1624,12 @@ def test_a_page_built_before_a_restart_is_served_at_once_then_rebuilt():
     assert payload == {"n": 1} and stale is None, "the stored page, at once, not flagged as a source failure"
     after.join()
     assert calls == [1] and after._d["roster"].payload == {"n": 2}
-    assert [p["payload"] for p in db.pages()] == [{"n": 2}], "the rebuild is written through"
+    assert [p["payload"] for p in db.pages(ref=home_league())] == [{"n": 2}], "the rebuild is written through"
 
 
 def test_a_loaded_page_is_never_fresh():
-    api.Cache(120, persist=True).get_or_build("league:current", lambda: {"n": 1})
-    after = api.Cache(120, persist=True)
+    api.Cache(120, persist=True, ref=home_league()).get_or_build("league:current", lambda: {"n": 1})
+    after = api.Cache(120, persist=True, ref=home_league())
     after.load()
     assert after._d["league:current"].expires == 0.0
     after.rebuild_expired()  # /refresh: a loaded page with no builder yet is left for its first request
@@ -1617,88 +1637,88 @@ def test_a_loaded_page_is_never_fresh():
 
 
 def test_only_pages_that_survive_json_are_stored():
-    c = api.Cache(120, persist=True)
+    c = api.Cache(120, persist=True, ref=home_league())
     c.get_or_build("roster", lambda: {1: "int keys come back as strings"})
     c.get_or_build("waivers", lambda: {"pair": (1, 2)})
     c.get_or_build("starters:current", lambda: {"ids": [1]})
     c.get_or_build("logo:3", lambda: (b"png", "image/png"))
     c.get_or_build("draft_picks", lambda: {"picks": []})
     c.get_or_build("team:3", lambda: {"ok": True})
-    assert [p["key"] for p in db.pages()] == ["team:3"]
+    assert [p["key"] for p in db.pages(ref=home_league())] == ["team:3"]
 
 
 def test_a_dropped_page_never_comes_back_from_the_db():
-    c = api.Cache(120, persist=True)
+    c = api.Cache(120, persist=True, ref=home_league())
     for k in ("roster", "team:3", "week:current", "league:current"):
         c.get_or_build(k, lambda: {"k": 1})
     c.drop_prefixes(("roster", "team"))
     c.drop("week:current")
-    assert [p["key"] for p in db.pages()] == ["league:current"]
+    assert [p["key"] for p in db.pages(ref=home_league())] == ["league:current"]
     c.clear()
-    assert db.pages() == []
+    assert db.pages(ref=home_league()) == []
 
 
 def test_a_move_deletes_stored_pages_never_loaded():
-    db.put_page("team:3", {"k": 1}, time.time())
-    db.put_page("teams", {"k": 1}, time.time())  # another prefix that merely starts the same
-    c = api.Cache(120, persist=True)  # boot's load failed, say: nothing in memory
+    db.put_page("team:3", {"k": 1}, time.time(), ref=home_league())
+    db.put_page("teams", {"k": 1}, time.time(), ref=home_league())  # another prefix that merely starts the same
+    c = api.Cache(120, persist=True, ref=home_league())  # boot's load failed, say: nothing in memory
     assert c.drop_prefixes(("team",)) == []
-    assert [p["key"] for p in db.pages()] == ["teams"]
+    assert [p["key"] for p in db.pages(ref=home_league())] == ["teams"]
 
 
 def test_a_build_a_move_overtakes_writes_no_row():
-    c = api.Cache(120, persist=True)
+    c = api.Cache(120, persist=True, ref=home_league())
 
     def before_the_move():
         c.drop_prefixes(("roster",))
         return {"old": True}
     c.get_or_build("roster", before_the_move)
-    assert db.pages() == []
+    assert db.pages(ref=home_league()) == []
     c.get_or_build("roster", lambda: {"n": 1})
     c._d["roster"].expires = 0.0
     c._d["roster"].fn = before_the_move
     c.get_or_build("roster", before_the_move)
     c.join()
-    assert db.pages() == [], "the revalidate the move overtook leaves no row behind"
+    assert db.pages(ref=home_league()) == [], "the revalidate the move overtook leaves no row behind"
 
 
 def test_put_writes_through():
-    c = api.Cache(120, persist=True)
+    c = api.Cache(120, persist=True, ref=home_league())
     c.get_or_build("roster", lambda: {"n": 1})
     c.put("roster", {"n": 5})
-    assert [p["payload"] for p in db.pages()] == [{"n": 5}]
+    assert [p["payload"] for p in db.pages(ref=home_league())] == [{"n": 5}]
 
 
 def test_old_player_cards_are_pruned_at_load():
-    db.put_page("player:9", {"old": True}, time.time() - 8 * 86400)
-    db.put_page("player:8", {"new": True}, time.time())
-    db.put_page("week:2", {"old": True}, time.time() - 8 * 86400)
-    c = api.Cache(120, persist=True)
+    db.put_page("player:9", {"old": True}, time.time() - 8 * 86400, ref=home_league())
+    db.put_page("player:8", {"new": True}, time.time(), ref=home_league())
+    db.put_page("week:2", {"old": True}, time.time() - 8 * 86400, ref=home_league())
+    c = api.Cache(120, persist=True, ref=home_league())
     c.load()
     assert sorted(c._d) == ["player:8", "week:2"]
-    assert sorted(p["key"] for p in db.pages()) == ["player:8", "week:2"]
+    assert sorted(p["key"] for p in db.pages(ref=home_league())) == ["player:8", "week:2"]
 
 
 def test_a_failed_write_keeps_the_page(monkeypatch):
     def broken(*a, **k):
         raise db.DBError("disk full")
     monkeypatch.setattr(api.db, "put_page", broken)
-    c = api.Cache(120, persist=True)
+    c = api.Cache(120, persist=True, ref=home_league())
     assert c.get_or_build("roster", lambda: {"n": 1})[0] == {"n": 1}
     assert c.has("roster")
 
 
 def test_startup_serves_the_stored_page_on_the_first_hit(client):
-    db.put_page("week:3", {"week": 3, "live": False, "me": {"team": "stored"}, "opp": {"team": "opp"}}, time.time() - 3600)
+    db.put_page("week:3", {"week": 3, "live": False, "me": {"team": "stored"}, "opp": {"team": "opp"}}, time.time() - 3600, ref=home_league())
     with TestClient(api.app) as c:
         assert c.get("/week/3").json()["me"]["team"] == "stored"
-        api.cache.join()
+        api.cache_for(home_league()).join()
         assert c.get("/week/3").json()["me"]["team"] == "me"
 
 
 def test_a_cold_key_is_built_once_for_concurrent_callers():
     from tests.test_flight import park, race
-    c, calls = api.Cache(60.0), []
+    c, calls = api.Cache(60.0, ref=home_league()), []
 
     def build():
         park(c._flight, "k", 1)
@@ -1711,7 +1731,7 @@ def test_a_cold_key_is_built_once_for_concurrent_callers():
 
 def test_a_failed_shared_first_build_is_a_502_for_every_caller():
     from tests.test_flight import park, race
-    c, calls = api.Cache(60.0), []
+    c, calls = api.Cache(60.0, ref=home_league()), []
 
     def build():
         park(c._flight, "k", 1)
@@ -1726,7 +1746,7 @@ def test_a_failed_shared_first_build_is_a_502_for_every_caller():
 
 def test_a_move_during_a_shared_first_build_hands_it_out_but_never_installs_it():
     from tests.test_flight import park, race
-    c = api.Cache(60.0)
+    c = api.Cache(60.0, ref=home_league())
 
     def build():
         park(c._flight, "week:current", 1)
@@ -1741,7 +1761,7 @@ def test_a_rewarm_that_joins_a_build_from_before_the_move_builds_again():
     # the drop lands between a first build's install and its flight closing: the rewarm joins that flight, which
     # hands out its payload but never installs, so the rewarm builds once more and the page is there when it ticks
     from tests.test_flight import park
-    c, calls, release = api.Cache(60.0), [], threading.Event()
+    c, calls, release = api.Cache(60.0, ref=home_league()), [], threading.Event()
 
     def build():
         calls.append(1)
@@ -1772,7 +1792,7 @@ def test_expire_everything_keeps_finished_weeks(monkeypatch):
     from ffl import espn_season
     monkeypatch.setattr(espn_season, "_BOXES", {("espn:100000001", 4): (math.inf, None, ["done"]), ("espn:100000001", 5): (9e18, None, ["now"])})
     monkeypatch.setattr(espn_season, "_GAP_GAMES", {("espn:100000001", 7, 3): [{"week": 3}]})
-    api.expire_everything()
+    api.expire_everything(ref=home_league())
     assert list(espn_season._BOXES) == [("espn:100000001", 4)] and ("espn:100000001", 7, 3) in espn_season._GAP_GAMES
 
 
@@ -1789,38 +1809,38 @@ def _stub_correct(monkeypatch, out):
 
 def test_notify_tick_answers_with_the_corrections(client, monkeypatch):
     monkeypatch.setattr(api.notify, "tick", lambda: {"moves": 0})
-    monkeypatch.setattr(api, "pregame_pull", lambda: [])
+    monkeypatch.setattr(api, "pregame_pull", lambda **k: [])
     _stub_correct(monkeypatch, {"weeks": {}, "changed": []})
-    assert client.post("/notify/tick").json()["corrections"] == {"weeks": {}, "changed": []}
+    assert client.post("/notify/tick").json()["leagues"][HOME_KEY]["corrections"] == {"weeks": {}, "changed": []}
     monkeypatch.setattr(api.espn_season, "correct_boxes", lambda lg, now=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
     r = client.post("/notify/tick")
-    assert r.status_code == 200 and r.json()["corrections"] == {"error": "espn down"}
+    assert r.status_code == 200 and r.json()["leagues"][HOME_KEY]["corrections"] == {"error": "espn down"}
 
 
 def test_correction_plays_go_to_the_runner_store_for_its_week_else_the_table(client, monkeypatch):
     added = []
-    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=SimpleNamespace(add=added.extend)), raising=False)
+    monkeypatch.setattr(api.app.state, "runner", _lane_runner(week=6, store=SimpleNamespace(add=added.extend)), raising=False)
     _stub_correct(monkeypatch, {"weeks": {}, "changed": [6, 4], "plays": [_corr(6), _corr(4, pid=2)]})
-    out = api.correction_pass()
+    out = api.correction_pass(ref=home_league())
     assert [p["week"] for p in added] == [6] and "plays" not in out
-    assert [r["player_id"] for r in db.plays_rows(4)] == [2] and db.plays_rows(6) == []
+    assert [r["player_id"] for r in db.plays_rows(4, ref=home_league())] == [2] and db.plays_rows(6, ref=home_league()) == []
 
 
 def test_a_changed_week_expires_its_pages_and_the_roster_only(client, monkeypatch):
     for k in ("league:5", "league:4", "roster"):
-        api.cache.get_or_build(k, lambda: {"k": 1})
+        api.cache_for(home_league()).get_or_build(k, lambda: {"k": 1})
     _stub_correct(monkeypatch, {"weeks": {}, "changed": [5]})
-    api.correction_pass()
-    exp = {k: api.cache._d[k].expires for k in ("league:5", "league:4", "roster")}
+    api.correction_pass(ref=home_league())
+    exp = {k: api.cache_for(home_league())._d[k].expires for k in ("league:5", "league:4", "roster")}
     assert exp["league:5"] == 0.0 and exp["roster"] == 0.0 and exp["league:4"] > 0.0
 
 
 def test_a_past_board_shows_its_stored_feed_for_its_two_teams_newest_first(client, monkeypatch):
     monkeypatch.setattr(api.espn_season, "week_state",
                         lambda week=None, **k: {"week": week or 3, "live": False, "me": {"team_id": 7}, "opp": {"team_id": 3}})
-    monkeypatch.setattr(api.app.state, "runner", SimpleNamespace(week=6, store=_store([])), raising=False)
+    monkeypatch.setattr(api.app.state, "runner", _lane_runner(week=6, store=_store([])), raising=False)
     db.add_plays([_corr(4, pid=1, team=7), {**_corr(4, pid=2, team=3), "at": "2026-10-14T13:00:00-04:00"},
-                  _corr(4, pid=3, team=9)])
+                  _corr(4, pid=3, team=9)], ref=home_league())
     r = client.get("/week/4").json()["plays"]
     assert [(p["player_id"], p["side"]) for p in r] == [(2, "opp"), (1, "me")]
 
@@ -1828,12 +1848,12 @@ def test_a_past_board_shows_its_stored_feed_for_its_two_teams_newest_first(clien
 def test_a_settled_week_is_not_read_again_after_expire_everything(client, monkeypatch):
     from ffl import espn_season
     doc = {"matchups": [], "pro_schedule": {}, "ratings": {}}
-    db.put_box_doc(4, doc, espn_season.box_hash(doc), 1.0, settled=True, final=True)
+    db.put_box_doc(4, doc, espn_season.box_hash(doc), 1.0, settled=True, final=True, ref=home_league())
     monkeypatch.setattr(espn_season, "_fetch_box_doc", lambda lg, w: (_ for _ in ()).throw(AssertionError("fetched")))
     monkeypatch.setattr(espn_season, "_parse_box_doc", lambda lg, d: ["BOX"])
-    api.expire_everything()
+    api.expire_everything(ref=home_league())
     lg = SimpleNamespace(espn_request=None, current_week=6)
-    assert espn_season.box_scores(lg, 4) == ["BOX"]
+    assert espn_season.box_scores(lg, 4, ref=home_league()) == ["BOX"]
 
 
 def _views_pool(monkeypatch):
@@ -1845,7 +1865,7 @@ def _views_pool(monkeypatch):
     mine = {**base, "player_id": 9, "name": "Mine", "pos": "RB", "add": None, "owner": {"team_id": 7}, "mine": True}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
                         lambda week=None, **k: {"week": 3, "positions": {"RB": rb, "WR": wr}, "rostered": {"RB": [mine]}})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
 
 
 def test_players_applies_the_default_preset_and_url_overrides(client, monkeypatch):
@@ -1881,11 +1901,11 @@ def test_players_all_is_capped_unfiltered_and_whole_when_filtered(client, monkey
 
 def test_players_flex_spans_rb_wr_te_and_is_capped_like_all(client, monkeypatch):
     _views_pool(monkeypatch)
-    pool = api.espn_season.free_agent_pool()
+    pool = api.espn_season.free_agent_pool(ref=home_league())
     qb = {**pool["positions"]["RB"][0], "player_id": 500, "name": "Q", "pos": "QB", "add": 999.0}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
                         lambda week=None, **k: {**pool, "positions": {**pool["positions"], "QB": [qb]}})
-    api.cache.clear()
+    api.cache_for(home_league()).clear()
     body = client.get("/players?pos=FLEX").json()
     assert body["pos"] == "FLEX" and body["capped"] is True and len(body["rows"]) == 150
     assert {r["pos"] for r in body["rows"]} == {"RB", "WR"}, "no QB in FLEX"
@@ -2015,7 +2035,7 @@ def news_client(client, monkeypatch):
     from ffl.newsdesk.players import Index
     index = Index(by_id={1: {"name": "Jalen Hurts", "pos": "QB", "team": "PHI"},
                          2: {"name": "Tank Bigsby", "pos": "RB", "team": "PHI"}})
-    monkeypatch.setattr(api.pipeline, "owners", lambda: ({1: {"team_id": 7, "name": "Me", "abbrev": "ME"}}, 7))
+    monkeypatch.setattr(api.pipeline, "owners", lambda *, ref: ({1: {"team_id": 7, "name": "Me", "abbrev": "ME"}}, 7))
     monkeypatch.setattr(api.news_players, "fetch_index", lambda: index)
     return client
 
@@ -2098,7 +2118,7 @@ def test_api_news_player_days_window(news_client):
 
 
 def test_api_news_serves_untagged_when_owners_fail(news_client, monkeypatch):
-    def down():
+    def down(*, ref):
         raise SystemExit("no LEAGUE_ID in .env")
 
     monkeypatch.setattr(api.pipeline, "owners", down)
@@ -2110,11 +2130,11 @@ def test_api_news_serves_untagged_when_owners_fail(news_client, monkeypatch):
 
 def test_cache_load_serves_rows_of_its_league():
     from ffl import leagues
-    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
-    api.Cache(120, persist=True).get_or_build("roster", lambda: {"league": "home"})
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
+    api.Cache(120, persist=True, ref=home_league()).get_or_build("roster", lambda: {"league": "home"})
     api.Cache(120, persist=True, ref=other).get_or_build("roster", lambda: {"league": "other"})
     after = api.Cache(120, persist=True, ref=other)
     after.load()
     assert {k: e.payload for k, e in after._d.items()} == {"roster": {"league": "other"}}
     after.drop("roster")
-    assert [p["payload"] for p in db.pages()] == [{"league": "home"}] and db.pages(ref=other) == []
+    assert [p["payload"] for p in db.pages(ref=home_league())] == [{"league": "home"}] and db.pages(ref=other) == []

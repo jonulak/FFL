@@ -1,5 +1,6 @@
 """The notify tables: subscriptions, the notices outbox, notify_state. The autouse fixture gives each test a migrated copy."""
 from ffl import db
+from tests.home import home_league
 
 T = "2026-10-09T10:00:00-04:00"
 
@@ -22,16 +23,16 @@ def test_drop_subscription():
 
 
 def test_add_notices_dedupes_on_key():
-    assert db.add_notices([_n("move:1"), _n("move:2")]) == 2
-    assert db.add_notices([_n("move:2"), _n("move:3")]) == 1
-    assert [n["key"] for n in db.unsent_notices()] == ["move:1", "move:2", "move:3"]
+    assert db.add_notices([_n("move:1"), _n("move:2")], ref=home_league()) == 2
+    assert db.add_notices([_n("move:2"), _n("move:3")], ref=home_league()) == 1
+    assert [n["key"] for n in db.unsent_notices(ref=home_league())] == ["move:1", "move:2", "move:3"]
 
 
 def test_marked_notices_leave_the_queue_and_show_in_recent():
-    db.add_notices([_n("move:1"), _n("injury:5:9:OUT", "injury", "2026-10-09T11:00:00-04:00")])
-    db.mark_notices(["move:1"], "sent", T)
-    assert [n["key"] for n in db.unsent_notices()] == ["injury:5:9:OUT"]
-    recent = db.recent_notices()
+    db.add_notices([_n("move:1"), _n("injury:5:9:OUT", "injury", "2026-10-09T11:00:00-04:00")], ref=home_league())
+    db.mark_notices(["move:1"], "sent", T, ref=home_league())
+    assert [n["key"] for n in db.unsent_notices(ref=home_league())] == ["injury:5:9:OUT"]
+    recent = db.recent_notices(ref=home_league())
     assert [n["key"] for n in recent] == ["injury:5:9:OUT", "move:1"]
     assert recent[1]["outcome"] == "sent" and recent[1]["sent_at"] == T
 

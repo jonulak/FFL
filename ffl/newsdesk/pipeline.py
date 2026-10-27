@@ -17,8 +17,8 @@ from . import collect, health, media, notices, players, seed, tag, write
 PENDING = "news_to_notify"
 
 
-def owners(*, ref=None) -> tuple[dict[int, dict], int]:
-    """(player_id -> the fantasy team holding him this week, my team id) in a league (None: home): the one owner
+def owners(*, ref) -> tuple[dict[int, dict], int]:
+    """(player_id -> the fantasy team holding him this week, my team id) in a league: the one owner
     lookup, read fresh at request time too, never stored. Raises (SystemExit with no league config) rather than guess
     everyone free. The week is the league's own (league_week): before its first week ESPN's has no matchups."""
     from .. import espn_season
@@ -27,7 +27,7 @@ def owners(*, ref=None) -> tuple[dict[int, dict], int]:
             espn_season.my_team_id(lg, ref))
 
 
-def _queue(written: list, *, ref=None) -> list[list]:
+def _queue(written: list, *, ref) -> list[list]:
     """A league's revisions waiting for their push, this run's added; past notify.MAX_AGE they are let go."""
     at, t = notify.now(), datetime.now().astimezone()
 
@@ -38,7 +38,7 @@ def _queue(written: list, *, ref=None) -> list[list]:
     return db.update_league_state(PENDING, add, [], ref=ref)
 
 
-def _queued(t: datetime, *, ref=None) -> tuple[list[dict], dict[int, dict]]:
+def _queued(t: datetime, *, ref) -> tuple[list[dict], dict[int, dict]]:
     """A league's news notices of the dedupe window and the stories they name."""
     since = (t - notices.DEDUPE * 2).isoformat(timespec="seconds")  # a margin over text order; recent() re-checks
     queued = db.notices_since("news:", since, ref=ref)
@@ -47,29 +47,21 @@ def _queued(t: datetime, *, ref=None) -> tuple[list[dict], dict[int, dict]]:
 
 
 def notify_written(written: list, index: players.Index) -> dict:
-    """Queue every league's pushes for the written revisions (`_notify_league`): home's counts at the top, as before,
-    each other league's under `leagues`. A league whose owners cannot be read keeps its revisions waiting for the
-    next run and never holds back another's; home's failure is still this stage's error, after the others ran."""
+    """Queue every league's pushes for the written revisions (`_notify_league`), each league's counts under `leagues`.
+    A league whose owners cannot be read keeps its revisions waiting for the next run and never holds back another's;
+    its error is in its own line."""
     from .. import leagues
-    out, others, failed = {}, {}, None
+    out: dict = {}
     for r in leagues.all_leagues():
-        if r.home:
-            try:
-                out = _notify_league(written, index)
-            except (Exception, SystemExit) as e:  # noqa: BLE001 — raised below, once every league has had its turn
-                failed = e
-            continue
         try:
-            others[r.key] = _notify_league(written, index, ref=r)
+            out[r.key] = _notify_league(written, index, ref=r)
         except (Exception, SystemExit) as e:  # noqa: BLE001 — its revisions wait in its own queue
-            others[r.key] = {"error": f"{type(e).__name__}: {e}"[:300]}
-    if failed is not None:
-        raise failed
-    return {**out, "leagues": others} if others else out
+            out[r.key] = {"error": f"{type(e).__name__}: {e}"[:300]}
+    return {"leagues": out}
 
 
-def _notify_league(written: list, index: players.Index, *, ref=None) -> dict:
-    """Queue one league's pushes (home when `ref` is None) for the written revisions (and any still waiting from a
+def _notify_league(written: list, index: players.Index, *, ref) -> dict:
+    """Queue one league's pushes for the written revisions (and any still waiting from a
     run that could not read owners or the player index, whose names the pushes carry).
 
     A story's own earlier notices never hold back its newer revision: one already sent makes it a material update,
@@ -78,7 +70,7 @@ def _notify_league(written: list, index: players.Index, *, ref=None) -> dict:
     pending = _queue(written, ref=ref)
     if not pending:
         return {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
-    who, me = owners() if ref is None else owners(ref=ref)
+    who, me = owners(ref=ref)
     muted = {int(p) for p in db.get_state("news_mutes", []) or []}
     pushed = db.notice_keys("news:", ref=ref)
     waiting = [n["key"] for n in db.unsent_notices(ref=ref) if n["key"].startswith("news:")]
@@ -145,7 +137,7 @@ def _notify_league(written: list, index: players.Index, *, ref=None) -> dict:
 
 
 def _health() -> int:
-    return db.add_notices(health.notices(db.news_sources(), datetime.now().astimezone(), notify.now()))
+    return notify.app_notices(health.notices(db.news_sources(), datetime.now().astimezone(), notify.now()))
 
 
 def run() -> dict:
@@ -159,7 +151,7 @@ def run() -> dict:
             return None
         try:
             out[name] = fn()
-        # reported, never raised: SystemExit is leagues.home()'s "no home league", which would end the API's run thread
+        # reported, never raised: SystemExit (a league's missing settings, an empty registry) would end the API's run thread
         except (Exception, SystemExit) as e:  # noqa: BLE001
             out[name] = {"error": f"{type(e).__name__}: {e}"[:300]}
         return out[name]

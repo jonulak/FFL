@@ -31,7 +31,7 @@ LEAGUE_COLUMNS = ("on_team_id", "status")
 POOL_MAX_AGE_H = 24   # a stored position older than this is fetched again (projections move all season)
 
 
-def _fetch_position(pos: str, limit_per_pos: int, season: int, ref=None) -> dict:
+def _fetch_position(pos: str, limit_per_pos: int, season: int, ref) -> dict:
     filters = {"players": {
         "filterSlotIds": {"value": [SLOT_IDS[pos]]},
         "limit": limit_per_pos,
@@ -42,9 +42,9 @@ def _fetch_position(pos: str, limit_per_pos: int, season: int, ref=None) -> dict
                           scoringPeriodId=0)
 
 
-def fetch_pool(limit_per_pos: int = 250, ref=None, positions: list[str] | None = None) -> list[dict]:
+def fetch_pool(limit_per_pos: int = 250, *, ref, positions: list[str] | None = None) -> list[dict]:
     """ESPN's players at each of `positions` (all six by default), scored by `ref`'s league for its season
-    (None: the home league, this season), in `positions` order, then ESPN's."""
+    (this season), in `positions` order, then ESPN's."""
     season = ref.season if ref else SEASON
     positions = positions or POSITIONS
     rows = []
@@ -84,11 +84,10 @@ def _age_h(fetched_at: str, now: datetime) -> float:
     return (now - datetime.fromisoformat(fetched_at)).total_seconds() / 3600
 
 
-def store_pool(ref=None, refresh: bool = False) -> list[str]:
+def store_pool(ref, refresh: bool = False) -> list[str]:
     """Fetch through the league the positions whose scoring format has no rows for its season, or rows older
     than POOL_MAX_AGE_H (every position with `refresh`), and store each under its format, ownership left out.
     Returns the positions fetched."""
-    ref = ref or leagues.current()
     keys = formats.position_formats(ref)
     now = datetime.now().astimezone()
     fresh = set() if refresh else {k for k, at in db.espn_pool_fetched(list(keys.values()), ref.season).items()
@@ -106,12 +105,11 @@ def shareable(row: dict) -> dict:
     return {k: v for k, v in row.items() if k not in LEAGUE_COLUMNS}
 
 
-def pool(ref=None) -> pd.DataFrame:
+def pool(ref) -> pd.DataFrame:
     """The league's pool as espn_players.csv held it: its six positions' rows, one row per player, by
     projection. Never fetches. The sort is stable, so tied players keep position order, then ESPN's: an
     unstable sort reorders them, and the board's ranks with them. The rows are shared by every league on the
     format, so they carry no ownership: on_team_id is 0 and status "" for every player."""
-    ref = ref or leagues.current()
     keys = formats.position_formats(ref)
     stored = db.espn_pool_rows(list(keys.values()), ref.season)
     missing = [pos for pos in POSITIONS if keys[pos] not in stored]
@@ -128,7 +126,7 @@ def pool(ref=None) -> pd.DataFrame:
 def main(argv: list[str] | None = None):
     argv = sys.argv[1:] if argv is None else argv
     keys = [a for a in argv if not a.startswith("--")]
-    ref = leagues.get(keys[0]) if keys else leagues.current()
+    ref = leagues.acting(keys[0] if keys else None)
     fetched = store_pool(ref, refresh="--refresh" in argv)
     df = pool(ref)
     fmts = formats.position_formats(ref)

@@ -4,7 +4,7 @@
     uv run python -m ffl.advise 12         # deeper list
     uv run python -m ffl.advise --made 3   # the watcher attached 3 picks late (default: the feed's own count)
 
-For the current league (FFL_LEAGUE, else the home league). Deliberately rebuilds the board from
+For the current league (FFL_LEAGUE, else FFL_USER's default). Deliberately rebuilds the board from
 the DB's draft_feeds row (the watcher's raw pick feed) instead of reading its draft_states row.
 That way advice always reflects the current code and keeps working even if the watcher process
 has died or gone stale mid-draft. The pick math,
@@ -30,7 +30,7 @@ def load_picks(ref) -> tuple[list[dict], int]:
 
 
 def main(n: int = 8, made: int | None = None):
-    ref = leagues.current()
+    ref = leagues.acting()
     settings, players, adp = board_mod.load_inputs(ref)
     me = my_team_id(settings, ref)
     caps, qb_pace = strategy.caps(ref), strategy.qb_pace(ref)   # once per run

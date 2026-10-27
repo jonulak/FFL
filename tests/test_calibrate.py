@@ -3,6 +3,7 @@ blend saw each ROS week; the scorer says which K would have missed least since."
 import pytest
 
 from ffl import calibrate, db, season
+from tests.home import home_league
 
 
 def _row(pid, model, l3, weight, games_left, pos="RB"):
@@ -19,9 +20,9 @@ def test_snapshot_rows_keep_only_what_the_blend_reads():
 
 def test_write_snapshot_once_per_ros_week():
     rows = calibrate.snapshot_rows({"RB": [_row(1, 150.0, 12.0, 2.0, 15)]}, week=3)
-    assert calibrate.write_snapshot(3, rows) is True
-    assert calibrate.write_snapshot(3, [{"player_id": 9}]) is False, "the first look of the week stands"
-    saved = calibrate.load_snapshots()
+    assert calibrate.write_snapshot(3, rows, ref=home_league()) is True
+    assert calibrate.write_snapshot(3, [{"player_id": 9}], ref=home_league()) is False, "the first look of the week stands"
+    saved = calibrate.load_snapshots(ref=home_league())
     assert saved == [{"week": 3, "rows": rows, "k": season.K_PRIOR}]
 
 

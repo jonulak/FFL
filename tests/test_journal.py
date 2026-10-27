@@ -5,6 +5,7 @@ POST /refresh calls sync_results directly, so the results must land without jour
 from types import SimpleNamespace
 
 from ffl import config, db, journal
+from tests.home import home_league
 
 
 def _fake_team():
@@ -17,8 +18,8 @@ def test_sync_results_writes_rows(monkeypatch):
     m = SimpleNamespace(home_team=me, away_team=opp, home_score=110.0, away_score=90.0)
     lg = SimpleNamespace(current_week=2, teams=[me], standings=lambda: [me], scoreboard=lambda wk: [m])
     monkeypatch.setattr(config, "SWID", "{ME}")
-    journal.sync_results(lg, {"teams": [{"id": 7, "owner_swids": ["{ME}"]}]})
-    assert db.results_rows() == [{"week": 1, "opponent": "Them", "my_score": 110.0, "opp_score": 90.0, "result": "W"}]
+    journal.sync_results(lg, {"teams": [{"id": 7, "owner_swids": ["{ME}"]}]}, ref=home_league())
+    assert db.results_rows(ref=home_league()) == [{"week": 1, "opponent": "Them", "my_score": 110.0, "opp_score": 90.0, "result": "W"}]
 
 
 def test_sync_transactions_empty_feed_adds_nothing():
@@ -26,10 +27,10 @@ def test_sync_transactions_empty_feed_adds_nothing():
     lg = SimpleNamespace(player_map={}, get_team_data=lambda tid: None,
                          espn_request=SimpleNamespace(league_get=lambda **kw: {"topics": []}))
 
-    journal.sync_transactions(lg)
-    journal.sync_transactions(lg)
+    journal.sync_transactions(lg, ref=home_league())
+    journal.sync_transactions(lg, ref=home_league())
 
-    assert db.transactions() == []
+    assert db.transactions(ref=home_league()) == []
 
 
 def test_sync_transactions_resolves_dropped_players_locally():
@@ -54,9 +55,9 @@ def test_sync_transactions_resolves_dropped_players_locally():
         espn_request=SimpleNamespace(league_get=lambda extend="", params=None, headers=None: topics),
     )
 
-    journal.sync_transactions(lg)
+    journal.sync_transactions(lg, ref=home_league())
 
-    rows = db.transactions()
+    rows = db.transactions(ref=home_league())
     assert [(r["id"], r["player"]) for r in rows] == [("1788937502756-6-DROPPED-4688380", "Cam Ward"),
                                                       ("1788937502756-6-WAIVER ADDED-5083754", "Ryan Flournoy")]
 
@@ -73,4 +74,4 @@ def test_a_failing_listener_never_fails_the_sync(monkeypatch):
     def boom(rows, ref=None):
         raise RuntimeError("listener down")
     monkeypatch.setattr(journal, "ON_NEW_ROWS", [boom])
-    assert len(journal.sync_transactions(lg)) == 1
+    assert len(journal.sync_transactions(lg, ref=home_league())) == 1

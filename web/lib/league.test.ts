@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decide, leagueHref, leagueOf, START_URL, switchPath, tabsFor, withLeague } from "./league";
+import { decide, leagueHref, leagueMissRedirect, leagueOf, START_URL, switchPath, tabsFor, WELCOME_PATH, withLeague } from "./league";
 
 const PUB = "espn:950458410";
 
@@ -104,5 +104,26 @@ describe("leagueHref (every in-app link and router move)", () => {
     expect(leagueHref("/api/logo/3", PUB)).toBe("/api/logo/3");
     expect(leagueHref("https://espn.com/x", PUB)).toBe("https://espn.com/x");
     expect(leagueHref("#top", PUB)).toBe("#top");
+  });
+});
+
+describe("leagueMissRedirect (a league the user is not in)", () => {
+  const miss = { detail: { error: "unknown_league", league: "espn:9" } };
+  it("drops the league the user is not in, keeping the rest of the query", () => {
+    expect(leagueMissRedirect(404, miss, "/players", "league=espn:9&pos=WR")).toBe("/players?pos=WR");
+    expect(leagueMissRedirect(404, miss, "/roster", "?league=espn:9")).toBe("/roster");
+  });
+  it("leaves a miss on the default league alone (nothing to drop: no loop)", () => {
+    expect(leagueMissRedirect(404, miss, "/roster", "")).toBeNull();
+  });
+  it("sends a user with no league to the welcome page, never from it", () => {
+    const none = { detail: { error: "no_leagues" } };
+    expect(leagueMissRedirect(404, none, "/roster", "")).toBe(WELCOME_PATH);
+    expect(leagueMissRedirect(404, none, WELCOME_PATH, "")).toBeNull();
+  });
+  it("leaves every other answer to the caller", () => {
+    expect(leagueMissRedirect(404, { detail: "Not Found" }, "/team/3", "league=espn:9")).toBeNull();
+    expect(leagueMissRedirect(502, miss, "/roster", "league=espn:9")).toBeNull();
+    expect(leagueMissRedirect(404, null, "/roster", "league=espn:9")).toBeNull();
   });
 });

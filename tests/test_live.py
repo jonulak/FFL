@@ -8,6 +8,14 @@ from pathlib import Path
 from ffl import live
 
 FIX = json.loads((Path(__file__).parent / "fixtures" / "fastcast_checkpoint.json").read_text())
+HOME = "espn:100000001"  # the runner's first lane in these tests
+
+
+def runner(settings, week_fn, others=()):
+    """A runner whose first lane is HOME (settings, week_fn), then `others` as Runner takes them."""
+    from ffl import leagues
+    home = leagues.LeagueRef(HOME, "espn", "100000001", 2026, "home", 7, None, None)
+    return live.Runner(state=live.State(), leagues=[(home, settings, week_fn), *others])
 
 
 def player(pid, actual=0.0, slot="QB"):
@@ -103,12 +111,12 @@ def test_idle_is_capped_and_defaults_when_nothing_is_left():
 
 def test_state_version_ticks_only_on_change_and_wakes_waiters():
     st = live.State()
-    assert st.update({1: 2.0}) and st.version == 1
-    assert not st.update({1: 2.0}) and st.version == 1
+    assert st.update({HOME: ({1: 2.0}, None)}) and st.version == 1
+    assert not st.update({HOME: ({1: 2.0}, None)}) and st.version == 1
     got = []
     t = threading.Thread(target=lambda: got.append(st.wait_for_change(1, timeout=5)))
     t.start()
-    assert st.update({1: 3.0})
+    assert st.update({HOME: ({1: 3.0}, None)})
     t.join(2)
     assert got == [2]
     assert st.wait_for_change(2, timeout=0.05) == 2, "timeout returns the current version"
@@ -124,7 +132,7 @@ def test_a_move_wakes_the_stream_without_touching_the_points_version():
     st.moved()
     t.join(2)
     assert got == [(0, 1)] and st.version == 0
-    assert st.update({1: 2.0}) and st.wait_for_tick((0, 1), timeout=0.05) == (1, 1)
+    assert st.update({HOME: ({1: 2.0}, None)}) and st.wait_for_tick((0, 1), timeout=0.05) == (1, 1)
     assert st.wait_for_tick((1, 1), timeout=0.05) == (1, 1), "timeout returns the current tick"
 
 
@@ -143,7 +151,7 @@ def test_stream_lines_name_a_move_apart_from_points():
 
 def test_state_first_update_always_ticks_even_when_empty():
     st = live.State()
-    assert st.update({}) and st.version == 1
+    assert st.update({HOME: ({}, None)}) and st.version == 1
 
 
 IN_Q2 = {"status": "in", "quarter": 2, "clock": "9:09", "score": {"JAX": 14, "CLE": 3}}
@@ -223,11 +231,11 @@ def test_volume_is_the_positions_usage_count():
 def test_state_keeps_game_states_but_a_clock_tick_alone_does_not_bump_the_version():
     """Every GET reads the latest clock; the stream only wakes the page for something new."""
     st = live.State()
-    assert st.update({1: 2.0}, {"JAX": IN_Q2}) and st.version == 1
-    assert not st.update({1: 2.0}, {"JAX": {**IN_Q2, "clock": "9:02"}}) and st.version == 1
+    assert st.update({HOME: ({1: 2.0}, None)}, {"JAX": IN_Q2}) and st.version == 1
+    assert not st.update({HOME: ({1: 2.0}, None)}, {"JAX": {**IN_Q2, "clock": "9:02"}}) and st.version == 1
     assert st.games["JAX"]["clock"] == "9:02", "the clock is still stored"
-    assert st.update({1: 2.0}, {"JAX": {**IN_Q2, "quarter": 3}}) and st.version == 2
-    assert st.update({1: 2.0}, {"JAX": {"status": "post", "quarter": 4, "clock": "0:00"}}) and st.version == 3
+    assert st.update({HOME: ({1: 2.0}, None)}, {"JAX": {**IN_Q2, "quarter": 3}}) and st.version == 2
+    assert st.update({HOME: ({1: 2.0}, None)}, {"JAX": {"status": "post", "quarter": 4, "clock": "0:00"}}) and st.version == 3
 
 
 def test_overlay_attaches_the_game_state_once_a_team_has_kicked_off():
@@ -255,22 +263,21 @@ def test_overlay_attaches_a_stat_line_for_players_with_scoring_stats():
 
 def test_state_records_the_week_its_points_belong_to():
     st = live.State()
-    st.update({1: 2.0}, week=1)
-    assert st.week == 1 and st.snapshot()["week"] == 1
-    st.update({1: 2.0}, week=2)
-    assert st.week == 2
+    st.update({HOME: ({1: 2.0}, 1)})
+    assert st.week_for(HOME) == 1 and st.snapshot()["leagues"][HOME]["week"] == 1
+    st.update({HOME: ({1: 2.0}, 2)})
+    assert st.week_for(HOME) == 2
 
 
 def test_runner_tags_the_points_with_the_week_of_the_roster_it_scored(monkeypatch):
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
     current = {"week": 1}
-    r = live.Runner(state=live.State(), settings={"scoring": []},
-                    week_fn=lambda: {"week": current["week"], "games": []})
+    r = runner({"scoring": []}, lambda: {"week": current["week"], "games": []})
     r._on_doc(copy.deepcopy(FIX))
-    assert r.state.week == 1
+    assert r.state.week_for(HOME) == 1
     current["week"] = 2
     r._on_doc(copy.deepcopy(FIX))
-    assert r.state.week == 2
+    assert r.state.week_for(HOME) == 2
 
 
 def test_a_failed_plays_write_is_recorded_not_raised(monkeypatch):
@@ -284,11 +291,11 @@ def test_a_failed_plays_write_is_recorded_not_raised(monkeypatch):
             pass
 
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
-    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r = runner({"scoring": []}, lambda: {"week": 1, "games": []})
     r._on_doc(copy.deepcopy(FIX))  # the baseline
-    r.store = Failing()
+    r.lanes[0].store = Failing()
     r._on_doc(copy.deepcopy(FIX))
-    assert r.state.error.startswith("plays not saved")
+    assert r.state.error.startswith(f"{HOME}: plays not saved")
 
 
 def test_field_marks_the_offense_with_the_ball_and_the_defense_without_it():
@@ -310,11 +317,11 @@ def test_overlay_sets_field_only_while_a_unit_is_on():
 
 def test_a_change_of_possession_bumps_the_version_but_the_clock_does_not():
     st = live.State()
-    st.update({}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:29", "ball": "NE", "red_zone": False}})
+    st.update({HOME: ({}, None)}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:29", "ball": "NE", "red_zone": False}})
     v = st.version
-    st.update({}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:10", "ball": "NE", "red_zone": False}})
+    st.update({HOME: ({}, None)}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:10", "ball": "NE", "red_zone": False}})
     assert st.version == v
-    st.update({}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:10", "ball": "NE", "red_zone": True}})
+    st.update({HOME: ({}, None)}, {"BUF": {"status": "in", "quarter": 3, "clock": "2:10", "ball": "NE", "red_zone": True}})
     assert st.version == v + 1
 
 
@@ -393,11 +400,11 @@ def test_a_failed_plays_read_leaves_the_week_unadvanced_and_retries(monkeypatch)
 
     monkeypatch.setattr(db, "plays_rows", flaky)
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
-    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r = runner({"scoring": []}, lambda: {"week": 1, "games": []})
     r._refresh_roster()
-    assert r.store is None and r.week is None and r.state.error.startswith("plays store not loaded")
+    assert r.lanes[0].store is None and r.lanes[0].week is None and r.state.error.startswith(f"{HOME}: plays store not loaded")
     r._refresh_roster()
-    assert isinstance(r.store, plays.Store) and r.week == 1
+    assert isinstance(r.lanes[0].store, plays.Store) and r.lanes[0].week == 1
 
 
 def test_a_recovered_plays_write_clears_only_its_own_error(monkeypatch):
@@ -416,15 +423,15 @@ def test_a_recovered_plays_write_clears_only_its_own_error(monkeypatch):
     events = []
     monkeypatch.setattr(plays, "events_from", lambda *a, **k: list(events))
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
-    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r = runner({"scoring": []}, lambda: {"week": 1, "games": []})
     r._on_doc(copy.deepcopy(FIX))  # the baseline
-    r.store = Recording()
-    r.state.error = "plays not saved: database is locked"
+    r.lanes[0].store = Recording()
+    r.state.error = f"{HOME}: plays not saved: database is locked"
     r._on_doc(copy.deepcopy(FIX))
-    assert r.state.error.startswith("plays not saved"), "add([]) wrote nothing, so nothing has recovered"
+    assert r.state.error.startswith(f"{HOME}: plays not saved"), "add([]) wrote nothing, so nothing has recovered"
     events.append({"player_id": 1})
     r._on_doc(copy.deepcopy(FIX))
-    assert r.store.written == [{"player_id": 1}] and r.state.error is None
+    assert r.lanes[0].store.written == [{"player_id": 1}] and r.state.error is None
     r.state.error = "roster refresh failed: boom"
     r._on_doc(copy.deepcopy(FIX))
     assert r.state.error == "roster refresh failed: boom"
@@ -446,13 +453,13 @@ def test_a_stale_schema_at_runtime_is_recorded_not_raised(monkeypatch):
     monkeypatch.setattr(db, "plays_rows", stale)
     monkeypatch.setattr(plays, "events_from", lambda *a, **k: [{"player_id": 1}])
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
-    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r = runner({"scoring": []}, lambda: {"week": 1, "games": []})
     r._refresh_roster()
-    assert r.store is None and r.week is None and r.state.error.startswith("plays store not loaded")
+    assert r.lanes[0].store is None and r.lanes[0].week is None and r.state.error.startswith(f"{HOME}: plays store not loaded")
     r._on_doc(copy.deepcopy(FIX))  # the baseline
-    r.store = Stale()  # the load keeps failing, so the store is only ever the one set here
+    r.lanes[0].store = Stale()  # the load keeps failing, so the store is only ever the one set here
     r._on_doc(copy.deepcopy(FIX))
-    assert r.state.error.startswith("plays not saved")
+    assert r.state.error.startswith(f"{HOME}: plays not saved")
 
 
 def test_a_recovered_plays_load_clears_only_its_own_error(monkeypatch):
@@ -468,14 +475,14 @@ def test_a_recovered_plays_load_clears_only_its_own_error(monkeypatch):
 
     monkeypatch.setattr(db, "plays_rows", flaky)
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
-    r = live.Runner(state=live.State(), settings={"scoring": []}, week_fn=lambda: {"week": 1, "games": []})
+    r = runner({"scoring": []}, lambda: {"week": 1, "games": []})
     r._refresh_roster()
-    assert r.state.error.startswith("plays store not loaded")
+    assert r.state.error.startswith(f"{HOME}: plays store not loaded")
     r._refresh_roster()
-    assert r.week == 1 and r.state.error is None
-    r.week, r.state.error = None, "roster refresh failed: boom"  # a new week loads; an unrelated error stays
+    assert r.lanes[0].week == 1 and r.state.error is None
+    r.lanes[0].week, r.state.error = None, "roster refresh failed: boom"  # a new week loads; an unrelated error stays
     r._refresh_roster()
-    assert r.week == 1 and r.state.error == "roster refresh failed: boom"
+    assert r.lanes[0].week == 1 and r.state.error == "roster refresh failed: boom"
 
 
 # --- every league off one socket (ffl-soc.4.6) -------------------------------------------------
@@ -486,34 +493,31 @@ STANDARD = {"scoring": [{"stat_id": 42, "points": 0.1}]}
 
 def _other(key="espn:999"):
     from ffl import leagues
-    return leagues.LeagueRef(key, "espn", key.split(":")[1], 2026, "other", 3, False, None, None)
+    return leagues.LeagueRef(key, "espn", key.split(":")[1], 2026, "other", 3, None, None)
 
 
 def test_one_doc_scores_every_league_on_its_own_table(monkeypatch):
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
-    alone = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []})
+    alone = runner(PPR, lambda: {"week": 7, "games": []})
     alone._on_doc(copy.deepcopy(FIX))
     other = _other()
-    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []},
-                    leagues=[(other, STANDARD, lambda: {"week": 7, "games": []})])
+    r = runner(PPR, lambda: {"week": 7, "games": []}, [(other, STANDARD, lambda: {"week": 7, "games": []})])
     r._on_doc(copy.deepcopy(FIX))
-    assert r.state.points == alone.state.points and r.state.week == 7, "home's points read exactly as with one league"
+    assert r.state.points_for(HOME) == alone.state.points_for(HOME) and r.state.week_for(HOME) == 7, "home's points read exactly as with one league"
     theirs = r.state.points_for(other.key)
-    assert theirs[4426515] == 7.4 and r.state.points[4426515] == 12.4, "74 receiving yards; five catches only in PPR"
-    assert r.state.week_for(other.key) == 7 and r.state.week_for(None) == 7
-    assert r.state.points_for(None) is r.state.points
+    assert theirs[4426515] == 7.4 and r.state.points_for(HOME)[4426515] == 12.4, "74 receiving yards; five catches only in PPR"
+    assert r.state.week_for(other.key) == 7 and r.state.week_for(HOME) == 7
 
 
 def test_each_league_keeps_its_own_week_and_feed(monkeypatch):
     from ffl import plays
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
     other = _other()
-    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []},
-                    leagues=[(other, STANDARD, lambda: {"week": 8, "games": []})])
+    r = runner(PPR, lambda: {"week": 7, "games": []}, [(other, STANDARD, lambda: {"week": 8, "games": []})])
     r._on_doc(copy.deepcopy(FIX))
     lane = r.lane(other.key)
     assert lane.week == 8 and isinstance(lane.store, plays.Store) and lane.store.ref == other
-    assert r.week == 7 and r.store.ref is None and r.lane(None) is r.lanes[0]
+    assert r.lanes[0].week == 7 and r.lanes[0].store.ref.key == HOME and r.lane(HOME) is r.lanes[0]
     assert r.state.week_for(other.key) == 8
 
 
@@ -524,21 +528,20 @@ def test_a_league_whose_starters_fail_leaves_the_others_scoring(monkeypatch):
     def boom():
         raise RuntimeError("espn down")
 
-    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []},
-                    leagues=[(other, STANDARD, boom)])
+    r = runner(PPR, lambda: {"week": 7, "games": []}, [(other, STANDARD, boom)])
     r._on_doc(copy.deepcopy(FIX))
-    assert r.week == 7 and r.state.points[4426515] == 12.4
+    assert r.lanes[0].week == 7 and r.state.points_for(HOME)[4426515] == 12.4
     assert r.state.error == "espn:999: roster refresh failed: espn down"
     assert r.state.points_for(other.key)[4426515] == 7.4, "its points still score; only its feed waits"
 
 
 def test_a_change_in_another_leagues_points_ticks_the_version():
     st = live.State()
-    st.update({1: 2.0}, others={"espn:999": ({1: 1.0}, 7)})
+    st.update({HOME: ({1: 2.0}, None), "espn:999": ({1: 1.0}, 7)})
     v = st.version
-    st.update({1: 2.0}, others={"espn:999": ({1: 1.0}, 7)})
+    st.update({HOME: ({1: 2.0}, None), "espn:999": ({1: 1.0}, 7)})
     assert st.version == v
-    st.update({1: 2.0}, others={"espn:999": ({1: 1.5}, 7)})
+    st.update({HOME: ({1: 2.0}, None), "espn:999": ({1: 1.5}, 7)})
     assert st.version == v + 1 and st.points_for("espn:999") == {1: 1.5}
 
 
@@ -562,10 +565,9 @@ def test_a_lane_a_week_behind_never_files_the_nfl_plays_under_its_week(monkeypat
             pass
 
     other = _other()
-    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 8, "games": []},
-                    leagues=[(other, STANDARD, lambda: {"week": 7, "games": []})])
+    r = runner(PPR, lambda: {"week": 8, "games": []}, [(other, STANDARD, lambda: {"week": 7, "games": []})])
     r._on_doc(copy.deepcopy(FIX))  # the baseline
-    r.store, r.lane(other.key).store = Rec("home"), Rec("other")
+    r.lanes[0].store, r.lane(other.key).store = Rec("home"), Rec("other")
     r._on_doc(copy.deepcopy(FIX))
     assert recorded["home"] == [{"play_id": "p1", "week": 8}]
     assert recorded.get("other", []) == [], "a week behind: none of the NFL's plays under week 7"
@@ -588,32 +590,30 @@ def test_a_player_missing_from_one_doc_keeps_his_total_and_comes_back_without_a_
     monkeypatch.setattr(plays, "events_from", lambda before, after, *a, **k: seen.append((dict(before), dict(after))) or [])
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
     current = {"week": 1}
-    r = live.Runner(state=live.State(), settings={"scoring": []},
-                    week_fn=lambda: {"week": current["week"], "games": []})
+    r = runner({"scoring": []}, lambda: {"week": current["week"], "games": []})
     r._on_doc(copy.deepcopy(FIX))  # the baseline
-    r.store = Recording()
+    r.lanes[0].store = Recording()
     pid = next(iter(FIX["statistics"]))
-    total = r.state.points[int(pid)]
+    total = r.state.points_for(HOME)[int(pid)]
     gone = copy.deepcopy(FIX)
     del gone["statistics"][pid]
     r._on_doc(gone)
-    assert r.state.points[int(pid)] == total, "dropped out of the doc, not back to 0"
+    assert r.state.points_for(HOME)[int(pid)] == total, "dropped out of the doc, not back to 0"
     r._on_doc(copy.deepcopy(FIX))
     before, after = seen[-1]
     assert before[int(pid)] == after[int(pid)] == total
     current["week"] = 2  # a new week starts from the doc alone
     r._on_doc(copy.deepcopy(gone))
-    assert int(pid) not in r.state.points
+    assert int(pid) not in r.state.points_for(HOME)
 
 
 def test_another_leagues_player_missing_from_one_doc_keeps_his_total(monkeypatch):
     monkeypatch.setattr(live, "ROSTER_REFRESH", 0)
     other = _other()
-    r = live.Runner(state=live.State(), settings=PPR, week_fn=lambda: {"week": 7, "games": []},
-                    leagues=[(other, STANDARD, lambda: {"week": 7, "games": []})])
+    r = runner(PPR, lambda: {"week": 7, "games": []}, [(other, STANDARD, lambda: {"week": 7, "games": []})])
     r._on_doc(copy.deepcopy(FIX))  # the baseline
     total = r.state.points_for(other.key)[4426515]
     gone = copy.deepcopy(FIX)
     del gone["statistics"]["4426515"]
     r._on_doc(gone)
-    assert r.state.points_for(other.key)[4426515] == total and r.state.points[4426515] == 12.4
+    assert r.state.points_for(other.key)[4426515] == total and r.state.points_for(HOME)[4426515] == 12.4

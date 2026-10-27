@@ -1,6 +1,6 @@
 """A league's settings from ESPN into the DB (ffl/formats.py), and back out as one dict.
 
-    uv run python -m ffl.settings [league key]    # read ESPN, store, print the summary (default: the home league)
+    uv run python -m ffl.settings [league key]    # read ESPN, store, print the summary (default: FFL_LEAGUE, else FFL_USER's default)
 """
 from __future__ import annotations
 
@@ -121,18 +121,16 @@ def fetch(ref) -> dict:
     }
 
 
-def collect(ref=None) -> dict:
+def collect(ref) -> dict:
     """Read the league's settings from ESPN and store them; returns what load() now answers."""
-    ref = ref or leagues.current()
     ref = formats.store(ref, fetch(ref))
     return load(ref)
 
 
-def load(ref=None) -> dict:
-    """The league's settings (None: the current league, the home one unless FFL_LEAGUE names another): the
+def load(ref) -> dict:
+    """The league's settings: the
     dict settings.json used to hold, plus `first_week`, `league_key`, `scoring_tables` and `scoring_items` (formats.assemble).
     A fresh dict on every call."""
-    ref = ref or leagues.current()
     stored = db.league_settings_doc(ref.key, ref.season)
     if stored is None:
         raise SystemExit(f"no settings stored for {ref.key} {ref.season}: run `uv run python -m ffl.settings {ref.key}`")
@@ -188,7 +186,7 @@ def to_markdown(d: dict) -> str:
 
 def main(argv: list[str] | None = None):
     argv = sys.argv[1:] if argv is None else argv
-    d = collect(leagues.get(argv[0]) if argv else None)
+    d = collect(leagues.acting(argv[0] if argv else None))
     print(to_markdown(d))
     print("Key scoring:", key_scoring(d["scoring"]))
 

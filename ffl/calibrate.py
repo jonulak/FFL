@@ -22,7 +22,7 @@ import statistics
 import sys
 from datetime import datetime
 
-from . import db
+from . import db, notify
 from . import season as S
 
 DEFAULT_KS = [1, 2, 3, 4, 6, 8, 12, 1000]  # 1000 is the model alone, near enough
@@ -55,9 +55,9 @@ def snapshot_rows(positions: dict[str, list[dict]], week: int) -> list[dict]:
     return rows
 
 
-def write_snapshot(week: int, rows: list[dict], *, ref=None) -> bool:
+def write_snapshot(week: int, rows: list[dict], *, ref) -> bool:
     """The week's snapshot, written once: the first build of the ROS week is the one that stands
-    (later builds of the same week have seen more of it). True when written. `ref` is the league (None: home)."""
+    (later builds of the same week have seen more of it). True when written. `ref` is the league."""
     return db.put_snapshot(week, S.K_PRIOR, rows, ref=ref)
 
 
@@ -86,8 +86,8 @@ def score(snapshots: list[dict], actual: dict[int, tuple[float, int]], ks: list[
     return out
 
 
-def load_snapshots() -> list[dict]:
-    return db.snapshots()
+def load_snapshots(*, ref) -> list[dict]:
+    return db.snapshots(ref=ref)
 
 
 def actuals_since(lg, ids: list[int], from_week: int, to_week: int) -> dict[int, tuple[float, int]]:
@@ -126,18 +126,18 @@ def write_sigma(fit: dict, weeks: list[int]) -> None:
     db.put_sigma({**fit, "weeks": weeks})
 
 
-def starter_weeks(lg, settings: dict, weeks: list[int]) -> tuple[list[dict], list[tuple[list[dict], list[dict]]]]:
+def starter_weeks(lg, settings: dict, weeks: list[int], *, ref) -> tuple[list[dict], list[tuple[list[dict], list[dict]]]]:
     """Every league starter of the given weeks as {pos, pts, proj} (proj the consensus the tick
     recorded, else ESPN + Sleeper; zero when he could not play), and each game's two starting lineups."""
     from .consensus import combine, weights_for
     from .espn_season import _sleeper_for, box_scores, flatten_box_player, merge_weekly
     stored: dict[tuple[int, int], dict[str, float]] = {}
-    for r in db.projection_rows("week"):
+    for r in db.projection_rows("week", ref=ref):
         stored.setdefault((r["week"], r["player_id"]), {})[r["source"]] = r["points"]
     rows, games = [], []
     for w in weeks:
         sl = _sleeper_for(w, settings)
-        for m in box_scores(lg, w):
+        for m in box_scores(lg, w, ref=ref):
             sides = []
             for lineup in (m.away_lineup, m.home_lineup):
                 starters = [bp for bp in lineup or [] if getattr(bp, "slot_position", "BE") not in S.BENCH_SLOTS]
@@ -192,12 +192,12 @@ def compare(pairs: list[dict], weights: dict[str, dict[str, float]]) -> dict[str
             for pos, o in out.items()}
 
 
-def weekly_pairs(lg, rows: list[dict]) -> list[dict]:
+def weekly_pairs(lg, rows: list[dict], *, ref) -> list[dict]:
     """projection_rows (kind week) joined to what each player scored that week, off the box scores."""
     from .espn_season import _boxes_by_team
     actual = {}
     for w in sorted({r["week"] for r in rows}):
-        for lineup in _boxes_by_team(lg, w).values():
+        for lineup in _boxes_by_team(lg, w, ref=ref).values():
             for bp in lineup:
                 if not getattr(bp, "on_bye_week", False):
                     actual[(w, bp.playerId)] = (bp.position, float(getattr(bp, "points", 0) or 0))
@@ -205,14 +205,14 @@ def weekly_pairs(lg, rows: list[dict]) -> list[dict]:
             for r in rows if (r["week"], r["player_id"]) in actual]
 
 
-def ros_pairs(lg, rows: list[dict], now: int) -> list[dict]:
+def ros_pairs(lg, rows: list[dict], now: int, *, ref) -> list[dict]:
     """projection_rows (kind ros) as a per-game rate against his per-game points since that ROS week;
     only ROS weeks with at least one week played since."""
     from .espn_season import _boxes_by_team
     out = []
     for w in sorted({r["week"] for r in rows if r["week"] < now}):
         wr = [r for r in rows if r["week"] == w]
-        pos = {bp.playerId: bp.position for lineup in _boxes_by_team(lg, w).values() for bp in lineup}
+        pos = {bp.playerId: bp.position for lineup in _boxes_by_team(lg, w, ref=ref).values() for bp in lineup}
         got = actuals_since(lg, sorted({r["player_id"] for r in wr}), w, now - 1)
         for r in wr:
             pts, games = got.get(r["player_id"], (0.0, 0))
@@ -227,12 +227,14 @@ def _sources(argv: list[str]) -> None:
         ok = db.activate_source_weights(argv[1])
         print(f"activated {argv[1]}" if ok else f"no fit {argv[1]}: see `ffl.calibrate sources`")
         return
+    from . import leagues
     from .espn_season import fresh_league, ros_week_for
-    lg = fresh_league()
-    now = lg.current_week
-    done = ros_week_for(lg, now)          # weeks before this one are fully played
-    wk = weekly_pairs(lg, [r for r in db.projection_rows("week") if r["week"] < done])
-    ros = ros_pairs(lg, db.projection_rows("ros"), done)
+    wk, ros = [], []
+    for ref in leagues.all_leagues():  # one fit over every league's recorded weeks
+        lg = fresh_league(ref)
+        done = ros_week_for(lg, lg.current_week)          # weeks before this one are fully played
+        wk += weekly_pairs(lg, [r for r in db.projection_rows("week", ref=ref) if r["week"] < done], ref=ref)
+        ros += ros_pairs(lg, db.projection_rows("ros", ref=ref), done, ref=ref)
     if not wk:
         print("no recorded weeks played yet: the notify tick records them (projection_rows)")
         return
@@ -250,17 +252,23 @@ def _sources(argv: list[str]) -> None:
     print(f"fit {at} stored inactive. Activate: uv run python -m ffl.calibrate sources --activate {at}")
     if fi < eq:
         n = sum(r["n"] for r in report["week"].values())
-        db.add_notices([{"key": f"weights:{at}", "kind": "weights", "title": "Fitted source weights beat the plain average",
+        notify.app_notices([{"key": f"weights:{at}", "kind": "weights", "title": "Fitted source weights beat the plain average",
                          "body": f"Weekly MAE {fi / n:.2f} vs {eq / n:.2f} over {n}. Activate fit {at} to use them.",
                          "url": "/settings", "created_at": datetime.now().astimezone().isoformat(timespec='seconds')}])
 
 
 def _winprob() -> None:
+    """One σ fit over every league's starters (each scored on its own table), and its Brier."""
+    from . import leagues
     from .espn_season import fresh_league
     from .settings import load
-    lg = fresh_league()
-    weeks = list(range(1, lg.current_week))
-    rows, games = starter_weeks(lg, load(), weeks)
+    rows, games, weeks = [], [], set()
+    for ref in leagues.all_leagues():
+        lg = fresh_league(ref)
+        w = list(range(1, lg.current_week))
+        r, g = starter_weeks(lg, load(ref), w, ref=ref)
+        rows, games, weeks = rows + r, games + g, weeks | set(w)
+    weeks = sorted(weeks)
     fit = fit_sigma(rows)
     write_sigma(fit, weeks)
     sigma, _ = load_sigma()
@@ -294,13 +302,15 @@ def main(argv: list[str]) -> None:
     if argv[:1] == ["winprob"]:
         _winprob()
         return
+    from . import leagues
     from .espn_season import fresh_league
+    ref = leagues.acting()  # the K check is one league's snapshots: FFL_USER's (FFL_LEAGUE, else their default)
     ks = [float(a) for a in argv] or DEFAULT_KS
-    snaps = load_snapshots()
+    snaps = load_snapshots(ref=ref)
     if not snaps:
         print("no calibration snapshots yet: the pool builder writes one per ROS week")
         return
-    lg = fresh_league()
+    lg = fresh_league(ref)
     now = lg.current_week
     per_snap: list[list[dict]] = []
     for snap in snaps:

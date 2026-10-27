@@ -6,6 +6,7 @@ import pytest
 import sqlalchemy as sa
 
 from ffl import db, db_copy
+from ffl import leagues
 
 HOME = "espn:100000001"
 # three log rows whose ids (and dates) run against the order they were logged in: the copy must keep the log's order
@@ -27,10 +28,10 @@ def _source(tmp_path, revision="0024"):
     c = sqlite3.connect(path)
     c.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")
     c.execute("INSERT INTO alembic_version VALUES (?)", (revision,))
-    c.execute("INSERT INTO leagues (key, provider, provider_id, season, name, team_id, home, strategy, added_at) "
-              "VALUES (?, 'espn', '100000001', 2026, 'Copied League', 7, 1, NULL, '2026-09-01')", (HOME,))
-    c.execute("INSERT INTO leagues (key, provider, provider_id, season, name, team_id, home, added_at) "
-              "VALUES ('espn:950458410', 'espn', '950458410', 2026, 'Public', 3, 0, '2026-10-25')")
+    c.execute("INSERT INTO leagues (key, provider, provider_id, season, name, strategy, added_at) "
+              "VALUES (?, 'espn', '100000001', 2026, 'Copied League', NULL, '2026-09-01')", (HOME,))
+    c.execute("INSERT INTO leagues (key, provider, provider_id, season, name, added_at) "
+              "VALUES ('espn:950458410', 'espn', '950458410', 2026, 'Public', '2026-10-25')")
     for i, (tid, date, typ) in enumerate(TXS):
         c.execute("INSERT INTO transactions (league, season, id, date, type, team, player, player_id, action, bid, "
                   "reasoning) VALUES (?, 2026, ?, ?, ?, 'Team 7', ?, ?, 'ADD', 0, '')",
@@ -41,6 +42,7 @@ def _source(tmp_path, revision="0024"):
                   "VALUES (?, ?, 2026, 7, ?, ?, ?, ?)",
                   (i, HOME, 100 + i, f"2026-10-19T13:0{i % 10}", float(i), json.dumps({"delta": i, "x": float("nan")})))
     c.execute("INSERT INTO sits (league, season, week, player_id, at) VALUES (?, 2026, 7, 42, '2026-10-18')", (HOME,))
+    c.execute("INSERT INTO source_weights (season, fitted_at, fit, active) VALUES (2026, 'a', '{}', 1), (2026, 'b', '{}', 0)")
     c.execute("INSERT INTO notify_state (season, key, value) VALUES (2026, 'prefs', ?)",
               (json.dumps({"news": True, "quiet": [22, 7]}),))
     c.commit()
@@ -61,33 +63,32 @@ def test_copy_counts_match(tmp_path):
     assert counts["strategies"] == (0, 0)
     body = _rows("SELECT body FROM plays WHERE id = 5")[0][0]
     assert body == {"delta": 5, "x": None}, "JSON parsed from the file's text, NaN written as null"
-    assert _rows("SELECT home FROM leagues ORDER BY key") == [(True,), (False,)], "SQLite's 0/1 as booleans"
+    assert _rows("SELECT active FROM source_weights ORDER BY fitted_at") == [(True,), (False,)], "SQLite's 0/1 as booleans"
     assert db.get_state("prefs") == {"news": True, "quiet": [22, 7]}
 
 
 def test_copy_replaces_seeded_rows(tmp_path):
     assert _rows("SELECT count(*) FROM strategies")[0][0] > 0, "the migrations seeded presets"
     db_copy.copy(_source(tmp_path))
-    assert _rows("SELECT key, name, home FROM leagues ORDER BY key") == [
-        (HOME, "Copied League", True), ("espn:950458410", "Public", False)]
+    assert _rows("SELECT key, name FROM leagues ORDER BY key") == [(HOME, "Copied League"), ("espn:950458410", "Public")]
     assert _rows("SELECT count(*) FROM strategies") == [(0,)]
     assert _rows("SELECT count(*) FROM scoring_formats") == [(0,)]
 
 
 def test_copy_keeps_transaction_order(tmp_path):
     db_copy.copy(_source(tmp_path))
-    assert [r["id"] for r in db.transactions(2026)] == [t[0] for t in TXS]
+    assert [r["id"] for r in db.transactions(2026, ref=leagues.get(HOME))] == [t[0] for t in TXS]
     assert _rows("SELECT seq FROM transactions ORDER BY seq") == [(1,), (2,), (3,)]
 
 
 def test_copy_then_insert_gets_fresh_id(tmp_path):
     db_copy.copy(_source(tmp_path))
     assert db.add_plays([{"week": 7, "player_id": 999, "at": "2026-10-19T14:00", "total": 3.0, "delta": 3.0}],
-                        2026) == 1
+                        2026, ref=leagues.get(HOME)) == 1
     assert max(r[0] for r in _rows("SELECT id FROM plays")) == 13
     db.add_transactions([{"id": "1700000000400-7-ADD-40", "date": "2026-09-13T10:00", "type": "Free",
-                          "team": "Team 7", "player": "P3", "action": "ADD"}], 2026)
-    assert [r["id"] for r in db.transactions(2026)][-1] == "1700000000400-7-ADD-40"
+                          "team": "Team 7", "player": "P3", "action": "ADD"}], 2026, ref=leagues.get(HOME))
+    assert [r["id"] for r in db.transactions(2026, ref=leagues.get(HOME))][-1] == "1700000000400-7-ADD-40"
     assert _rows("SELECT max(seq) FROM transactions") == [(4,)]
 
 

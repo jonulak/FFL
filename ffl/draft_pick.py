@@ -162,14 +162,13 @@ def _action(page, player_id: int, name: str, want: str, deadline: float):
 PICK_TIMEOUT_S = 20.0
 
 
-def pick(player_id: int, name: str, queue: bool = False, timeout_s: float = PICK_TIMEOUT_S, ref=None) -> str:
-    """Draft (or queue) one player in `ref`'s room (None: the current league), and do not report success
+def pick(player_id: int, name: str, queue: bool = False, timeout_s: float = PICK_TIMEOUT_S, *, ref) -> str:
+    """Draft (or queue) one player in `ref`'s room, and do not report success
     unless the feed says so.
 
     The clock is the budget: a practice room gives 30s and our league 90s, so everything here
     retries against a deadline rather than failing on the first miss.
     """
-    ref = ref or leagues.current()
     want = "QUEUE" if queue else "DRAFT"
     deadline = time.time() + timeout_s
     with sync_playwright() as p:
@@ -220,10 +219,9 @@ def pick(player_id: int, name: str, queue: bool = False, timeout_s: float = PICK
                            f"arrived on the feed")
 
 
-def confirm_drafted(player_id: int, timeout_s: float = 8.0, ref=None):
+def confirm_drafted(player_id: int, timeout_s: float = 8.0, *, ref):
     """True once the pick shows up on the league's socket feed (the DB's draft_feeds); None if no feed is running
     (no pick on it yet, as the old feed file did not exist before the first)."""
-    ref = ref or leagues.current()
     seen_feed = False
     deadline = time.time() + timeout_s
     while time.time() < deadline:
@@ -245,8 +243,9 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     with sync_playwright() as _p:
         _b = _p.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
-        _page = _room(_b.contexts[0], leagues.current())
+        _ref = leagues.acting()
+        _page = _room(_b.contexts[0], _ref)
         if "--autopick-off" in args:
             print(autopick_off(_page))
             sys.exit(0)
-    print(pick(int(args[0]), args[1], queue="--queue" in args))
+    print(pick(int(args[0]), args[1], queue="--queue" in args, ref=_ref))

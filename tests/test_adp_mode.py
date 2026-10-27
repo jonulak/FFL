@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from ffl import adp, board as board_mod, db, formats, leagues
+from tests.home import home_league
 
 FX = Path(__file__).parent / "fixtures" / "home_settings.json"   # 10 teams, QB 2, 1 PPR, 2026
 
@@ -27,7 +28,7 @@ TWO_QB = settings_with(QB=2, RB=2, WR=2)
 @pytest.fixture
 def feeds():
     """The home league's settings and its two feeds, stored as adp.store stores them."""
-    formats.store(leagues.home(), json.loads(FX.read_text()))
+    formats.store(home_league(), json.loads(FX.read_text()))
     two = pd.DataFrame({"name": ["Q1", "R1"], "key": ["q1", "r1"], "pos": ["QB", "RB"],
                         "team": ["BUF", "DET"], "bye": [7, 6], "adp": [2.0, 1.0],
                         "adp_stdev": [1.5, 0.5], "adp_rank": [2, 1], "adp_pos_rank": [1, 1]})
@@ -96,7 +97,7 @@ def test_a_missing_feed_says_how_to_fetch_it(monkeypatch):
 
 
 def test_store_fetches_both_feeds_for_the_league(monkeypatch):
-    formats.store(leagues.home(), json.loads(FX.read_text()))
+    formats.store(home_league(), json.loads(FX.read_text()))
     asked = []
 
     def fake(fmt, teams, year):
@@ -107,6 +108,6 @@ def test_store_fetches_both_feeds_for_the_league(monkeypatch):
         return df
 
     monkeypatch.setattr(adp, "fetch", fake)
-    adp.store(leagues.home())
+    adp.store(home_league())
     assert asked == [("2qb", 10, 2026), ("ppr", 10, 2026)]
     assert db.adp_feed("ppr", 10, 2026)["meta"] == {"total_drafts": 12}

@@ -18,6 +18,7 @@ Every GET is read-only.
 """
 from __future__ import annotations
 
+import functools
 import itertools
 import json
 import logging
@@ -33,7 +34,7 @@ from types import SimpleNamespace
 from typing import Callable, Literal
 
 import requests
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -87,7 +88,7 @@ class Cache:
     never cold. A drop deletes the rows too, so a page a league move dropped never comes back from the DB.
     """
 
-    def __init__(self, ttl: float, persist: bool = False, ref=None):
+    def __init__(self, ttl: float, persist: bool = False, *, ref):
         self.ttl = ttl
         self._d: dict[str, Entry] = {}
         self._lock = threading.Lock()
@@ -97,7 +98,7 @@ class Cache:
         # so it hands its payload to its caller but never installs it
         self._gen = 0
         self._persist = persist
-        self._ref = ref  # the league whose page rows this cache reads and writes; None is the home league
+        self._ref = ref  # the member and league whose page rows this cache reads and writes
         # held (before _lock, never inside it) across each DB write and each drop's pop + delete, so a write for an
         # entry a drop has popped can never land after the drop's delete
         self._db_lock = threading.Lock()
@@ -302,35 +303,55 @@ class Cache:
             self._unstore(None)
 
 
-cache = Cache(TTL, persist=True)
-# One page cache per league, by registry key. Home's is the module `cache` (the rows with no league named, and the
-# lifespan's thread table); any other league's is made on its first request and loaded from its own rows.
+# One page cache per (user, league) (ffl-soc.6.2.2: a page is never served to another member), made on its first
+# request and loaded from its own rows; the lifespan loads and warms each league's owner's.
 _CACHES = threading.Lock()
-caches: dict[str, Cache] = {}
+caches: dict[tuple[int | None, str], Cache] = {}
 
 
-def cache_for(ref: LeagueRef | None) -> Cache:
-    """The page cache of the league `ref` names; None is `cache` itself, with no registry read."""
-    if ref is None:
-        return cache
+def cache_for(ref: LeagueRef) -> Cache:
+    """The page cache of the member and league `ref` names."""
+    key = (ref.user_id, ref.key)
     with _CACHES:
-        if ref.home:
-            return caches.setdefault(ref.key, cache)
-        c = caches.get(ref.key)
-    if c is None:  # load reads the DB: never under _CACHES, which every home request takes
+        c = caches.get(key)
+    if c is None:  # load reads the DB: never under _CACHES, which every request takes
         c = Cache(TTL, persist=True, ref=ref)
         c.load()
         with _CACHES:
-            c = caches.setdefault(ref.key, c)  # a duplicate that lost is dropped; load only reads
+            c = caches.setdefault(key, c)  # a duplicate that lost is dropped; load only reads
     return c
 
 
-def open_league(league: str | None = Query(None)) -> LeagueRef:
-    """The league a request names with ?league=<registry key>; none (or empty) is home. An unknown key is a 404."""
+def caches_for_league(ref: LeagueRef) -> list[Cache]:
+    """Every member's page cache of the league `ref` names that is open in this process, `ref`'s first (made when
+    absent): what a league-wide change (a move, a correction, a pregame pull) drops or expires."""
+    first = cache_for(ref)
+    key = ref.key
+    with _CACHES:
+        rest = [c for (_, k), c in caches.items() if k == key and c is not first]
+    return [first, *rest]
+
+
+def open_league(request: Request, league: str | None = Query(None)) -> LeagueRef:
+    """The signed-in user's view of the league ?league=<registry key> names: one of their memberships, else 404
+    unknown_league (a league they are not in answers exactly as one that does not exist); none (or empty) is their
+    default, 404 no_leagues when they have none. A job's request (no user) opens the league it names through its
+    owner, 400 league_required when it names none."""
+    user = (request.scope.get("state") or {}).get("user")
+    if user is None:
+        if not league:
+            raise HTTPException(status_code=400, detail={"error": "league_required"})
+        try:
+            return leagues.get(league)
+        except SystemExit:
+            raise HTTPException(status_code=404, detail={"error": "unknown_league", "league": league}) from None
     if not league:
-        return leagues.home()
+        ref = leagues.default_for(user["id"])
+        if ref is None:
+            raise HTTPException(status_code=404, detail={"error": "no_leagues"})
+        return ref
     try:
-        return leagues.get(league)
+        return leagues.membership(user["id"], league)
     except SystemExit:
         raise HTTPException(status_code=404, detail={"error": "unknown_league", "league": league}) from None
 
@@ -357,15 +378,14 @@ LINEUP_KEYS = ("week", "league", "team", "starters")
 REWARM_SKIP = ("player",)  # one card per player ever opened: built again on its next open, not all at once
 
 
-def on_new_rows(rows: list[dict], ref: LeagueRef | None = None) -> None:
-    """A sync logged a move in a league (home when `ref` is None), whichever path ran it (the tick, a page build, the
+def on_new_rows(rows: list[dict], *, ref: LeagueRef) -> None:
+    """A sync logged a move in the league `ref` names, whichever path ran it (the tick, a page build, the
     reconcile). Drop every page of that league it makes stale: not expire, which serves the old page once while it
     rebuilds, so a move notice's link would open the page from before the move. Then rebuild them behind and tick
     /live's moves, so an open page refetches."""
-    r = ref if ref is not None else leagues.home()
-    espn_season.forget_current_boxes(ref=r)
-    c = cache_for(r)
-    _start_rewarm(c, c.drop_prefixes(MOVE_KEYS))
+    espn_season.forget_current_boxes(ref=ref)
+    for c in caches_for_league(ref):  # every member's pages show the move
+        _start_rewarm(c, c.drop_prefixes(MOVE_KEYS))
 
 
 _REWARMS = itertools.count()
@@ -401,18 +421,27 @@ journal.ON_NEW_ROWS.append(on_new_rows)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm the page caches so the first browser hit after a (re)start is not the cold build.
-    # Registered with the cache's thread table so join() covers it; a failure is logged and the
+    # Warm each league's owner's page cache so the first browser hit after a (re)start is not the cold build.
+    # Registered with that cache's thread table so join() covers it; a failure is logged and the
     # request path builds inline as it always did. The pages stored before the restart load first (expired), so
     # the warm-up and every first open serve them at once and rebuild behind.
-    cache.load()
-    t = threading.Thread(target=warm, daemon=True, name="cache-warm")
-    cache._threads["warm"] = t
-    t.start()
-    # One FastCast subscription per process; overlays live points on the cached payloads and
-    # wakes /live. FFL_LIVE=0 keeps it off (tests, a second dev API).
-    runner = live.Runner(week_fn=lambda: cache.get_or_build("starters:current", lambda: espn_season.league_starters(None))[0],
-                         leagues=live_leagues()) if live.enabled() else None
+    try:
+        refs = leagues.all_leagues()
+    except (db.DBError, db.SchemaError) as e:  # the pages build on first open instead
+        print(f"warm-up skipped, the registry is unreadable: {e}")
+        refs = []
+    for r in refs:
+        with _CACHES:
+            made = (r.user_id, r.key) in caches
+        c = cache_for(r)  # a new one loads its stored pages
+        if made:
+            c.load()  # one made before the app started (tests) takes them back too
+        t = threading.Thread(target=warm, args=(r,), daemon=True, name=f"cache-warm-{r.key}")
+        c._threads["warm"] = t
+        t.start()
+    # One FastCast subscription per process, every league a lane of it; overlays live points on the cached payloads
+    # and wakes /live. FFL_LIVE=0 keeps it off (tests, a second dev API).
+    runner = live.Runner(leagues=live_leagues(refs)) if live.enabled() else None
     if runner:
         runner.start()
     app.state.runner = runner
@@ -422,16 +451,14 @@ async def lifespan(app: FastAPI):
 
 
 def _starters_fn(ref: LeagueRef) -> Callable[[], dict]:
-    return lambda: cache_for(ref).get_or_build("starters:current", lambda: espn_season.league_starters(None, ref=ref))[0]
+    return lambda: cache_for(ref).get_or_build("starters:current", lambda: espn_season.league_starters(ref=ref))[0]
 
 
-def live_leagues() -> list[tuple]:
-    """Every league but home as the runner takes it: (ref, settings, starters). One whose settings cannot be read is
-    left out (logged), never the reason home's feed does not start."""
+def live_leagues(refs: list[LeagueRef]) -> list[tuple]:
+    """Every league as the runner takes it: (ref, settings, starters). One whose settings cannot be read is left out
+    (logged), never the reason another's feed does not start."""
     out = []
-    for r in leagues.all_leagues():
-        if r.home:
-            continue
+    for r in refs:
         try:
             out.append((r, load(r), _starters_fn(r)))
         except (Exception, SystemExit) as e:  # noqa: BLE001 — load exits on missing settings
@@ -439,15 +466,15 @@ def live_leagues() -> list[tuple]:
     return out
 
 
-def warm() -> None:
-    for key, fn in (("week:current", lambda: espn_season.week_state(None)),
-                    ("roster", lambda: espn_season.roster_state(None)),
-                    ("league:current", lambda: espn_season.league_state(None)),
-                    ("waivers", lambda: espn_season.free_agent_pool(None))):
+def warm(ref: LeagueRef) -> None:
+    for key, fn in (("week:current", lambda: espn_season.week_state(ref=ref)),
+                    ("roster", lambda: espn_season.roster_state(ref=ref)),
+                    ("league:current", lambda: espn_season.league_state(ref=ref)),
+                    ("waivers", lambda: espn_season.free_agent_pool(ref=ref))):
         try:
-            cache.get_or_build(key, fn)
+            cache_for(ref).get_or_build(key, fn)
         except HTTPException as e:
-            print(f"warm-up of {key} failed: {e.detail}")
+            print(f"warm-up of {ref.key} {key} failed: {e.detail}")
 
 
 app = FastAPI(title="FFL season API", lifespan=lifespan)
@@ -462,7 +489,7 @@ app.add_exception_handler(auth.SignedOut, auth.signed_out_handler)
 app.include_router(auth.router)
 
 
-def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: LeagueRef | None = None) -> dict:
+def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: LeagueRef) -> dict:
     payload, stale = cache_for(ref).get_or_build(key, fn, ttl)
     return {**payload, "stale_since": stale}
 
@@ -473,10 +500,14 @@ def health():
 
 
 @app.get("/leagues")
-def league_list():
-    """Every registered league, home first: the switcher's rows (name · provider · format)."""
+def league_list(request: Request):
+    """The signed-in user's leagues, their default first: the switcher's rows (name · provider · format). `home` is
+    the user's default (the league the web opens with no ?league=). A job's request lists every league through its
+    owner."""
+    user = (request.scope.get("state") or {}).get("user")
+    refs = leagues.for_user(user["id"]) if user else leagues.all_leagues()
     return [{"key": r.key, "name": r.name, "provider": PROVIDERS.get(r.provider, r.provider), "format": _league_format(r),
-             "home": r.home} for r in leagues.all_leagues()]
+             "home": r.is_default} for r in refs]
 
 
 def _caps(ref: LeagueRef) -> dict:
@@ -527,17 +558,14 @@ def caps_set(body: CapIn, ref: LeagueRef = Depends(open_league)):
 
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
 
-_SUBMIT = threading.Lock()  # one submit at a time: it cancels and reposts ESPN's whole claim list (home's; see _lock)
-_LINEUP = threading.Lock()  # one move at a time: the answer is read back from ESPN, and two would read each other's half (home's)
 _LOCKS_GUARD = threading.Lock()
 _LOCKS: dict[tuple[str, str], threading.Lock] = {}
 
 
 def _lock(name: str, ref: LeagueRef) -> threading.Lock:
-    """The write lock `name` ("lineup", "submit") of a league: one per league, so a move in one never 409s another's.
-    Home's are the module's `_LINEUP` and `_SUBMIT`."""
-    if ref.home:
-        return {"lineup": _LINEUP, "submit": _SUBMIT}[name]
+    """The write lock `name` of a league, one per league so a move in one never 409s another's: "lineup" (one move
+    at a time: the answer is read back from ESPN, and two would read each other's half) and "submit" (one claims submit
+    at a time: it cancels and reposts ESPN's whole claim list)."""
     with _LOCKS_GUARD:
         return _LOCKS.setdefault((name, ref.key), threading.Lock())
 
@@ -578,12 +606,12 @@ def _instant_adds() -> bool:
     return os.environ.get("FFL_INSTANT_ADDS") != "0"
 
 
-def _roster_size(*, ref: LeagueRef | None = None) -> int:
-    return int(load(ref or leagues.home())["roster_size"])
+def _roster_size(*, ref: LeagueRef) -> int:
+    return int(load(ref)["roster_size"])
 
 
-def _limits(*, ref: LeagueRef | None = None) -> dict:
-    return load(ref or leagues.home()).get("position_limits", {})
+def _limits(*, ref: LeagueRef) -> dict:
+    return load(ref).get("position_limits", {})
 
 
 def _positions(data) -> dict:
@@ -592,12 +620,12 @@ def _positions(data) -> dict:
     return {r["player_id"]: r.get("pos") for r in rows}
 
 
-def _validate(plan, roster, data, status, *, ref: LeagueRef | None = None):
+def _validate(plan, roster, data, status, *, ref: LeagueRef):
     return claims_mod.validate(plan["groups"], roster, set(_pool_rows(data)), _roster_size(ref=ref), status, _instant_adds(),
                                _owners(data), _positions(data), _limits(ref=ref))
 
 
-def _load_plan(week, max_age=0, *, ref: LeagueRef | None = None):
+def _load_plan(week, max_age=0, *, ref: LeagueRef):
     # a plan the waiver run already processed reads as retired (an empty week); the next save writes that down
     plan = db.claim_plan(week, ref=ref)
     if plan is not None:
@@ -612,7 +640,7 @@ def _load_plan(week, max_age=0, *, ref: LeagueRef | None = None):
     return {"week": week, "groups": [], "submits": []}
 
 
-def _save_plan(plan, *, ref: LeagueRef | None = None):
+def _save_plan(plan, *, ref: LeagueRef):
     plan["saved_at"] = datetime.now().isoformat(timespec="seconds")
     db.put_claim_plan(plan, ref=ref)
 
@@ -625,7 +653,7 @@ def _status(data):
     return {i: r.get("status") for i, r in _pool_rows(data).items() if r.get("status")}
 
 
-def _fresh_status(data, *, ref: LeagueRef | None = None):
+def _fresh_status(data, *, ref: LeagueRef):
     """ESPN's statuses now (the pool is cached, and the Wednesday run turns WAIVERS into FREEAGENT); the cached
     ones when the read fails, where unknown counts as WAIVERS."""
     try:
@@ -656,7 +684,7 @@ def _players(groups, data):
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
 
 
-def _claims_roster(data, *, ref: LeagueRef | None = None):
+def _claims_roster(data, *, ref: LeagueRef):
     """My roster as the claims read it: the cached pool's rows with the slots a fake lineup move (FFL_WRITES=0) put
     players in laid over, as the Roster page does, so a fake move off IR clears the IR block here too."""
     fake = espn_write.fake_slots(ref=ref)
@@ -670,7 +698,7 @@ CLAIMS_REUSE_S = 60
 JUST_READ_S = 5
 
 
-def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S, *, ref: LeagueRef | None = None):
+def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S, *, ref: LeagueRef):
     roster, status = _claims_roster(data, ref=ref), _status(data) if status is None else status
     last = plan["submits"][-1] if plan["submits"] else None
     ids = set(last["ids"]) if last else set()
@@ -729,10 +757,10 @@ def claims_save(body: PlanIn, ref: LeagueRef = Depends(open_league)):
         lock.release()
 
 
-def _keep_submit(token, answer, ref: LeagueRef | None = None):
+def _keep_submit(token, answer, ref: LeagueRef):
     _SUBMITS.pop(token, None)
     _SUBMITS[token] = answer
-    _SUBMIT_LEAGUE[token] = (ref or leagues.home()).key
+    _SUBMIT_LEAGUE[token] = ref.key
     while len(_SUBMITS) > _SUBMITS_KEPT:
         old = next(iter(_SUBMITS))
         _SUBMITS.pop(old)
@@ -760,7 +788,7 @@ def claims_submit(body: SubmitIn, ref: LeagueRef = Depends(open_league)):
 def claims_submit_answer(token: str, ref: LeagueRef = Depends(open_league)):
     """A send's answer by the dialog's token: running, or the status and body the POST answered (404: never arrived,
     or another league's)."""
-    if token not in _SUBMITS or _SUBMIT_LEAGUE.get(token, leagues.home().key) != ref.key:
+    if token not in _SUBMITS or _SUBMIT_LEAGUE.get(token) != ref.key:
         raise HTTPException(404, "no submit with that token")
     answer = _SUBMITS[token]
     return {"state": "running"} if answer is None else {"state": "done", **answer}
@@ -789,7 +817,8 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
         if period is not None and espn_season.league_period(period, ref=ref) != data["week"]:
             # as /lineup does: drop the cached League and pool, or the reload serves the same old week
             espn_season.refresh_league()
-            cache_for(ref).drop("waivers")
+            for c in caches_for_league(ref):
+                c.drop("waivers")
             raise HTTPException(409, {"error": "ESPN's week changed — reload"})
         last = plan["submits"][-1] if plan["submits"] else None
         wk = data["week"] if period is None else period
@@ -828,8 +857,9 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
             # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
             # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
             espn_season.forget_current_boxes(ref=ref)
-            c = cache_for(ref)
-            c.expire_all()
+            c, *others = caches_for_league(ref)  # every member's pages show the rosters
+            for o in (c, *others):
+                o.expire_all()
             c.rebuild("waivers", "roster", "week:current", "league:current")
         return {**res, "decisions": decs}
     finally:
@@ -845,7 +875,7 @@ class LineupIn(BaseModel):
     moves: list[LineupMove]
 
 
-def _decision_prefs(*, ref: LeagueRef | None = None) -> dict:
+def _decision_prefs(*, ref: LeagueRef) -> dict:
     """The Settings switches; read after ESPN took a move, so a DB error falls back to the defaults, never a 500."""
     try:
         return decisions_mod.merge_prefs(db.get_league_state("decision_prefs", {}, ref=ref), {})
@@ -854,7 +884,7 @@ def _decision_prefs(*, ref: LeagueRef | None = None) -> dict:
         return dict(decisions_mod.DEFAULT_PREFS)
 
 
-def _records(*, ref: LeagueRef | None = None) -> bool:
+def _records(*, ref: LeagueRef) -> bool:
     """Real writes record their decisions unless logging is off in Settings; a dev API records only under
     FFL_RECORD_FAKE=1 (a worktree test server, own DB)."""
     return (espn_write.writes() or os.environ.get("FFL_RECORD_FAKE") == "1") and _decision_prefs(ref=ref)["log"]
@@ -864,7 +894,7 @@ def _mark_fake(row: dict) -> dict:
     return row if espn_write.writes() else {**row, "title": "[fake] " + row["title"], "facts": {**(row.get("facts") or {}), "fake": True}}
 
 
-def _record(row: dict, *, ref: LeagueRef | None = None) -> dict | None:
+def _record(row: dict, *, ref: LeagueRef) -> dict | None:
     """Store a decision the app just made; the move stands whatever the DB says, so a failure is a warning and no ref."""
     try:
         return {"id": db.add_decision(row, ref=ref), "needs_rationale": row["rationale"] is None}
@@ -939,6 +969,8 @@ def lineup(body: LineupIn, ref: LeagueRef = Depends(open_league)):
             # the Matchup board, the League tile and my Team page show this lineup too: dropped, not expired, which
             # would serve the pre-move board once more; rebuilt behind, and /live ticks so an open board refetches
             _start_rewarm(c, c.drop_prefixes(LINEUP_KEYS))
+            for o in caches_for_league(ref)[1:]:  # every other member's boards show this lineup too
+                _start_rewarm(o, o.drop_prefixes(LINEUP_KEYS))
             # the claims validate against the pool's roster slots (an IR player with no designation blocks every
             # claim): the next /claims or /players builds it from the moved roster, never from the pre-move one
             c.drop("waivers")
@@ -1010,7 +1042,7 @@ class WatchIn(BaseModel):
     watched: bool
 
 
-def _watched(data: dict, *, ref: LeagueRef | None = None) -> list[dict]:
+def _watched(data: dict, *, ref: LeagueRef) -> list[dict]:
     """The pool's watched rows still watched now (an unwatch does not rebuild the pool). One now on my roster stops
     being watched: the Watch page is for players I do not have."""
     ids = set(db.watched_ids(ref=ref))
@@ -1028,7 +1060,7 @@ def _watched(data: dict, *, ref: LeagueRef | None = None) -> list[dict]:
 WATCH_BASELINES = ("above", "bench", "owner")
 
 
-def _prune_watch_state(ids: set[int], st: dict | None = None, *, ref: LeagueRef | None = None) -> dict:
+def _prune_watch_state(ids: set[int], st: dict | None = None, *, ref: LeagueRef) -> dict:
     """The pass's baselines kept only for the watched ids, written back and returned: an unwatched player's old
     owner would read as a drop when he is watched again. By the watchlist, never by the rows a pass priced: a read
     that missed a watched player keeps his baselines."""
@@ -1071,55 +1103,50 @@ def watch_page(ref: LeagueRef = Depends(open_league)):
             "ids": db.watched_ids(ref=ref), "stale_since": data["stale_since"]}
 
 
-def _key(ref: LeagueRef | None) -> str | None:
-    """The live state's name for a league: None is home (live.State.points), any other its registry key."""
-    return None if ref is None or ref.home else ref.key
-
-
-def _live_for(week: int | None, ref: LeagueRef | None = None) -> bool:
+def _live_for(week: int | None, ref: LeagueRef) -> bool:
     """Whether the feed's stored points belong to `week`. The state is tagged with the week the
-    runner scored (live.State.week, a league's own in week_for); after Monday night it keeps last week's totals
+    runner scored (live.State.week_for); after Monday night it keeps last week's totals
     until the next kickoff, while the week payload has already rolled over, so a plain "is this the
     current week" check would lay last week's points on this week's zeros. A league before its first week pages
     a week the feed has not reached, so it gets nothing either."""
-    return week is None or week == live.STATE.week_for(_key(ref))
+    return week is None or week == live.STATE.week_for(ref.key)
 
 
-def _live_points(week: int | None, ref: LeagueRef | None = None) -> dict[int, float]:
+def _live_points(week: int | None, ref: LeagueRef) -> dict[int, float]:
     """The league's live overlay for `week`: only the week the feed scored, only once it has scored something."""
-    points = live.STATE.points_for(_key(ref))
+    points = live.STATE.points_for(ref.key)
     if not points or not _live_for(week, ref):
         return {}
     return points
 
 
-def _live_games(week: int | None, ref: LeagueRef | None = None) -> dict[str, dict]:
+def _live_games(week: int | None, ref: LeagueRef) -> dict[str, dict]:
     """Game clocks for the overlay (the NFL's, one for every league), gated like the league's points."""
     if not live.STATE.games or not _live_for(week, ref):
         return {}
     return live.STATE.games
 
 
-def _live_stats(week: int | None, ref: LeagueRef | None = None) -> dict[int, dict]:
+def _live_stats(week: int | None, ref: LeagueRef) -> dict[int, dict]:
     """Raw stat rows for the overlay's stat lines, gated like the league's points."""
     if not live.STATE.stats or not _live_for(week, ref):
         return {}
     return live.STATE.stats
 
 
-def _scoring(*, ref: LeagueRef | None = None) -> list[dict] | None:
+def _scoring(*, ref: LeagueRef) -> list[dict] | None:
     """The league's stat table for the overlay's scoring breakdown; None (no breakdown) when the
     settings file cannot be read, rather than failing the page."""
     try:
-        return live.box_items(load(ref or leagues.home()))
+        return live.box_items(load(ref))
     except (Exception, SystemExit):  # noqa: BLE001 — load() exits when the file is missing
         return None
 
 
-def _playoff_weeks(*, ref: LeagueRef | None = None) -> list[int]:
+def _playoff_weeks(*, ref: LeagueRef) -> list[int]:
     """The fantasy playoffs' NFL weeks, for the NFL tab's flags; none when the settings file cannot be read."""
     try:
-        return load(ref or leagues.home()).get("playoff_weeks", [])
+        return load(ref).get("playoff_weeks", [])
     except (Exception, SystemExit):  # noqa: BLE001 — load() exits when the file is missing
         return []
 
@@ -1132,7 +1159,7 @@ def _sigma() -> dict:
 FEED_ROWS = 5
 
 
-def _plays(data: dict, limit: int | None = None, *, ref: LeagueRef | None = None) -> list[dict]:
+def _plays(data: dict, limit: int | None = None, *, ref: LeagueRef) -> list[dict]:
     """The feed rows of one board's two teams, newest first, sided for that board. The runner's store is the
     week it last scored (after Tuesday's rollover still last week's); any other week reads its stored rows,
     the in-game plays it recorded and any stat correction after it."""
@@ -1148,32 +1175,29 @@ def _plays(data: dict, limit: int | None = None, *, ref: LeagueRef | None = None
     return plays_mod.for_board(store.latest(limit, teams=teams), sides[0].get("team_id"))
 
 
-def _lane(ref: LeagueRef | None = None):
-    """The runner's lane of a league (week, store, roster, table); home's is the runner itself. None: no runner,
-    or one that does not score that league."""
+def _lane(ref: LeagueRef):
+    """The runner's lane of a league (week, store, roster, table). None: no runner, or one that does not score that
+    league."""
     runner = getattr(app.state, "runner", None)
-    if runner is None or _key(ref) is None:
-        return runner
-    lane = getattr(runner, "lane", None)
-    return lane(ref.key) if lane else None
+    return runner.lane(ref.key) if runner is not None else None
 
 
-def _play_store(week: int, *, ref: LeagueRef | None = None) -> plays_mod.Store:
+def _play_store(week: int, *, ref: LeagueRef) -> plays_mod.Store:
     """The runner's store of the league when it holds `week`, else that week's rows, plays and called-back rows
     from the DB."""
     lane = _lane(ref)
     if lane is not None and lane.store is not None and lane.week == week:
         return lane.store
-    return plays_mod.Store(week, ref=None if _key(ref) is None else ref)
+    return plays_mod.Store(week, ref=ref)
 
 
-def _record_plays(week: int, entries: list[dict], *, ref: LeagueRef | None = None) -> int:
+def _record_plays(week: int, entries: list[dict], *, ref: LeagueRef) -> int:
     """NFL plays read off ESPN's drives into a league's `week` feed store, with that week's starters; the number
     of called-back rows the week holds after."""
     lane = _lane(ref)
     live_week = lane is not None and lane.week == week and lane.roster
     roster = lane.roster if live_week else plays_mod.roster_index(espn_season.league_starters(week, ref=ref))
-    table = lane.table if live_week else fastcast.scoring_table(load(ref or leagues.home()))
+    table = lane.table if live_week else fastcast.scoring_table(load(ref))
     store = _play_store(week, ref=ref)
     store.record(entries, roster, table)
     return len(store.called)
@@ -1219,7 +1243,7 @@ def final_plays() -> dict:
     return out
 
 
-def _week_payload(data: dict, ref: LeagueRef | None = None) -> dict:
+def _week_payload(data: dict, ref: LeagueRef) -> dict:
     """A board with the league's live points laid on and its feed riding along, so one live tick refreshes both."""
     wk = data["week"]
     return {**live.overlay_week(data, _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref),
@@ -1227,7 +1251,7 @@ def _week_payload(data: dict, ref: LeagueRef | None = None) -> dict:
             "plays": _plays(data, FEED_ROWS, ref=ref)}
 
 
-def _board(n: int | None, team: int | None, *, ref: LeagueRef | None = None) -> dict:
+def _board(n: int | None, team: int | None, *, ref: LeagueRef) -> dict:
     """My week's board, or with `team` the board of that team's game; each cached under its own key."""
     if team is None:
         return _serve("week:current" if n is None else f"week:{n}", lambda: espn_season.week_state(n, ref=ref), ref=ref)
@@ -1273,7 +1297,7 @@ def team(team_id: int, ref: LeagueRef = Depends(open_league)):
                                               _live_stats(wk, ref), _scoring(ref=ref))}
 
 
-def _nfl_board(week: int, *, ref: LeagueRef | None = None) -> dict | None:
+def _nfl_board(week: int, *, ref: LeagueRef) -> dict | None:
     """My Matchup board in the open league for `week`, live points laid on, for the NFL pages. The board failing
     (ESPN fantasy down) answers None: the pages go unmarked, never unserved."""
     try:
@@ -1289,7 +1313,7 @@ def _nfl_board(week: int, *, ref: LeagueRef | None = None) -> dict | None:
     return data
 
 
-def _nfl_sides(week: int, *, ref: LeagueRef | None = None) -> tuple[list[dict], list[dict]] | None:
+def _nfl_sides(week: int, *, ref: LeagueRef) -> tuple[list[dict], list[dict]] | None:
     """My starters and my opponent's for `week` (the Matchup board's), for the NFL pages' marks. None when the
     board failed, and the game page says so rather than reading as "none of mine played"."""
     data = _nfl_board(week, ref=ref)
@@ -1298,7 +1322,7 @@ def _nfl_sides(week: int, *, ref: LeagueRef | None = None) -> tuple[list[dict], 
     return (data.get("me") or {}).get("lineup", []), (data.get("opp") or {}).get("lineup", [])
 
 
-def _nfl_teams(week: int, *, ref: LeagueRef | None = None) -> dict | None:
+def _nfl_teams(week: int, *, ref: LeagueRef) -> dict | None:
     """The two fantasy teams of my game in `week` (id, name, owner, mark, record), heading the game page's In this game table;
     `opp` None on a bye, the whole None when the board failed."""
     data = _nfl_board(week, ref=ref)
@@ -1309,7 +1333,7 @@ def _nfl_teams(week: int, *, ref: LeagueRef | None = None) -> dict | None:
     return {"me": club(data.get("me")), "opp": club(data.get("opp"))}
 
 
-def _nfl_starters(week: int, *, ref: LeagueRef | None = None) -> tuple[list[dict], list[dict]]:
+def _nfl_starters(week: int, *, ref: LeagueRef) -> tuple[list[dict], list[dict]]:
     """My starters and my opponent's for the scoreboard's per-club counts, which need only each one's club. The
     Matchup board's week reads its cached board; any other week reads the box scores' starters (league_starters,
     about a second cold) rather than pricing that week's board, which is 7-10 s cold. Failing, the scoreboard
@@ -1363,9 +1387,9 @@ def nfl_scoreboard(week: int | None = None, ref: LeagueRef = Depends(open_league
     # live gate would pass anything for None, so the feed's clocks stay off (another week's must not land on these
     # games) and so do the marks.
     wk = sb["week"] or week
-    games = nfl.overlay(sb["games"], _live_games(wk)) if wk is not None else sb["games"]
+    games = nfl.overlay(sb["games"], _live_games(wk, ref)) if wk is not None else sb["games"]
     mine, opp = _nfl_starters(wk, ref=ref) if wk is not None else ([], [])
-    return {"week": wk, "current": current, "weeks": NFL_WEEKS, "playoff_weeks": _playoff_weeks(),
+    return {"week": wk, "current": current, "weeks": NFL_WEEKS, "playoff_weeks": _playoff_weeks(ref=ref),
             "live": any(nfl.is_live(g) for g in games),
             "sections": nfl.board(games, _by_club(mine), _by_club(opp)), "byes": sb["byes"], "stale_since": stale}
 
@@ -1381,7 +1405,7 @@ def nfl_game(week: int, team: str, ref: LeagueRef = Depends(open_league)):
     game = next((g for g in sb["games"] if abbr in (g["away"]["abbr"], g["home"]["abbr"])), None)
     if game is None:
         raise HTTPException(404, f"no game for {abbr} in week {week}")
-    game = nfl.overlay([game], _live_games(week))[0]
+    game = nfl.overlay([game], _live_games(week, ref))[0]
     clubs = (game["away"]["abbr"], game["home"]["abbr"])
     ids = {game["away"]["id"]: clubs[0], game["home"]["id"]: clubs[1]}
     try:
@@ -1391,15 +1415,14 @@ def nfl_game(week: int, team: str, ref: LeagueRef = Depends(open_league)):
     runner = getattr(app.state, "runner", None)
     # another week, or no starters read yet, waits for the tick: this page polls every 15 s. Every league the
     # runner scores that week gets the plays.
-    if runner is not None and runner.store is not None and runner.week == week and runner.roster:
+    lanes = [ln for ln in (runner.lanes if runner is not None else []) if ln.store is not None and ln.week == week and ln.roster]
+    if lanes:
         entries = playbook.from_drives(drives, game["event_id"], week, clubs)
-        for ln in getattr(runner, "lanes", [runner]):
-            if ln.store is None or ln.week != week or not ln.roster:
-                continue
+        for ln in lanes:
             try:
                 ln.store.record(entries, ln.roster, ln.table)
             except Exception as e:  # noqa: BLE001 — the page never fails on the play store
-                log.warning("plays of %s not recorded for %s: %s", game["event_id"], getattr(ln, "key", None), e)
+                log.warning("plays of %s not recorded for %s: %s", game["event_id"], ln.key, e)
     sides = _nfl_sides(week, ref=ref)
     mine, opp = ([p for p in side if p.get("team") in clubs] for side in (sides or ([], [])))
     named = lambda ps: {p["player_id"]: p["name"] for p in ps if p["player_id"] > 0}  # noqa: E731
@@ -1418,14 +1441,12 @@ PLAYER_TTL = 600.0  # a game log moves once a week; the live week rides on the f
 
 @app.get("/player/{player_id}")
 def player(player_id: int, ref: LeagueRef = Depends(open_league)):
-    """One player's game log, this season and last (the season modal), the live week from the feed (home's league only)."""
+    """One player's game log, this season and last (the season modal), the live week from the feed."""
     data = _serve(f"player:{player_id}", lambda: espn_season.player_card(player_id, ref=ref), PLAYER_TTL, ref=ref)
-    if not ref.home:
-        return data
     wk = data["current_week"]
-    row, scoring = _live_stats(wk).get(player_id), _scoring()
+    row, scoring = _live_stats(wk, ref).get(player_id), _scoring(ref=ref)
     if row and scoring:
-        data = player_card.with_live(data, wk, row, scoring, _live_games(wk).get(data["team"]))
+        data = player_card.with_live(data, wk, row, scoring, _live_games(wk, ref).get(data["team"]))
     return data
 
 
@@ -1463,7 +1484,7 @@ def sources_status():
 _PRESETS = threading.Lock()  # one preset write at a time: each reads the store, changes it, writes it back
 
 
-def _player_presets(*, ref: LeagueRef | None = None) -> dict:
+def _player_presets(*, ref: LeagueRef) -> dict:
     """The Players table's views: every league's (0024), whichever league the page is open on."""
     return player_views.load(db.get_state("player_presets"))
 
@@ -1484,7 +1505,7 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
     rostered = data.get("rostered", {})  # absent from a pool cached before it existed
     # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
-    written = outlook.written(data["week"], ref=_outlook_ref(ref))
+    written = outlook.written(data["week"], ref=ref)
     capped = False
     if q:
         found = [r for half in (data["positions"], rostered) for rows in half.values() for r in rows
@@ -1509,7 +1530,7 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
             "ros_source": data.get("ros_source", "season"), "stale_since": data["stale_since"]}
 
 
-def _preset_write(change: Callable[[dict], dict], *, ref: LeagueRef | None = None) -> dict:
+def _preset_write(change: Callable[[dict], dict], *, ref: LeagueRef) -> dict:
     """Read the presets, change them, write them back, under the lock. ValueError → 422, KeyError → 404."""
     with _PRESETS:
         try:  # read and write in one locked transaction (update_state): another process's write is not lost either
@@ -1664,17 +1685,11 @@ def roster_(ref: LeagueRef = Depends(open_league)):
     data = live.overlay_roster(data, _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref), _scoring(ref=ref))
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
-    o = _outlook_ref(ref)
-    return {**data, "cards": outlook.attach(data["cards"], outlook.load(wk, ref=o), outlook.writing(ref=o)),
-            "outlook_run": {**outlook.last(o), "running": outlook.running()}}
+    return {**data, "cards": outlook.attach(data["cards"], outlook.load(wk, ref=ref), outlook.writing(ref=ref)),
+            "outlook_run": {**outlook.last(ref), "running": outlook.running()}}
 
 
-def _outlook_ref(ref: LeagueRef | None) -> LeagueRef | None:
-    """The league as the outlook store takes it: home is None, as its calls were before every league had one."""
-    return None if ref is None or ref.home else ref
-
-
-def _roster_card(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict, int]:
+def _roster_card(player_id: int, *, ref: LeagueRef) -> tuple[dict, int]:
     """His card in the cached roster and its week; 404 once he is off the roster."""
     data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
     for c in data["cards"]:
@@ -1686,7 +1701,7 @@ def _roster_card(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict,
 @app.get("/outlook/{player_id:int}")
 def card_outlook(player_id: int, ref: LeagueRef = Depends(open_league)):
     card, week = _roster_card(player_id, ref=ref)
-    return outlook.roster_entry(card, week, ref=_outlook_ref(ref))
+    return outlook.roster_entry(card, week, ref=ref)
 
 
 @app.post("/outlook/{player_id:int}", status_code=202)
@@ -1695,7 +1710,7 @@ def card_outlook_write(player_id: int, ref: LeagueRef = Depends(open_league)):
     polls the GET until `outlook_running` clears. 409 while the full run holds the Roster file."""
     card, week = _roster_card(player_id, ref=ref)
     try:
-        outlook.start_one(card, week, run=outlook.run_claude, kind=outlook.ROSTER, ref=_outlook_ref(ref))
+        outlook.start_one(card, week, run=outlook.run_claude, kind=outlook.ROSTER, ref=ref)
     except outlook.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"started": True}
@@ -1710,17 +1725,21 @@ def _roster_job(ref: LeagueRef) -> Callable[[], tuple[list[dict], int]]:
 
 
 @app.post("/outlook/refresh", status_code=202)
-def outlook_refresh(league: str | None = Query(None)):
-    """The hourly run (launchd/com.jonulak.ffl-outlook): every league in turn, one run, home's cards read first so
-    a failure to read them is this answer's 502. With ?league= only that league, an empty one home's (the Roster
-    page's button, which must not start every league's run)."""
-    first = open_league(league)
-    rest = [] if league is not None else [r for r in leagues.all_leagues() if r.key != first.key]
-    try:
-        cards, week = _roster_job(first)()
-    except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
-        raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
-    jobs = [(_outlook_ref(first), lambda: (cards, week))] + [(_outlook_ref(r), _roster_job(r)) for r in rest]
+def outlook_refresh(request: Request, league: str | None = Query(None)):
+    """The hourly run (ffl-outlook.timer, a job naming no league): every league in turn, one run, each league's
+    cards read when the run reaches it (a failure is that league's outlook_run error). With ?league= (the Roster
+    page's button; a signed-in user's request with none opens their default) only that league, its cards read
+    first so a failure to read them is this answer's 502."""
+    user = (request.scope.get("state") or {}).get("user")
+    if league is None and user is None:
+        jobs = [(r, _roster_job(r)) for r in leagues.all_leagues()]
+    else:
+        ref = open_league(request, league)
+        try:
+            cards, week = _roster_job(ref)()
+        except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
+            raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
+        jobs = [(ref, lambda: (cards, week))]
     try:
         outlook.start_leagues(jobs, run=outlook.run_claude)
     except outlook.Busy as e:
@@ -1729,7 +1748,7 @@ def outlook_refresh(league: str | None = Query(None)):
     return {"started": True, "pending": None}
 
 
-def _free_agent(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict, int]:
+def _free_agent(player_id: int, *, ref: LeagueRef) -> tuple[dict, int]:
     """His row in the cached pool and its week; 404 once he is off the wire."""
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
     for rows in data["positions"].values():
@@ -1742,7 +1761,7 @@ def _free_agent(player_id: int, *, ref: LeagueRef | None = None) -> tuple[dict, 
 @app.get("/waivers/outlook/{player_id}")
 def waiver_outlook(player_id: int, ref: LeagueRef = Depends(open_league)):
     row, week = _free_agent(player_id, ref=ref)
-    return outlook.waiver_entry(row, week, ref=_outlook_ref(ref))
+    return outlook.waiver_entry(row, week, ref=ref)
 
 
 @app.post("/waivers/outlook/{player_id}", status_code=202)
@@ -1751,21 +1770,20 @@ def waiver_outlook_write(player_id: int, ref: LeagueRef = Depends(open_league)):
     the dialog polls the GET until `running` clears."""
     row, week = _free_agent(player_id, ref=ref)
     try:
-        outlook.start_one(row, week, run=outlook.run_claude, ref=_outlook_ref(ref))
+        outlook.start_one(row, week, run=outlook.run_claude, ref=ref)
     except outlook.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"started": True}
 
 
-def sync_all(*, ref: LeagueRef | None = None) -> dict:
+def sync_all(*, ref: LeagueRef) -> dict:
     # espn_api caches current_week and the records in League.__init__; a months-old League would
     # make sync_results upsert stale scores for the weeks it still knows about.
-    r = ref if ref is not None else leagues.home()
     espn_season.refresh_league()
-    lg = espn_season.fresh_league(r)
-    settings = load(r)
-    sync_transactions(lg, ref=r)
-    sync_results(lg, settings, ref=r)
+    lg = espn_season.fresh_league(ref)
+    settings = load(ref)
+    sync_transactions(lg, ref=ref)
+    sync_results(lg, settings, ref=ref)
     return {"transactions": True, "results": True}
 
 
@@ -1777,28 +1795,28 @@ def _sync_league(ref: LeagueRef) -> int:
 
 
 @app.post("/transactions/sync")
-def transactions_sync(league: str | None = Query(None)):
+def transactions_sync(request: Request, league: str | None = Query(None)):
     """The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
     the DB's transactions table, so the record keeps up with no page open, and the weekly results into
     `results` (the nav's Refresh did that until it went). Concurrent syncs are safe: the table's
-    (season, id) key dedupes. With ?league= that league alone; with none every league, home's answer at the top
-    (its failure the 502, as before) and each other's under `leagues` (a failure reported there)."""
-    first, others, failed = open_league(league), {}, None
-    try:
-        n = _sync_league(first)
-    except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line, once the others ran
-        failed = e
-    for r in [] if league else leagues.all_leagues():
-        if r.key == first.key:
-            continue
+    (season, id) key dedupes. With ?league= (or a signed-in user's request, their default) that league alone, its
+    failure the 502; a job naming none syncs every league, each answer under `leagues` by key, and 502s (after every
+    league ran: curl's non-zero exit is the log line) when any failed."""
+    if league is not None or (request.scope.get("state") or {}).get("user") is not None:
+        ref = open_league(request, league)
         try:
-            others[r.key] = {"new": _sync_league(r)}
-        except Exception as e:  # noqa: BLE001 — another league's outage is its own line, never home's 502
-            others[r.key] = {"error": str(e)}
-    more = {"leagues": others} if others else {}
-    if failed is not None:
-        raise HTTPException(status_code=502, detail={"source": "espn", "error": str(failed), **more})
-    return {"new": n, **more}
+            return {"new": _sync_league(ref)}
+        except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
+            raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
+    out: dict = {}
+    for r in leagues.all_leagues():
+        try:
+            out[r.key] = {"new": _sync_league(r)}
+        except Exception as e:  # noqa: BLE001 — one league's outage is its own line
+            out[r.key] = {"error": str(e)}
+    if any("error" in v for v in out.values()):
+        raise HTTPException(status_code=502, detail={"source": "espn", "leagues": out})
+    return {"leagues": out}
 
 
 # --- push notifications (ffl/notify.py): the 15-minute tick, the device subscriptions, the Settings page ---
@@ -1870,8 +1888,8 @@ def trace(body: TraceIn):
 
 
 @app.get("/notify/recent")
-def notify_recent():
-    return {"notices": db.recent_notices()}
+def notify_recent(ref: LeagueRef = Depends(open_league)):
+    return {"notices": db.recent_notices(ref=ref)}
 
 
 @app.post("/notify/tick")
@@ -1881,26 +1899,40 @@ def notify_tick():
         raise HTTPException(status_code=409, detail="a notify tick is already running")
     try:
         out = notify.tick()
-        # every league's own steps (home's in the answer's top level, as before; the others under `leagues`), the
-        # NFL's plays once for all of them
-        _tick_steps(out, (("corrections", correction_pass),))
-        _tick_steps(out, (("final_plays", final_plays),))
-        _tick_steps(out, (("watch", watch_pass), ("pregame", pregame_pull)))
+        # every league's own steps under `leagues`, then the global ones once: the NFL's plays, the session sweep
         for r in leagues.all_leagues():
-            if not r.home:
-                _tick_steps(out.setdefault("leagues", {}).setdefault(r.key, {}),
-                            (("corrections", correction_pass), ("watch", watch_pass), ("pregame", pregame_pull)), ref=r)
+            _tick_steps(out.setdefault("leagues", {}).setdefault(r.key, {}),
+                        ((n, functools.partial(fn, ref=r)) for n, fn in
+                         (("rollover", rollover_pass), ("corrections", correction_pass), ("watch", watch_pass),
+                          ("pregame", pregame_pull))))
+        _tick_steps(out, (("final_plays", final_plays), ("sessions", db.sweep_sessions)))
     finally:
         _NOTIFY.release()
     return out
 
 
-def _tick_steps(out: dict, steps, *, ref: LeagueRef | None = None) -> None:
-    """Each (name, step) into `out`, for home with no argument or for the league `ref`; one that raises is reported
-    in the answer like a tick step and never fails the tick."""
+def rollover_pass(*, ref: LeagueRef) -> dict:
+    """ESPN rolled the league's week (Tuesday) since the last tick: drop its pages and the cached Leagues and rebuild
+    them behind, as a move does. Expired by their TTL instead, every page's first open showed last week once while it
+    rebuilt. The first read (nothing stored) takes a baseline only."""
+    _, period = espn_write.pending_state(60, ref=ref)
+    seen = db.get_league_state("espn_week", ref=ref)
+    if period is None or period == seen:
+        return {"week": period}
+    db.put_league_state("espn_week", period, ref=ref)
+    if seen is None:
+        return {"week": period}
+    espn_season.refresh_league()
+    on_new_rows([], ref=ref)
+    return {"week": period, "rolled_from": seen}
+
+
+def _tick_steps(out: dict, steps) -> None:
+    """Each (name, step) into `out`; one that raises is reported in the answer like a tick step and never fails the
+    tick."""
     for name, fn in steps:
         try:
-            out[name] = fn() if ref is None else fn(ref=ref)
+            out[name] = fn()
         except Exception as e:  # noqa: BLE001 — reported in the answer like a tick step, never fails the tick
             out[name] = {"error": str(e)}
 
@@ -1937,13 +1969,13 @@ def news_run():
     return {"started": True}
 
 
-def _news_context(ref: LeagueRef | None = None) -> dict:
+def _news_context(ref: LeagueRef) -> dict:
     """What the feed is dressed with: the open league's owners (read now, never stored; a failure serves the feed
     untagged with `owners_error`), the player index (names; a failure leaves them as ids with `index_error`) and the
     sources. The stories are every league's; only whose they are is the league's."""
     ctx: dict = {"owners": {}, "me": -1, "extra": {}, "index": news_players.Index()}
     try:
-        ctx["owners"], ctx["me"] = pipeline.owners() if _key(ref) is None else pipeline.owners(ref=ref)
+        ctx["owners"], ctx["me"] = pipeline.owners(ref=ref)
     except (Exception, SystemExit) as e:  # noqa: BLE001 — no league config exits; the feed still reads
         ctx["extra"]["owners_error"] = str(e) or type(e).__name__
     try:
@@ -2032,14 +2064,14 @@ def news_status():
             "haiku_usage": db.get_state(news_usage.HAIKU, {}) or {}, "jev_usage": db.get_state(news_usage.JEV, {}) or {}}
 
 
-def correction_pass(*, ref: LeagueRef | None = None) -> dict:
-    """The tick's stat-correction step for a league (home when `ref` is None; espn_season.correct_boxes): a
+def correction_pass(*, ref: LeagueRef) -> dict:
+    """The tick's stat-correction step for a league (espn_season.correct_boxes): a
     starter's corrected points go to his week's play feed (the runner's store when that is the week it holds, so
     the board sees it without a restart), and every page built on a changed week rebuilds behind its next request."""
     out = espn_season.correct_boxes(espn_season.fresh_league(ref), ref=ref)
     plays = out.pop("plays")
     runner = _lane(ref)
-    cache_ = cache_for(ref)
+    members = caches_for_league(ref)  # every member's pages are built on the changed weeks
     for w in sorted({p["week"] for p in plays}):
         rows = [p for p in plays if p["week"] == w]
         try:
@@ -2050,20 +2082,22 @@ def correction_pass(*, ref: LeagueRef | None = None) -> dict:
         except db.DBError as e:
             log.warning("stat correction plays for week %s not saved: %s", w, e)
             out.setdefault("errors", []).append(f"plays week {w}: {e}")
-    for w in out["changed"]:
-        for key in (f"week:{w}", f"league:{w}"):
-            cache_.expire(key)
-    if out["changed"]:
-        for key in ("roster", "waivers", "player", "team"):  # form rows and add read earlier weeks' points
-            cache_.expire(key)
+    for cache_ in members:
+        for w in out["changed"]:
+            for key in (f"week:{w}", f"league:{w}"):
+                cache_.expire(key)
+        if out["changed"]:
+            for key in ("roster", "waivers", "player", "team"):  # form rows and add read earlier weeks' points
+                cache_.expire(key)
     return out
 
 
-def expire_everything(*, ref: LeagueRef | None = None) -> None:
-    """Every page of the league (home when `ref` is None) and every projection/injury cache refetches on its next
+def expire_everything(*, ref: LeagueRef) -> None:
+    """Every page of the league and every projection/injury cache refetches on its next
     read. Expire, not clear: a pull while ESPN is down must still leave the stale payloads behind for the fallback
     to serve, flagged. The NFL-wide caches are expired whichever league asks."""
-    cache_for(ref).expire_all()
+    for c in caches_for_league(ref):
+        c.expire_all()
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
     espn_season.forget_current_boxes(ref=ref)  # finished weeks stay: they change only through the correction pass
@@ -2073,9 +2107,9 @@ def expire_everything(*, ref: LeagueRef | None = None) -> None:
     nfl.expire_all()  # the NFL tab's scoreboard and feeds
 
 
-def pregame_pull(now: datetime | None = None, *, ref: LeagueRef | None = None) -> list[str]:
+def pregame_pull(now: datetime | None = None, *, ref: LeagueRef) -> list[str]:
     """Once per kickoff time, inside season.PREGAME_PULL_MIN of it (the inactives are out): expire everything of the
-    league (home when `ref` is None) and rebuild its pages on a thread behind the tick. Answers the kickoffs pulled
+    league and rebuild its pages on a thread behind the tick. Answers the kickoffs pulled
     for."""
     kicks = [k for ks in espn_season.kickoffs_by_week(espn_season.fresh_league(ref)).values() for k in ks]
     pulled = set(db.get_league_state("pregame_pulls", [], ref=ref) or [])
@@ -2083,11 +2117,11 @@ def pregame_pull(now: datetime | None = None, *, ref: LeagueRef | None = None) -
     if not due:
         return []
     expire_everything(ref=ref)
-    c = cache_for(ref)
-    t = threading.Thread(target=c.rebuild_expired, daemon=True, name="cache-pregame")
-    with c._lock:
-        c._threads["pregame"] = t
-    t.start()
+    for c in caches_for_league(ref):
+        t = threading.Thread(target=c.rebuild_expired, daemon=True, name="cache-pregame")
+        with c._lock:
+            c._threads["pregame"] = t
+        t.start()
     new = {k.isoformat() for k in due}
     db.update_league_state("pregame_pulls", lambda cur: sorted(set(cur or []) | new)[-40:], [], ref=ref)  # a season's kickoffs
     return [k.isoformat() for k in due]
@@ -2096,14 +2130,14 @@ def pregame_pull(now: datetime | None = None, *, ref: LeagueRef | None = None) -
 WATCH_EVERY = timedelta(hours=1)
 
 
-def watch_pass(*, ref: LeagueRef | None = None) -> dict:
+def watch_pass(*, ref: LeagueRef) -> dict:
     """The tick's watchlist step, at most once an hour: every detector over every watched player (whoever holds
     him), the new signals stored, and one push a day for a free agent with something new (`available` included:
     it fires only once he is free). A player on another roster is never pushed. `watch_state` holds what the
     detectors compare against: who has stood ahead of him, his last worth to my roster, his last owner; it is kept
     only for the watched ids. Prices and signals come off the cached pool (up to an hour old); the pushes are gated
     on a fresh owners read, and a failed one queues nothing. Nobody watched: no pool build at all. One league's
-    pass (home when `ref` is None): its watchlist, pool, owners and pushes."""
+    pass: its watchlist, pool, owners and pushes."""
     st = db.get_league_state("watch_state", {}, ref=ref) or {}
     at = notify.now()
     t = datetime.fromisoformat(at)
@@ -2163,9 +2197,22 @@ def watch_pass(*, ref: LeagueRef | None = None) -> dict:
 
 
 @app.post("/refresh")
-def refresh(ref: LeagueRef = Depends(open_league)):
+def refresh(request: Request, league: str | None = Query(None)):
     """A forced pull by hand (curl; the nav button is gone, the notify tick's pregame_pull runs one before games).
-    Waits for every page to rebuild."""
+    Waits for every page to rebuild. With ?league= (or a signed-in user's request, their default) that league; a job
+    naming none refreshes every league, each answer under `leagues` by key."""
+    if league is None and (request.scope.get("state") or {}).get("user") is None:
+        out = {}
+        for r in leagues.all_leagues():
+            try:
+                out[r.key] = _refresh(r)
+            except HTTPException as e:  # one league's ESPN failure is its own line
+                out[r.key] = {"error": e.detail}
+        return {"leagues": out}
+    return _refresh(open_league(request, league))
+
+
+def _refresh(ref: LeagueRef) -> dict:
     expire_everything(ref=ref)
     try:
         synced = sync_all(ref=ref)

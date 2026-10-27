@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 
 from ffl import db, notify
+from tests.home import HOME_KEY, home_league
 
 T = datetime.fromisoformat("2026-10-09T10:00:00-04:00")
 
@@ -56,13 +57,13 @@ def test_switched_off_and_stale_are_marked_not_sent():
 
 
 def test_flush_holds_in_quiet_hours_and_sends_after():
-    db.add_notices([_n("move:1")])
+    db.add_notices([_n("move:1")], ref=home_league())
     db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
     sent = []
     held = notify.flush(T.replace(hour=2), send=lambda sub, payload: sent.append(payload))
-    assert held == {"held": 1} and sent == [] and len(db.unsent_notices()) == 1
+    assert held == {"held": 1} and sent == [] and len(db.unsent_notices(ref=home_league())) == 1
     out = notify.flush(T.replace(hour=7, minute=0), send=lambda sub, payload: sent.append(payload))
-    assert out["sent"] == 1 and sent[0]["url"] == "/transactions" and db.unsent_notices() == []
+    assert out["sent"] == 1 and sent[0]["url"] == f"/transactions?league={HOME_KEY}" and db.unsent_notices(ref=home_league()) == []
 
 
 def test_payload_is_declarative_with_the_legacy_fields_beside():
@@ -75,7 +76,7 @@ def test_payload_is_declarative_with_the_legacy_fields_beside():
 
 
 def test_a_dead_subscription_beside_a_live_one_still_counts_as_sent():
-    db.add_notices([_n("move:1")])
+    db.add_notices([_n("move:1")], ref=home_league())
     db.put_subscription("https://push/dead", {"p256dh": "k", "auth": "a"})
     db.put_subscription("https://push/live", {"p256dh": "k", "auth": "a"})
 
@@ -84,35 +85,35 @@ def test_a_dead_subscription_beside_a_live_one_still_counts_as_sent():
             raise Gone(410)
     out = notify.flush(T, send=send)
     assert out["sent"] == 1 and [s["endpoint"] for s in db.subscriptions()] == ["https://push/live"]
-    assert db.recent_notices()[0]["outcome"] == "sent"
+    assert db.recent_notices(ref=home_league())[0]["outcome"] == "sent"
 
 
 def test_a_network_error_leaves_the_notice_queued():
-    db.add_notices([_n("move:1")])
+    db.add_notices([_n("move:1")], ref=home_league())
     db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
 
     def send(sub, payload):
         raise ConnectionError("no network")
     out = notify.flush(T, send=send)
-    assert out["sent"] == 0 and len(db.unsent_notices()) == 1 and len(db.subscriptions()) == 1
+    assert out["sent"] == 0 and len(db.unsent_notices(ref=home_league())) == 1 and len(db.subscriptions()) == 1
 
 
 def test_no_subscription_leaves_the_queue_alone():
-    db.add_notices([_n("move:1")])
-    assert notify.flush(T, send=lambda s, p: None)["sent"] == 0 and len(db.unsent_notices()) == 1
+    db.add_notices([_n("move:1")], ref=home_league())
+    assert notify.flush(T, send=lambda s, p: None)["sent"] == 0 and len(db.unsent_notices(ref=home_league())) == 1
 
 
 def test_disabled_flush_sends_nothing():
-    db.add_notices([_n("move:1")])
-    assert notify.flush(T) == {"disabled": True} and len(db.unsent_notices()) == 1   # FFL_NOTIFY=0 in conftest
+    db.add_notices([_n("move:1")], ref=home_league())
+    assert notify.flush(T) == {"disabled": True} and len(db.unsent_notices(ref=home_league())) == 1   # FFL_NOTIFY=0 in conftest
 
 
 def test_prefs_merge_over_defaults_and_reject_bad_times():
-    assert notify.prefs() == notify.DEFAULT_PREFS
-    assert notify.put_prefs({"injury": False})["injury"] is False and notify.prefs()["move"] is True
+    assert notify.prefs(ref=home_league()) == notify.DEFAULT_PREFS
+    assert notify.put_prefs({"injury": False}, ref=home_league())["injury"] is False and notify.prefs(ref=home_league())["move"] is True
     import pytest
     with pytest.raises(ValueError):
-        notify.put_prefs({"quiet": ["25:00", "07:00"]})
+        notify.put_prefs({"quiet": ["25:00", "07:00"]}, ref=home_league())
 
 
 def test_vapid_keys_are_what_pywebpush_reads():
@@ -123,13 +124,13 @@ def test_vapid_keys_are_what_pywebpush_reads():
 
 def test_a_timeout_leaves_the_notice_queued():
     import requests
-    db.add_notices([_n("move:1")])
+    db.add_notices([_n("move:1")], ref=home_league())
     db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
 
     def send(sub, payload):
         raise requests.Timeout("hung")
     out = notify.flush(T, send=send)
-    assert out["sent"] == 0 and len(db.unsent_notices()) == 1 and len(db.subscriptions()) == 1
+    assert out["sent"] == 0 and len(db.unsent_notices(ref=home_league())) == 1 and len(db.subscriptions()) == 1
 
 
 def test_webpush_sender_passes_a_timeout(monkeypatch):
@@ -160,8 +161,8 @@ def test_an_unreadable_created_at_expires_instead_of_blocking():
 def test_prefs_reject_non_bool_switches():
     import pytest
     with pytest.raises(ValueError):
-        notify.put_prefs({"move": "false"})
-    assert notify.prefs() == notify.DEFAULT_PREFS
+        notify.put_prefs({"move": "false"}, ref=home_league())
+    assert notify.prefs(ref=home_league()) == notify.DEFAULT_PREFS
 
 
 def test_two_moves_by_one_team_collapse_into_one_fragment():
@@ -195,63 +196,61 @@ def test_more_count_is_rows_left_out_not_teams():
 
 def _other(name="Indianapolis Pro H2H Points PPR League"):
     from ffl import leagues
-    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, name, 3, False, None, None))
+    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, name, 3, None, None), user_id=0)
 
 
 def test_league_label_is_the_name_cut_at_a_word():
     from ffl import leagues
     assert notify.league_label(_other()) == "Indianapolis Pro H2H…"
-    assert notify.league_label(leagues.LeagueRef("espn:1", "espn", "1", 2026, "2026 Fantasy Football", 7, True, None, None)) \
+    assert notify.league_label(leagues.LeagueRef("espn:1", "espn", "1", 2026, "2026 Fantasy Football", 7, None, None)) \
         == "2026 Fantasy Football"
 
 
-def test_one_league_pushes_read_exactly_as_before():
-    db.add_notices([_n("move:1")])
+def test_one_league_pushes_open_and_tag_their_league():
+    db.add_notices([_n("move:1")], ref=home_league())
     db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
     sent = []
     notify.flush(T, send=lambda sub, payload: sent.append(payload))
-    assert (sent[0]["title"], sent[0]["url"], sent[0]["tag"]) == ("1 league move", "/transactions", "moves")
+    assert (sent[0]["title"], sent[0]["url"], sent[0]["tag"]) == ("1 league move", f"/transactions?league={HOME_KEY}", f"{HOME_KEY}:moves")
 
 
 def test_each_leagues_pushes_name_it_and_open_it():
     from ffl import leagues
     other = _other()
-    db.add_notices([_n("move:1"), _n("move:2", body="Lions −Y")])
+    db.add_notices([_n("move:1"), _n("move:2", body="Lions −Y")], ref=home_league())
     db.add_notices([_n("move:1"), {**_n("injury:8:9:OUT", "injury", "Starting at RB."), "url": "/roster"}], ref=other)
     db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
     sent = []
     out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
     by_url = {p["url"]: p for p in sent}
-    home = by_url["/transactions"]
-    assert home["title"] == f"2 league moves · {leagues.home().name}", "with two leagues, home's pushes name it too"
-    assert home["tag"] == "moves", "home's tap target and tag are as before"
+    home = by_url[f"/transactions?league={HOME_KEY}"]
+    assert home["title"] == f"2 league moves · {home_league().name}", "with two leagues, home's pushes name it too"
+    assert home["tag"] == f"{HOME_KEY}:moves", "every league's tap target and tag name it"
     theirs = by_url["/transactions?league=espn:999"]
     assert theirs["title"] == "1 league move · Indianapolis Pro H2H…" and theirs["tag"] == "espn:999:moves"
     assert theirs["notification"]["navigate"].endswith("/transactions?league=espn:999")
     assert by_url["/roster?league=espn:999"]["title"] == "t · Indianapolis Pro H2H…"
-    assert out["sent"] == 3 and db.unsent_notices() == [] and db.unsent_notices(ref=other) == []
+    assert out["sent"] == 3 and db.unsent_notices(ref=home_league()) == [] and db.unsent_notices(ref=other) == []
     assert {n["outcome"] for n in db.recent_notices(ref=other)} == {"sent"}
-    assert leagues.home().home
 
 
 def test_a_url_with_a_query_takes_the_league_after_it():
     assert notify.league_url("/players?watch=1", _other()) == "/players?watch=1&league=espn:999"
-    from ffl import leagues
-    assert notify.league_url("/players?watch=1", leagues.home()) == "/players?watch=1"
+    assert notify.league_url("/players?watch=1", home_league()) == f"/players?watch=1&league={HOME_KEY}"
 
 
 def test_switches_are_per_league_quiet_hours_global():
     other = _other()
     assert notify.prefs(ref=other) == notify.DEFAULT_PREFS
     notify.put_prefs({"move": False, "quiet": ["22:00", "06:00"]}, ref=other)
-    assert notify.prefs(ref=other)["move"] is False and notify.prefs()["move"] is True
-    assert notify.prefs()["quiet"] == ["22:00", "06:00"], "quiet hours are every league's"
-    notify.put_prefs({"injury": False})
-    assert notify.prefs(ref=other)["injury"] is True and notify.prefs()["injury"] is False
+    assert notify.prefs(ref=other)["move"] is False and notify.prefs(ref=home_league())["move"] is True
+    assert notify.prefs(ref=home_league())["quiet"] == ["22:00", "06:00"], "quiet hours are every league's"
+    notify.put_prefs({"injury": False}, ref=home_league())
+    assert notify.prefs(ref=other)["injury"] is True and notify.prefs(ref=home_league())["injury"] is False
     db.add_notices([_n("move:1")], ref=other)
-    db.add_notices([_n("move:1")])
+    db.add_notices([_n("move:1")], ref=home_league())
     db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
     sent = []
     out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
-    assert [p["url"] for p in sent] == ["/transactions"] and out["off"] == 1
+    assert [p["url"] for p in sent] == [f"/transactions?league={HOME_KEY}"] and out["off"] == 1
     assert db.recent_notices(ref=other)[0]["outcome"] == "off"

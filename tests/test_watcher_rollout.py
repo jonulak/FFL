@@ -10,6 +10,7 @@ from ffl import draft_watch as dw
 
 from .test_board import make_players
 from .test_rollout import SETTINGS_2QB
+from tests.home import home_league
 
 
 def _inputs():
@@ -26,16 +27,16 @@ def _inputs():
     return settings, players, adp
 
 
-def _watcher(monkeypatch, tmp_path, flag: str | None, ref=None):
+def _watcher(monkeypatch, tmp_path, flag: str | None, ref=None):  # the home league unless named
     if flag is None:
         monkeypatch.delenv("FFL_ROLLOUT", raising=False)
     else:
         monkeypatch.setenv("FFL_ROLLOUT", flag)
     monkeypatch.setenv("FFL_ROLLOUT_SIMS", "20")
     settings, players, adp = _inputs()
-    monkeypatch.setattr(board_mod, "load_inputs", lambda ref=None: (settings, players, adp))
-    monkeypatch.setattr(dw, "my_team_id", lambda s, ref=None: 3)
-    return dw.Watcher(ref), players
+    monkeypatch.setattr(board_mod, "load_inputs", lambda ref: (settings, players, adp))
+    monkeypatch.setattr(dw, "my_team_id", lambda s, ref: 3)
+    return dw.Watcher(ref or home_league()), players
 
 
 def _wait_for_rollout_threads():
@@ -80,7 +81,7 @@ def test_rollout_not_run_far_from_my_pick(monkeypatch, tmp_path, capsys):
     # advance to a state five picks from mine: no rollout
     w2, players = _watcher(monkeypatch, tmp_path, "1")
     monkeypatch.setattr(dw, "my_team_id", lambda s, ref=None: 8)
-    w2 = dw.Watcher()
+    w2 = dw.Watcher(ref=home_league())
     state = w2.tick([], on_clock=1)
     assert state["picks_until_me"] > 2
     w2.print_board(state)

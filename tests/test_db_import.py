@@ -3,6 +3,7 @@ import json
 import pytest
 
 from ffl import db, db_import
+from tests.home import home_league
 
 PICK = ("1,1,1,6,henry's Imposing Team,3918298,Josh Allen,QB,BUF,1.9,4.0,360.8,2026-09-07T19:00:10\n"
         "2,1,2,2,Michael's Magnificent Team,4426348,Jayden Daniels,QB,WSH,,,,\n")
@@ -47,19 +48,19 @@ def test_import_every_store_and_counts(tree):
     report = {r["table"]: r for r in db_import.run(journal, data, 2026)}
     assert all(r["in_db"] >= r["source"] > 0 for r in report.values()), report
     assert report["outlooks"]["source"] == 2 and report["plays"]["source"] == 2
-    assert report["decisions"]["source"] == 1 and db.count("decisions", 2026) == 1
-    assert db.transactions()[0]["player_id"] == 4688380
-    assert db.transactions()[1]["bid"] == 12
-    assert db.picks()[0] == {"overall": 1, "round": 1, "pick": 1, "team_id": 6, "team": "henry's Imposing Team",
+    assert report["decisions"]["source"] == 1 and db.count("decisions", 2026, ref=home_league()) == 1
+    assert db.transactions(ref=home_league())[0]["player_id"] == 4688380
+    assert db.transactions(ref=home_league())[1]["bid"] == 12
+    assert db.picks(ref=home_league())[0] == {"overall": 1, "round": 1, "pick": 1, "team_id": 6, "team": "henry's Imposing Team",
                              "player_id": 3918298, "player": "Josh Allen", "pos": "QB", "nfl": "BUF",
                              "adp_2qb": 1.9, "board_rank_at_pick": 4.0, "proj": 360.8, "ts": "2026-09-07T19:00:10"}
-    assert db.picks()[1]["ts"] is None and db.picks()[1]["proj"] is None
-    assert db.results_rows()[0]["my_score"] == 187.92
-    assert db.plays_rows(1)[1]["text"] == "run"
-    assert db.outlooks_for(5, "waivers-week") and set(db.outlooks_for(5, "week")) == {1}
-    assert db.snapshots()[0]["k"] == 4 and len(db.snapshots()[0]["rows"]) == 2
+    assert db.picks(ref=home_league())[1]["ts"] is None and db.picks(ref=home_league())[1]["proj"] is None
+    assert db.results_rows(ref=home_league())[0]["my_score"] == 187.92
+    assert db.plays_rows(1, ref=home_league())[1]["text"] == "run"
+    assert db.outlooks_for(5, "waivers-week", ref=home_league()) and set(db.outlooks_for(5, "week", ref=home_league())) == {1}
+    assert db.snapshots(ref=home_league())[0]["k"] == 4 and len(db.snapshots(ref=home_league())[0]["rows"]) == 2
     assert db.latest_sigma()["weeks"] == [1, 2, 3, 4]
-    assert db.claim_plan(5)["week"] == 5
+    assert db.claim_plan(5, ref=home_league())["week"] == 5
 
 
 def test_import_files_rows_under_home(tree):
@@ -83,11 +84,11 @@ def test_import_twice_is_a_no_op(tree):
 def test_import_never_overwrites_newer_db_rows(tree):
     journal, data = tree
     db_import.run(journal, data, 2026)
-    db.put_outlooks(5, "week", {1: {"hash": "newer", "bullets": ["fresh"]}})
-    db.put_claim_plan({"week": 5, "groups": ["newer"]})
+    db.put_outlooks(5, "week", {1: {"hash": "newer", "bullets": ["fresh"]}}, ref=home_league())
+    db.put_claim_plan({"week": 5, "groups": ["newer"]}, ref=home_league())
     db_import.run(journal, data, 2026)
-    assert db.outlooks_for(5, "week")[1]["hash"] == "newer"
-    assert db.claim_plan(5)["groups"] == ["newer"]
+    assert db.outlooks_for(5, "week", ref=home_league())[1]["hash"] == "newer"
+    assert db.claim_plan(5, ref=home_league())["groups"] == ["newer"]
 
 
 def test_missing_sources_are_skipped(tmp_path):
@@ -130,7 +131,7 @@ def test_insert_new_batches_past_the_bind_limit():
             for i in range(1700)]
     assert db.insert_new("plays", rows) == 1700
     assert db.insert_new("plays", rows) == 0
-    assert db.count("plays") == 1700
+    assert db.count("plays", ref=home_league()) == 1700
 
 
 def test_main_exit_code_follows_counts(tree, monkeypatch):
@@ -146,11 +147,11 @@ def test_decisions_import_is_idempotent(tmp_path):
     first = {r["table"]: r for r in db_import.run(tmp_path, tmp_path, 2026)}["decisions"]
     assert (first["source"], first["new"], first["dupes"]) == (5, 5, 0)
     again = {r["table"]: r for r in db_import.run(tmp_path, tmp_path, 2026)}["decisions"]
-    assert again["new"] == 0 and db.count("decisions", 2026) == 5
+    assert again["new"] == 0 and db.count("decisions", 2026, ref=home_league()) == 5
 
 
 def test_decisions_import_dates_in_season_entries_with_settings_week1(tmp_path):
     (tmp_path / "DECISIONS.md").write_text("## 2026-10-02 — Drop Waller, add Mayer\n- **Decision:** add Mayer\n")
     (tmp_path / "settings.json").write_text(json.dumps({"week1_start": "2026-09-08"}))
     db_import.run(tmp_path, tmp_path, 2026)
-    assert [r["week"] for r in db.decisions(2026)] == [4]
+    assert [r["week"] for r in db.decisions(2026, ref=home_league())] == [4]

@@ -185,11 +185,10 @@ def with_usage(players: pd.DataFrame, use: dict[tuple[str, str], dict]) -> pd.Da
     return df
 
 
-def load_inputs(ref=None):
-    """(settings, players, adp) for the league (None: the current one), from the DB: ESPN's pool for its
+def load_inputs(ref):
+    """(settings, players, adp) for the league, from the DB: ESPN's pool for its
     formats with Sleeper's projections averaged in, and its ADP feeds. A mid-season draft adds what a
     preseason one has no use for: rest-of-season projections, the injuries feed and recent usage."""
-    ref = ref or leagues.current()
     settings = load(ref)
     players = merge_sleeper(players_mod.pool(ref), sleeper_mod.season_players(ref))
     w = start_week(settings)
@@ -321,7 +320,7 @@ def to_markdown(df: pd.DataFrame, settings: dict, top_n: int = 40) -> str:
 
 def main(argv: list[str] | None = None):
     argv = sys.argv[1:] if argv is None else argv
-    settings, players, adp = load_inputs(leagues.get(argv[0]) if argv else None)
+    settings, players, adp = load_inputs(leagues.acting(argv[0] if argv else None))
     df = build(settings, players, adp)
     print(to_markdown(df, settings))
 

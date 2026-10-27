@@ -73,14 +73,14 @@ def ranked(rows: list[dict], pos: str, top: int, min_games: int, min_adj: float)
     return sorted(keep, key=lambda r: -r["form"]["pace_gap"])[:top]
 
 
-def build(top: int = 14, min_games: int = 2, min_adj: float = 60.0) -> dict:
-    lg = E.fresh_league()
-    settings = E.load()
+def build(top: int = 14, min_games: int = 2, min_adj: float = 60.0, *, ref) -> dict:
+    lg = E.fresh_league(ref)
+    settings = E.load(ref)
     week = lg.current_week
     rw = E.ros_week_for(lg, week)
-    me = E.my_team_id(lg)
+    me = E.my_team_id(lg, ref)
     src = E.weekly_sources(week, settings)
-    seas = E._season_for(settings, None, rw)
+    seas = E._season_for(settings, None, rw, ref=ref)
     inj, w1 = E._injuries_for(None), E._week1_start(settings)
     home = E.home_by_team(lg, week)
     byes, weeks = E.bye_by_team(lg), E.form_weeks(week)
@@ -88,7 +88,7 @@ def build(top: int = 14, min_games: int = 2, min_adj: float = 60.0) -> dict:
     refs, exp, usage = E.snap_refs(snap_weeks), E._exp_for(weeks, None), E._usage_for(weeks, None)
     names = {t.team_id: t.team_name for t in lg.teams}
 
-    boxes = {w: E._boxes_by_team(lg, w) for w in weeks}
+    boxes = {w: E._boxes_by_team(lg, w, ref=ref) for w in weeks}
     games: dict[int, list] = defaultdict(list)
     for w in weeks:
         for lineup in boxes[w].values():
@@ -171,8 +171,10 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--min-games", type=int, default=2)
     ap.add_argument("--min-adj", type=float, default=60.0)
     ap.add_argument("--json", help="also write the full report (every row) here")
+    ap.add_argument("--league", help="a registry key (default: FFL_LEAGUE, else FFL_USER's default)")
     a = ap.parse_args(argv)
-    report = build(a.top, a.min_games, a.min_adj)
+    from . import leagues
+    report = build(a.top, a.min_games, a.min_adj, ref=leagues.acting(a.league))
     if a.json:
         with open(a.json, "w") as fh:
             json.dump(report, fh)

@@ -89,5 +89,5 @@ if __name__ == "__main__":
                    sys.argv[3] if len(sys.argv) > 3 else None)
     else:
         from . import leagues
-        ref = leagues.current()
+        ref = leagues.acting()
         launch(config.league_url(ref) if cmd == "league" else config.draft_room_url(ref))

@@ -6,6 +6,7 @@ from ffl import db, notify
 from ffl.newsdesk import pipeline
 from ffl.newsdesk.players import Index
 from ffl.newsdesk.write import run as write_run  # the real one: the stages fixture stubs write.run
+from tests.home import HOME_KEY, home_league
 
 INDEX = Index(by_id={1: {"name": "Jalen Hurts", "pos": "QB", "team": "PHI"},
                      3: {"name": "Tank Bigsby", "pos": "RB", "team": "PHI"}})
@@ -31,7 +32,7 @@ def stages(monkeypatch):
     monkeypatch.setattr(pipeline.media, "run_all", stub("media", {"new": 0}))
     monkeypatch.setattr(pipeline.tag, "run", stub("tag", {"tagged": 0}))
     monkeypatch.setattr(pipeline.write, "run", stub("write", lambda: {"written": len(written), "written_ids": list(written)}))
-    monkeypatch.setattr(pipeline, "owners", lambda: ({1: {"team_id": ME}}, ME))
+    monkeypatch.setattr(pipeline, "owners", lambda *, ref: ({1: {"team_id": ME}}, ME))
     return calls, written
 
 
@@ -50,12 +51,12 @@ def make(players, rev=1, headline="Hurts hurt", status="live"):
 
 
 def keys():
-    return [n["key"] for n in db.unsent_notices()]
+    return [n["key"] for n in db.unsent_notices(ref=home_league())]
 
 
 def flushed():
     """The queue sent, as the flush marks it."""
-    db.mark_notices(keys(), "sent", notify.now())
+    db.mark_notices(keys(), "sent", notify.now(), ref=home_league())
 
 
 def test_pipeline_stage_failure_reported_rest_run(stages, monkeypatch):
@@ -68,7 +69,7 @@ def test_pipeline_stage_failure_reported_rest_run(stages, monkeypatch):
     out = pipeline.run()
     assert out["collect"] == {"error": "RuntimeError: feeds down"}
     assert calls == ["seed", "index", "recheck", "media", "tag", "write"]
-    assert out["tag"] == {"tagged": 0} and out["notices"] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0} and out["health"] == 0
+    assert out["tag"] == {"tagged": 0} and out["notices"]["leagues"][HOME_KEY] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0} and out["health"] == 0
     assert db.get_state("news_last_run")["stages"]["collect"] == {"error": "RuntimeError: feeds down"}
 
 
@@ -90,12 +91,12 @@ def test_written_story_pushes_once(stages):
     sid = make([(1, "down", "injury")])
     written.append((sid, 1))
     out = pipeline.run()
-    assert out["notices"] == {"stories": 1, "queued": 1, "superseded": 0, "watch": 0}
-    [n] = db.unsent_notices()
+    assert out["notices"]["leagues"][HOME_KEY] == {"stories": 1, "queued": 1, "superseded": 0, "watch": 0}
+    [n] = db.unsent_notices(ref=home_league())
     assert (n["key"], n["title"], n["body"], n["url"]) == (f"news:{sid}:1", "Hurts hurt", "▼ Jalen Hurts: A reason.",
                                                           f"/news?story={sid}")
     written.clear()
-    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
 
 
 def test_dedupe_one_push_per_player_kind_per_day(stages):
@@ -125,7 +126,7 @@ def test_dedupe_lapses_after_a_day(stages):
     written[:] = [(a, 1)]
     pipeline.run()
     old = (datetime.now().astimezone() - timedelta(hours=25)).isoformat(timespec="seconds")
-    db.mark_notices(keys(), "sent", old)
+    db.mark_notices(keys(), "sent", old, ref=home_league())
     with db._write() as conn:
         conn.execute(db.notices.update().values(created_at=old))
     b = make([(1, "down", "injury")])
@@ -157,7 +158,7 @@ def test_material_update_pushes_again(stages):
 
 
 def outcomes():
-    return {n["key"]: n["outcome"] for n in db.recent_notices(50)}
+    return {n["key"]: n["outcome"] for n in db.recent_notices(50, ref=home_league())}
 
 
 def test_newer_rev_supersedes_unsent(stages):
@@ -169,7 +170,7 @@ def test_newer_rev_supersedes_unsent(stages):
         db._bump_story(conn, sid, db.SEASON)
     db.put_story_words(sid, 2, "Hurts out longer", "Overview.", {1: ("Out four weeks now.", False)})
     written[:] = [(sid, 2)]
-    assert pipeline.run()["notices"] == {"stories": 1, "queued": 1, "superseded": 1, "watch": 0}
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY] == {"stories": 1, "queued": 1, "superseded": 1, "watch": 0}
     assert keys() == [f"news:{sid}:2"]
     assert outcomes()[f"news:{sid}:1"] == "superseded"
 
@@ -193,7 +194,7 @@ def queued_then(written, rev2, status=None, flag=False, headline="Correction: Hu
 def test_corrected_while_queued_qualifying(stages):
     _, written = stages
     sid = queued_then(written, "Out four weeks, not two.", status="corrected")
-    [n] = db.unsent_notices()
+    [n] = db.unsent_notices(ref=home_league())
     assert (n["key"], n["title"]) == (f"news:{sid}:2", "Correction: Hurts out longer")
     assert outcomes()[f"news:{sid}:1"] == "superseded"
 
@@ -213,17 +214,17 @@ def test_live_rev2_not_qualifying_supersedes_rev1(stages):
 def test_no_index_leaves_the_written_revisions_waiting(stages, monkeypatch):
     _, written = stages
     sid = make([(1, "down", "injury")])
-    db.put_league_state(pipeline.PENDING, [[sid, 1, notify.now()]])  # written by a run whose notices stage failed
+    db.put_league_state(pipeline.PENDING, [[sid, 1, notify.now()]], ref=home_league())  # written by a run whose notices stage failed
 
-    def exits():
+    def exits(*, ref):
         raise SystemExit("no LEAGUE_ID in .env")
 
     monkeypatch.setattr(pipeline.players, "fetch_index", exits)
     assert pipeline.run()["notices"] == {"skipped": "no player index"}
-    assert keys() == [] and db.get_league_state(pipeline.PENDING)[0][:2] == [sid, 1]
+    assert keys() == [] and db.get_league_state(pipeline.PENDING, ref=home_league())[0][:2] == [sid, 1]
     monkeypatch.setattr(pipeline.players, "fetch_index", lambda: INDEX)
     pipeline.run()
-    assert [n["body"] for n in db.unsent_notices()] == ["▼ Jalen Hurts: A reason."]
+    assert [n["body"] for n in db.unsent_notices(ref=home_league())] == ["▼ Jalen Hurts: A reason."]
 
 
 def test_retraction_supersedes_an_unsent_original(stages):
@@ -250,7 +251,7 @@ def test_corrected_story_never_pushed_runs_as_news(stages):
     db.put_story_words(sid, 2, "Correction: Hurts out", "Overview.", {1: ("Out after all.", False)})
     written[:] = [(sid, 2)]
     pipeline.run()
-    [n] = db.unsent_notices()
+    [n] = db.unsent_notices(ref=home_league())
     assert (n["key"], n["title"], n["body"]) == (f"news:{sid}:2", "Correction: Hurts out", "▼ Jalen Hurts: Out after all.")
 
 
@@ -261,7 +262,7 @@ def test_old_news_does_not_push(stages):
     with db._write() as conn:  # the first run's backlog: written now, published seven hours ago
         conn.execute(db.news_items_table.update().values(published_at=old))
     written[:] = [(sid, 1)]
-    assert pipeline.run()["notices"]["queued"] == 0
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY]["queued"] == 0
     assert keys() == []
 
 
@@ -276,13 +277,13 @@ def test_retraction_pushes_status_only_after_the_original(stages):
     db.put_story_words(sid, 2, "Report withdrawn: Hurts hurt", "Withdrawn.", {1: ("Withdrawn.", False)})
     written[:] = [(sid, 2)]
     pipeline.run()
-    [n] = db.unsent_notices()
+    [n] = db.unsent_notices(ref=home_league())
     assert (n["key"], n["title"], n["body"]) == (f"news:{sid}:retracted", "Retracted: Report withdrawn: Hurts hurt",
                                                  "Pro Football Talk")  # the source's name, not its id
     never = make([(1, "down", "trade")], rev=2, status="retracted")
     written[:] = [(never, 2)]
     pipeline.run()
-    assert len(db.unsent_notices()) == 1
+    assert len(db.unsent_notices(ref=home_league())) == 1
 
 
 def test_owners_failing_queues_nothing_and_keeps_the_stories(stages, monkeypatch):
@@ -290,13 +291,13 @@ def test_owners_failing_queues_nothing_and_keeps_the_stories(stages, monkeypatch
     sid = make([(1, "down", "injury")])
     written[:] = [(sid, 1)]
 
-    def exits():
+    def exits(*, ref):
         raise SystemExit("no LEAGUE_ID in .env")
 
     monkeypatch.setattr(pipeline, "owners", exits)
-    assert pipeline.run()["notices"] == {"error": "SystemExit: no LEAGUE_ID in .env"}
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY] == {"error": "SystemExit: no LEAGUE_ID in .env"}
     assert keys() == []
-    monkeypatch.setattr(pipeline, "owners", lambda: ({1: {"team_id": ME}}, ME))
+    monkeypatch.setattr(pipeline, "owners", lambda *, ref: ({1: {"team_id": ME}}, ME))
     written.clear()
     pipeline.run()  # ESPN is back: the story written during the outage pushes now
     assert keys() == [f"news:{sid}:1"]
@@ -308,7 +309,7 @@ def test_muted_player_never_pushes(stages):
     sid = make([(1, "down", "injury"), (3, "up", "role")])
     written[:] = [(sid, 1)]
     pipeline.run()
-    assert [n["body"] for n in db.unsent_notices()] == ["▲ Tank Bigsby: A reason."]
+    assert [n["body"] for n in db.unsent_notices(ref=home_league())] == ["▲ Tank Bigsby: A reason."]
 
 
 def test_stale_headline_rewrites_without_push(stages):
@@ -334,7 +335,7 @@ def test_stale_headline_rewrites_without_push(stages):
     assert (out["written"], out["refreshed"], out["written_ids"]) == (2, 2, [])
     assert db.story(sent)["headline"] == f"New headline {sent}" and db.story(sent)["rev"] == 1
     written[:] = out["written_ids"]
-    assert pipeline.run()["notices"] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
     assert keys() == [f"news:{waiting}:1"] and outcomes()[f"news:{sent}:1"] == "sent"
 
 
@@ -342,7 +343,7 @@ def _up(pid, prob, owned=False, watched=True):
     sid = make([(pid, "up", "role")])
     db.put_story_players(sid, [{"player_id": pid, "effect": "up", "kind": "role", "prob": prob, "confidence": 0.5}])
     if watched:
-        db.put_watch(pid, True)
+        db.put_watch(pid, True, ref=home_league())
     return sid
 
 
@@ -351,28 +352,28 @@ def test_watched_up_story_signals_and_pushes(stages):
     sid = _up(3, 0.6)
     written.append((sid, 1))
     out = pipeline.run()
-    assert out["notices"]["watch"] == 1
+    assert out["notices"]["leagues"][HOME_KEY]["watch"] == 1
     [s] = _signals()
     assert s["key"] == f"news:3:{sid}:1"
-    [n] = db.unsent_notices()
+    [n] = db.unsent_notices(ref=home_league())
     assert n["key"] == f"watch:3:{notify.now()[:10]}" and n["kind"] == "watch" and n["title"] == "Tank Bigsby"
     written.clear()
     written.append((sid, 1))
-    assert pipeline.run()["notices"]["watch"] == 0  # the same revision again: no second push
-    assert len(db.unsent_notices()) == 1
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY]["watch"] == 0  # the same revision again: no second push
+    assert len(db.unsent_notices(ref=home_league())) == 1
 
 
 def _signals():
-    return db.watch_signals("1970-01-01")
+    return db.watch_signals("1970-01-01", ref=home_league())
 
 
 def test_watched_rostered_elsewhere_no_push(stages, monkeypatch):
     _, written = stages
-    monkeypatch.setattr(pipeline, "owners", lambda: ({3: {"team_id": 2}}, ME))
+    monkeypatch.setattr(pipeline, "owners", lambda *, ref: ({3: {"team_id": 2}}, ME))
     sid = _up(3, 0.6)
     written.append((sid, 1))
-    assert pipeline.run()["notices"]["watch"] == 1
-    assert len(_signals()) == 1 and db.unsent_notices() == []
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY]["watch"] == 1
+    assert len(_signals()) == 1 and db.unsent_notices(ref=home_league()) == []
 
 
 def test_watched_already_in_news_push_no_second(stages):
@@ -388,7 +389,7 @@ def test_unwatched_up_story_no_signal(stages):
     sid = _up(3, 0.6, watched=False)
     written.append((sid, 1))
     pipeline.run()
-    assert _signals() == [] and db.unsent_notices() == []
+    assert _signals() == [] and db.unsent_notices(ref=home_league()) == []
 
 
 def test_watch_db_errors_leave_the_news_push(stages, monkeypatch):
@@ -401,7 +402,7 @@ def test_watch_db_errors_leave_the_news_push(stages, monkeypatch):
 
     monkeypatch.setattr(db, "watched_ids", boom)
     monkeypatch.setattr(db, "add_watch_signals", boom)
-    assert pipeline.run()["notices"]["queued"] == 1
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY]["queued"] == 1
     assert keys() == [f"news:{sid}:1"]
 
 
@@ -412,32 +413,32 @@ def test_watch_signal_wants_news_still_new(stages):
     with db._write() as c:
         c.execute(db.news_items_table.update().values(published_at=old))
     written.append((sid, 1))
-    assert pipeline.run()["notices"]["watch"] == 0
-    assert _signals() == [] and db.unsent_notices() == []
+    assert pipeline.run()["notices"]["leagues"][HOME_KEY]["watch"] == 0
+    assert _signals() == [] and db.unsent_notices(ref=home_league()) == []
 
 
 def test_every_league_gets_its_own_news_pushes(stages, monkeypatch):
     from ffl import leagues
-    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
     _, written = stages
     sid = make([(1, "down", "injury")])
     written[:] = [(sid, 1)]
-    owners = {None: ({1: {"team_id": ME}}, ME), "espn:999": ({1: {"team_id": 3}}, 3)}  # mine in both
-    monkeypatch.setattr(pipeline, "owners", lambda *, ref=None: owners[ref.key if ref else None])
+    owners = {HOME_KEY: ({1: {"team_id": ME}}, ME), "espn:999": ({1: {"team_id": 3}}, 3)}  # mine in both
+    monkeypatch.setattr(pipeline, "owners", lambda *, ref: owners[ref.key])
     out = pipeline.run()["notices"]
-    assert out["queued"] == 1 and out["leagues"]["espn:999"]["queued"] == 1
+    assert out["leagues"][HOME_KEY]["queued"] == 1 and out["leagues"]["espn:999"]["queued"] == 1
     assert keys() == [f"news:{sid}:1"] and [n["key"] for n in db.unsent_notices(ref=other)] == [f"news:{sid}:1"]
 
 
 def test_another_leagues_owners_failing_never_holds_back_home(stages, monkeypatch):
     from ffl import leagues
-    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
     _, written = stages
     sid = make([(1, "down", "injury")])
     written[:] = [(sid, 1)]
 
-    def owners(*, ref=None):
-        if ref is not None:
+    def owners(*, ref):
+        if ref.key != HOME_KEY:
             raise RuntimeError("espn down")
         return {1: {"team_id": ME}}, ME
     monkeypatch.setattr(pipeline, "owners", owners)

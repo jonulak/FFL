@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from ffl import db, playbook, plays
+from tests.home import home_league
 
 # the league's table for the stats a called-back play is read for (settings.json)
 TABLE = {3: 0.04, 4: 4.0, 24: 0.1, 25: 6.0, 42: 0.1, 43: 6.0, 53: 1.0, 80: 3.0, 77: 4.0, 198: 5.0, 201: 6.0, 86: 1.0,
@@ -90,7 +91,7 @@ def test_from_drives_turns_washington_into_one_spelling():
 
 
 def test_store_records_plays_and_keeps_called_back_rows_current():
-    store = plays.Store(3)
+    store = plays.Store(3, ref=home_league())
     store.add([{"at": "2026-09-27T19:06:31", "week": 3, "player_id": 1, "team_id": 7, "delta": 3.5, "total": 26.58,
                 "text": "B.Purdy scrambles left end for 45 yards, TOUCHDOWN.", "play_id": "p1", "match": "player"}])
     store.record([{**SCRAMBLE, "source": "live"}], ROSTER, TABLE)
@@ -98,10 +99,10 @@ def test_store_records_plays_and_keeps_called_back_rows_current():
     assert row["delta"] == 3.5 and row["called_back"] == {"would_be": 10.5, "kept": 3.5}, \
         "one row: the 3.5 he kept, of the 10.5 called back"
     assert row["text"] == SCRAMBLE["text"], "a row carrying a call-back reads the newest wording"
-    reloaded = plays.Store(3)
+    reloaded = plays.Store(3, ref=home_league())
     assert reloaded.called == store.called and reloaded.book["p1"]["text"] == SCRAMBLE["text"]
     store.record([{**SCRAMBLE, "text": "B.Purdy scrambles left end for 45 yards, TOUCHDOWN."}], ROSTER, TABLE)
-    assert store.called == {} and db.called_back_rows(3) == [], "upheld on review: the row goes"
+    assert store.called == {} and db.called_back_rows(3, ref=home_league()) == [], "upheld on review: the row goes"
 
 
 def test_final_plays_reads_a_game_once_final_half_an_hour_even_if_opened_mid_game(monkeypatch):
@@ -118,14 +119,14 @@ def test_final_plays_reads_a_game_once_final_half_an_hour_even_if_opened_mid_gam
     assert api.final_plays() == {} and recorded == [], "just final: ESPN's drives can lag the whistle"
     clock[0] += api.FINAL_PLAYS_AFTER
     assert api.final_plays() == {"6": 1} and recorded[0][1][0]["play_id"] == "9"
-    assert db.get_league_state("final_plays_done") == ["e1"]
+    assert db.get_league_state("final_plays_done", ref=home_league()) == ["e1"]
     clock[0] += 3600
     assert api.final_plays() == {} and len(recorded) == 1, "read once"
 
 
 def test_final_plays_records_every_league_once_each(monkeypatch):
     from ffl import api, leagues, nfl
-    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, False, None, None))
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
     game = {"event_id": "e1", "status": "post", "away": {"abbr": "SF", "id": "25"}, "home": {"abbr": "ARI", "id": "22"}}
     monkeypatch.setattr(nfl, "scoreboard", lambda week: ({"week": 6, "games": [game] if week == 6 else []}, None))
     fetched = []
@@ -134,7 +135,7 @@ def test_final_plays_records_every_league_once_each(monkeypatch):
     recorded = []
     monkeypatch.setattr(api, "_record_plays", lambda week, entries, *, ref=None: recorded.append(ref.key))
     monkeypatch.setattr(api, "_FINAL_SEEN", {"e1": 0.0})
-    db.put_league_state("final_plays_done", ["e1"], ref=leagues.home())   # home read it before the other league came
+    db.put_league_state("final_plays_done", ["e1"], ref=home_league())   # home read it before the other league came
     assert api.final_plays() == {"6": 1} and recorded == [other.key] and len(fetched) == 1
     assert db.get_league_state("final_plays_done", ref=other) == ["e1"]
     assert api.final_plays() == {} and recorded == [other.key], "read once in each league"
@@ -144,15 +145,15 @@ def test_a_row_reads_the_wording_of_its_time_and_a_stat_fix_the_newest():
     catch = "B.Purdy pass deep right to M.Evans pushed ob at WAS 17 for 55 yards (N.Cross)."
     respot = "B.Purdy pass deep right to M.Evans pushed ob at WAS 18 for 54 yards (N.Cross)."
     long = play(catch, [(1, "passer")], pid="460", source="live", week=6)
-    store = plays.Store(6)
+    store = plays.Store(6, ref=home_league())
     store.record([long], ROSTER, TABLE, seen=datetime(2026, 10, 19, 20, 33, 37))
     row = {"week": 6, "player_id": 1, "team_id": 7, "total": 8.24, "play_id": "460", "match": "player"}
     store.add([{**row, "at": "2026-10-19T20:33:37", "delta": 2.2, "text": catch}])
     store.record([{**long, "text": respot}], ROSTER, TABLE, seen=datetime(2026, 10, 19, 20, 33, 47))
     store.add([{**row, "at": "2026-10-19T20:33:47", "delta": -0.04, "total": 8.2, "text": respot, "match": "adjusted"}])
     assert [(r["delta"], r["text"]) for r in store.latest()] == [(-0.04, respot), (2.2, catch)]
-    assert all(r["text"] is None for r in db.plays_rows(6)), "a row on a stored play keeps no text of its own"
-    assert [t["text"] for t in plays.Store(6).book["460"]["texts"]] == [catch, respot]
+    assert all(r["text"] is None for r in db.plays_rows(6, ref=home_league())), "a row on a stored play keeps no text of its own"
+    assert [t["text"] for t in plays.Store(6, ref=home_league()).book["460"]["texts"]] == [catch, respot]
 
 
 def test_a_called_back_row_folds_into_his_newest_row_on_the_play_or_stands_alone():
@@ -172,7 +173,7 @@ def test_versions_add_a_wording_only_when_it_reads_differently():
 
 
 def test_store_never_drops_rows_without_a_roster():
-    store = plays.Store(3)
+    store = plays.Store(3, ref=home_league())
     store.record([SCRAMBLE], ROSTER, TABLE)
     store.record([{**SCRAMBLE, "text": "upheld"}], {}, TABLE)
     assert len(store.called) == 1

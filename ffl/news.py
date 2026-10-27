@@ -89,8 +89,9 @@ def fetch_news_index(week: int) -> dict[int, dict]:
     filters = {"players": {"filterSlotIds": {"value": [0, 2, 4, 6, 17]}, "limit": 1500,
                            "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}}
     try:
+        from . import leagues  # the pool is the NFL's, the same through any league's view
         data = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filters)},
-                              scoringPeriodId=week)
+                              scoringPeriodId=week, ref=leagues.oldest())
         index = parse_news_index(data)
     except Exception:  # noqa: BLE001 — espn-api raises its own error types; a stamp is not worth a failed run
         return _INDEX[1] if _INDEX else {}

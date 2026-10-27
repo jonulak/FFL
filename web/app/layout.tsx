@@ -13,7 +13,7 @@ import { WatchProvider } from "@/components/watch-context";
 import { headers } from "next/headers";
 import { apiGet, type DecisionPrefs, type LeagueEntry, type WatchIds } from "@/lib/api";
 import { PATH_HEADER, SIGNIN_PATH } from "@/lib/auth";
-import { LEAGUE_ARRIVE, LEAGUE_HEADER } from "@/lib/league";
+import { LEAGUE_ARRIVE, LEAGUE_HEADER, WELCOME_PATH } from "@/lib/league";
 import { DEFAULT_DECISION_PREFS } from "@/lib/decisions";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
@@ -36,7 +36,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const h = await headers();
   // The sign-in page (ffl-soc.6.2.1) stands outside the app: no nav, no providers, none of the calls below, which a
   // signed-out visitor's session would only have refused. One check here rather than a route group moving every page.
-  if ((h.get(PATH_HEADER) ?? "").split("?", 1)[0] === SIGNIN_PATH) {
+  // So does the welcome page of a user with no league (ffl-soc.6.2.2): a nav with no league has nothing to open.
+  const bare = (h.get(PATH_HEADER) ?? "").split("?", 1)[0];
+  if (bare === SIGNIN_PATH || bare === WELCOME_PATH) {
     return (
       <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${barlow.variable}`} suppressHydrationWarning>
         <body className="min-h-dvh bg-background text-foreground antialiased">{children}</body>

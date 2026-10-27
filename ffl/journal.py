@@ -21,7 +21,7 @@ from .settings import load
 ON_NEW_ROWS: list[Callable[..., None]] = []  # fn(rows, ref=league)
 
 
-def _my_team(lg, settings, ref=None):
+def _my_team(lg, settings, ref):
     tid = leagues.my_team_id(settings, ref)
     return next(t for t in lg.teams if t.team_id == tid)
 
@@ -49,9 +49,8 @@ def _activities(lg, size: int) -> list[Activity]:
     return [Activity(topic, lg.player_map, lg.get_team_data, local_player) for topic in data["topics"]]
 
 
-def sync_transactions(lg, *, ref=None):
+def sync_transactions(lg, *, ref):
     from datetime import datetime
-    r = ref if ref is not None else leagues.home()
     rows = []
     for act in _activities(lg, size=100):
         for team, action, player, bid in act.actions:
@@ -59,21 +58,20 @@ def sync_transactions(lg, *, ref=None):
                          "date": datetime.fromtimestamp(act.date / 1000).isoformat(timespec="minutes"),
                          "type": action, "team": team.team_name, "player": getattr(player, "name", player),
                          "action": action, "bid": bid, "reasoning": ""})
-    new = db.add_transactions(rows, ref=r)  # the (season, id) key makes concurrent syncs safe
-    notify.enqueue_moves(new, ref=r)
+    new = db.add_transactions(rows, ref=ref)  # the (season, id) key makes concurrent syncs safe
+    notify.enqueue_moves(new, ref=ref)
     if new:
         for fn in ON_NEW_ROWS:
             try:
-                fn(new, ref=r)
+                fn(new, ref=ref)
             except Exception as e:  # noqa: BLE001 — the rows are logged; a listener's failure is not the sync's
                 print(f"transactions: listener {getattr(fn, '__name__', fn)} failed: {e}")
-    print(f"transactions{'' if r.home else ' ' + r.key}: +{len(new)}")
+    print(f"transactions {ref.key}: +{len(new)}")
     return new
 
 
-def sync_results(lg, settings, *, ref=None):
-    r = ref if ref is not None else leagues.home()
-    me = _my_team(lg, settings, r)
+def sync_results(lg, settings, *, ref):
+    me = _my_team(lg, settings, ref)
     rows = []
     for wk in range(settings.get("first_week") or 1, lg.current_week):
         for m in lg.scoreboard(wk):
@@ -82,13 +80,13 @@ def sync_results(lg, settings, *, ref=None):
                 other = m.away_team if m.home_team == me else m.home_team
                 rows.append({"week": wk, "opponent": other.team_name, "my_score": mine, "opp_score": opp,
                              "result": "W" if mine > opp else "L" if mine < opp else "T"})
-    db.put_results(rows, ref=r)
+    db.put_results(rows, ref=ref)
     print(f"results: {len(rows)} weeks")
 
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "sync"
-    ref = leagues.current()
+    ref = leagues.acting()
     settings = load(ref)
     lg = league(ref)
     if cmd == "sync":

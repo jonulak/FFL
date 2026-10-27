@@ -174,11 +174,21 @@ def parse_rotowire(doc: dict, source: dict, index: Index | None = None) -> list[
 
 
 def _rotowire_ids(index: Index | None = None) -> list[int]:
-    """Every rostered player, the top ROTOWIRE_FA free agents and every watched player, off the Players page's stored pool, else built."""
-    pool = next((p["payload"] for p in db.pages() if p["key"] == "waivers"), None)
+    """`_league_rotowire_ids` of every league, each player once."""
+    from .. import leagues
+    out: list[int] = []
+    for ref in leagues.all_leagues():
+        out += _league_rotowire_ids(ref, index)
+    return sorted(set(out))
+
+
+def _league_rotowire_ids(ref, index: Index | None) -> list[int]:
+    """A league's rostered players, its top ROTOWIRE_FA free agents and its watched players, off its owner's stored
+    Players pool, else built."""
+    pool = next((p["payload"] for p in db.pages(ref=ref) if p["key"] == "waivers"), None)
     if pool is None:
         from ..espn_season import free_agent_pool  # espn_season imports a lot; keep the collectors importable alone
-        pool = free_agent_pool()
+        pool = free_agent_pool(ref=ref)
 
     def ids(rows):
         return [r["player_id"] for r in rows if r.get("pos") != "D/ST" and (r.get("player_id") or 0) > 0]
@@ -188,7 +198,7 @@ def _rotowire_ids(index: Index | None = None) -> list[int]:
                    key=lambda r: (r.get("add") is None, -(r.get("add") or 0), -owned.get(r.get("player_id"), 0)))
     top = [pid for pid in dict.fromkeys(ids(frees)) if pid not in rostered][:ROTOWIRE_FA]
     try:
-        watched = {pid for pid in db.watched_ids() if pid > 0}  # a watched D/ST has no Rotowire feed
+        watched = {pid for pid in db.watched_ids(ref=ref) if pid > 0}  # a watched D/ST has no Rotowire feed
     except db.DBError as e:
         print(f"news: watched ids unreadable, polling without them: {e}")
         watched = set()
@@ -306,7 +316,7 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
     def one(source: dict) -> tuple[str, int, int, str | None]:
         try:
             new, edited = _collect(source, index, window, cutoff, at)
-        # any failure is this source's, reported on it; SystemExit is leagues.home()'s "no home league" (Rotowire's pool)
+        # any failure is this source's, reported on it; SystemExit is a league's missing settings (Rotowire's pools)
         except (Exception, SystemExit) as e:  # noqa: BLE001
             _SEEN.pop(source["id"], None)
             err = f"{type(e).__name__}: {e}"[:300]

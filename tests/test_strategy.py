@@ -6,6 +6,7 @@ import sqlalchemy as sa
 
 from ffl import db, leagues, strategy
 from ffl.leagues import LeagueRef
+from tests.home import home_league
 
 HOME_CAPS = {"QB": 3, "RB": 7, "WR": 7, "TE": 2, "K": 1, "D/ST": 1}
 LIMITS = {"QB": 4, "RB": 8, "WR": 8, "TE": 3, "K": 3, "D/ST": 3}
@@ -27,18 +28,18 @@ def provider_limits(league: str, limits: dict) -> None:
 
 
 def test_home_strategy_is_seeded():
-    home = leagues.home()
+    home = home_league()
     s = strategy.for_league(home)
     assert s.key == "2qb-10team" and s.version == 1
     assert s.prose.startswith('# Draft strategy — "2026 Fantasy Football" (ESPN league 100000001)\n')
     assert "## Waivers (in-season, 2026-09-08)" in s.prose and "## Lineup (in-season, 2026-09-08)" in s.prose
     assert s.constants == {"qb_pace": 0.0, "suggested_caps": HOME_CAPS}
     assert strategy.caps(home) == HOME_CAPS
-    assert strategy.caps() == HOME_CAPS, "no league named: the current (home) league"
+    assert strategy.caps(ref=home_league()) == HOME_CAPS, "no league named: the current (home) league"
 
 
 def test_new_league_starts_from_suggested_caps_then_owns_them():
-    ref = leagues.register(LeagueRef("espn:5", "espn", "5", 2026, "other", 2, False, None, "2qb-10team"))
+    ref = leagues.register(LeagueRef("espn:5", "espn", "5", 2026, "other", 2, None, "2qb-10team"), user_id=0)
     provider_limits(ref.key, LIMITS)
     assert strategy.caps(ref) == HOME_CAPS
     assert leagues.main(["caps", ref.key, "TE=3"]) == 0
@@ -48,21 +49,21 @@ def test_new_league_starts_from_suggested_caps_then_owns_them():
 
 
 def test_a_cap_set_before_the_first_read_is_kept():
-    ref = leagues.register(LeagueRef("espn:5", "espn", "5", 2026, "other", 2, False, None, "2qb-10team"))
+    ref = leagues.register(LeagueRef("espn:5", "espn", "5", 2026, "other", 2, None, "2qb-10team"), user_id=0)
     provider_limits(ref.key, LIMITS)
     leagues.set_cap(ref, "TE", 3)
     assert strategy.caps(ref) == {**HOME_CAPS, "TE": 3}
 
 
 def test_suggested_caps_never_exceed_the_league_limit():
-    ref = leagues.register(LeagueRef("espn:6", "espn", "6", 2026, "tight", 2, False, None, "2qb-10team"))
+    ref = leagues.register(LeagueRef("espn:6", "espn", "6", 2026, "tight", 2, None, "2qb-10team"), user_id=0)
     provider_limits(ref.key, {"QB": 2})
     assert strategy.caps(ref)["QB"] == 2
     assert db.caps_rows(ref.key)["QB"]["my_cap"] == 2
 
 
 def test_a_league_without_a_preset_keeps_its_own_caps():
-    ref = leagues.register(LeagueRef("espn:7", "espn", "7", 2026, "bare", 2, False, None, None))
+    ref = leagues.register(LeagueRef("espn:7", "espn", "7", 2026, "bare", 2, None, None), user_id=0)
     assert strategy.caps(ref) == {}
     assert strategy.qb_pace(ref) == 0.0
     with pytest.raises(SystemExit, match="espn:7"):
@@ -71,13 +72,13 @@ def test_a_league_without_a_preset_keeps_its_own_caps():
 
 def test_qb_pace_env_overrides_the_preset(monkeypatch):
     monkeypatch.delenv("FFL_QB_PACE", raising=False)
-    assert strategy.qb_pace() == 0.0
+    assert strategy.qb_pace(ref=home_league()) == 0.0
     add_version("2qb-10team", 2, {"qb_pace": 3.5, "suggested_caps": HOME_CAPS})
-    assert strategy.qb_pace() == 3.5
+    assert strategy.qb_pace(ref=home_league()) == 3.5
     monkeypatch.setenv("FFL_QB_PACE", "10")
-    assert strategy.qb_pace() == 10.0
+    assert strategy.qb_pace(ref=home_league()) == 10.0
     monkeypatch.setenv("FFL_QB_PACE", "fast")
-    assert strategy.qb_pace() == 0.0
+    assert strategy.qb_pace(ref=home_league()) == 0.0
 
 
 def test_cli_show_and_list(capsys):
@@ -123,6 +124,9 @@ def test_0020_links_the_public_league_where_it_is_registered(tmp_path, monkeypat
     provider_limits(ref.key, LIMITS)
     assert strategy.caps(ref) == LIMITS
     command.downgrade(db._alembic_config(), "0019")
-    assert leagues.get("espn:950458410").strategy is None
+    eng = sa.create_engine(url)  # the registry as 0019 has it (no memberships to read it through)
+    with eng.connect() as c:
+        assert c.execute(sa.text("SELECT strategy FROM leagues WHERE key = 'espn:950458410'")).scalar() is None
+    eng.dispose()
     assert db.strategy_row("1qb-10team") is None
     db.reset()

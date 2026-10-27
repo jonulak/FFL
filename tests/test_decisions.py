@@ -3,6 +3,7 @@ import json
 from ffl import decisions as D
 from ffl import season
 from ffl.config import ROOT
+from tests.home import home_league
 
 def test_every_kind_has_presets_ending_in_other():
     assert set(D.PRESETS) == set(D.KINDS)
@@ -122,16 +123,16 @@ def test_cli_add_rationale_outcome_list_export(capsys):
     from ffl import db
     assert D.main(["add", "--kind", "free_add", "--title", "Week 6 add: Tucker", "--decision", "add Tucker, drop Monangai",
                    "--week", "6", "--rationale", "injury_fill", "--players", "1,2"]) == 0
-    row = db.decisions()[0]
+    row = db.decisions(ref=home_league())[0]
     assert (row["source"], row["rationale"], row["player_ids"], row["outcome"]) == ("session", ["injury_fill"], [1, 2], None)
     assert D.main(["add", "--kind", "free_add", "--title", "x", "--rationale", "matchup"]) == 2, "not a roster reason"
     assert D.main(["outcome", str(row["id"]), "8.4 in his first start"]) == 0
-    assert db.decision(row["id"])["outcome"] == "8.4 in his first start" and db.decision(row["id"])["outcome_at"]
+    assert db.decision(row["id"], ref=home_league())["outcome"] == "8.4 in his first start" and db.decision(row["id"], ref=home_league())["outcome_at"]
     assert D.main(["rationale", str(row["id"]), "other", "--note", "Jonathan's read"]) == 0
-    assert db.decision(row["id"])["rationale_note"] == "Jonathan's read"
+    assert db.decision(row["id"], ref=home_league())["rationale_note"] == "Jonathan's read"
     assert D.main(["rationale", str(row["id"]), "injury_fill,other"]) == 0, "Other keeps the note it has"
-    assert db.decision(row["id"])["rationale"] == ["injury_fill", "other"]
-    assert db.decision(row["id"])["rationale_note"] == "Jonathan's read", "no --note leaves the note as it was"
+    assert db.decision(row["id"], ref=home_league())["rationale"] == ["injury_fill", "other"]
+    assert db.decision(row["id"], ref=home_league())["rationale_note"] == "Jonathan's read", "no --note leaves the note as it was"
     capsys.readouterr()
     assert D.main(["list", "--open"]) == 0 and "Week 6 add: Tucker" not in capsys.readouterr().out
     assert D.main(["export"]) == 0
