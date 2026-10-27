@@ -1,4 +1,6 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { PATH_HEADER, sessionCookie, signedOutRedirect } from "./auth";
 import { LEAGUE_HEADER, withLeague } from "./league";
 
 export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
@@ -342,9 +344,20 @@ export type NewsHit = { player_id: number; name: string; pos: string | null; tea
 
 async function handle<T>(r: Response): Promise<T> {
   if (r.ok) return (await r.json()) as T;
+  let body: unknown = null;
+  try {
+    body = await r.json();
+  } catch {}
+  // signed out (or the session expired): to sign in, back to this page. redirect() throws; errorFields rethrows it
+  // past the pages' catch -> ErrorCard (lib/errors.ts)
+  if (r.status === 401) {
+    const [path, query = ""] = (await pagePath()).split("?", 2);
+    const href = signedOutRedirect(r.status, body, path, query);
+    if (href) redirect(href);
+  }
   let detail: { source?: string; error?: string } = {};
   try {
-    const d = (await r.json()).detail;
+    const d = (body as { detail?: unknown } | null)?.detail;
     // FastAPI's own HTTPException(404, "...") carries a plain string; the source-tagged 502s an object.
     detail = typeof d === "string" ? { error: d } : (d ?? {});
   } catch {}
@@ -373,10 +386,32 @@ async function leagued(path: string): Promise<string> {
   }
 }
 
+// The page this render is for (web/proxy.ts's header): where a refused call sends the visitor back to after signing in.
+// Unreadable (outside a request): the start page.
+async function pagePath(): Promise<string> {
+  try {
+    return (await headers()).get(PATH_HEADER) || "/";
+  } catch {
+    return "/";
+  }
+}
+
+// The visitor's session, and only it, on every server call: the browser's cookies never reach the API otherwise.
+// Outside a request (a test), or signed out: no cookie, and the API answers 401.
+async function session(): Promise<Record<string, string>> {
+  try {
+    const name = sessionCookie();
+    const v = (await cookies()).get(name)?.value;
+    return v ? { cookie: `${name}=${v}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   let r: Response;
   try {
-    r = await fetch(`${API_BASE}${await leagued(path)}`, { cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
+    r = await fetch(`${API_BASE}${await leagued(path)}`, { headers: await session(), cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
   } catch (e) {
     unreachable(e);
   }
@@ -387,7 +422,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   let r: Response;
   try {
     r = await fetch(`${API_BASE}${await leagued(path)}`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      method: "POST", headers: { "content-type": "application/json", ...(await session()) }, body: JSON.stringify(body),
       cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS),
     });
   } catch (e) {
