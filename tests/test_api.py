@@ -851,11 +851,41 @@ def test_claims_page_reuses_the_pending_read_but_fresh_and_submit_read_once(clai
     assert calls[:4] == [("run", 0), ("pending", api.JUST_READ_S)] * 2
 
 
-def test_new_week_starts_empty(claims_env, monkeypatch):
+def _roll_week(claims_env, monkeypatch):
+    """ESPN's week moves on to 7, same roster and pool."""
+    roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False} for i in range(1, 17)]
+    pool = claims_env.pool
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 7, "roster": roster, "positions": pool})
+    api.cache.clear()
+
+
+def test_a_plan_carries_over_the_week_rollover(claims_env, monkeypatch):
+    # ESPN rolls its week on Tuesday, before the Wednesday run: Monday's plan is still the plan
+    g = [{"targets": [101], "cuts": [1], "open": 0}]
+    claims_env.post("/claims", json={"groups": g})
+    _roll_week(claims_env, monkeypatch)
+    r = claims_env.get("/claims").json()
+    assert r["week"] == 7 and r["groups"] == g
+    assert db.claim_plan(6)["groups"] == g, "last week's row is untouched"
+    claims_env.post("/claims", json={"groups": g + [{"targets": [102], "cuts": [2], "open": 0}]})
+    assert db.claim_plan(7)["week"] == 7 and len(db.claim_plan(7)["groups"]) == 2, "a save writes the new week's row"
+
+
+def test_a_sent_plan_carries_over_with_its_submit(claims_env, monkeypatch):
+    # claims sent before the rollover are still on ESPN: the next submit must know their ids to replace them
     claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False})
-    monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: {"week": 7, "roster": [], "positions": {}})
-    api.cache.clear()
+    _roll_week(claims_env, monkeypatch)
+    r = claims_env.get("/claims").json()
+    assert r["groups"][0]["targets"] == [101] and r["last_submit"] and r["on_espn"] is True
+
+
+def test_a_processed_plan_does_not_carry_over(claims_env, monkeypatch):
+    claims_env.post("/claims", json={"groups": [{"targets": [101], "cuts": [1], "open": 0}]})
+    claims_env.post("/claims/submit", json={"replace_outside": False})
+    api.espn_write._fake(leagues.home()).claims.clear()                               # the run processed the claims
+    monkeypatch.setattr(api.espn_write._fake(leagues.home()), "last_run", "2999-01-01T00:00:00")
+    _roll_week(claims_env, monkeypatch)
     r = claims_env.get("/claims").json()
     assert r["week"] == 7 and r["groups"] == [] and r["last_submit"] is None
 
