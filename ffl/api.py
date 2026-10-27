@@ -1884,7 +1884,7 @@ def notify_tick():
         # every league's own steps (home's in the answer's top level, as before; the others under `leagues`), the
         # NFL's plays once for all of them
         _tick_steps(out, (("corrections", correction_pass),))
-        _tick_steps(out, (("final_plays", final_plays),))
+        _tick_steps(out, (("final_plays", final_plays), ("sessions", db.sweep_sessions)))
         _tick_steps(out, (("watch", watch_pass), ("pregame", pregame_pull)))
         for r in leagues.all_leagues():
             if not r.home:

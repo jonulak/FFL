@@ -67,6 +67,8 @@ users = sa.Table(
     sa.Column("plan", sa.String, nullable=False, server_default="free"),
     sa.Column("plan_until", sa.String),
 )
+# One user per email whatever its case (ffl-soc.6.2.6): sign-in's upsert conflicts on it.
+sa.Index("uq_users_email_lower", sa.func.lower(users.c.email), unique=True)
 identities = sa.Table(
     "identities", metadata,
     sa.Column("provider", sa.String, nullable=False),    # "google"
@@ -2198,6 +2200,35 @@ def create_user(email: str, name: str | None) -> int:
                          .returning(users.c.id)).scalar_one()
 
 
+def _user_for_email(c, email: str, name: str | None) -> int:
+    """Inside a write: the user with this email in any case, created when absent. A concurrent creator waits on the
+    unique index and then finds the other's row, so one person is never two users."""
+    c.execute(pg_insert(users).values(email=email, name=name, created_at=_iso(_utc_now()))
+              .on_conflict_do_nothing(index_elements=[sa.func.lower(users.c.email)]))
+    return c.execute(sa.select(users.c.id).where(sa.func.lower(users.c.email) == email.lower())).scalar_one()
+
+
+def ensure_user(email: str, name: str | None) -> int:
+    """The user with this email (any case), created when absent."""
+    with _write() as c:
+        return _user_for_email(c, email, name)
+
+
+def sign_in_user(provider: str, subject: str, email: str, name: str | None) -> int:
+    """The user (provider, subject) signs in as, in one transaction: a known identity keeps its user (never moved);
+    else the user with this email (any case, created when absent) gains the identity. Racing first sign-ins of one
+    person all answer the same user, and a user never commits without the identity that made them."""
+    known = sa.select(identities.c.user_id).where(identities.c.provider == provider, identities.c.subject == subject)
+    with _write() as c:
+        if (uid := c.execute(known).scalar()) is not None:
+            return uid
+        uid = _user_for_email(c, email, name)
+        c.execute(pg_insert(identities).values(provider=provider, subject=subject, user_id=uid, email=email,
+                                               created_at=_iso(_utc_now()))
+                  .on_conflict_do_nothing(index_elements=["provider", "subject"]))
+        return c.execute(known).scalar_one()
+
+
 def user_by_email(email: str) -> dict | None:
     with _read() as c:
         r = c.execute(sa.select(users).where(sa.func.lower(users.c.email) == email.lower()).order_by(users.c.id)).first()
@@ -2264,6 +2295,12 @@ def session_lookup(token: str) -> tuple[dict | None, bool]:
         c.execute(sa.update(sessions).where(sessions.c.token_hash == h).values(
             last_seen=_iso(now), expires_at=_iso(now + timedelta(days=SESSION_DAYS))))
     return r, True
+
+
+def sweep_sessions() -> int:
+    """Delete every session past expires_at (ISO UTC strings compare as times); the count deleted."""
+    with _write() as c:
+        return c.execute(sa.delete(sessions).where(sessions.c.expires_at <= _iso(_utc_now()))).rowcount
 
 
 def delete_session(token: str) -> None:

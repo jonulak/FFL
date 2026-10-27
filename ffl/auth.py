@@ -52,11 +52,12 @@ def _listed() -> set[str]:
 
 
 def signup_allowed(email: str | None, verified: bool) -> bool:
-    """A verified email on FFL_SIGNUP_EMAILS (case-insensitive); the single value `*` opens it to any verified email."""
+    """A verified email on FFL_SIGNUP_EMAILS (case-insensitive); `*` as the only entry opens it to any verified email
+    (beside emails it is ignored, so a list edit cannot open sign-up by accident)."""
     if not email or not verified:
         return False
     listed = _listed()
-    return "*" in listed or email.strip().lower() in listed
+    return listed == {"*"} or email.strip().lower() in listed
 
 
 def sign_in(provider: str, subject: str, email: str | None, verified: bool, name: str | None) -> int | None:
@@ -67,10 +68,7 @@ def sign_in(provider: str, subject: str, email: str | None, verified: bool, name
         return uid
     if not signup_allowed(email, verified):
         return None
-    user = db.user_by_email(email)
-    uid = user["id"] if user else db.create_user(email, name)
-    db.link_identity(uid, provider, subject, email)
-    return uid
+    return db.sign_in_user(provider, subject, email, name)
 
 
 def job_ok(header_value: str | None) -> bool:
@@ -299,8 +297,7 @@ async def dev_signin(request: Request):
         raise HTTPException(422, "email required")
 
     def signin():
-        user = db.user_by_email(email.strip())
-        uid = user["id"] if user else db.create_user(email.strip(), None)
+        uid = db.ensure_user(email.strip(), None)
         return _set_session(JSONResponse({"ok": True}), uid, request)
     return await run_in_threadpool(signin)
 
