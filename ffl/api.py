@@ -1903,11 +1903,28 @@ def notify_tick():
         for r in leagues.all_leagues():
             _tick_steps(out.setdefault("leagues", {}).setdefault(r.key, {}),
                         ((n, functools.partial(fn, ref=r)) for n, fn in
-                         (("corrections", correction_pass), ("watch", watch_pass), ("pregame", pregame_pull))))
+                         (("rollover", rollover_pass), ("corrections", correction_pass), ("watch", watch_pass),
+                          ("pregame", pregame_pull))))
         _tick_steps(out, (("final_plays", final_plays), ("sessions", db.sweep_sessions)))
     finally:
         _NOTIFY.release()
     return out
+
+
+def rollover_pass(*, ref: LeagueRef) -> dict:
+    """ESPN rolled the league's week (Tuesday) since the last tick: drop its pages and the cached Leagues and rebuild
+    them behind, as a move does. Expired by their TTL instead, every page's first open showed last week once while it
+    rebuilt. The first read (nothing stored) takes a baseline only."""
+    _, period = espn_write.pending_state(60, ref=ref)
+    seen = db.get_league_state("espn_week", ref=ref)
+    if period is None or period == seen:
+        return {"week": period}
+    db.put_league_state("espn_week", period, ref=ref)
+    if seen is None:
+        return {"week": period}
+    espn_season.refresh_league()
+    on_new_rows([], ref=ref)
+    return {"week": period, "rolled_from": seen}
 
 
 def _tick_steps(out: dict, steps) -> None:

@@ -532,17 +532,42 @@ def test_live_leagues_are_every_league_whose_settings_read(monkeypatch, other):
 def test_notify_tick_does_each_leagues_steps_once_and_the_nfl_plays_once(client, other, monkeypatch):
     calls = []
     monkeypatch.setattr(api.notify, "tick", lambda: {"leagues": {HOME_KEY: {"moves": 0}, "espn:999": {"moves": 1}}})
-    for name in ("correction_pass", "watch_pass"):
+    for name in ("rollover_pass", "correction_pass", "watch_pass"):
         monkeypatch.setattr(api, name, lambda *, ref, name=name: calls.append((name, ref)) or {name: True})
     monkeypatch.setattr(api, "pregame_pull", lambda now=None, *, ref: calls.append(("pregame_pull", ref)) or [])
     monkeypatch.setattr(api, "final_plays", lambda: calls.append(("final_plays", None)) or {})
     out = client.post("/notify/tick").json()
-    for step in ("correction_pass", "watch_pass", "pregame_pull"):
+    for step in ("rollover_pass", "correction_pass", "watch_pass", "pregame_pull"):
         assert [r for n, r in calls if n == step] == [home_league(), other], step
     assert [n for n, _ in calls].count("final_plays") == 1
     assert out["leagues"][HOME_KEY]["corrections"] == {"correction_pass": True} and out["final_plays"] == {}
-    assert out["leagues"]["espn:999"] == {"moves": 1, "corrections": {"correction_pass": True},
+    assert out["leagues"][HOME_KEY]["rollover"] == {"rollover_pass": True}
+    assert out["leagues"]["espn:999"] == {"moves": 1, "rollover": {"rollover_pass": True},
+                                          "corrections": {"correction_pass": True},
                                           "watch": {"watch_pass": True}, "pregame": []}
+
+
+def test_espn_rolling_its_week_drops_that_leagues_pages_and_rebuilds_them(client, other, monkeypatch):
+    """Tuesday's rollover: a page expired by its TTL is served once from last week while it rebuilds, so the first
+    open of every page showed the old week. The tick sees ESPN's period move on and drops the league's pages (never
+    served again) and the cached Leagues, then rebuilds them behind; the first read only takes a baseline."""
+    refreshed = []
+    monkeypatch.setattr(api.espn_season, "refresh_league", lambda: refreshed.append(1))
+    fake = api.espn_write._fake(other)
+    monkeypatch.setattr(fake, "period", 7)
+    for c in (api.cache_for(other), api.cache_for(home_league())):
+        c.get_or_build("roster", lambda: {"week": 7})
+    assert api.rollover_pass(ref=other) == {"week": 7}, "the first read is a baseline"
+    assert api.rollover_pass(ref=other) == {"week": 7}
+    assert api.cache_for(other).has("roster") and refreshed == []
+    monkeypatch.setattr(fake, "period", 8)
+    api.cache_for(other)._d["roster"].fn = lambda: {"week": 8}
+    assert api.rollover_pass(ref=other) == {"week": 8, "rolled_from": 7}
+    api.cache_for(other).join()
+    assert api.cache_for(other).peek("roster") == {"week": 8}, "rebuilt behind, never the old week again"
+    assert api.cache_for(home_league()).peek("roster") == {"week": 7}, "the other league's week did not move"
+    assert refreshed == [1]
+    assert api.rollover_pass(ref=other) == {"week": 8}
 
 
 def test_league_tick_steps_read_and_write_their_league(client, other, monkeypatch):
