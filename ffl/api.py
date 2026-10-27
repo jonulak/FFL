@@ -589,9 +589,16 @@ def _validate(plan, roster, data, status, *, ref: LeagueRef | None = None):
 def _load_plan(week, max_age=0, *, ref: LeagueRef | None = None):
     # a plan the waiver run already processed reads as retired (an empty week); the next save writes that down
     plan = db.claim_plan(week, ref=ref)
-    if plan is None:
-        return {"week": week, "groups": [], "submits": []}
-    return claims_mod.retire(plan, espn_write.last_waiver_run(max_age, ref=ref))
+    if plan is not None:
+        return claims_mod.retire(plan, espn_write.last_waiver_run(max_age, ref=ref))
+    # ESPN rolls its week on Tuesday, before the Wednesday run: last week's plan, sent or not, is still the plan
+    # until the run retires it (its retired history stays on last week's row); the next save writes it under this week
+    last = db.claim_plan(week - 1, ref=ref)
+    if last is not None:
+        last = claims_mod.retire(last, espn_write.last_waiver_run(max_age, ref=ref))
+        if last["groups"] or last["submits"]:
+            return {k: v for k, v in last.items() if k != "retired"} | {"week": week}
+    return {"week": week, "groups": [], "submits": []}
 
 
 def _save_plan(plan, *, ref: LeagueRef | None = None):

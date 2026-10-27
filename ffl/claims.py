@@ -285,8 +285,9 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer):
 
 def retire(plan, last_run):
     """The plan once ESPN's waiver run has processed it: a plan sent and not saved since the run (`last_run`, local
-    ISO; None when unknown) moves to `retired` and the week starts empty. The plan file is per ESPN week, which rolls
-    days after the run, so without this the won targets sit in it as "already on your roster"."""
+    ISO; None when unknown) moves to `retired` and the week starts empty. The plan is per ESPN week and carries over
+    the Tuesday rollover (`api._load_plan`) until the run, so without this the won targets sit in it as "already on
+    your roster"."""
     if not plan["submits"] or last_run is None:
         return plan
     stamp = max(plan.get("saved_at") or "", plan["submits"][-1]["at"])
