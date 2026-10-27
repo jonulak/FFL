@@ -252,7 +252,8 @@ def test_google_callback_real_state_check_without_oidc_cookie(monkeypatch):
     assert r.status_code == 302 and r.headers["location"] == "/signin?error=failed"
     assert not any(h.startswith(auth.SESSION_COOKIE + "=") for h in r.headers.get_list("set-cookie"))
     with db._read() as conn:
-        assert conn.execute(db.sa.select(db.sa.func.count()).select_from(db.users)).scalar() == 0
+        assert conn.execute(db.sa.select(db.sa.func.count()).select_from(db.users)
+                            .where(db.users.c.id != 0)).scalar() == 0  # the template's test user only
 
 
 def _age_session(token: str, hours: float):

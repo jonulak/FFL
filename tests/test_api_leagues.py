@@ -31,10 +31,13 @@ def _stub_roster(monkeypatch):
 
 
 def test_open_league_resolves(other):
-    assert api.open_league(None) == leagues.home()
-    assert api.open_league("") == leagues.home()
-    assert api.open_league("espn:999") == other
-    assert api.open_league(leagues.home().key) == leagues.home()
+    from tests.conftest import TEST_USER
+    for user in (TEST_USER, None):  # the signed-in owner's memberships; a job's request (no user) through the owner
+        req = NS(scope={"state": {"user": user}})
+        assert api.open_league(req, None) == leagues.home()
+        assert api.open_league(req, "") == leagues.home()
+        assert api.open_league(req, "espn:999") == other
+        assert api.open_league(req, leagues.home().key) == leagues.home()
 
 
 def test_unknown_league_404(client):
@@ -54,7 +57,7 @@ def test_explicit_home_param_is_served_like_none(client, monkeypatch):
     _stub_roster(monkeypatch)
     assert client.get(f"/roster?league={leagues.home().key}").status_code == 200
     assert api.cache.has("roster")
-    assert list(api.caches) == [leagues.home().key]
+    assert list(api.caches) == [(leagues.home().user_id, leagues.home().key)]
 
 
 def test_cache_for(other):

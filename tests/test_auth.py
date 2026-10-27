@@ -14,8 +14,9 @@ def _env(monkeypatch):
 
 
 def _users():
+    """Users besides the template's signed-in test user (id 0)."""
     with db._read() as c:
-        return c.execute(sa.select(sa.func.count()).select_from(db.users)).scalar()
+        return c.execute(sa.select(sa.func.count()).select_from(db.users).where(db.users.c.id != 0)).scalar()
 
 
 def test_signup_closed_by_default():

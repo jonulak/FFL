@@ -1,7 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { PATH_HEADER, sessionCookie, signedOutRedirect } from "./auth";
-import { LEAGUE_HEADER, withLeague } from "./league";
+import { LEAGUE_HEADER, leagueMissRedirect, withLeague } from "./league";
 
 export const API_BASE = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 
@@ -353,6 +353,12 @@ async function handle<T>(r: Response): Promise<T> {
   if (r.status === 401) {
     const [path, query = ""] = (await pagePath()).split("?", 2);
     const href = signedOutRedirect(r.status, body, path, query);
+    if (href) redirect(href);
+  }
+  // a league the user is not in (a stale last-league cookie): the same page in their default; none at all: welcome
+  if (r.status === 404) {
+    const [path, query = ""] = (await pagePath()).split("?", 2);
+    const href = leagueMissRedirect(r.status, body, path, query);
     if (href) redirect(href);
   }
   let detail: { source?: string; error?: string } = {};

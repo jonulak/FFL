@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 
 from ffl import auth, db
+from tests.conftest import TEST_USER
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +18,12 @@ def _env(monkeypatch):
 def _count(table) -> int:
     with db._read() as c:
         return c.execute(sa.select(sa.func.count()).select_from(table)).scalar()
+
+
+def _users() -> int:
+    """Users besides the template's signed-in test user."""
+    with db._read() as c:
+        return c.execute(sa.select(sa.func.count()).select_from(db.users).where(db.users.c.id != TEST_USER["id"])).scalar()
 
 
 def _race(n, fn):
@@ -63,14 +70,14 @@ def test_concurrent_first_sign_ins_of_one_identity_make_one_user(lockstep):
     lockstep(6)
     uids = _race(6, lambda i: auth.sign_in("google", "g1", "a@b.com", True, "Ann"))
     assert len(set(uids)) == 1 and uids[0] is not None
-    assert _count(db.users) == 1 and _count(db.identities) == 1
+    assert _users() == 1 and _count(db.identities) == 1
 
 
 def test_concurrent_first_sign_ins_of_two_identities_one_email_make_one_user(lockstep):
     lockstep(6)
     uids = _race(6, lambda i: auth.sign_in("google" if i % 2 else "apple", f"s{i % 2}", "A@b.com", True, None))
     assert len(set(uids)) == 1
-    assert _count(db.users) == 1 and _count(db.identities) == 2
+    assert _users() == 1 and _count(db.identities) == 2
 
 
 def test_sign_in_user_never_moves_an_identity():
@@ -81,13 +88,13 @@ def test_sign_in_user_never_moves_an_identity():
                                                  created_at="2026-10-27T00:00:00+00:00"))
     assert db.sign_in_user("google", "g2", "a@b.com", None) == other
     assert db.sign_in_user("google", "g1", "zzz@b.com", None) == uid
-    assert _count(db.users) == 2                         # a known identity's new email makes no user
+    assert _users() == 2                         # a known identity's new email makes no user
 
 
 def test_ensure_user_matches_any_case():
     uid = db.ensure_user("Dev@Example.com", None)
     assert db.ensure_user("dev@example.COM", "X") == uid
-    assert _count(db.users) == 1
+    assert _users() == 1
 
 
 def test_lower_email_is_unique():

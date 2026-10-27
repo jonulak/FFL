@@ -82,6 +82,17 @@ class WriteError(Exception):
         return EXPIRED if self.expired else UNREACHABLE if self.status == 0 else str(self)
 
 
+class NotConnected(WriteError):
+    """A write refused before anything reached ESPN: the member has no ESPN connection of their own (ffl-soc.6.3)."""
+
+    def __init__(self):
+        super().__init__(409, "not connected")
+
+    @property
+    def message(self) -> str:
+        return "ESPN moves need your own ESPN connection, which isn't set up yet"
+
+
 def _writes() -> bool:
     # Read at call time so a test can flip it with monkeypatch.setenv.
     return os.environ.get("FFL_WRITES", "1") != "0"
@@ -186,6 +197,10 @@ def move_lineup(items: list[tuple[int, str, str]], week: int, *, ref=None) -> No
 
 def _post(body: dict | list, url: str | None = None, *, ref=None) -> dict | list:
     global _GEN
+    # The cookies are the owner's account (config.cookies()): a write for any other member would act as the owner.
+    # Refused before anything is sent until each user connects their own ESPN (ffl-soc.6.3).
+    if ref is not None and ref.user_id is not None and not ref.owner:
+        raise NotConnected()
     with _GEN_LOCK:  # before and whatever the answer: a write that errored may still have landed (any league's read goes)
         _READ.clear()
         _GEN += 1

@@ -215,7 +215,7 @@ def store(ref, settings_doc: dict):
     in one transaction."""
     from . import db, leagues
     rows = rows_for(ref.key, ref.season, settings_doc)
-    cur = next((r for r in leagues.all_leagues() if r.key == ref.key), ref)
+    cur = leagues._raw(ref.key) or ref  # the league's own row: a member's name or team never reaches it
     cur = replace(cur, lineup_format=rows["lineup_key"], name=rows["name"] or cur.name)
     db.put_league_settings(rows, {k: getattr(cur, k) for k in leagues._FIELDS})
     return leagues.get(ref.key)

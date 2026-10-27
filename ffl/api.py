@@ -33,7 +33,7 @@ from types import SimpleNamespace
 from typing import Callable, Literal
 
 import requests
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -303,34 +303,59 @@ class Cache:
 
 
 cache = Cache(TTL, persist=True)
-# One page cache per league, by registry key. Home's is the module `cache` (the rows with no league named, and the
-# lifespan's thread table); any other league's is made on its first request and loaded from its own rows.
+# One page cache per (user, league) (ffl-soc.6.2.2: a page is never served to another member). The home league's
+# owner's is the module `cache` (the rows with no league named, and the lifespan's thread table); any other is made on
+# its first request and loaded from its own rows.
 _CACHES = threading.Lock()
-caches: dict[str, Cache] = {}
+caches: dict[tuple[int | None, str], Cache] = {}
 
 
 def cache_for(ref: LeagueRef | None) -> Cache:
-    """The page cache of the league `ref` names; None is `cache` itself, with no registry read."""
+    """The page cache of the member and league `ref` names; None is `cache` itself, with no registry read."""
     if ref is None:
         return cache
+    key = (ref.user_id, ref.key)
     with _CACHES:
-        if ref.home:
-            return caches.setdefault(ref.key, cache)
-        c = caches.get(ref.key)
+        if ref.home and (ref.owner or ref.user_id is None):
+            return caches.setdefault(key, cache)
+        c = caches.get(key)
     if c is None:  # load reads the DB: never under _CACHES, which every home request takes
         c = Cache(TTL, persist=True, ref=ref)
         c.load()
         with _CACHES:
-            c = caches.setdefault(ref.key, c)  # a duplicate that lost is dropped; load only reads
+            c = caches.setdefault(key, c)  # a duplicate that lost is dropped; load only reads
     return c
 
 
-def open_league(league: str | None = Query(None)) -> LeagueRef:
-    """The league a request names with ?league=<registry key>; none (or empty) is home. An unknown key is a 404."""
+def caches_for_league(ref: LeagueRef | None) -> list[Cache]:
+    """Every member's page cache of the league `ref` names that is open in this process, its owner's first (made when
+    absent): what a league-wide change (a move, a correction, a pregame pull) drops or expires."""
+    first = cache_for(ref)
+    key = ref.key if ref is not None else leagues.home().key
+    with _CACHES:
+        rest = [c for (_, k), c in caches.items() if k == key and c is not first]
+    return [first, *rest]
+
+
+def open_league(request: Request, league: str | None = Query(None)) -> LeagueRef:
+    """The signed-in user's view of the league ?league=<registry key> names: one of their memberships, else 404
+    unknown_league (a league they are not in answers exactly as one that does not exist); none (or empty) is their
+    default, 404 no_leagues when they have none. A job's request (no user) opens the league through its owner."""
+    user = (request.scope.get("state") or {}).get("user")
+    if user is None:
+        if not league:
+            return leagues.home()
+        try:
+            return leagues.get(league)
+        except SystemExit:
+            raise HTTPException(status_code=404, detail={"error": "unknown_league", "league": league}) from None
     if not league:
-        return leagues.home()
+        ref = leagues.default_for(user["id"])
+        if ref is None:
+            raise HTTPException(status_code=404, detail={"error": "no_leagues"})
+        return ref
     try:
-        return leagues.get(league)
+        return leagues.membership(user["id"], league)
     except SystemExit:
         raise HTTPException(status_code=404, detail={"error": "unknown_league", "league": league}) from None
 
@@ -364,8 +389,8 @@ def on_new_rows(rows: list[dict], ref: LeagueRef | None = None) -> None:
     /live's moves, so an open page refetches."""
     r = ref if ref is not None else leagues.home()
     espn_season.forget_current_boxes(ref=r)
-    c = cache_for(r)
-    _start_rewarm(c, c.drop_prefixes(MOVE_KEYS))
+    for c in caches_for_league(r):  # every member's pages show the move
+        _start_rewarm(c, c.drop_prefixes(MOVE_KEYS))
 
 
 _REWARMS = itertools.count()
@@ -473,10 +498,13 @@ def health():
 
 
 @app.get("/leagues")
-def league_list():
-    """Every registered league, home first: the switcher's rows (name · provider · format)."""
+def league_list(request: Request):
+    """The signed-in user's leagues, their default first: the switcher's rows (name · provider · format). `home` is
+    the user's default (the league the web opens with no ?league=). A job's request lists every league, home first."""
+    user = (request.scope.get("state") or {}).get("user")
+    refs = leagues.for_user(user["id"]) if user else leagues.all_leagues()
     return [{"key": r.key, "name": r.name, "provider": PROVIDERS.get(r.provider, r.provider), "format": _league_format(r),
-             "home": r.home} for r in leagues.all_leagues()]
+             "home": r.is_default if user else r.home} for r in refs]
 
 
 def _caps(ref: LeagueRef) -> dict:
@@ -789,7 +817,8 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
         if period is not None and espn_season.league_period(period, ref=ref) != data["week"]:
             # as /lineup does: drop the cached League and pool, or the reload serves the same old week
             espn_season.refresh_league()
-            cache_for(ref).drop("waivers")
+            for c in caches_for_league(ref):
+                c.drop("waivers")
             raise HTTPException(409, {"error": "ESPN's week changed — reload"})
         last = plan["submits"][-1] if plan["submits"] else None
         wk = data["week"] if period is None else period
@@ -828,8 +857,9 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
             # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
             # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
             espn_season.forget_current_boxes(ref=ref)
-            c = cache_for(ref)
-            c.expire_all()
+            c, *others = caches_for_league(ref)  # every member's pages show the rosters
+            for o in (c, *others):
+                o.expire_all()
             c.rebuild("waivers", "roster", "week:current", "league:current")
         return {**res, "decisions": decs}
     finally:
@@ -939,6 +969,8 @@ def lineup(body: LineupIn, ref: LeagueRef = Depends(open_league)):
             # the Matchup board, the League tile and my Team page show this lineup too: dropped, not expired, which
             # would serve the pre-move board once more; rebuilt behind, and /live ticks so an open board refetches
             _start_rewarm(c, c.drop_prefixes(LINEUP_KEYS))
+            for o in caches_for_league(ref)[1:]:  # every other member's boards show this lineup too
+                _start_rewarm(o, o.drop_prefixes(LINEUP_KEYS))
             # the claims validate against the pool's roster slots (an IR player with no designation blocks every
             # claim): the next /claims or /players builds it from the moved roster, never from the pre-move one
             c.drop("waivers")
@@ -1710,11 +1742,11 @@ def _roster_job(ref: LeagueRef) -> Callable[[], tuple[list[dict], int]]:
 
 
 @app.post("/outlook/refresh", status_code=202)
-def outlook_refresh(league: str | None = Query(None)):
+def outlook_refresh(request: Request, league: str | None = Query(None)):
     """The hourly run (launchd/com.jonulak.ffl-outlook): every league in turn, one run, home's cards read first so
     a failure to read them is this answer's 502. With ?league= only that league, an empty one home's (the Roster
     page's button, which must not start every league's run)."""
-    first = open_league(league)
+    first = open_league(request, league)
     rest = [] if league is not None else [r for r in leagues.all_leagues() if r.key != first.key]
     try:
         cards, week = _roster_job(first)()
@@ -1777,13 +1809,13 @@ def _sync_league(ref: LeagueRef) -> int:
 
 
 @app.post("/transactions/sync")
-def transactions_sync(league: str | None = Query(None)):
+def transactions_sync(request: Request, league: str | None = Query(None)):
     """The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
     the DB's transactions table, so the record keeps up with no page open, and the weekly results into
     `results` (the nav's Refresh did that until it went). Concurrent syncs are safe: the table's
     (season, id) key dedupes. With ?league= that league alone; with none every league, home's answer at the top
     (its failure the 502, as before) and each other's under `leagues` (a failure reported there)."""
-    first, others, failed = open_league(league), {}, None
+    first, others, failed = open_league(request, league), {}, None
     try:
         n = _sync_league(first)
     except Exception as e:  # noqa: BLE001 — curl's non-zero exit on the 502 is the log line, once the others ran
@@ -2039,7 +2071,7 @@ def correction_pass(*, ref: LeagueRef | None = None) -> dict:
     out = espn_season.correct_boxes(espn_season.fresh_league(ref), ref=ref)
     plays = out.pop("plays")
     runner = _lane(ref)
-    cache_ = cache_for(ref)
+    members = caches_for_league(ref)  # every member's pages are built on the changed weeks
     for w in sorted({p["week"] for p in plays}):
         rows = [p for p in plays if p["week"] == w]
         try:
@@ -2050,12 +2082,13 @@ def correction_pass(*, ref: LeagueRef | None = None) -> dict:
         except db.DBError as e:
             log.warning("stat correction plays for week %s not saved: %s", w, e)
             out.setdefault("errors", []).append(f"plays week {w}: {e}")
-    for w in out["changed"]:
-        for key in (f"week:{w}", f"league:{w}"):
-            cache_.expire(key)
-    if out["changed"]:
-        for key in ("roster", "waivers", "player", "team"):  # form rows and add read earlier weeks' points
-            cache_.expire(key)
+    for cache_ in members:
+        for w in out["changed"]:
+            for key in (f"week:{w}", f"league:{w}"):
+                cache_.expire(key)
+        if out["changed"]:
+            for key in ("roster", "waivers", "player", "team"):  # form rows and add read earlier weeks' points
+                cache_.expire(key)
     return out
 
 
@@ -2063,7 +2096,8 @@ def expire_everything(*, ref: LeagueRef | None = None) -> None:
     """Every page of the league (home when `ref` is None) and every projection/injury cache refetches on its next
     read. Expire, not clear: a pull while ESPN is down must still leave the stale payloads behind for the fallback
     to serve, flagged. The NFL-wide caches are expired whichever league asks."""
-    cache_for(ref).expire_all()
+    for c in caches_for_league(ref):
+        c.expire_all()
     espn_season._SL.clear()
     espn_season._SEASON_CACHE.clear()
     espn_season.forget_current_boxes(ref=ref)  # finished weeks stay: they change only through the correction pass
@@ -2083,11 +2117,11 @@ def pregame_pull(now: datetime | None = None, *, ref: LeagueRef | None = None) -
     if not due:
         return []
     expire_everything(ref=ref)
-    c = cache_for(ref)
-    t = threading.Thread(target=c.rebuild_expired, daemon=True, name="cache-pregame")
-    with c._lock:
-        c._threads["pregame"] = t
-    t.start()
+    for c in caches_for_league(ref):
+        t = threading.Thread(target=c.rebuild_expired, daemon=True, name="cache-pregame")
+        with c._lock:
+            c._threads["pregame"] = t
+        t.start()
     new = {k.isoformat() for k in due}
     db.update_league_state("pregame_pulls", lambda cur: sorted(set(cur or []) | new)[-40:], [], ref=ref)  # a season's kickoffs
     return [k.isoformat() for k in due]

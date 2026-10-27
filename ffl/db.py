@@ -87,6 +87,22 @@ sessions = sa.Table(
     sa.Column("expires_at", sa.String, nullable=False),
     sa.Column("ua", sa.String),
 )
+# A user's place in a league (ffl-soc.6.2.2): their team, their default league, their name for it, their strategy.
+# A league's owner is its member with the lowest user id: the jobs and the CLI act through that membership until
+# 6.2.3 splits personal work per member.
+memberships = sa.Table(
+    "memberships", metadata,
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("league", sa.String, sa.ForeignKey("leagues.key", ondelete="CASCADE"), nullable=False),
+    sa.Column("team_id", sa.Integer),                    # NULL until known
+    sa.Column("is_default", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column("name", sa.String),                        # the member's own name for the league; NULL = the league's
+    sa.Column("strategy", sa.String),                    # strategies.key; NULL = the league's
+    sa.Column("created_at", sa.String, nullable=False),
+    sa.PrimaryKeyConstraint("user_id", "league"),
+)
+sa.Index("uq_memberships_default", memberships.c.user_id, unique=True,
+         postgresql_where=memberships.c.is_default)
 
 # Strategy presets (ffl/strategy.py): shared, and not user-editable; only migrations add a key or a version.
 strategies = sa.Table(
@@ -545,7 +561,9 @@ page_cache = sa.Table(
     sa.Column("key", sa.String, nullable=False),
     sa.Column("payload", sa.JSON, nullable=False),
     sa.Column("built_at", sa.Float, nullable=False),     # epoch seconds
-    sa.PrimaryKeyConstraint("league", "season", "key"),
+    # whose pages (ffl-soc.6.2.2: a page is never served to another member); 0 = no user (a registry without one)
+    sa.Column("user_id", sa.Integer, nullable=False, server_default="0"),
+    sa.PrimaryKeyConstraint("user_id", "league", "season", "key"),
 )
 
 # ffl/sources' scrapes (sources.Cached), written through on every good fetch and loaded on a source's first read,
@@ -776,6 +794,48 @@ def league_rows() -> list[dict]:
     t = leagues_table
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(sa.select(t).order_by(t.c.home.desc(), t.c.added_at, t.c.key))]
+
+
+def member_rows(user_id: int | None = None) -> list[dict]:
+    """Leagues as a member sees them: the leagues row with the membership's team, default, name and strategy laid
+    over it (NULL keeps the league's), plus `user_id`, `is_default` and `owner` (the member is the league's lowest
+    user id). `user_id` None: every league through its owner's membership (none: the league's own columns, user_id
+    None), home first; a user: their memberships only, their default first."""
+    t, m = leagues_table, memberships
+    first = sa.select(m.c.league, sa.func.min(m.c.user_id).label("owner_id")).group_by(m.c.league).subquery()
+    cols = [t.c.key, t.c.provider, t.c.provider_id, t.c.season, t.c.lineup_format, t.c.home,
+            sa.func.coalesce(m.c.name, t.c.name).label("name"),
+            sa.func.coalesce(m.c.team_id, t.c.team_id).label("team_id"),
+            sa.func.coalesce(m.c.strategy, t.c.strategy).label("strategy"),
+            m.c.user_id, sa.func.coalesce(m.c.is_default, sa.false()).label("is_default"),
+            (m.c.user_id == first.c.owner_id).label("owner")]
+    q = sa.select(*cols).select_from(t.outerjoin(first, first.c.league == t.c.key))
+    if user_id is None:
+        q = q.outerjoin(m, sa.and_(m.c.league == t.c.key, m.c.user_id == first.c.owner_id)) \
+            .order_by(t.c.home.desc(), t.c.added_at, t.c.key)
+    else:
+        q = q.join(m, sa.and_(m.c.league == t.c.key, m.c.user_id == user_id)) \
+            .order_by(m.c.is_default.desc(), t.c.home.desc(), t.c.added_at, t.c.key)
+    with _read() as c:
+        return [{**r._mapping, "owner": bool(r.owner)} for r in c.execute(q)]
+
+
+def owner_id() -> int | None:
+    """The lowest user id: whose membership a league registered without naming a member is filed under (TRANSITIONAL:
+    PR B's CLI names its user)."""
+    with _read() as c:
+        return c.execute(sa.select(sa.func.min(users.c.id))).scalar()
+
+
+def put_membership(user_id: int, league: str, **values) -> None:
+    """Upsert (user, league) with `values` (team_id, is_default, name, strategy); is_default True clears the user's
+    other default in the same transaction."""
+    row = {"user_id": user_id, "league": league, "created_at": _iso(_utc_now()), **values}
+    with _write() as c:
+        if values.get("is_default"):
+            c.execute(sa.update(memberships).where(memberships.c.user_id == user_id, memberships.c.league != league)
+                      .values(is_default=False))
+        c.execute(_upsert(memberships, [row], ["user_id", "league"], list(values) or None))
 
 
 def put_league(row: dict) -> None:
@@ -1706,41 +1766,55 @@ def put_league_state(key: str, value, season: int = SEASON, *, ref=None) -> None
                           ["league", "season", "key"], ["value"]))
 
 
+def _page_owner(ref) -> tuple[str, int]:
+    """(league key, user id) whose page rows a LeagueRef names: the member's own (ffl-soc.6.2.2); None is the home
+    league's owner (TRANSITIONAL, 4.12); 0 when the registry has no user."""
+    if ref is None:
+        from . import leagues  # here: leagues imports this module
+        ref = leagues.home()
+    return ref.key, ref.user_id or 0
+
+
+def _pages_of(ref, season: int):
+    league, user = _page_owner(ref)
+    return sa.and_(page_cache.c.user_id == user, page_cache.c.league == league, page_cache.c.season == season)
+
+
 def put_page(key: str, payload, built_at: float, season: int = SEASON, *, ref=None) -> None:
-    league = _league_key(ref)
+    league, user = _page_owner(ref)
     with _write() as c:
-        c.execute(_upsert(page_cache, [{"league": league, "season": season, "key": key, "payload": payload,
-                                        "built_at": built_at}], ["league", "season", "key"], ["payload", "built_at"]))
+        c.execute(_upsert(page_cache, [{"user_id": user, "league": league, "season": season, "key": key,
+                                        "payload": payload, "built_at": built_at}],
+                          ["user_id", "league", "season", "key"], ["payload", "built_at"]))
 
 
 def drop_pages(keys: list[str], season: int = SEASON, *, ref=None) -> None:
     if not keys:
         return
-    league = _league_key(ref)
+    where = _pages_of(ref, season)
     with _write() as c:
-        c.execute(page_cache.delete().where(page_cache.c.league == league, page_cache.c.season == season,
-                                            page_cache.c.key.in_(keys)))
+        c.execute(page_cache.delete().where(where, page_cache.c.key.in_(keys)))
 
 
 def drop_page_prefixes(prefixes: tuple[str, ...], season: int = SEASON, *, ref=None) -> None:
     """Delete every row keyed `prefix` or `prefix:...`."""
     k = page_cache.c.key
     match = sa.or_(*[sa.or_(k == p, k.startswith(p + ":", autoescape=True)) for p in prefixes])
-    league = _league_key(ref)
+    where = _pages_of(ref, season)
     with _write() as c:
-        c.execute(page_cache.delete().where(page_cache.c.league == league, page_cache.c.season == season, match))
+        c.execute(page_cache.delete().where(where, match))
 
 
 def clear_pages(season: int = SEASON, *, ref=None) -> None:
-    league = _league_key(ref)
+    where = _pages_of(ref, season)
     with _write() as c:
-        c.execute(page_cache.delete().where(page_cache.c.league == league, page_cache.c.season == season))
+        c.execute(page_cache.delete().where(where))
 
 
 def pages(season: int = SEASON, *, ref=None) -> list[dict]:
     """Every stored page: {key, payload, built_at}."""
     t = page_cache
-    q = sa.select(t.c.key, t.c.payload, t.c.built_at).where(t.c.league == _league_key(ref), t.c.season == season)
+    q = sa.select(t.c.key, t.c.payload, t.c.built_at).where(_pages_of(ref, season))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 

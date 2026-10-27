@@ -2,6 +2,7 @@
 
     uv run python -m ffl.leagues list
     uv run python -m ffl.leagues add espn <id> [--season N] [--home]   # registers it and stores its settings
+    uv run python -m ffl.leagues join <key> --user <email> --team <id> [--default]   # a signed-in user joins it
     uv run python -m ffl.leagues caps <key> [POS=N ...]                # my roster caps (no args: the table)
 """
 from __future__ import annotations
@@ -23,9 +24,15 @@ class LeagueRef:
     home: bool
     lineup_format: str | None    # lineup_formats key, set when its settings are stored (formats.store)
     strategy: str | None         # set by task 4
+    # whose view of the league this is (ffl-soc.6.2.2): name, team_id and strategy are that member's. `home` stays the
+    # league's own flag (the module-level singletons key off it until 4.12); `is_default` is the member's default.
+    user_id: int | None = None
+    is_default: bool = False
+    owner: bool = False          # the member is the league's lowest user id (whose view jobs and the CLI take)
 
 
 _FIELDS = ("key", "provider", "provider_id", "season", "name", "team_id", "home", "lineup_format", "strategy")
+_REF_FIELDS = _FIELDS + ("user_id", "is_default", "owner")
 
 
 def key_for(provider: str, provider_id: str | int) -> str:
@@ -33,12 +40,50 @@ def key_for(provider: str, provider_id: str | int) -> str:
 
 
 def _ref(row: dict) -> LeagueRef:
-    return LeagueRef(**{k: row[k] for k in _FIELDS})
+    return LeagueRef(**{k: row.get(k) for k in _REF_FIELDS})
 
 
 def all_leagues() -> list[LeagueRef]:
-    """Every registered league, home first."""
-    return [_ref(r) for r in db.league_rows()]
+    """Every registered league through its owner's membership (the league's own columns when it has no member),
+    home first."""
+    return [_ref(r) for r in db.member_rows()]
+
+
+def _raw(key: str) -> LeagueRef | None:
+    """The league's own registry row, no member's view laid over it: what a write to the leagues row starts from."""
+    row = next((r for r in db.league_rows() if r["key"] == key), None)
+    return _ref(row) if row else None
+
+
+def for_user(user_id: int) -> list[LeagueRef]:
+    """The user's leagues, their default first."""
+    return [_ref(r) for r in db.member_rows(user_id)]
+
+
+def membership(user_id: int, key: str) -> LeagueRef:
+    """The user's view of league `key`; SystemExit when they are not a member, the same as an unknown key."""
+    ref = next((r for r in for_user(user_id) if r.key == key), None)
+    if ref is None:
+        raise SystemExit(f"unknown league {key!r}")
+    return ref
+
+
+def default_for(user_id: int) -> LeagueRef | None:
+    """The user's default league: the one marked, else their first; None when they have none."""
+    refs = for_user(user_id)
+    return refs[0] if refs else None
+
+
+def join(key: str, email: str, team_id: int | None, default: bool = False) -> LeagueRef:
+    """Make the user with `email` a member of league `key` holding `team_id`. The only ways a membership is made are
+    this, `register`'s owner row and the migration's backfill: a sign-in never makes one."""
+    user = db.user_by_email(email)
+    if user is None:
+        raise SystemExit(f"no user {email!r}: they sign in first")
+    if _raw(key) is None:
+        raise SystemExit(f"unknown league {key!r}; known: {', '.join(r.key for r in all_leagues()) or 'none'}")
+    db.put_membership(user["id"], key, team_id=team_id, **({"is_default": True} if default else {}))
+    return membership(user["id"], key)
 
 
 def home() -> LeagueRef:
@@ -62,7 +107,19 @@ def current() -> LeagueRef:
 
 
 def register(ref: LeagueRef) -> LeagueRef:
-    db.put_league({k: getattr(ref, k) for k in _FIELDS})
+    """Upsert the league's row and its owner's membership (the lowest user id; none when there is no user). A member's
+    view never reaches the row: an existing league keeps its own name, and takes team and strategy from its owner only."""
+    raw = _raw(ref.key)
+    row = {k: getattr(ref, k) for k in _FIELDS}
+    if raw is not None and ref.user_id is not None:
+        row["name"] = raw.name
+        if not ref.owner:
+            row["team_id"], row["strategy"] = raw.team_id, raw.strategy
+    db.put_league(row)
+    uid = ref.user_id if ref.user_id is not None else db.owner_id()
+    if uid is not None and (ref.user_id is None or ref.owner):
+        db.put_membership(uid, ref.key, team_id=ref.team_id, strategy=ref.strategy,
+                          **({"is_default": True} if ref.home or ref.is_default else {}))
     return get(ref.key)
 
 
@@ -75,6 +132,9 @@ def rename(ref: LeagueRef, name: str) -> LeagueRef:
     clean = " ".join(name.split())
     if not clean or len(clean) > NAME_MAX:
         raise ValueError(f"a league's name is 1 to {NAME_MAX} characters")
+    if ref.user_id is not None:  # the member's own name for it (ffl-soc.6.2.2), never anyone else's
+        db.put_membership(ref.user_id, ref.key, name=clean)
+        return membership(ref.user_id, ref.key)
     return register(replace(ref, name=clean))
 
 
@@ -173,6 +233,12 @@ def main(argv: list[str]) -> int:
             print(f"{r.key}  {r.season}  team {r.team_id if r.team_id is not None else '-'}  "
                   f"{'home' if r.home else '    '}  {r.name}")
         return 0
+    if argv[:1] == ["join"] and len(argv) >= 3 and "--user" in argv and "--team" in argv:
+        rest = argv[2:]
+        ref = join(argv[1], rest[rest.index("--user") + 1], int(rest[rest.index("--team") + 1]),
+                   default="--default" in rest)
+        print(f"{ref.key}  user {ref.user_id}  team {ref.team_id}  {'default' if ref.is_default else ''}")
+        return 0
     if argv[:2] == ["add", "espn"] and len(argv) >= 3:
         rest = argv[3:]
         season = int(rest[rest.index("--season") + 1]) if "--season" in rest else None
@@ -192,7 +258,8 @@ def main(argv: list[str]) -> int:
             set_cap(ref, pos, n)
         print(_caps_table(ref))
         return 0
-    print("usage: python -m ffl.leagues list | add espn <id> [--season N] [--home] | caps <key> [POS=N ...]")
+    print("usage: python -m ffl.leagues list | add espn <id> [--season N] [--home] | caps <key> [POS=N ...]"
+          " | join <key> --user <email> --team <id> [--default]")
     return 2
 
 

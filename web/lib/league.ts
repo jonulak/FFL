@@ -83,3 +83,21 @@ export function decide(path: string, search: string, cookie: string | null, docu
 export function tabsFor<T extends readonly (readonly [string, string])[]>(tabs: T, league: string | null): [string, string, string][] {
   return tabs.map(([href, label]) => [href, label, withLeague(href, league)]);
 }
+
+// The page a signed-in user lands on with no league at all (ffl-soc.6.2.2): the API answers 404 no_leagues.
+export const WELCOME_PATH = "/welcome";
+
+// A server call the API answered 404 for the league itself (ffl-soc.6.2.2): a league the user is not in (a stale
+// last-league cookie, a link from someone else) opens the same page in their default league, the ?league= dropped;
+// a user with no league at all goes to the welcome page. Any other answer is the caller's (null).
+export function leagueMissRedirect(status: number, body: unknown, path: string, search: string): string | null {
+  if (status !== 404 || typeof body !== "object" || body === null) return null;
+  const detail = (body as { detail?: unknown }).detail;
+  const error = typeof detail === "object" && detail !== null ? (detail as { error?: unknown }).error : null;
+  if (error === "no_leagues") return path === WELCOME_PATH ? null : WELCOME_PATH;
+  if (error !== "unknown_league" || !leagueOf(search)) return null;
+  const q = new URLSearchParams(search);
+  q.delete(LEAGUE_PARAM);
+  const rest = q.toString();
+  return rest ? `${path}?${rest}` : path;
+}

@@ -89,6 +89,13 @@ def _db_template(tmp_path_factory, pg_server):
     mp.setattr(config, "DATA", tmp_path_factory.mktemp("data"))
     mp.setattr(config, "JOURNAL", tmp_path_factory.mktemp("journal"))
     command.upgrade(db._alembic_config(), "head")
+    # the signed-in test user (TEST_USER, below) owns the home league, as Jonathan's user does in production
+    import sqlalchemy as sa
+    with db._write() as c:
+        c.execute(sa.insert(db.users).values(id=TEST_USER["id"], email=TEST_USER["email"], name=TEST_USER["name"],
+                                             created_at="2026-10-27T00:00:00+00:00"))
+        c.execute(sa.insert(db.memberships).values(user_id=TEST_USER["id"], league="espn:100000001", team_id=7,
+                                                   is_default=True, created_at="2026-10-27T00:00:00+00:00"))
     db.reset()  # a template takes no copies while anything is connected to it
     mp.undo()
     yield name
@@ -256,7 +263,8 @@ def _home_only_caches():
         from ffl import leagues
         with api._CACHES:
             api.caches.clear()
-            api.caches[leagues.home().key] = api.cache
+            home = leagues.home()
+            api.caches[(home.user_id, home.key)] = api.cache
     yield
     api = sys.modules.get("ffl.api")
     if api is not None:

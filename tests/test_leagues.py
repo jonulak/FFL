@@ -143,7 +143,7 @@ def test_add_registers_name_and_my_team(monkeypatch):
     _raw(monkeypatch)
     ref = leagues.add("999", season=2025)
     lineup = formats.lineup_key(formats.lineup_from_settings(settings.load(ref)))
-    assert ref == LeagueRef("espn:999", "espn", "999", 2025, "The Other One", 5, False, lineup, None)
+    assert ref == LeagueRef("espn:999", "espn", "999", 2025, "The Other One", 5, False, lineup, None, user_id=0, owner=True)
     assert leagues.get("espn:999") == ref
     assert settings.load(ref)["scoring"] == [{"stat_id": 53, "abbr": "REC", "label": "Each reception", "points": 0.5}]
     assert leagues.caps(ref) == {"QB": 3}, "the league's limit, no cap of mine yet"
@@ -179,7 +179,7 @@ def test_rename_keeps_everything_but_the_name():
     other = leagues.register(LeagueRef("espn:999", "espn", "999", 2026, "Indianapolis Pro H2H Points PPR League", 3,
                                        False, None, "1qb-10team"))
     out = leagues.rename(other, "  Indy  ")
-    assert out == LeagueRef("espn:999", "espn", "999", 2026, "Indy", 3, False, None, "1qb-10team")
+    assert out == LeagueRef("espn:999", "espn", "999", 2026, "Indy", 3, False, None, "1qb-10team", user_id=0, owner=True)
     assert leagues.get("espn:999").name == "Indy" and leagues.home().home
     for bad in ("", "   ", "x" * 61):
         with pytest.raises(ValueError):

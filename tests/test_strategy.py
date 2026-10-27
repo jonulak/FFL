@@ -123,6 +123,9 @@ def test_0020_links_the_public_league_where_it_is_registered(tmp_path, monkeypat
     provider_limits(ref.key, LIMITS)
     assert strategy.caps(ref) == LIMITS
     command.downgrade(db._alembic_config(), "0019")
-    assert leagues.get("espn:950458410").strategy is None
+    eng = sa.create_engine(url)  # the registry as 0019 has it (no memberships to read it through)
+    with eng.connect() as c:
+        assert c.execute(sa.text("SELECT strategy FROM leagues WHERE key = 'espn:950458410'")).scalar() is None
+    eng.dispose()
     assert db.strategy_row("1qb-10team") is None
     db.reset()
