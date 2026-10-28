@@ -8,7 +8,7 @@ import requests
 from espn_api.requests.espn_requests import ESPNAccessDenied, ESPNInvalidLeague, ESPNUnknownError
 
 from ffl import espn_write as W, leagues
-from tests.home import home_league
+from tests.home import connect_home, home_league
 
 FX = Path(__file__).parent / "fixtures" / "espn_write"
 
@@ -398,3 +398,9 @@ def test_last_waiver_run_is_none_when_the_read_fails(monkeypatch):
     _counted_reads(monkeypatch)
     monkeypatch.setattr(W.config, "raw_league_get", lambda view, **k: (_ for _ in ()).throw(RuntimeError("down")))
     assert W.last_waiver_run(max_age=60, ref=home_league()) is None
+
+
+@pytest.fixture(autouse=True)
+def _connected():
+    """Real writes go out under the member's own cookies (ffl-soc.3)."""
+    connect_home()

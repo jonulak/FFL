@@ -115,6 +115,7 @@ def _team_rows(league: str, team_id: int) -> int:
 def _fill(ref: leagues.LeagueRef) -> None:
     """One of every personal row for `ref`'s member, and their team's shared rows."""
     db.put_state("prefs", {"quiet": [22, 7]}, user_id=ref.user_id)
+    db.put_credentials(ref.user_id, "s2", f"{{SWID-{ref.user_id}}}")
     db.put_league_state("notify_prefs", {"moves": False}, ref=ref)
     db.put_league_state("pending_claims", {"x": 1}, ref=ref)
     db.put_my_cap("QB", 3, ref=ref)

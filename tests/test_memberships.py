@@ -243,20 +243,23 @@ def test_join_from_the_command_line(other, capsys):
     assert (ref.team_id, ref.is_default) == (5, True)
 
 
-def test_a_non_owner_member_never_writes_to_espn_with_the_owners_cookies(other, monkeypatch):
-    from ffl import espn_write
+def test_a_member_never_writes_to_espn_with_the_owners_cookies(other, monkeypatch):
+    """ffl-soc.3: a write goes out under the member's own cookies; one with none is refused, the owner's never lent."""
+    from ffl import espn_auth, espn_write
     monkeypatch.setenv("FFL_WRITES", "1")
+    monkeypatch.setattr(espn_write, "_team_id", lambda *, ref: ref.team_id)
     sent = []
     from types import SimpleNamespace
     monkeypatch.setattr(espn_write.requests, "post",
-                        lambda *a, **k: sent.append(a) or SimpleNamespace(status_code=200, json=lambda: {}))
+                        lambda *a, **k: sent.append(k["cookies"]) or SimpleNamespace(status_code=200, json=lambda: {}))
+    espn_auth.connect(0, "owners-s2", "{OWNER}")
     uid = db.create_user("b@example.com", None)
     leagues.join("espn:999", "b@example.com", team_id=5)
     with pytest.raises(espn_write.NotConnected) as e:
-        espn_write._post({}, ref=leagues.membership(uid, "espn:999"))
+        espn_write.cancel_claim("c1", 8, ref=leagues.membership(uid, "espn:999"))
     assert not e.value.expired and "own ESPN connection" in e.value.message and sent == []
-    espn_write._post({}, ref=leagues.get("espn:999"))  # the owner's view writes as before
-    assert len(sent) == 1
+    espn_write.cancel_claim("c1", 8, ref=leagues.get("espn:999"))  # the owner, under the owner's own
+    assert sent == [{"espn_s2": "owners-s2", "SWID": "{OWNER}"}]
 
 
 # Routes that open no league: global (health, the switcher's list, live, sources, news, devices, traces, presets) or a

@@ -837,7 +837,7 @@ def test_submit_expired_login(claims_env, monkeypatch):
 
     monkeypatch.setattr(api.espn_write, "pending_state", boom)
     r = claims_env.post("/claims/submit", json={"replace_outside": False})
-    assert r.status_code == 502 and "login expired" in r.json()["detail"]["error"]
+    assert r.status_code == 502 and r.json()["detail"]["error"] == api.espn_write.EXPIRED
 
 
 def test_unreachable_espn_is_not_a_login_expired(claims_env, monkeypatch):
@@ -1221,7 +1221,7 @@ def test_lineup_fake_move_logs_instead_of_journaling(lineup_env, monkeypatch, ca
 def test_lineup_maps_errors_from_the_concurrent_reads_as_before(lineup_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "pending_state", lambda **k: (_ for _ in ()).throw(api.espn_write.WriteError(401, "x")))
     r = lineup_env.post("/lineup", json=SWAP)
-    assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN login expired, refresh .env"
+    assert r.status_code == 502 and r.json()["detail"]["error"] == api.espn_write.EXPIRED
     monkeypatch.setattr(api.espn_write, "pending_state", lambda **k: (_ for _ in ()).throw(api.espn_write.WriteError(0, "Timeout: t")))
     r = lineup_env.post("/lineup", json=SWAP)
     assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN couldn't be reached, try again"
@@ -1264,7 +1264,7 @@ def test_lineup_reports_espns_refusal(lineup_env, monkeypatch):
         raise api.espn_write.WriteError(401, "nope")
     monkeypatch.setattr(api.espn_write, "move_lineup", boom)
     r = lineup_env.post("/lineup", json=SWAP)
-    assert r.status_code == 502 and r.json()["detail"]["error"] == "ESPN login expired, refresh .env"
+    assert r.status_code == 502 and r.json()["detail"]["error"] == api.espn_write.EXPIRED
 
 
 def test_lineup_read_back_failure_says_it_moved(lineup_env, monkeypatch):

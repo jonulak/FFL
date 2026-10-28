@@ -92,6 +92,7 @@ GOOD = {
     "FFL_GOOGLE_CLIENT_ID": "cid-SECRETVALUE-1",
     "FFL_GOOGLE_CLIENT_SECRET": "csecret-SECRETVALUE-2",
     "FFL_SIGNUP_EMAILS": "me@example.com",
+    "FFL_SECRET_KEYS": "k1:SECRETVALUE-3",
     "FFL_JOB_TOKEN": "",
     "FFL_AUTH_SECRET": "",
 }
@@ -134,6 +135,13 @@ def test_release_refuses_missing_google_client(tmp_path):
 def test_release_refuses_empty_signup_list(tmp_path):
     r = guard(_env(tmp_path, FFL_SIGNUP_EMAILS=""))
     assert r.returncode != 0 and "FFL_SIGNUP_EMAILS" in r.stderr
+
+
+def test_release_refuses_no_secret_ring(tmp_path):
+    """ffl-soc.3: never generated here, as the job token is: a new ring would not open the rows sealed with the old."""
+    for val in ("", None):
+        r = guard(_env(tmp_path, FFL_SECRET_KEYS=val))
+        assert r.returncode != 0 and "FFL_SECRET_KEYS" in r.stderr, val
 
 
 def test_release_refuses_empty_app_url(tmp_path):

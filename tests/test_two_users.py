@@ -2,6 +2,7 @@
 holds a league A is not in (tests/two_users.py). Each seeds their own rows, marked with a sentinel no real row carries;
 every route and personal db reader, as the other, must show none of it, and each must still see their own (without
 that, a reader that answers nothing to anyone would pass)."""
+from ffl import espn_auth
 import pytest
 
 from ffl import api, db, leagues, notify, player_views
@@ -251,7 +252,7 @@ def test_app_notices_go_to_the_operators_alone(two, monkeypatch):
 def test_each_member_is_their_own_team_whoever_the_env_cookie_is(two, monkeypatch):
     """The ESPN keys in the environment decide nothing: B's pages are built for B's team, never the cookie's."""
     from ffl import config, espn_season
-    monkeypatch.setattr(config, "SWID", "{A}")
+    espn_auth.connect(two.a_id, "s2", "{A}")
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: {"teams": [{"id": 7, "owner_swids": ["{A}"]},
                                                                         {"id": 3, "owner_swids": ["{B}"]}]})
     assert [espn_season.my_team_id(None, ref=r) for r in (two.a, two.b, two.c, two.b_only)] == [7, 3, 7, 4]

@@ -23,7 +23,7 @@ from . import season as S
 from .adp import norm_name
 from .flight import Flight
 from . import config
-from .config import SEASON, cookies, league, raw_league_get
+from .config import SEASON, league, raw_league_get
 from .players import fetch_pool
 from .settings import load, rescoring
 from .sleeper import TEAM_FIX, fetch as fetch_sleeper_season, score
@@ -1169,7 +1169,7 @@ def past_schedule(season: int) -> dict:
     """An earlier season's pro schedule (opponents and byes for last season's game log)."""
     if season not in _PAST_SCHED:
         r = requests.get(PRO_SCHEDULE.format(season=season), params={"view": "proTeamSchedules_wl"},
-                         cookies=cookies(), timeout=20)
+                         timeout=20)  # public: no league's cookies
         r.raise_for_status()
         _PAST_SCHED[season] = r.json()
     return _PAST_SCHED[season]
@@ -1239,7 +1239,7 @@ def past_stats(season: int, player_id: int) -> list[dict]:
                             "filterStatsForTopScoringPeriodIds": {"value": 25, "additionalValue": [f"00{season}"]}}}
         r = requests.get(f"{PRO_SCHEDULE.format(season=season)}/segments/0/leaguedefaults/3",
                          params={"view": "kona_playercard"}, headers={"x-fantasy-filter": json.dumps(filt)},
-                         cookies=cookies(), timeout=20)
+                         timeout=20)  # public: no league's cookies
         r.raise_for_status()
         players = r.json().get("players") or []
         _PAST_STATS[key] = players[0]["player"].get("stats") or [] if players else []
@@ -1870,7 +1870,9 @@ def team_logo(team_id: int, *, ref: leagues.LeagueRef) -> tuple[bytes, str]:
     url = getattr(t, "logo_url", "") if t else ""
     if not url:
         raise LookupError(f"no logo for team {team_id}")
-    r = requests.get(url, cookies=cookies(), timeout=20)
+    from . import espn_auth
+    c = espn_auth.for_read(ref)
+    r = requests.get(url, cookies=c.jar() if c else None, timeout=20)
     r.raise_for_status()
     return r.content, r.headers.get("content-type", "image/png").split(";")[0]
 

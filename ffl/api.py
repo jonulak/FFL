@@ -40,7 +40,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import auth, fastcast, news, playbook, watch
+from . import auth, espn_auth, fastcast, news, playbook, vault, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -330,6 +330,7 @@ def forget_user(user_id: int) -> None:
 
 
 auth.ON_DELETE.append(forget_user)
+auth.ON_DELETE.append(espn_auth.forget)  # the Leagues built with their cookies
 
 
 def caches_for_league(ref: LeagueRef) -> list[Cache]:
@@ -431,6 +432,8 @@ journal.ON_NEW_ROWS.append(on_new_rows)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # No key ring, no start (ffl-soc.3): every ESPN cookie and push key is sealed with it, like FFL_DB_URL's database.
+    vault.ring()
     # Warm each league's owner's page cache so the first browser hit after a (re)start is not the cold build.
     # Registered with that cache's thread table so join() covers it; a failure is logged and the
     # request path builds inline as it always did. The pages stored before the restart load first (expired), so
@@ -1317,7 +1320,7 @@ def _nfl_board(week: int, *, ref: LeagueRef) -> dict | None:
     except HTTPException as e:
         log.warning("nfl marks off, no board for week %s: %s", week, e.detail)
         return None
-    except SystemExit as e:  # config.league() exits when .env is missing; the NFL pages need no ESPN login
+    except (SystemExit, espn_auth.NoConnection) as e:  # no settings, or nobody's cookies read it: NFL pages need none
         log.warning("nfl marks off, no league config for week %s: %s", week, e)
         return None
     return data

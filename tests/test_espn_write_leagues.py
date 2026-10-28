@@ -3,7 +3,7 @@ import pytest
 import requests
 
 from ffl import config, espn_season, espn_write as W, leagues
-from tests.home import home_league
+from tests.home import connect_home, home_league
 
 
 @pytest.fixture
@@ -79,3 +79,9 @@ def test_pending_read_reuse_per_league(other, monkeypatch):
     assert [c["add"] for c in W.pending_state(60, ref=home_league())[0]] == [70]
     assert [c["add"] for c in W.pending_state(60, ref=other)[0]] == [30]
     assert len(asked) == 2 and asked[1].key == "espn:999"
+
+
+@pytest.fixture(autouse=True)
+def _connected():
+    """Real writes go out under the member's own cookies (ffl-soc.3)."""
+    connect_home()

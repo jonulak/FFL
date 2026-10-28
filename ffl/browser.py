@@ -16,28 +16,32 @@ import time
 from playwright.sync_api import sync_playwright
 
 from . import config
-from .config import CDP_PORT, DATA, ESPN_S2, ROOT, SWID
+from .config import CDP_PORT, DATA, ROOT
 
 PROFILE = ROOT / ".chrome-profile"
 
 
-def espn_cookies() -> list[dict]:
-    if not (ESPN_S2 and SWID):
+def espn_cookies(user_id: int | None) -> list[dict]:
+    """The acting user's own ESPN cookies for the window (ffl-soc.3: their row, never the environment); none when they
+    have no working connection, and the window then asks ESPN's login."""
+    from . import espn_auth
+    c = espn_auth.own(user_id)
+    if c is None:
         return []
     base = {"domain": ".espn.com", "path": "/", "secure": True}
-    return [{"name": "espn_s2", "value": ESPN_S2, **base, "httpOnly": True},
-            {"name": "SWID", "value": SWID, **base}]
+    return [{"name": "espn_s2", "value": c.espn_s2, **base, "httpOnly": True},
+            {"name": "SWID", "value": c.swid, **base}]
 
 
-def launch(url: str):
+def launch(url: str, user_id: int | None = None):
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             str(PROFILE), channel="chrome", headless=False,
             args=[f"--remote-debugging-port={CDP_PORT}", "--window-size=1600,1000"],
             viewport=None, ignore_default_args=["--enable-automation"],
         )
-        if espn_cookies():
-            ctx.add_cookies(espn_cookies())
+        if (jar := espn_cookies(user_id)):
+            ctx.add_cookies(jar)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(url, wait_until="domcontentloaded")
         print(f"Chrome open at {url}. CDP on :{CDP_PORT}. Ctrl-C to close.", flush=True)
@@ -90,4 +94,4 @@ if __name__ == "__main__":
     else:
         from . import leagues
         ref = leagues.acting()
-        launch(config.league_url(ref) if cmd == "league" else config.draft_room_url(ref))
+        launch(config.league_url(ref) if cmd == "league" else config.draft_room_url(ref), ref.user_id)
