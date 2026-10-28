@@ -485,7 +485,7 @@ def tick() -> dict:
     once: the sources' health, the flush. A step that fails is reported and the rest still run: an ESPN outage must
     not hold back notices already queued, nor one league's another's."""
     from . import leagues
-    out: dict = {"leagues": {r.key: league_tick(r) for r in leagues.all_leagues()}}
+    out: dict = {"leagues": {r.key: league_tick(r) for r in leagues.joined()}}
     _steps(out, (("sources", check_sources),))
     try:
         out["flush"] = flush()

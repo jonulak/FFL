@@ -47,9 +47,14 @@ def _ref(row: dict) -> LeagueRef:
 
 
 def all_leagues() -> list[LeagueRef]:
-    """Every registered league through its owner's membership (no member: no team), oldest first: what the jobs
-    walk."""
+    """Every registered league through its owner's membership (no member: no team), oldest first."""
     return [_ref(r) for r in db.member_rows()]
+
+
+def joined() -> list[LeagueRef]:
+    """`all_leagues` less those nobody is in: what the jobs walk. A league whose last member deleted their account
+    (ffl-soc.6.2.4) stays registered, its rows kept, and nothing runs for it until someone joins it again."""
+    return [r for r in all_leagues() if r.user_id is not None]
 
 
 def memberships() -> list[LeagueRef]:
@@ -192,16 +197,18 @@ def my_team_id(settings: dict, ref: LeagueRef) -> int:
 
 
 def add(provider_id: str, season: int | None = None, *, user_id: int, default: bool = False) -> LeagueRef:
-    """Register an ESPN league for `user_id`: name from its settings, their team by the SWID among its owners. A league
+    """Register an ESPN league for `user_id`: name from its settings, their team by their own SWID among its owners. A league
     already registered is refused: its row (strategy, name) is not this call's to rewrite."""
     key = key_for("espn", provider_id)
     if _raw(key) is not None:
         raise SystemExit(f"{key} is already registered: re-read its settings with `uv run python -m ffl.settings {key}`, "
                          f"or join it with `uv run python -m ffl.leagues join {key} --user <email> --team <id>`")
     ref = LeagueRef(key, "espn", str(provider_id), season or config.SEASON, key, None, None, None)
-    raw = config.raw_league_get(["mSettings", "mTeam"], ref=ref)
+    from . import espn_auth
+    mine = espn_auth.own(user_id)   # their own cookies read it (they are no member yet) and their SWID finds the team
+    raw = config.raw_league_get(["mSettings", "mTeam"], cookies=mine, ref=ref)
     name = (raw.get("settings") or {}).get("name") or key
-    swid = config.SWID
+    swid = mine.swid if mine else None
     team = next((t for t in raw.get("teams", []) if swid and swid in t.get("owners", [])), None)
     ref = register(replace(ref, name=name, team_id=team["id"] if team else None, is_default=default), user_id=user_id)
     from . import settings

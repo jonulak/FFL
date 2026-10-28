@@ -1,4 +1,5 @@
-"""The only code that writes to ESPN: waiver claims and lineup moves on the fantasy write host, with the .env cookies.
+"""The only code that writes to ESPN: waiver claims and lineup moves on the fantasy write host, under the acting
+member's own cookies (ffl-soc.3, espn_auth.own: never a league-mate's, never the environment's).
 
 ESPN's write API is undocumented; the shapes are what its own web app sent (spike ffl-ut0.1,
 tests/fixtures/espn_write). FFL_WRITES=0 swaps ESPN for an in-memory store so dev and tests exercise
@@ -21,7 +22,7 @@ from datetime import datetime
 
 import requests
 
-from . import config
+from . import config, espn_auth
 
 
 def write_url(*, ref) -> str:
@@ -49,12 +50,12 @@ class _Fake:
 
 _FAKES: dict[tuple[str, int | None], _Fake] = {}  # (league, team): a team's fake moves are its own
 _IDS = itertools.count(1)  # global, so a fake claim id is unique across leagues
-_READ: dict[str, tuple[float, dict]] = {}  # league key -> its last pending document and when it was read (monotonic)
+_READ: dict[tuple[str, int | None], tuple[float, dict]] = {}  # (league, team) -> its last pending read and when (monotonic)
 _GEN = 0  # bumped by every write, so a read in flight across one is not kept
 _GEN_LOCK = threading.Lock()  # a claim save and a lineup move can write at once
 
 
-EXPIRED = "ESPN login expired, refresh .env"
+EXPIRED = "ESPN refused your login: reconnect ESPN"
 UNREACHABLE = "ESPN couldn't be reached, try again"
 
 
@@ -84,6 +85,23 @@ class NotConnected(WriteError):
     @property
     def message(self) -> str:
         return "ESPN moves need your own ESPN connection, which isn't set up yet"
+
+
+class Refused(WriteError):
+    """A write refused before anything reached ESPN: ESPN has refused the member's cookies since their last connect."""
+
+    def __init__(self):
+        super().__init__(401, "cookies refused earlier")
+
+
+def _own(ref) -> espn_auth.Cookies:
+    """The acting member's own cookies, or the write is refused here: NotConnected with none, Refused when ESPN has
+    turned theirs away."""
+    c = espn_auth.own(ref.user_id)
+    if c is not None:
+        return c
+    st = espn_auth.status(ref.user_id) if ref.user_id is not None else {"failing_since": None}
+    raise Refused() if st["failing_since"] else NotConnected()
 
 
 def _writes() -> bool:
@@ -181,23 +199,23 @@ def move_lineup(items: list[tuple[int, str, str]], week: int, *, ref) -> None:
     if not _writes():
         _fake(ref).slots.update({p: t for p, _, t in items})
         return
-    res = _post(lineup_body(items, week, _team_id(ref=ref), config.SWID), ref=ref)
+    c = _own(ref)
+    res = _post(lineup_body(items, week, _team_id(ref=ref), c.swid), cookies=c, ref=ref)
     if not isinstance(res, dict) or res.get("status") != "EXECUTED":
         status = res.get("status") if isinstance(res, dict) else None
         raise WriteError(200, f"lineup move not executed (status {status!r})")
 
 
-def _post(body: dict | list, url: str | None = None, *, ref) -> dict | list:
+def _post(body: dict | list, url: str | None = None, *, cookies: espn_auth.Cookies, ref) -> dict | list:
+    """POST under the member's own `cookies` (`_own`); a 401/403 marks them refused."""
     global _GEN
-    # The cookies are the owner's account (config.cookies()): a write for any other member would act as the owner.
-    # Refused before anything is sent until each user connects their own ESPN (ffl-soc.6.3).
-    if ref is not None and ref.user_id is not None and not ref.owner:
-        raise NotConnected()
     with _GEN_LOCK:  # before and whatever the answer: a write that errored may still have landed (any league's read goes)
         _READ.clear()
         _GEN += 1
-    r = requests.post(url or write_url(ref=ref), json=body, headers=HEADERS, cookies=config.cookies(), timeout=TIMEOUT)
+    r = requests.post(url or write_url(ref=ref), json=body, headers=HEADERS, cookies=cookies.jar(), timeout=TIMEOUT)
     if r.status_code >= 400:
+        if r.status_code in (401, 403):
+            espn_auth.refused(cookies.user_id, f"ESPN {r.status_code} on a write")
         raise WriteError(r.status_code, r.text[:500])
     return r.json()
 
@@ -223,18 +241,26 @@ def _read_error(e: Exception) -> WriteError:
 def _pending_doc(max_age: float, *, ref) -> dict:
     """The mPendingTransactions + mTeam document, which also carries mStatus's waiverLastExecutionDate. A caller
     passing max_age takes the last read when it is younger than that (the Claims page: each GET and save paid two
-    ESPN reads, 1.5-2.3 s); it is kept per league, any write drops every league's, and a read that spans a write is
-    not kept."""
-    key = ref.key
+    ESPN reads, 1.5-2.3 s); it is kept per (league, team), any write drops every one, and a read that spans a write
+    is not kept. ESPN shows a team's pending claims to that team alone, so it is read under the team's own cookies
+    (the member's, else a co-manager's: `espn_auth.for_team`), never another team's."""
+    key = (ref.key, ref.team_id)
     kept = _READ.get(key)
     if max_age and kept and time.monotonic() - kept[0] < max_age:
         return kept[1]
     gen = _GEN
+    c = espn_auth.for_team(ref)
+    if c is None:
+        _own(ref)  # raises the member's own reason: NotConnected, or Refused
+        raise NotConnected()
     try:
         # mTeam is what makes ESPN include subOrder (the priority) on each pending claim
-        doc = config.raw_league_get(["mPendingTransactions", "mTeam"], ref=ref)
+        doc = config.raw_league_get(["mPendingTransactions", "mTeam"], cookies=c, ref=ref)
     except Exception as e:  # noqa: BLE001 — every read failure is a WriteError, sorted by _read_error
-        raise _read_error(e) from e
+        err = _read_error(e)
+        if err.expired:
+            espn_auth.refused(c.user_id, f"ESPN {err.status} on the pending read")
+        raise err from e
     with _GEN_LOCK:
         if gen == _GEN:
             _READ[key] = (time.monotonic(), doc)
@@ -279,7 +305,8 @@ def submit_claim(add: int, drop: int | None, week: int, *, ref) -> str:
         cid = f"fake-{next(_IDS)}"
         _fake(ref).claims.append({"id": cid, "add": add, "drop": drop})
         return cid
-    res = _post(submit_body(add, drop, week, _team_id(ref=ref), config.SWID), ref=ref)
+    c = _own(ref)
+    res = _post(submit_body(add, drop, week, _team_id(ref=ref), c.swid), cookies=c, ref=ref)
     if not isinstance(res, dict) or res.get("id") is None:  # ESPN may hold it anyway: the read-back shows it
         raise WriteError(200, "claim sent but ESPN's answer carries no id")
     return str(res["id"])
@@ -291,9 +318,10 @@ def reorder_claims(ids: list[str], *, ref) -> None:
         rank = {i: n for n, i in enumerate(ids)}
         _fake(ref).claims.sort(key=lambda c: rank.get(c["id"], len(rank)))
         return
+    c = _own(ref)
     team = _team_id(ref=ref)
     _post(reorder_body(ids), url=write_url(ref=ref).replace("/transactions/", f"/teams/{team}/pendingTransactions"),
-          ref=ref)
+          cookies=c, ref=ref)
 
 
 def cancel_claim(claim_id: str, week: int, *, ref) -> None:
@@ -301,7 +329,8 @@ def cancel_claim(claim_id: str, week: int, *, ref) -> None:
         f = _fake(ref)
         f.claims[:] = [c for c in f.claims if c["id"] != claim_id]
         return
-    _post(cancel_body(claim_id, week, _team_id(ref=ref), config.SWID), ref=ref)
+    c = _own(ref)
+    _post(cancel_body(claim_id, week, _team_id(ref=ref), c.swid), cookies=c, ref=ref)
 
 
 def add_free_agent(add: int, drop: int | None, week: int, *, ref) -> None:
@@ -312,7 +341,8 @@ def add_free_agent(add: int, drop: int | None, week: int, *, ref) -> None:
             raise WriteError(409, f"player {add} is no longer a free agent")
         f.adds.append({"add": add, "drop": drop})
         return
-    res = _post(add_body(add, drop, week, _team_id(ref=ref), config.SWID), ref=ref)
+    c = _own(ref)
+    res = _post(add_body(add, drop, week, _team_id(ref=ref), c.swid), cookies=c, ref=ref)
     # A 200 is not a landed add: only "EXECUTED" is (a guess, like add_body; ffl-ut0.7 pins the real shape and value).
     if not isinstance(res, dict) or res.get("status") != "EXECUTED":
         status = res.get("status") if isinstance(res, dict) else None

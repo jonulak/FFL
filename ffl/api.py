@@ -40,7 +40,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import auth, fastcast, news, playbook, watch
+from . import auth, espn_auth, fastcast, news, playbook, vault, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -322,6 +322,17 @@ def cache_for(ref: LeagueRef) -> Cache:
     return c
 
 
+def forget_user(user_id: int) -> None:
+    """A deleted account's page caches leave memory (db.delete_user took their rows)."""
+    with _CACHES:
+        for key in [k for k in caches if k[0] == user_id]:
+            del caches[key]
+
+
+auth.ON_DELETE.append(forget_user)
+auth.ON_DELETE.append(espn_auth.forget)  # the Leagues built with their cookies
+
+
 def caches_for_league(ref: LeagueRef) -> list[Cache]:
     """Every member's page cache of the league `ref` names that is open in this process, `ref`'s first (made when
     absent): what a league-wide change (a move, a correction, a pregame pull) drops or expires."""
@@ -421,12 +432,14 @@ journal.ON_NEW_ROWS.append(on_new_rows)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # No key ring, no start (ffl-soc.3): every ESPN cookie and push key is sealed with it, like FFL_DB_URL's database.
+    vault.ring()
     # Warm each league's owner's page cache so the first browser hit after a (re)start is not the cold build.
     # Registered with that cache's thread table so join() covers it; a failure is logged and the
     # request path builds inline as it always did. The pages stored before the restart load first (expired), so
     # the warm-up and every first open serve them at once and rebuild behind.
     try:
-        refs = leagues.all_leagues()
+        refs = leagues.joined()
     except (db.DBError, db.SchemaError) as e:  # the pages build on first open instead
         print(f"warm-up skipped, the registry is unreadable: {e}")
         refs = []
@@ -478,9 +491,10 @@ def warm(ref: LeagueRef) -> None:
 
 
 app = FastAPI(title="FFL season API", lifespan=lifespan)
-# Google's round trip (authlib's state, the saved `next`) in a signed cookie. Added first, so it sits inside
+# A provider's round trip (authlib's state, the saved `next`) in a signed cookie. Added first, so it sits inside
 # AuthMiddleware, which decides before anything else. Unset FFL_AUTH_SECRET: a per-process random key keeps the app
-# starting (dev, tests) while /auth/google/* answer 503 (auth.google_enabled reads the env per request).
+# starting (dev, tests) while /auth/<provider>/* answer 503 (auth.enabled reads the env per request). Lax:
+# Apple's form POST never carries it, so auth.apple_callback_post hands on to the GET callback, which does.
 app.add_middleware(SessionMiddleware, secret_key=auth.oidc_secret() or secrets.token_urlsafe(32),
                    session_cookie=auth.OIDC_COOKIE, max_age=auth.OIDC_MAX_AGE, same_site="lax",
                    https_only=auth.cookie_secure())
@@ -510,18 +524,6 @@ def league_list(request: Request):
              "home": r.is_default} for r in refs]
 
 
-def _caps(ref: LeagueRef) -> dict:
-    """The Settings page's caps table for a league: per position the league's limit, my cap and the cap the draft
-    tools use (the lower). Read through strategy.caps, so a position with no cap of mine takes the preset's
-    suggestion first, as the draft tools would."""
-    from . import strategy
-    strategy.caps(ref)
-    rows, eff = db.caps_rows(ref=ref), leagues.caps(ref)
-    return {"league": ref.key, "name": ref.name, "rows": [{"pos": p, "provider_limit": rows.get(p, {}).get("provider_limit"),
-                                         "my_cap": rows.get(p, {}).get("my_cap"), "cap": eff.get(p)}
-                                        for p in leagues.CAP_POSITIONS]}
-
-
 class NameIn(BaseModel):
     name: str
 
@@ -534,26 +536,6 @@ def league_rename(body: NameIn, ref: LeagueRef = Depends(open_league)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return {"key": r.key, "name": r.name}
-
-
-class CapIn(BaseModel):
-    pos: str
-    my_cap: int
-
-
-@app.get("/caps")
-def caps_get(ref: LeagueRef = Depends(open_league)):
-    return _caps(ref)
-
-
-@app.post("/caps")
-def caps_set(body: CapIn, ref: LeagueRef = Depends(open_league)):
-    """My cap at one position of the open league (`ffl.leagues caps`' rows): never above the league's limit (422)."""
-    try:
-        leagues.set_cap(ref, body.pos, body.my_cap)
-    except SystemExit as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    return _caps(ref)
 
 
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
@@ -1216,8 +1198,8 @@ def final_plays() -> dict:
     out: dict[str, int] = {}
     # its own record of the games read: a game opened on the NFL tab mid-game has ESPN rows for what had been
     # played, not ESPN's final word
-    done = {r.key: set(db.get_league_state("final_plays_done", [], ref=r)) for r in leagues.all_leagues()}
-    refs = {r.key: r for r in leagues.all_leagues()}
+    done = {r.key: set(db.get_league_state("final_plays_done", [], ref=r)) for r in leagues.joined()}
+    refs = {r.key: r for r in leagues.joined()}
     for week in (shown - 1, shown):
         if week < 1:
             continue
@@ -1307,7 +1289,7 @@ def _nfl_board(week: int, *, ref: LeagueRef) -> dict | None:
     except HTTPException as e:
         log.warning("nfl marks off, no board for week %s: %s", week, e.detail)
         return None
-    except SystemExit as e:  # config.league() exits when .env is missing; the NFL pages need no ESPN login
+    except (SystemExit, espn_auth.NoConnection) as e:  # no settings, or nobody's cookies read it: NFL pages need none
         log.warning("nfl marks off, no league config for week %s: %s", week, e)
         return None
     return data
@@ -1732,7 +1714,7 @@ def outlook_refresh(request: Request, league: str | None = Query(None)):
     first so a failure to read them is this answer's 502."""
     user = (request.scope.get("state") or {}).get("user")
     if league is None and user is None:
-        jobs = [(r, _roster_job(r)) for r in leagues.all_leagues()]
+        jobs = [(r, _roster_job(r)) for r in leagues.joined()]
     else:
         ref = open_league(request, league)
         try:
@@ -1809,7 +1791,7 @@ def transactions_sync(request: Request, league: str | None = Query(None)):
         except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
             raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
     out: dict = {}
-    for r in leagues.all_leagues():
+    for r in leagues.joined():
         try:
             out[r.key] = {"new": _sync_league(r)}
         except Exception as e:  # noqa: BLE001 — one league's outage is its own line
@@ -1900,7 +1882,7 @@ def notify_tick():
     try:
         out = notify.tick()
         # every league's own steps under `leagues`, then the global ones once: the NFL's plays, the session sweep
-        for r in leagues.all_leagues():
+        for r in leagues.joined():
             _tick_steps(out.setdefault("leagues", {}).setdefault(r.key, {}),
                         ((n, functools.partial(fn, ref=r)) for n, fn in
                          (("rollover", rollover_pass), ("corrections", correction_pass), ("watch", watch_members),
@@ -2211,7 +2193,7 @@ def refresh(request: Request, league: str | None = Query(None)):
     naming none refreshes every league, each answer under `leagues` by key."""
     if league is None and (request.scope.get("state") or {}).get("user") is None:
         out = {}
-        for r in leagues.all_leagues():
+        for r in leagues.joined():
             try:
                 out[r.key] = _refresh(r)
             except HTTPException as e:  # one league's ESPN failure is its own line

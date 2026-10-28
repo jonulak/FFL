@@ -52,7 +52,7 @@ def notify_written(written: list, index: players.Index) -> dict:
     its error is in its own line."""
     from .. import leagues
     out: dict = {}
-    for r in leagues.all_leagues():
+    for r in leagues.joined():
         try:
             out[r.key] = _notify_league(written, index, ref=r)
         except (Exception, SystemExit) as e:  # noqa: BLE001 — its revisions wait in its own queue

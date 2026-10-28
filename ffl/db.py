@@ -14,6 +14,7 @@ Writes are one short transaction each.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import threading
@@ -23,6 +24,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .config import DATA, ROOT, SEASON
+
+log = logging.getLogger(__name__)
 
 metadata = sa.MetaData()
 
@@ -499,11 +502,24 @@ seats = sa.Table(
 push_subscriptions = sa.Table(
     "push_subscriptions", metadata,
     sa.Column("endpoint", sa.String, primary_key=True),
-    sa.Column("keys", sa.JSON, nullable=False),          # {p256dh, auth}
+    sa.Column("keys", sa.String, nullable=False),        # {p256dh, auth}, sealed (ffl/vault.py, `_push_aad`)
     sa.Column("ua", sa.String, nullable=False, default=""),
     sa.Column("created_at", sa.String, nullable=False),
     _user(),
     sa.Index("ix_push_subscriptions_user", "user_id"),
+)
+
+# A user's ESPN cookies (ffl-soc.3): {espn_s2, swid} sealed as one token (ffl/vault.py, `_cred_aad`), never readable
+# from a row or a dump without FFL_SECRET_KEYS. `failing_since` is set when ESPN refuses them (401/403), cleared by a
+# read they pass or by new cookies.
+espn_credentials = sa.Table(
+    "espn_credentials", metadata,
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("secret", sa.String, nullable=False),
+    sa.Column("updated_at", sa.String, nullable=False),
+    sa.Column("last_ok", sa.String),
+    sa.Column("failing_since", sa.String),
+    sa.Column("failing_reason", sa.String),
 )
 
 # The notification outbox (ffl/notify.py): every detector inserts if absent on key, so an event is one notice however
@@ -1716,11 +1732,17 @@ def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def _push_aad(endpoint: str) -> str:
+    return f"push_subscriptions:{endpoint}:keys"
+
+
 def put_subscription(endpoint: str, keys: dict, ua: str = "", *, user_id: int) -> None:
     """One device's push subscription, the user's; the same endpoint again replaces its keys (browsers rotate them)
-    and moves it to whoever subscribed it last (one browser, another user signed in)."""
+    and moves it to whoever subscribed it last (one browser, another user signed in). The keys are stored sealed."""
+    from . import vault
+    sealed = vault.seal_json(keys, aad=_push_aad(endpoint))
     with _write() as c:
-        c.execute(_upsert(push_subscriptions, [{"endpoint": endpoint, "keys": keys, "ua": ua, "created_at": _now(),
+        c.execute(_upsert(push_subscriptions, [{"endpoint": endpoint, "keys": sealed, "ua": ua, "created_at": _now(),
                                                 "user_id": user_id}],
                           ["endpoint"], ["keys", "ua", "user_id"]))
 
@@ -1734,11 +1756,20 @@ def drop_subscription(endpoint: str, *, user_id: int | None) -> None:
 
 
 def subscriptions(*, user_id: int) -> list[dict]:
-    """The user's devices."""
+    """The user's devices, their keys opened. A device whose keys this ring cannot open (sealed under another ring) is
+    left out, logged: it cannot be pushed to, and the browser's next subscribe replaces it."""
+    from . import vault
     t = push_subscriptions
     with _read() as c:
-        return [dict(r._mapping) for r in c.execute(sa.select(t).where(t.c.user_id == user_id).order_by(t.c.created_at,
-                                                                                                         t.c.endpoint))]
+        rows = [dict(r._mapping) for r in c.execute(sa.select(t).where(t.c.user_id == user_id)
+                                                     .order_by(t.c.created_at, t.c.endpoint))]
+    out = []
+    for r in rows:
+        try:
+            out.append({**r, "keys": vault.open_json(r["keys"], aad=_push_aad(r["endpoint"]))})
+        except vault.VaultError as e:
+            log.warning("push device %s left out: %s", r["endpoint"][:40], e)
+    return out
 
 
 _NOTICE_IN = ("key", "kind", "title", "body", "url", "created_at")
@@ -2500,6 +2531,140 @@ def sweep_sessions() -> int:
 def delete_session(token: str) -> None:
     with _write() as c:
         c.execute(sa.delete(sessions).where(sessions.c.token_hash == _token_hash(token)))
+
+
+def user_sessions(user_id: int, current: str | None = None) -> list[dict]:
+    """The user's live sessions, newest seen first: `id` is the stored hash (an opaque handle: the cookie cannot be
+    had from it), `current` the one `current` (a raw token) is."""
+    mine = _token_hash(current) if current else None
+    with _read() as c:
+        rows = c.execute(sa.select(sessions.c.token_hash, sessions.c.created_at, sessions.c.last_seen, sessions.c.ua)
+                         .where(sessions.c.user_id == user_id, sessions.c.expires_at > _iso(_utc_now()))
+                         .order_by(sessions.c.last_seen.desc())).all()
+    return [{"id": r.token_hash, "created_at": r.created_at, "last_seen": r.last_seen, "ua": r.ua or "",
+             "current": r.token_hash == mine} for r in rows]
+
+
+def revoke_session(user_id: int, session_id: str) -> bool:
+    """End one of the user's sessions by its `user_sessions` id; False when they have none by it."""
+    with _write() as c:
+        return c.execute(sa.delete(sessions).where(sessions.c.user_id == user_id,
+                                                   sessions.c.token_hash == session_id)).rowcount > 0
+
+
+def revoke_sessions(user_id: int, keep: str | None = None) -> int:
+    """End every session of the user's but `keep` (a raw token; None ends them all); the count ended."""
+    q = sa.delete(sessions).where(sessions.c.user_id == user_id)
+    if keep:
+        q = q.where(sessions.c.token_hash != _token_hash(keep))
+    with _write() as c:
+        return c.execute(q).rowcount
+
+
+def user_identities(user_id: int) -> list[dict]:
+    """The sign-ins mapped to the user, oldest first: provider, the provider's email, when linked."""
+    with _read() as c:
+        rows = c.execute(sa.select(identities.c.provider, identities.c.email, identities.c.created_at)
+                         .where(identities.c.user_id == user_id).order_by(identities.c.created_at)).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def _cred_aad(user_id: int) -> str:
+    return f"espn_credentials:{user_id}:secret"
+
+
+def put_credentials(user_id: int, espn_s2: str, swid: str) -> None:
+    """The user's ESPN cookies, sealed; new cookies clear a failing mark."""
+    from . import vault
+    sealed = vault.seal_json({"espn_s2": espn_s2, "swid": swid}, aad=_cred_aad(user_id))
+    with _write() as c:
+        c.execute(_upsert(espn_credentials, [{"user_id": user_id, "secret": sealed, "updated_at": _now(),
+                                              "last_ok": None, "failing_since": None, "failing_reason": None}],
+                          ["user_id"], ["secret", "updated_at", "last_ok", "failing_since", "failing_reason"]))
+
+
+def drop_credentials(user_id: int) -> None:
+    with _write() as c:
+        c.execute(sa.delete(espn_credentials).where(espn_credentials.c.user_id == user_id))
+
+
+def credential_row(user_id: int) -> dict | None:
+    """The user's row with its cookies opened (`espn_s2`, `swid`), or None when they have none. A row this ring cannot
+    open comes back with `unreadable` set and no cookies."""
+    from . import vault
+    t = espn_credentials
+    with _read() as c:
+        r = c.execute(sa.select(t).where(t.c.user_id == user_id)).first()
+    if r is None:
+        return None
+    row = dict(r._mapping)
+    secret = row.pop("secret")
+    try:
+        return {**row, **vault.open_json(secret, aad=_cred_aad(user_id)), "unreadable": None}
+    except vault.VaultError as e:
+        return {**row, "espn_s2": None, "swid": None, "unreadable": str(e)}
+
+
+def credential_statuses() -> list[dict]:
+    """Every user's connection, no secret: email, updated_at, last_ok, failing_since, failing_reason."""
+    t = espn_credentials
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(
+            sa.select(users.c.id.label("user_id"), users.c.email, t.c.updated_at, t.c.last_ok, t.c.failing_since,
+                      t.c.failing_reason).join(t, t.c.user_id == users.c.id).order_by(users.c.id))]
+
+
+def mark_credentials(user_id: int, *, ok: bool, reason: str | None = None) -> None:
+    """A read the cookies passed (last_ok, clearing a failing mark) or one ESPN refused (failing_since, kept from the
+    first refusal)."""
+    t = espn_credentials
+    now = _now()
+    values = ({"last_ok": now, "failing_since": None, "failing_reason": None} if ok else
+              {"failing_since": sa.func.coalesce(t.c.failing_since, now), "failing_reason": reason})
+    with _write() as c:
+        c.execute(sa.update(t).where(t.c.user_id == user_id).values(**values))
+
+
+def reseal_all() -> int:
+    """Every sealed value under a key other than the ring's first, sealed again with the first (`ffl.vault rotate`);
+    the count. A value the ring cannot open stops it with VaultError, nothing written."""
+    from . import vault
+    n = 0
+    with _write() as c:
+        for uid, secret in c.execute(sa.select(espn_credentials.c.user_id, espn_credentials.c.secret)).all():
+            if vault.stale(secret):
+                plain = vault.open_(secret, aad=_cred_aad(uid))
+                c.execute(sa.update(espn_credentials).where(espn_credentials.c.user_id == uid)
+                          .values(secret=vault.seal(plain, aad=_cred_aad(uid))))
+                n += 1
+        t = push_subscriptions
+        for endpoint, keys in c.execute(sa.select(t.c.endpoint, t.c["keys"])).all():
+            if vault.stale(keys):
+                plain = vault.open_(keys, aad=_push_aad(endpoint))
+                c.execute(sa.update(t).where(t.c.endpoint == endpoint)
+                          .values(keys=vault.seal(plain, aad=_push_aad(endpoint))))
+                n += 1
+    return n
+
+
+def delete_user(user_id: int) -> None:
+    """The account and every personal row, in one transaction (ffl-soc.6.2.4). The users row's CASCADEs take the
+    identities, sessions, memberships (and with them member_state, member_caps) and every `_user()` table; page_cache
+    has no FK, so its rows go by hand. A team's rows (claim plans, seats, team_state) are shared with its co-managers:
+    they go only for a team nobody else is on. The leagues themselves stay, memberless or not."""
+    team_tables = (claim_plans, seats, team_state)
+    with _write() as c:
+        mine = c.execute(sa.select(memberships.c.league, memberships.c.team_id)
+                         .where(memberships.c.user_id == user_id, memberships.c.team_id.isnot(None))).all()
+        for league, team_id in mine:
+            others = c.execute(sa.select(sa.func.count()).select_from(memberships).where(
+                memberships.c.league == league, memberships.c.team_id == team_id,
+                memberships.c.user_id != user_id)).scalar_one()
+            if not others:
+                for t in team_tables:
+                    c.execute(sa.delete(t).where(t.c.league == league, t.c.team_id == team_id))
+        c.execute(sa.delete(page_cache).where(page_cache.c.user_id == user_id))
+        c.execute(sa.delete(users).where(users.c.id == user_id))
 
 
 def main(argv: list[str]) -> int:

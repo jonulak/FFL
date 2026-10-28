@@ -1,4 +1,5 @@
 """espn_season's League, my team and box/gap/rank caches are per league (ffl-soc.4.3)."""
+from ffl import espn_auth
 import json
 from types import SimpleNamespace as NS
 
@@ -73,7 +74,7 @@ def test_fresh_league_evicts_only_its_own_league(monkeypatch, other):
 
 
 def test_my_team_id_per_league(monkeypatch, other):
-    monkeypatch.setattr(config, "SWID", "{NOT-IN-ANY-LEAGUE}")
+    espn_auth.connect(0, "s2", "{NOT-IN-ANY-LEAGUE}")
     monkeypatch.setattr(espn_season, "load", lambda ref=None: {**SETTINGS, "league_id": int((ref or home_league()).provider_id)})
     assert espn_season.my_team_id(None, other) == 3
     assert espn_season.my_team_id(None, ref=home_league()) == home_league().team_id
@@ -158,7 +159,7 @@ def test_no_ref_is_home_even_with_ffl_league(monkeypatch, other):
     monkeypatch.setattr(espn_season, "league", lambda ref=None, *a, **k: got.append(ref) or NS())
     espn_season.fresh_league(ref=home_league())
     assert got == [home_league()]
-    monkeypatch.setattr(config, "SWID", "{NOBODY}")
+    espn_auth.connect(0, "s2", "{NOBODY}")
     assert espn_season.my_team_id(None, ref=home_league()) == home_league().team_id, "the ref's membership"
 
 
@@ -360,7 +361,7 @@ def test_sync_results_from_first_week(monkeypatch, other):
         seen.append(ref)
         return real(settings, ref)
     monkeypatch.setattr(leagues, "my_team_id", my_team)
-    monkeypatch.setattr(config, "SWID", "{NOPE}")
+    espn_auth.connect(0, "s2", "{NOPE}")
     journal.sync_results(lg, {**SETTINGS, "first_week": 8}, ref=other)
     assert asked == [8, 9] and seen == [other]
     assert [r["week"] for r in db.results_rows(ref=other)] == [8, 9]
@@ -425,7 +426,7 @@ def test_transactions_state_other_league(monkeypatch, other):
     monkeypatch.setattr(espn_season, "tx_player_info", lambda ids, *, ref=None: tx_ref.append(ref) or {77: {"pos": "WR", "team": "BUF"}})
     monkeypatch.setattr(espn_season, "load", lambda ref=None: loaded.append(ref) or {**SETTINGS, "week1_start": "2026-09-10"})
     monkeypatch.setattr(espn_season, "_club", lambda t: {"team": t.team_name, "abbrev": "T3", "logo": ""})
-    monkeypatch.setattr(config, "SWID", "{NOPE}")
+    espn_auth.connect(0, "s2", "{NOPE}")
     got = espn_season.transactions_state(ref=other)
     assert got["me"] == 3
     assert fresh_asked == [other] and synced == [other] and tx_ref == [other] and set(loaded) == {other}

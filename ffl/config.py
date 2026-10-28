@@ -16,8 +16,6 @@ DATA.mkdir(exist_ok=True)
 
 load_dotenv(ROOT / ".env")
 
-ESPN_S2 = os.environ.get("ESPN_S2") or None
-SWID = os.environ.get("SWID") or None
 # Chrome remote-debugging port. Override when 9222 is already taken by another project's
 # Chrome: every CDP consumer here would otherwise attach to that browser instead of ours.
 CDP_PORT = int(os.environ.get("FFL_CDP_PORT") or 9222)
@@ -64,14 +62,34 @@ def source_off(name: str) -> bool:
     return name in sources_off()
 
 
-def cookies() -> dict | None:
-    if ESPN_S2 and SWID:
-        return {"espn_s2": ESPN_S2, "SWID": SWID}
-    return None
-
-
 _LEAGUES: dict[tuple[str, int, bool], object] = {}  # (provider_id, season, fetch_league) -> its espn-api League
+_LEAGUES_BY: dict[tuple[str, int, bool], int | None] = {}  # the same key -> whose cookies built it (None: none)
 _LEAGUES_LOCK = threading.Lock()
+
+
+def _build(ref, fetch_league: bool):
+    """A League for `ref` under a member's working cookies (espn_auth.for_read), and whose they were. Cookies ESPN
+    refuses are marked failing and the next member's tried; with nobody's left, a league that needs cookies raises
+    espn_auth.NoConnection."""
+    from espn_api.football import League
+    from espn_api.requests.espn_requests import ESPNAccessDenied
+
+    from . import espn_auth
+    tried: set[int] = set()
+    while True:
+        c = espn_auth.for_read(ref, skip=frozenset(tried))
+        try:
+            built = League(league_id=int(ref.provider_id), year=ref.season, espn_s2=c.espn_s2 if c else None,
+                           swid=c.swid if c else None, fetch_league=fetch_league)
+        except ESPNAccessDenied as e:
+            if c is None:
+                raise espn_auth.NoConnection(ref.key) from e
+            espn_auth.refused(c.user_id, str(e))
+            tried.add(c.user_id)
+            continue
+        if c is not None:
+            espn_auth.passed(c)
+        return built, c.user_id if c else None
 
 
 def league(ref, fetch_league: bool = True):
@@ -79,16 +97,17 @@ def league(ref, fetch_league: bool = True):
     A League is a snapshot of one league's week, teams and settings, not a connection. The cache is a dict
     behind a lock, not an lru_cache, so one league's League can be dropped (`league.evict(ref)`) when its
     hour is up without the other leagues' being rebuilt; the build (an ESPN call) runs outside the lock,
-    and two threads asking at once may both build, the first install standing."""
+    and two threads asking at once may both build, the first install standing. It carries one member's cookies
+    (ffl-soc.3: shared reads only; `league.evict_user` drops every League built with a user's)."""
     key = (ref.provider_id, ref.season, fetch_league)
     with _LEAGUES_LOCK:
         hit = _LEAGUES.get(key)
     if hit is not None:
         return hit
-    from espn_api.football import League
-
-    built = League(league_id=int(ref.provider_id), year=ref.season, espn_s2=ESPN_S2, swid=SWID, fetch_league=fetch_league)
+    built, by = _build(ref, fetch_league)
     with _LEAGUES_LOCK:
+        if key not in _LEAGUES:
+            _LEAGUES_BY[key] = by
         return _LEAGUES.setdefault(key, built)
 
 
@@ -97,20 +116,48 @@ def _evict(ref) -> None:
     with _LEAGUES_LOCK:
         for key in [k for k in _LEAGUES if k[:2] == (ref.provider_id, ref.season)]:
             del _LEAGUES[key]
+            _LEAGUES_BY.pop(key, None)
+
+
+def _evict_user(user_id: int) -> None:
+    """Drop every cached League built with `user_id`'s cookies (they changed, were refused, or the user left)."""
+    with _LEAGUES_LOCK:
+        for key in [k for k, by in _LEAGUES_BY.items() if by == user_id]:
+            _LEAGUES.pop(key, None)
+            del _LEAGUES_BY[key]
 
 
 def _cache_clear() -> None:
     """Drop every cached League, of every league."""
     with _LEAGUES_LOCK:
         _LEAGUES.clear()
+        _LEAGUES_BY.clear()
 
 
 league.evict = _evict
+league.evict_user = _evict_user
 league.cache_clear = _cache_clear
 
 
-def raw_league_get(view, extend: str = "", headers: dict | None = None, *, ref, **params) -> dict:
-    """Direct call to ESPN's league endpoint with the given view(s), for `ref`."""
-    lg = league(ref)
+def raw_league_get(view, extend: str = "", headers: dict | None = None, *, ref, cookies=None, **params) -> dict:
+    """Direct call to ESPN's league endpoint with the given view(s), for `ref`: under the cached League's cookies (a
+    shared read), or under `cookies` (an espn_auth.Cookies: a read of what ESPN shows one team alone)."""
     params = {"view": view, **params}
-    return lg.espn_request.league_get(params=params, headers=headers, extend=extend)
+    if cookies is None:
+        from espn_api.requests.espn_requests import ESPNAccessDenied
+
+        from . import espn_auth
+        try:
+            return league(ref).espn_request.league_get(params=params, headers=headers, extend=extend)
+        except ESPNAccessDenied:
+            # the cookies the League was built with are refused now: marked, and the read made once more under the
+            # next member's (the rebuild); with nobody's left, the build raises espn_auth.NoConnection
+            with _LEAGUES_LOCK:
+                by = _LEAGUES_BY.get((ref.provider_id, ref.season, True))
+            if by is None:
+                raise
+            espn_auth.refused(by, "ESPN refused a shared read")
+            return league(ref).espn_request.league_get(params=params, headers=headers, extend=extend)
+    from espn_api.requests.espn_requests import EspnFantasyRequests
+    req = EspnFantasyRequests("nfl", ref.season, int(ref.provider_id), cookies=cookies.jar())
+    return req.league_get(params=params, headers=headers, extend=extend)

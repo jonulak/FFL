@@ -2,6 +2,7 @@
 
 POST /refresh calls sync_results directly, so the results must land without journal.main.
 """
+from ffl import espn_auth
 from types import SimpleNamespace
 
 from ffl import config, db, journal
@@ -17,7 +18,7 @@ def test_sync_results_writes_rows(monkeypatch):
     me, opp = _fake_team(), SimpleNamespace(team_id=3, team_name="Them")
     m = SimpleNamespace(home_team=me, away_team=opp, home_score=110.0, away_score=90.0)
     lg = SimpleNamespace(current_week=2, teams=[me], standings=lambda: [me], scoreboard=lambda wk: [m])
-    monkeypatch.setattr(config, "SWID", "{ME}")
+    espn_auth.connect(0, "s2", "{ME}")
     journal.sync_results(lg, {"teams": [{"id": 7, "owner_swids": ["{ME}"]}]}, ref=home_league())
     assert db.results_rows(ref=home_league()) == [{"week": 1, "opponent": "Them", "my_score": 110.0, "opp_score": 90.0, "result": "W"}]
 

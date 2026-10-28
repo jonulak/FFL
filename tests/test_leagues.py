@@ -1,4 +1,5 @@
 """The league registry: the home league's facts live in the `leagues` table, never in .env."""
+from ffl import espn_auth
 from datetime import date
 
 import pytest
@@ -159,7 +160,7 @@ def _raw(monkeypatch, swid="{ME}"):
                         "draftSettings": {}, "acquisitionSettings": {}},
            "status": {"firstScoringPeriod": 1},
            "teams": [{"id": 2, "owners": ["{X}"]}, {"id": 5, "owners": ["{ME}"]}]}
-    monkeypatch.setattr(config, "SWID", swid)
+    espn_auth.connect(0, "s2", swid)
     monkeypatch.setattr(config, "raw_league_get", lambda view, **kw: raw)
     monkeypatch.setattr(settings, "raw_league_get", lambda view, **kw: raw)
 

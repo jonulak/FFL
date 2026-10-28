@@ -77,6 +77,18 @@ elif [ -n "$FROM" ]; then
   pg_dump -Fc --no-owner --no-acl "${FROM/postgresql+psycopg:/postgresql:}" | pg_restore --no-owner --no-acl -d "$DB"
 fi
 
+# the key ring secrets are sealed with (ffl-soc.3, ffl/vault.py): this checkout's own dev ring, made once into .env
+# (--no-env too: it is not the database line). Rows restored from production's dump stay sealed under production's
+# ring and read as not connected here.
+ENVFILE="$ROOT/.env"
+if [ -z "${FFL_SECRET_KEYS:-}" ] && ! { [ -f "$ENVFILE" ] && grep -Eq '^(export[[:space:]]+)?FFL_SECRET_KEYS=.' "$ENVFILE"; }; then
+  RING="$(cd "$ROOT" && uv run python -m ffl.vault keygen)"
+  printf 'FFL_SECRET_KEYS=%s\n' "$RING" >> "$ENVFILE"
+  echo "devdb: a new dev key ring is in $ENVFILE (FFL_SECRET_KEYS)"
+fi
+[ -n "${FFL_SECRET_KEYS:-}" ] || FFL_SECRET_KEYS="$(sed -nE 's/^(export[[:space:]]+)?FFL_SECRET_KEYS=//p' "$ENVFILE" | tail -1)"
+export FFL_SECRET_KEYS
+
 export FFL_DB_URL="$TARGET"
 (cd "$ROOT" && uv run alembic upgrade head)   # a restored dump older than the code migrates; a current one is a no-op
 if [ -n "$SQLITE" ]; then
@@ -85,7 +97,7 @@ fi
 
 # --- .env ------------------------------------------------------------------------------------------------------
 if [ "$WRITE_ENV" = 1 ]; then
-  ENVFILE="$ROOT/.env"
+
   TMP="$(mktemp)"
   { [ -f "$ENVFILE" ] && grep -Ev '^(export[[:space:]]+)?FFL_DB_URL=' "$ENVFILE" || true; echo "FFL_DB_URL=$TARGET"; } > "$TMP"
   cat "$TMP" > "$ENVFILE"

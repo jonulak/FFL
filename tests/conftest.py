@@ -17,6 +17,8 @@ os.environ["FFL_LIVE"] = "0"
 os.environ["FFL_WRITES"] = "0"
 # Nothing in a test run may push to a phone; flush tests pass a fake sender.
 os.environ["FFL_NOTIFY"] = "0"
+# The ring secrets are sealed with (ffl/vault.py): one fresh key per run, never a real one.
+os.environ["FFL_SECRET_KEYS"] = "test:" + __import__("base64").b64encode(os.urandom(32)).decode()
 
 
 class PgServer:
