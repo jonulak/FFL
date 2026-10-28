@@ -38,6 +38,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/google/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Google Link
+         * @description Signed in: Google's round trip, its identity then linked to this user (ffl-soc.6.2.4), back to Settings. The
+         *     callback is the sign-in's (one redirect URI); `link_user` in the signed oidc cookie tells it apart.
+         */
+        get: operations["google_link_auth_google_link_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/google/callback": {
         parameters: {
             query?: never;
@@ -93,6 +114,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/signout-others": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Signout Others
+         * @description Every session of this user's but the one asking.
+         */
+        post: operations["signout_others_auth_signout_others_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions/{session_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke
+         * @description End one of this user's sessions (an id off /account); their own current one signs them out here too.
+         */
+        post: operations["revoke_auth_sessions__session_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete Account
+         * @description The account and every personal row (`db.delete_user`), then signed out.
+         */
+        post: operations["delete_account_auth_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Account
+         * @description Settings' Account section: who is signed in, their sessions (this one marked), their sign-ins, and the
+         *     providers configured here that they have not linked yet.
+         */
+        get: operations["account_account_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/me": {
         parameters: {
             query?: never;
@@ -123,7 +225,8 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /** Health */
+        head: operations["health_health_get"];
         patch?: never;
         trace?: never;
     };
@@ -136,7 +239,9 @@ export interface paths {
         };
         /**
          * League List
-         * @description Every registered league, home first: the switcher's rows (name · provider · format).
+         * @description The signed-in user's leagues, their default first: the switcher's rows (name · provider · format). `home` is
+         *     the user's default (the league the web opens with no ?league=). A job's request lists every league through its
+         *     owner.
          */
         get: operations["league_list_leagues_get"];
         put?: never;
@@ -161,27 +266,6 @@ export interface paths {
          * @description Rename the open league (League settings). 422 on a blank or overlong name.
          */
         post: operations["league_rename_leagues_name_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/caps": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Caps Get */
-        get: operations["caps_get_caps_get"];
-        put?: never;
-        /**
-         * Caps Set
-         * @description My cap at one position of the open league (`ffl.leagues caps`' rows): never above the league's limit (422).
-         */
-        post: operations["caps_set_caps_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -471,7 +555,7 @@ export interface paths {
         };
         /**
          * Player
-         * @description One player's game log, this season and last (the season modal), the live week from the feed (home's league only).
+         * @description One player's game log, this season and last (the season modal), the live week from the feed.
          */
         get: operations["player_player__player_id__get"];
         put?: never;
@@ -835,9 +919,10 @@ export interface paths {
         put?: never;
         /**
          * Outlook Refresh
-         * @description The hourly run (launchd/com.jonulak.ffl-outlook): every league in turn, one run, home's cards read first so
-         *     a failure to read them is this answer's 502. With ?league= only that league, an empty one home's (the Roster
-         *     page's button, which must not start every league's run).
+         * @description The hourly run (ffl-outlook.timer, a job naming no league): every league in turn, one run, each league's
+         *     cards read when the run reaches it (a failure is that league's outlook_run error). With ?league= (the Roster
+         *     page's button; a signed-in user's request with none opens their default) only that league, its cards read
+         *     first so a failure to read them is this answer's 502.
          */
         post: operations["outlook_refresh_outlook_refresh_post"];
         delete?: never;
@@ -882,8 +967,9 @@ export interface paths {
          * @description The hourly tick (launchd/com.jonulak.ffl-transactions): ESPN's activity feed into
          *     the DB's transactions table, so the record keeps up with no page open, and the weekly results into
          *     `results` (the nav's Refresh did that until it went). Concurrent syncs are safe: the table's
-         *     (season, id) key dedupes. With ?league= that league alone; with none every league, home's answer at the top
-         *     (its failure the 502, as before) and each other's under `leagues` (a failure reported there).
+         *     (season, id) key dedupes. With ?league= (or a signed-in user's request, their default) that league alone, its
+         *     failure the 502; a job naming none syncs every league, each answer under `leagues` by key, and 502s (after every
+         *     league ran: curl's non-zero exit is the log line) when any failed.
          */
         post: operations["transactions_sync_transactions_sync_post"];
         delete?: never;
@@ -901,7 +987,7 @@ export interface paths {
         };
         /**
          * Notify Config
-         * @description The devices and quiet hours (every league's) and the open league's switches.
+         * @description The member's devices and quiet hours (every league's) and their switches in the open league.
          */
         get: operations["notify_config_notify_config_get"];
         put?: never;
@@ -1179,7 +1265,8 @@ export interface paths {
         /**
          * Refresh
          * @description A forced pull by hand (curl; the nav button is gone, the notify tick's pregame_pull runs one before games).
-         *     Waits for every page to rebuild.
+         *     Waits for every page to rebuild. With ?league= (or a signed-in user's request, their default) that league; a job
+         *     naming none refreshes every league, each answer under `leagues` by key.
          */
         post: operations["refresh_refresh_post"];
         delete?: never;
@@ -1192,13 +1279,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** CapIn */
-        CapIn: {
-            /** Pos */
-            pos: string;
-            /** My Cap */
-            my_cap: number;
-        };
         /** DecisionEdit */
         DecisionEdit: {
             /** Rationale */
@@ -1207,6 +1287,11 @@ export interface components {
             note?: string | null;
             /** Outcome */
             outcome?: string | null;
+        };
+        /** DeleteIn */
+        DeleteIn: {
+            /** Email */
+            email: string;
         };
         /** EndpointIn */
         EndpointIn: {
@@ -1390,6 +1475,26 @@ export interface operations {
             };
         };
     };
+    google_link_auth_google_link_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     google_callback_auth_google_callback_get: {
         parameters: {
             query?: never;
@@ -1450,7 +1555,131 @@ export interface operations {
             };
         };
     };
+    signout_others_auth_signout_others_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    revoke_auth_sessions__session_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_account_auth_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    account_account_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     me_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    health_health_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1522,72 +1751,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["NameIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    caps_get_caps_get: {
-        parameters: {
-            query?: {
-                league?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    caps_set_caps_post: {
-        parameters: {
-            query?: {
-                league?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CapIn"];
             };
         };
         responses: {
@@ -3124,7 +3287,9 @@ export interface operations {
     };
     notify_recent_notify_recent_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3138,6 +3303,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

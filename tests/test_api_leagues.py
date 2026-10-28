@@ -612,24 +612,22 @@ def _limits(league: str, **limits):
     assert sa  # the import is the table's
 
 
-def test_caps_are_the_open_leagues_and_never_above_its_limit(client, other):
+def test_caps_are_the_leagues_own_and_never_above_its_limit(other):
+    """Roster caps are the draft tools' (`ffl.leagues caps`), set from the CLI only."""
     from ffl import strategy
     _limits("espn:999", QB=4, RB=8)
     home_before = db.caps_rows(ref=home_league())
-    body = client.get("/caps?league=espn:999").json()
-    assert body["league"] == "espn:999"
-    qb = next(r for r in body["rows"] if r["pos"] == "QB")
-    assert qb == {"pos": "QB", "provider_limit": 4, "my_cap": None, "cap": 4}
-    assert [r["pos"] for r in body["rows"]] == ["QB", "RB", "WR", "TE", "K", "D/ST"]
-    r = client.post("/caps?league=espn:999", json={"pos": "QB", "my_cap": 2})
-    assert r.status_code == 200 and next(x for x in r.json()["rows"] if x["pos"] == "QB")["cap"] == 2
+    leagues.set_cap(other, "QB", 2)
     assert leagues.caps(other)["QB"] == 2 and strategy.caps(other)["QB"] == 2, "the draft tools read the same rows"
-    over = client.post("/caps?league=espn:999", json={"pos": "QB", "my_cap": 5})
-    assert over.status_code == 422 and "at most 4" in over.json()["detail"]
-    assert client.post("/caps?league=espn:999", json={"pos": "XX", "my_cap": 1}).status_code == 422
+    with pytest.raises(SystemExit, match="at most 4"):
+        leagues.set_cap(other, "QB", 5)
     assert db.caps_rows(ref=home_league()) == home_before, "home's rows are its own"
-    home_rows = client.get("/caps").json()
-    assert home_rows["league"] == home_league().key
+
+
+def test_no_caps_route(client, other):
+    """The web app has no draft tool, so neither caps nor a strategy reach it (ffl-srn)."""
+    assert client.get("/caps?league=espn:999").status_code == 404
+    assert client.post("/caps?league=espn:999", json={"pos": "QB", "my_cap": 2}).status_code == 404
 
 
 

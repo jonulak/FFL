@@ -47,7 +47,7 @@ def _seed(client, monkeypatch, ref, uid: int, mark: str, pid: int) -> None:
     assert client.post("/players/presets", params=lg, json=preset).status_code == 200
     assert client.post(f"/news/mute/{pid}", json={"muted": True}).status_code == 200
     assert client.post("/decisions/prefs", params=lg, json={"log": mark != A_MARK}).status_code == 200
-    assert client.post("/caps", params=lg, json={"pos": "K", "my_cap": 0 if mark == A_MARK else 1}).status_code == 200
+    leagues.set_cap(ref, "K", 0 if mark == A_MARK else 1)   # the draft tools' caps: no route since ffl-srn, still per member
     db.add_decision({"at": "2026-10-27T12:00:00-04:00", "week": WEEK, "kind": "note", "source": "app", "title": mark,
                      "decision": mark}, ref=ref)
     db.put_sit(WEEK, pid, True, ref=ref)
@@ -65,7 +65,7 @@ def _route_texts(client, monkeypatch, uid: int, ref) -> dict[str, str]:
     lg = {"league": ref.key}
     out = {}
     for path, params in (("/watch/ids", lg), ("/decisions", lg), ("/decisions/prefs", lg), ("/notify/recent", lg),
-                         ("/notify/config", lg), ("/players/presets", lg), ("/caps", lg),
+                         ("/notify/config", lg), ("/players/presets", lg),
                          (f"/news/player/{A_PID}", lg), (f"/news/player/{B_PID}", lg)):
         r = client.get(path, params=params)
         assert r.status_code == 200, (path, r.status_code, r.text[:200])
@@ -97,8 +97,7 @@ def test_settings_are_each_members_own(two, client, monkeypatch):
         cfg = client.get("/notify/config", params=lg).json()
         assert (cfg["prefs"]["quiet"], cfg["prefs"]["move"], cfg["devices"]) == (quiet, move, devices), uid
         assert client.get("/decisions/prefs", params=lg).json()["log"] is log, uid
-        rows = {r["pos"]: r for r in client.get("/caps", params=lg).json()["rows"]}
-        assert rows["K"]["my_cap"] == k_cap, uid
+        assert db.caps_rows(ref=ref)["K"]["my_cap"] == k_cap, uid
         assert client.get(f"/news/player/{A_PID}", params=lg).json()["muted"] is (uid == two.a_id), uid
         assert client.get(f"/news/player/{B_PID}", params=lg).json()["muted"] is (uid == two.b_id), uid
 
