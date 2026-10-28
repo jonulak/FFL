@@ -47,9 +47,14 @@ def _ref(row: dict) -> LeagueRef:
 
 
 def all_leagues() -> list[LeagueRef]:
-    """Every registered league through its owner's membership (no member: no team), oldest first: what the jobs
-    walk."""
+    """Every registered league through its owner's membership (no member: no team), oldest first."""
     return [_ref(r) for r in db.member_rows()]
+
+
+def joined() -> list[LeagueRef]:
+    """`all_leagues` less those nobody is in: what the jobs walk. A league whose last member deleted their account
+    (ffl-soc.6.2.4) stays registered, its rows kept, and nothing runs for it until someone joins it again."""
+    return [r for r in all_leagues() if r.user_id is not None]
 
 
 def memberships() -> list[LeagueRef]:

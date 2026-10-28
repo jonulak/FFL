@@ -322,6 +322,16 @@ def cache_for(ref: LeagueRef) -> Cache:
     return c
 
 
+def forget_user(user_id: int) -> None:
+    """A deleted account's page caches leave memory (db.delete_user took their rows)."""
+    with _CACHES:
+        for key in [k for k in caches if k[0] == user_id]:
+            del caches[key]
+
+
+auth.ON_DELETE.append(forget_user)
+
+
 def caches_for_league(ref: LeagueRef) -> list[Cache]:
     """Every member's page cache of the league `ref` names that is open in this process, `ref`'s first (made when
     absent): what a league-wide change (a move, a correction, a pregame pull) drops or expires."""
@@ -426,7 +436,7 @@ async def lifespan(app: FastAPI):
     # request path builds inline as it always did. The pages stored before the restart load first (expired), so
     # the warm-up and every first open serve them at once and rebuild behind.
     try:
-        refs = leagues.all_leagues()
+        refs = leagues.joined()
     except (db.DBError, db.SchemaError) as e:  # the pages build on first open instead
         print(f"warm-up skipped, the registry is unreadable: {e}")
         refs = []
@@ -1216,8 +1226,8 @@ def final_plays() -> dict:
     out: dict[str, int] = {}
     # its own record of the games read: a game opened on the NFL tab mid-game has ESPN rows for what had been
     # played, not ESPN's final word
-    done = {r.key: set(db.get_league_state("final_plays_done", [], ref=r)) for r in leagues.all_leagues()}
-    refs = {r.key: r for r in leagues.all_leagues()}
+    done = {r.key: set(db.get_league_state("final_plays_done", [], ref=r)) for r in leagues.joined()}
+    refs = {r.key: r for r in leagues.joined()}
     for week in (shown - 1, shown):
         if week < 1:
             continue
@@ -1732,7 +1742,7 @@ def outlook_refresh(request: Request, league: str | None = Query(None)):
     first so a failure to read them is this answer's 502."""
     user = (request.scope.get("state") or {}).get("user")
     if league is None and user is None:
-        jobs = [(r, _roster_job(r)) for r in leagues.all_leagues()]
+        jobs = [(r, _roster_job(r)) for r in leagues.joined()]
     else:
         ref = open_league(request, league)
         try:
@@ -1809,7 +1819,7 @@ def transactions_sync(request: Request, league: str | None = Query(None)):
         except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
             raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
     out: dict = {}
-    for r in leagues.all_leagues():
+    for r in leagues.joined():
         try:
             out[r.key] = {"new": _sync_league(r)}
         except Exception as e:  # noqa: BLE001 — one league's outage is its own line
@@ -1900,7 +1910,7 @@ def notify_tick():
     try:
         out = notify.tick()
         # every league's own steps under `leagues`, then the global ones once: the NFL's plays, the session sweep
-        for r in leagues.all_leagues():
+        for r in leagues.joined():
             _tick_steps(out.setdefault("leagues", {}).setdefault(r.key, {}),
                         ((n, functools.partial(fn, ref=r)) for n, fn in
                          (("rollover", rollover_pass), ("corrections", correction_pass), ("watch", watch_members),
@@ -2211,7 +2221,7 @@ def refresh(request: Request, league: str | None = Query(None)):
     naming none refreshes every league, each answer under `leagues` by key."""
     if league is None and (request.scope.get("state") or {}).get("user") is None:
         out = {}
-        for r in leagues.all_leagues():
+        for r in leagues.joined():
             try:
                 out[r.key] = _refresh(r)
             except HTTPException as e:  # one league's ESPN failure is its own line

@@ -177,7 +177,7 @@ def _rotowire_ids(index: Index | None = None) -> list[int]:
     """`_league_rotowire_ids` of every league, each player once."""
     from .. import leagues
     out: list[int] = []
-    for ref in leagues.all_leagues():
+    for ref in leagues.joined():
         out += _league_rotowire_ids(ref, index)
     return sorted(set(out))
 

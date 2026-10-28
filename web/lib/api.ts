@@ -16,6 +16,13 @@ export const API_TIMEOUT_MS = 20_000;
 export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; quiet: [string, string] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
 
+// ffl/auth.py GET /account: Settings' Account section (ffl-soc.6.2.4)
+export type AccountSession = { id: string; created_at: string; last_seen: string; ua: string; current: boolean };
+export type Account = {
+  email: string; name: string | null; sessions: AccountSession[];
+  identities: { provider: string; email: string; created_at: string }[]; linkable: string[];
+};
+
 export class ApiError extends Error {
   constructor(public status: number, public source: string, message: string) {
     super(message);

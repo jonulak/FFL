@@ -2502,6 +2502,62 @@ def delete_session(token: str) -> None:
         c.execute(sa.delete(sessions).where(sessions.c.token_hash == _token_hash(token)))
 
 
+def user_sessions(user_id: int, current: str | None = None) -> list[dict]:
+    """The user's live sessions, newest seen first: `id` is the stored hash (an opaque handle: the cookie cannot be
+    had from it), `current` the one `current` (a raw token) is."""
+    mine = _token_hash(current) if current else None
+    with _read() as c:
+        rows = c.execute(sa.select(sessions.c.token_hash, sessions.c.created_at, sessions.c.last_seen, sessions.c.ua)
+                         .where(sessions.c.user_id == user_id, sessions.c.expires_at > _iso(_utc_now()))
+                         .order_by(sessions.c.last_seen.desc())).all()
+    return [{"id": r.token_hash, "created_at": r.created_at, "last_seen": r.last_seen, "ua": r.ua or "",
+             "current": r.token_hash == mine} for r in rows]
+
+
+def revoke_session(user_id: int, session_id: str) -> bool:
+    """End one of the user's sessions by its `user_sessions` id; False when they have none by it."""
+    with _write() as c:
+        return c.execute(sa.delete(sessions).where(sessions.c.user_id == user_id,
+                                                   sessions.c.token_hash == session_id)).rowcount > 0
+
+
+def revoke_sessions(user_id: int, keep: str | None = None) -> int:
+    """End every session of the user's but `keep` (a raw token; None ends them all); the count ended."""
+    q = sa.delete(sessions).where(sessions.c.user_id == user_id)
+    if keep:
+        q = q.where(sessions.c.token_hash != _token_hash(keep))
+    with _write() as c:
+        return c.execute(q).rowcount
+
+
+def user_identities(user_id: int) -> list[dict]:
+    """The sign-ins mapped to the user, oldest first: provider, the provider's email, when linked."""
+    with _read() as c:
+        rows = c.execute(sa.select(identities.c.provider, identities.c.email, identities.c.created_at)
+                         .where(identities.c.user_id == user_id).order_by(identities.c.created_at)).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def delete_user(user_id: int) -> None:
+    """The account and every personal row, in one transaction (ffl-soc.6.2.4). The users row's CASCADEs take the
+    identities, sessions, memberships (and with them member_state, member_caps) and every `_user()` table; page_cache
+    has no FK, so its rows go by hand. A team's rows (claim plans, seats, team_state) are shared with its co-managers:
+    they go only for a team nobody else is on. The leagues themselves stay, memberless or not."""
+    team_tables = (claim_plans, seats, team_state)
+    with _write() as c:
+        mine = c.execute(sa.select(memberships.c.league, memberships.c.team_id)
+                         .where(memberships.c.user_id == user_id, memberships.c.team_id.isnot(None))).all()
+        for league, team_id in mine:
+            others = c.execute(sa.select(sa.func.count()).select_from(memberships).where(
+                memberships.c.league == league, memberships.c.team_id == team_id,
+                memberships.c.user_id != user_id)).scalar_one()
+            if not others:
+                for t in team_tables:
+                    c.execute(sa.delete(t).where(t.c.league == league, t.c.team_id == team_id))
+        c.execute(sa.delete(page_cache).where(page_cache.c.user_id == user_id))
+        c.execute(sa.delete(users).where(users.c.id == user_id))
+
+
 def main(argv: list[str]) -> int:
     cmd = argv[0] if argv else ""
     if cmd == "import":

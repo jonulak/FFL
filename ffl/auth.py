@@ -17,6 +17,7 @@ import httpx
 from authlib.integrations.base_client import OAuthError
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from joserfc.errors import JoseError
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection, Request
@@ -31,6 +32,8 @@ OIDC_COOKIE = "ffl_oidc"  # Starlette's signed session: authlib's state and the 
 OIDC_MAX_AGE = 600
 GOOGLE_METADATA = "https://accounts.google.com/.well-known/openid-configuration"
 SESSION_DAYS = 90
+SETTINGS_PATH = "/settings"
+PROVIDERS = ("google",)  # the providers a user signs in with and can link; 6.2.5 adds apple
 JOB_HEADER = "x-ffl-job"
 
 # (method, request path), matched exactly. Everything not named here needs a signed-in session.
@@ -256,6 +259,7 @@ async def google_start(request: Request, next: str | None = None):
     google = _google_client()
     app_url = os.environ["FFL_APP_URL"].rstrip("/")  # google_enabled() checked it
     request.session["next"] = safe_next(next)  # rides in ffl_oidc to the callback
+    request.session.pop("link_user", None)  # an abandoned link's: this round trip signs in
     try:
         return await google.authorize_redirect(request, app_url + "/api/auth/google/callback")
     except (OAuthError, httpx.HTTPError, ValueError) as e:  # Google's metadata unreachable
@@ -263,18 +267,53 @@ async def google_start(request: Request, next: str | None = None):
         return _signin_error("failed")
 
 
+def _link_result(code: str) -> RedirectResponse:
+    return RedirectResponse(f"{SETTINGS_PATH}?link={code}", status_code=302)
+
+
+@router.get("/auth/google/link")
+async def google_link(request: Request):
+    """Signed in: Google's round trip, its identity then linked to this user (ffl-soc.6.2.4), back to Settings. The
+    callback is the sign-in's (one redirect URI); `link_user` in the signed oidc cookie tells it apart."""
+    user = current_user(request)
+    google = _google_client()
+    app_url = os.environ["FFL_APP_URL"].rstrip("/")
+    request.session["link_user"] = user["id"]
+    try:
+        return await google.authorize_redirect(request, app_url + "/api/auth/google/callback")
+    except (OAuthError, httpx.HTTPError, ValueError) as e:
+        log.warning("google link start failed: %s", getattr(e, "error", None) or type(e).__name__)
+        return _link_result("failed")
+
+
+def link(user_id: int, provider: str, subject: str, email: str | None) -> str:
+    """Map this identity to `user_id`: "linked" (or it was theirs already), "taken" when it signs another user in
+    (never moved). The sign-up list does not apply: the user is signed in and has just proved they hold it."""
+    uid = db.identity_user(provider, subject)
+    if uid is not None:
+        return "linked" if uid == user_id else "taken"
+    db.link_identity(user_id, provider, subject, email or "")
+    return "linked"
+
+
 @router.get("/auth/google/callback")
 async def google_callback(request: Request):
     google = _google_client()
     next_ = safe_next(request.session.pop("next", None))
+    link_user = request.session.pop("link_user", None)
+    failed = _link_result("failed") if link_user is not None else _signin_error("failed")
     try:
         token = await google.authorize_access_token(request)
     except (OAuthError, JoseError, httpx.HTTPError, ValueError) as e:  # refused, bad state or id_token, no exchange
         log.warning("google sign-in callback failed: %s", getattr(e, "error", None) or type(e).__name__)
-        return _signin_error("failed")
+        return failed
     info = (token or {}).get("userinfo") or {}
     if not info.get("sub"):
-        return _signin_error("failed")
+        return failed
+    if link_user is not None:
+        if await run_in_threadpool(db.user_row, link_user) is None:  # the account was deleted meanwhile
+            return _signin_error("failed")
+        return _link_result(await run_in_threadpool(link, link_user, "google", str(info["sub"]), info.get("email")))
     uid = await run_in_threadpool(sign_in, "google", str(info["sub"]), info.get("email"),
                                   info.get("email_verified") is True, info.get("name"))
     if uid is None:
@@ -309,6 +348,64 @@ def signout(request: Request):
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(session_cookie(), **_cookie_kwargs())
     return resp
+
+
+@router.post("/auth/signout-others")
+def signout_others(request: Request):
+    """Every session of this user's but the one asking."""
+    user = current_user(request)
+    return {"ended": db.revoke_sessions(user["id"], keep=request.cookies[session_cookie()])}
+
+
+@router.post("/auth/sessions/{session_id}/revoke")
+def revoke(session_id: str, request: Request):
+    """End one of this user's sessions (an id off /account); their own current one signs them out here too."""
+    user = current_user(request)
+    if not db.revoke_session(user["id"], session_id):
+        raise HTTPException(404, "unknown_session")
+    current = db._token_hash(request.cookies[session_cookie()]) == session_id
+    resp = JSONResponse({"ok": True, "signed_out": current})
+    if current:
+        resp.delete_cookie(session_cookie(), **_cookie_kwargs())
+    return resp
+
+
+class DeleteIn(BaseModel):
+    email: str  # the confirmation: the account's own email, typed (any case)
+
+
+# Called with the user id after an account is deleted (api's: drop their in-memory page caches).
+ON_DELETE: list[Callable[[int], None]] = []
+
+
+@router.post("/auth/delete")
+def delete_account(body: DeleteIn, request: Request):
+    """The account and every personal row (`db.delete_user`), then signed out."""
+    user = current_user(request)
+    if body.email.strip().lower() != user["email"].lower():
+        raise HTTPException(422, "email_mismatch")
+    db.delete_user(user["id"])
+    for fn in ON_DELETE:
+        try:
+            fn(user["id"])
+        except Exception:
+            log.exception("after deleting user %s", user["id"])
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(session_cookie(), **_cookie_kwargs())
+    return resp
+
+
+@router.get("/account")
+def account(request: Request):
+    """Settings' Account section: who is signed in, their sessions (this one marked), their sign-ins, and the
+    providers configured here that they have not linked yet."""
+    user = current_user(request)
+    ids = db.user_identities(user["id"])
+    enabled = {"google": google_enabled()}
+    have = {i["provider"] for i in ids}
+    return {"email": user["email"], "name": user["name"],
+            "sessions": db.user_sessions(user["id"], current=request.cookies.get(session_cookie())),
+            "identities": ids, "linkable": [p for p in PROVIDERS if enabled.get(p) and p not in have]}
 
 
 @router.get("/auth/me")
