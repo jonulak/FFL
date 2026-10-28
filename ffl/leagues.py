@@ -52,6 +52,17 @@ def all_leagues() -> list[LeagueRef]:
     return [_ref(r) for r in db.member_rows()]
 
 
+def memberships() -> list[LeagueRef]:
+    """Every membership of every league (league oldest first, then user): what personal work walks (each member's
+    pushes, watch pass, injuries)."""
+    return [_ref(r) for r in db.member_rows(everyone=True)]
+
+
+def members(key: str) -> list[LeagueRef]:
+    """Every member's view of league `key`, lowest user id (the owner) first; [] when nobody has joined it."""
+    return [r for r in memberships() if r.key == key]
+
+
 def _raw(key: str) -> LeagueRef | None:
     """The league's own registry row, no member's view laid over it: what a write to the leagues row starts from."""
     row = next((r for r in db.league_rows() if r["key"] == key), None)
@@ -121,9 +132,9 @@ def acting(key: str | None = None) -> LeagueRef:
 
 
 def oldest() -> LeagueRef:
-    """The oldest registered league, through its owner. Only for what belongs to no league: a read of NFL-wide data
-    through a league's own view (kona_player_info's player pool is the same in every league), and notices about the
-    app itself (`notify.app_notices`). SystemExit when none is registered."""
+    """The oldest registered league, through its owner. Only for a read of NFL-wide data through a league's own view
+    (kona_player_info's player pool is the same in every league): never anyone's data (the app's own notices go to
+    the operators, `notify.app_notices`). SystemExit when none is registered."""
     refs = all_leagues()
     if not refs:
         raise SystemExit("no league registered: `uv run python -m ffl.leagues add espn <id> --default`")
@@ -172,25 +183,11 @@ def rename(ref: LeagueRef, name: str) -> LeagueRef:
 
 
 def my_team_id(settings: dict, ref: LeagueRef) -> int:
-    """Which team is mine, in the league `ref` names.
-
-    The SWID is the authority when it identifies a team, because it is per-account and right in every
-    league. The membership's team_id is per-league: a disagreement resolves to the SWID, loudly. A league
-    whose membership has no team and whose owners lack my SWID has no answer (never another league's).
-    """
-    registered = ref.team_id
-    swid = config.SWID
-    by_swid = None
-    if swid:
-        by_swid = next((t["id"] for t in settings["teams"] if swid in t.get("owner_swids", [])), None)
-    if by_swid and registered and by_swid != registered:
-        name = next((t.get("name", "?") for t in settings["teams"] if t["id"] == by_swid), "?")
-        print(f"!! {ref.key} says team {registered} but the SWID owns team {by_swid} ({name}) "
-              f"in this league — using {by_swid}.", flush=True)
-    if by_swid:
-        return by_swid
-    if registered:
-        return registered
+    """Which team is mine in the league `ref` names: the membership's (ffl-soc.6.2.3). The ESPN keys in the environment
+    decide nothing: they are one person's cookie, and would hand any other member that person's team. A membership
+    with no team has no answer (never another league's, never the cookie's)."""
+    if ref.team_id:
+        return ref.team_id
     raise SystemExit(f"Could not identify my team in {ref.key}: `uv run python -m ffl.leagues join` it with --team")
 
 
@@ -219,7 +216,7 @@ def caps(ref: LeagueRef) -> dict[str, int]:
     """How many of each position I may roster: the lower of my cap and the league's limit (either alone
     when the other is unset; a position with neither is left out, uncapped)."""
     out = {}
-    for pos, c in db.caps_rows(ref.key).items():
+    for pos, c in db.caps_rows(ref=ref).items():
         vals = [v for v in (c["my_cap"], c["provider_limit"]) if v is not None]
         if vals:
             out[pos] = min(vals)
@@ -232,14 +229,14 @@ def set_cap(ref: LeagueRef, pos: str, n: int) -> None:
         raise SystemExit(f"unknown position {pos!r}; one of {', '.join(CAP_POSITIONS)}")
     if n < 0:
         raise SystemExit(f"a cap is a count of players, not {n}")
-    limit = db.caps_rows(ref.key).get(pos, {}).get("provider_limit")
+    limit = db.caps_rows(ref=ref).get(pos, {}).get("provider_limit")
     if limit is not None and n > limit:
         raise SystemExit(f"the league allows at most {limit} {pos}; {pos}={n} not set")
-    db.put_my_cap(ref.key, pos, n)
+    db.put_my_cap(pos, n, ref=ref)
 
 
 def _caps_table(ref: LeagueRef) -> str:
-    rows = db.caps_rows(ref.key)
+    rows = db.caps_rows(ref=ref)
     eff = caps(ref)
     show = lambda v: "-" if v is None else str(v)
     lines = [f"{ref.key}  {ref.name}", f"{'pos':5} {'league':>6} {'mine':>5} {'cap':>4}"]

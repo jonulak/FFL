@@ -516,7 +516,7 @@ def _caps(ref: LeagueRef) -> dict:
     suggestion first, as the draft tools would."""
     from . import strategy
     strategy.caps(ref)
-    rows, eff = db.caps_rows(ref.key), leagues.caps(ref)
+    rows, eff = db.caps_rows(ref=ref), leagues.caps(ref)
     return {"league": ref.key, "name": ref.name, "rows": [{"pos": p, "provider_limit": rows.get(p, {}).get("provider_limit"),
                                          "my_cap": rows.get(p, {}).get("my_cap"), "cap": eff.get(p)}
                                         for p in leagues.CAP_POSITIONS]}
@@ -559,21 +559,21 @@ def caps_set(body: CapIn, ref: LeagueRef = Depends(open_league)):
 # --- waiver claim groups ("get K of N"): plan file, instant adds, ESPN claims with read-back ---
 
 _LOCKS_GUARD = threading.Lock()
-_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+_LOCKS: dict[tuple[str, str, int | None], threading.Lock] = {}
 
 
 def _lock(name: str, ref: LeagueRef) -> threading.Lock:
-    """The write lock `name` of a league, one per league so a move in one never 409s another's: "lineup" (one move
-    at a time: the answer is read back from ESPN, and two would read each other's half) and "submit" (one claims submit
-    at a time: it cancels and reposts ESPN's whole claim list)."""
+    """The write lock `name` of a team in its league, one per team so a move by one never 409s another's: "lineup"
+    (one move at a time: the answer is read back from ESPN, and two would read each other's half) and "submit" (one
+    claims submit at a time: it cancels and reposts ESPN's whole claim list). Co-managers share their team's."""
     with _LOCKS_GUARD:
-        return _LOCKS.setdefault((name, ref.key), threading.Lock())
+        return _LOCKS.setdefault((name, ref.key, ref.team_id), threading.Lock())
 
 
 # token -> None while that submit runs, then its answer {status, body}. A phone that leaves the app mid-send loses
 # the request ("Load failed") while the server finishes it; the dialog asks GET /claims/submit/{token} for the answer.
 _SUBMITS: dict[str, dict | None] = {}
-_SUBMIT_LEAGUE: dict[str, str] = {}  # token -> the league key whose send it was; another league's token is a 404
+_SUBMIT_LEAGUE: dict[str, tuple] = {}  # token -> (league, user) whose send it was; anyone else's token is a 404
 _SUBMITS_KEPT = 20
 
 
@@ -760,7 +760,7 @@ def claims_save(body: PlanIn, ref: LeagueRef = Depends(open_league)):
 def _keep_submit(token, answer, ref: LeagueRef):
     _SUBMITS.pop(token, None)
     _SUBMITS[token] = answer
-    _SUBMIT_LEAGUE[token] = ref.key
+    _SUBMIT_LEAGUE[token] = (ref.key, ref.user_id)
     while len(_SUBMITS) > _SUBMITS_KEPT:
         old = next(iter(_SUBMITS))
         _SUBMITS.pop(old)
@@ -788,7 +788,7 @@ def claims_submit(body: SubmitIn, ref: LeagueRef = Depends(open_league)):
 def claims_submit_answer(token: str, ref: LeagueRef = Depends(open_league)):
     """A send's answer by the dialog's token: running, or the status and body the POST answered (404: never arrived,
     or another league's)."""
-    if token not in _SUBMITS or _SUBMIT_LEAGUE.get(token) != ref.key:
+    if token not in _SUBMITS or _SUBMIT_LEAGUE.get(token) != (ref.key, ref.user_id):
         raise HTTPException(404, "no submit with that token")
     answer = _SUBMITS[token]
     return {"state": "running"} if answer is None else {"state": "done", **answer}
@@ -1485,8 +1485,8 @@ _PRESETS = threading.Lock()  # one preset write at a time: each reads the store,
 
 
 def _player_presets(*, ref: LeagueRef) -> dict:
-    """The Players table's views: every league's (0024), whichever league the page is open on."""
-    return player_views.load(db.get_state("player_presets"))
+    """The member's Players table views: every league's (0024), whichever league the page is open on."""
+    return player_views.load(db.get_state("player_presets", user_id=ref.user_id))
 
 
 @app.get("/players")
@@ -1534,7 +1534,7 @@ def _preset_write(change: Callable[[dict], dict], *, ref: LeagueRef) -> dict:
     """Read the presets, change them, write them back, under the lock. ValueError → 422, KeyError → 404."""
     with _PRESETS:
         try:  # read and write in one locked transaction (update_state): another process's write is not lost either
-            return db.update_state("player_presets", lambda raw: change(player_views.load(raw)))
+            return db.update_state("player_presets", lambda raw: change(player_views.load(raw)), user_id=ref.user_id)
         except ValueError as e:
             raise HTTPException(422, {"error": str(e)}) from e
         except KeyError as e:
@@ -1836,20 +1836,20 @@ class EndpointIn(BaseModel):
 
 @app.get("/notify/config")
 def notify_config(ref: LeagueRef = Depends(open_league)):
-    """The devices and quiet hours (every league's) and the open league's switches."""
+    """The member's devices and quiet hours (every league's) and their switches in the open league."""
     return {"public_key": os.environ.get("VAPID_PUBLIC_KEY"), "enabled": notify.sender() is not None,
-            "prefs": notify.prefs(ref=ref), "devices": len(db.subscriptions())}
+            "prefs": notify.prefs(ref=ref), "devices": len(db.subscriptions(user_id=ref.user_id))}
 
 
 @app.post("/notify/subscribe")
-def notify_subscribe(body: SubscriptionIn):
-    db.put_subscription(body.endpoint, body.keys, body.ua)
+def notify_subscribe(body: SubscriptionIn, user: dict = Depends(auth.current_user)):
+    db.put_subscription(body.endpoint, body.keys, body.ua, user_id=user["id"])
     return {"ok": True}
 
 
 @app.post("/notify/unsubscribe")
-def notify_unsubscribe(body: EndpointIn):
-    db.drop_subscription(body.endpoint)
+def notify_unsubscribe(body: EndpointIn, user: dict = Depends(auth.current_user)):
+    db.drop_subscription(body.endpoint, user_id=user["id"])
     return {"ok": True}
 
 
@@ -1862,8 +1862,8 @@ def notify_prefs(body: dict, ref: LeagueRef = Depends(open_league)):
 
 
 @app.post("/notify/test")
-def notify_test():
-    out = notify.send_test()
+def notify_test(user: dict = Depends(auth.current_user)):
+    out = notify.send_test(user["id"])
     if out.get("disabled"):
         raise HTTPException(status_code=503, detail="notifications are off on this API (FFL_NOTIFY=0 or no VAPID key)")
     return out
@@ -1903,7 +1903,7 @@ def notify_tick():
         for r in leagues.all_leagues():
             _tick_steps(out.setdefault("leagues", {}).setdefault(r.key, {}),
                         ((n, functools.partial(fn, ref=r)) for n, fn in
-                         (("rollover", rollover_pass), ("corrections", correction_pass), ("watch", watch_pass),
+                         (("rollover", rollover_pass), ("corrections", correction_pass), ("watch", watch_members),
                           ("pregame", pregame_pull))))
         _tick_steps(out, (("final_plays", final_plays), ("sessions", db.sweep_sessions)))
     finally:
@@ -2026,7 +2026,7 @@ def news_player(player_id: int, days: int = Query(30, ge=1, le=366), before: str
                 limit: int = Query(30, ge=1, le=100), ref: LeagueRef = Depends(open_league)):
     ctx = _news_context(ref)
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
-    muted = player_id in {int(p) for p in db.get_state("news_mutes", []) or []}
+    muted = player_id in {int(p) for p in db.get_state("news_mutes", [], user_id=ref.user_id) or []}
     return {"player": news_feed.player_head(player_id, ctx["owners"], ctx["me"], ctx["index"]), "muted": muted,
             **_news_page(ctx, limit, before, player=player_id, since=since), **ctx["extra"]}
 
@@ -2047,11 +2047,11 @@ class MuteIn(BaseModel):
 
 
 @app.post("/news/mute/{player_id}")
-def news_mute(player_id: int, body: MuteIn):
+def news_mute(player_id: int, body: MuteIn, user: dict = Depends(auth.current_user)):
     def change(cur):
         muted = {int(p) for p in cur or []}
         return sorted(muted | {player_id} if body.muted else muted - {player_id})
-    db.update_state("news_mutes", change, [])
+    db.update_state("news_mutes", change, [], user_id=user["id"])
     return {"muted": body.muted}
 
 
@@ -2128,6 +2128,14 @@ def pregame_pull(now: datetime | None = None, *, ref: LeagueRef) -> list[str]:
 
 
 WATCH_EVERY = timedelta(hours=1)
+
+
+def watch_members(*, ref: LeagueRef) -> dict:
+    """The tick's watch step for a league: each member's own pass (their watchlist, pool, pushes), by user id; one
+    member's failure is their own line."""
+    out: dict = {}
+    _tick_steps(out, ((str(m.user_id), functools.partial(watch_pass, ref=m)) for m in leagues.members(ref.key)))
+    return out
 
 
 def watch_pass(*, ref: LeagueRef) -> dict:

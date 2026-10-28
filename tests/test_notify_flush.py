@@ -58,10 +58,10 @@ def test_switched_off_and_stale_are_marked_not_sent():
 
 def test_flush_holds_in_quiet_hours_and_sends_after():
     db.add_notices([_n("move:1")], ref=home_league())
-    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
     sent = []
     held = notify.flush(T.replace(hour=2), send=lambda sub, payload: sent.append(payload))
-    assert held == {"held": 1} and sent == [] and len(db.unsent_notices(ref=home_league())) == 1
+    assert held["held"] == 1 and held["sent"] == 0 and sent == [] and len(db.unsent_notices(ref=home_league())) == 1
     out = notify.flush(T.replace(hour=7, minute=0), send=lambda sub, payload: sent.append(payload))
     assert out["sent"] == 1 and sent[0]["url"] == f"/transactions?league={HOME_KEY}" and db.unsent_notices(ref=home_league()) == []
 
@@ -77,25 +77,25 @@ def test_payload_is_declarative_with_the_legacy_fields_beside():
 
 def test_a_dead_subscription_beside_a_live_one_still_counts_as_sent():
     db.add_notices([_n("move:1")], ref=home_league())
-    db.put_subscription("https://push/dead", {"p256dh": "k", "auth": "a"})
-    db.put_subscription("https://push/live", {"p256dh": "k", "auth": "a"})
+    db.put_subscription("https://push/dead", {"p256dh": "k", "auth": "a"}, user_id=0)
+    db.put_subscription("https://push/live", {"p256dh": "k", "auth": "a"}, user_id=0)
 
     def send(sub, payload):
         if sub["endpoint"].endswith("dead"):
             raise Gone(410)
     out = notify.flush(T, send=send)
-    assert out["sent"] == 1 and [s["endpoint"] for s in db.subscriptions()] == ["https://push/live"]
+    assert out["sent"] == 1 and [s["endpoint"] for s in db.subscriptions(user_id=0)] == ["https://push/live"]
     assert db.recent_notices(ref=home_league())[0]["outcome"] == "sent"
 
 
 def test_a_network_error_leaves_the_notice_queued():
     db.add_notices([_n("move:1")], ref=home_league())
-    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
 
     def send(sub, payload):
         raise ConnectionError("no network")
     out = notify.flush(T, send=send)
-    assert out["sent"] == 0 and len(db.unsent_notices(ref=home_league())) == 1 and len(db.subscriptions()) == 1
+    assert out["sent"] == 0 and len(db.unsent_notices(ref=home_league())) == 1 and len(db.subscriptions(user_id=0)) == 1
 
 
 def test_no_subscription_leaves_the_queue_alone():
@@ -125,12 +125,12 @@ def test_vapid_keys_are_what_pywebpush_reads():
 def test_a_timeout_leaves_the_notice_queued():
     import requests
     db.add_notices([_n("move:1")], ref=home_league())
-    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
 
     def send(sub, payload):
         raise requests.Timeout("hung")
     out = notify.flush(T, send=send)
-    assert out["sent"] == 0 and len(db.unsent_notices(ref=home_league())) == 1 and len(db.subscriptions()) == 1
+    assert out["sent"] == 0 and len(db.unsent_notices(ref=home_league())) == 1 and len(db.subscriptions(user_id=0)) == 1
 
 
 def test_webpush_sender_passes_a_timeout(monkeypatch):
@@ -208,7 +208,7 @@ def test_league_label_is_the_name_cut_at_a_word():
 
 def test_one_league_pushes_open_and_tag_their_league():
     db.add_notices([_n("move:1")], ref=home_league())
-    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
     sent = []
     notify.flush(T, send=lambda sub, payload: sent.append(payload))
     assert (sent[0]["title"], sent[0]["url"], sent[0]["tag"]) == ("1 league move", f"/transactions?league={HOME_KEY}", f"{HOME_KEY}:moves")
@@ -219,7 +219,7 @@ def test_each_leagues_pushes_name_it_and_open_it():
     other = _other()
     db.add_notices([_n("move:1"), _n("move:2", body="Lions −Y")], ref=home_league())
     db.add_notices([_n("move:1"), {**_n("injury:8:9:OUT", "injury", "Starting at RB."), "url": "/roster"}], ref=other)
-    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
     sent = []
     out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
     by_url = {p["url"]: p for p in sent}
@@ -249,7 +249,7 @@ def test_switches_are_per_league_quiet_hours_global():
     assert notify.prefs(ref=other)["injury"] is True and notify.prefs(ref=home_league())["injury"] is False
     db.add_notices([_n("move:1")], ref=other)
     db.add_notices([_n("move:1")], ref=home_league())
-    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"})
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
     sent = []
     out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
     assert [p["url"] for p in sent] == [f"/transactions?league={HOME_KEY}"] and out["off"] == 1

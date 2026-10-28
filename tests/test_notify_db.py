@@ -10,16 +10,16 @@ def _n(key, kind="move", at=T):
 
 
 def test_subscribing_twice_keeps_one_row_with_the_new_keys():
-    db.put_subscription("https://push/x", {"p256dh": "a", "auth": "1"}, "iPhone")
-    db.put_subscription("https://push/x", {"p256dh": "b", "auth": "2"}, "iPhone")
-    subs = db.subscriptions()
+    db.put_subscription("https://push/x", {"p256dh": "a", "auth": "1"}, "iPhone", user_id=0)
+    db.put_subscription("https://push/x", {"p256dh": "b", "auth": "2"}, "iPhone", user_id=0)
+    subs = db.subscriptions(user_id=0)
     assert len(subs) == 1 and subs[0]["keys"] == {"p256dh": "b", "auth": "2"}
 
 
 def test_drop_subscription():
-    db.put_subscription("https://push/x", {"p256dh": "a", "auth": "1"})
-    db.drop_subscription("https://push/x")
-    assert db.subscriptions() == []
+    db.put_subscription("https://push/x", {"p256dh": "a", "auth": "1"}, user_id=0)
+    db.drop_subscription("https://push/x", user_id=0)
+    assert db.subscriptions(user_id=0) == []
 
 
 def test_add_notices_dedupes_on_key():
@@ -38,7 +38,7 @@ def test_marked_notices_leave_the_queue_and_show_in_recent():
 
 
 def test_state_round_trip_and_default():
-    assert db.get_state("prefs", {"move": True}) == {"move": True}
-    db.put_state("prefs", {"move": False})
-    db.put_state("prefs", {"move": True, "injury": False})
-    assert db.get_state("prefs") == {"move": True, "injury": False}
+    assert db.get_state("prefs", {"move": True}, user_id=0) == {"move": True}
+    db.put_state("prefs", {"move": False}, user_id=0)
+    db.put_state("prefs", {"move": True, "injury": False}, user_id=0)
+    assert db.get_state("prefs", user_id=0) == {"move": True, "injury": False}

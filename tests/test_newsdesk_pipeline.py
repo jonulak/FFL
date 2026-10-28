@@ -305,7 +305,7 @@ def test_owners_failing_queues_nothing_and_keeps_the_stories(stages, monkeypatch
 
 def test_muted_player_never_pushes(stages):
     _, written = stages
-    db.put_state("news_mutes", [1])
+    db.put_state("news_mutes", [1], user_id=0)
     sid = make([(1, "down", "injury"), (3, "up", "role")])
     written[:] = [(sid, 1)]
     pipeline.run()
@@ -445,3 +445,22 @@ def test_another_leagues_owners_failing_never_holds_back_home(stages, monkeypatc
     out = pipeline.run()["notices"]
     assert out["leagues"]["espn:999"] == {"error": "RuntimeError: espn down"} and keys() == [f"news:{sid}:1"]
     assert db.get_league_state("news_to_notify", [], ref=other)[0][:2] == [sid, 1], "its revision waits for the next run"
+
+
+def test_each_member_hears_of_their_own_team_and_mutes(stages, monkeypatch):
+    """ffl-soc.6.2.3: one owners read per league; each member's push names their own team's players, on their own
+    mutes (A, team 7, holds Hurts; B, team 3, holds Bigsby; C co-manages A's team and mutes Hurts)."""
+    from tests import two_users
+    two = two_users.make()
+    _, written = stages
+    reads = []
+    monkeypatch.setattr(pipeline, "owners", lambda *, ref: reads.append(ref.key) or
+                        ({1: {"team_id": 7}, 3: {"team_id": 3}}, -1))
+    db.put_state("news_mutes", [1], user_id=two.c.user_id)
+    sid = make([(1, "down", "injury"), (3, "down", "injury")])
+    written[:] = [(sid, 1)]
+    pipeline.run()
+    assert reads.count(HOME_KEY) == 1, "one owners read for every member"
+    body = lambda ref: [n["body"] for n in db.unsent_notices(ref=ref)]
+    assert body(two.a) == ["▼ Jalen Hurts: A reason."] and body(two.b) == ["▼ Tank Bigsby: A reason."]
+    assert body(two.c) == []

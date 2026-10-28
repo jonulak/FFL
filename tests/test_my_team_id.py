@@ -1,8 +1,8 @@
-"""The registry's team id is per-league; the SWID is per-account. They disagree in a mock.
+"""My team in a league is the membership's (ffl-soc.6.2.3): the ESPN keys in the environment decide nothing.
 
-In the 2026-09-07 mock against humans we were team 9, while the home league's registered team
-(correct for our real league) said 7. Trusting the registry there would have tracked a stranger's
-roster, computed needs from it, and predicted the wrong turns for the whole draft.
+In the 2026-09-07 mock against humans we were team 9 while the registry said 7; the SWID used to correct that, and
+would now hand a second user the cookie owner's team instead. A mock's membership names its team
+(`ffl.leagues join <key> --user <email> --team <id>`).
 """
 from dataclasses import replace
 
@@ -23,31 +23,28 @@ def _home_team(team_id):
     leagues.register(replace(home_league(), team_id=team_id), user_id=0)
 
 
-def test_swid_wins_when_it_disagrees_with_the_registry(monkeypatch, capsys):
+def test_the_membership_names_the_team_whatever_the_swid_says(monkeypatch, capsys):
+    """ffl-soc.6.2.3: the env's ESPN keys decide nothing. The SWID owning team 9 does not move a member on team 7 (it
+    is another user's cookie as often as not); a wrong team is fixed with `ffl.leagues join --team`."""
     monkeypatch.setattr(config, "SWID", "{ME}")
     _home_team(7)
-    assert dw.my_team_id(SETTINGS, ref=home_league()) == 9
-    assert "using 9" in capsys.readouterr().out
-
-
-def test_no_warning_when_they_agree(monkeypatch, capsys):
-    monkeypatch.setattr(config, "SWID", "{ME}")
-    _home_team(9)
-    assert dw.my_team_id(SETTINGS, ref=home_league()) == 9
+    assert dw.my_team_id(SETTINGS, ref=home_league()) == 7
     assert "!!" not in capsys.readouterr().out
 
 
-def test_registry_is_the_fallback_when_the_swid_owns_nothing_here(monkeypatch):
-    """A practice draft keeps our real team id but the room may not carry the ownership."""
-    monkeypatch.setattr(config, "SWID", "{NOT-IN-THIS-LEAGUE}")
+def test_a_second_member_keeps_their_own_team(monkeypatch):
+    from ffl import db
+    monkeypatch.setattr(config, "SWID", "{ME}")      # the env cookie is team 9's
     _home_team(7)
-    assert dw.my_team_id(SETTINGS, ref=home_league()) == 7
+    uid = db.create_user("b@example.com", None)
+    leagues.join(home_league().key, "b@example.com", team_id=3)
+    assert leagues.my_team_id(SETTINGS, leagues.membership(uid, home_league().key)) == 3
 
 
-def test_gives_up_loudly_with_neither(monkeypatch):
-    monkeypatch.setattr(config, "SWID", None)
+def test_gives_up_loudly_with_no_team_on_the_membership(monkeypatch):
+    monkeypatch.setattr(config, "SWID", "{ME}")      # a SWID that owns a team here fills nothing in
     _home_team(None)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit, match="--team"):
         dw.my_team_id(SETTINGS, ref=home_league())
 
 

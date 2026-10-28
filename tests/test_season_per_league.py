@@ -158,10 +158,8 @@ def test_no_ref_is_home_even_with_ffl_league(monkeypatch, other):
     monkeypatch.setattr(espn_season, "league", lambda ref=None, *a, **k: got.append(ref) or NS())
     espn_season.fresh_league(ref=home_league())
     assert got == [home_league()]
-    seen = []
-    monkeypatch.setattr(espn_season, "load", lambda ref=None: seen.append(ref) or {"teams": []})
     monkeypatch.setattr(config, "SWID", "{NOBODY}")
-    assert espn_season.my_team_id(None, ref=home_league()) == home_league().team_id and seen == [home_league()]
+    assert espn_season.my_team_id(None, ref=home_league()) == home_league().team_id, "the ref's membership"
 
 
 # ---- the page builders take the league they read (ffl-soc.4.3, task 2) ----

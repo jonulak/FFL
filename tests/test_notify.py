@@ -130,6 +130,7 @@ def test_a_source_switched_off_here_raises_no_notice_and_shows_no_status(monkeyp
     added = []
     monkeypatch.setattr(notify.db, "add_notices", lambda ns, *, ref: added.extend(ns) or len(ns))
     monkeypatch.setenv("FFL_SOURCES_OFF", "sharks")
+    monkeypatch.setenv("FFL_OPERATOR_EMAILS", "test@example.com")  # who hears of a failing source
     notify.check_sources()
     assert [n["key"] for n in added] == [f"source:cbs:{since}"]
     sources.reset()

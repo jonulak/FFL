@@ -3,7 +3,7 @@ import multiprocessing as mp
 
 import sqlalchemy as sa
 import pytest
-from ffl import db, leagues
+from ffl import db
 from tests.home import home_league
 
 
@@ -347,12 +347,11 @@ def test_draft_inputs_round_trip():
 
 
 def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch, empty_db):
-    """0017 takes espn_players.csv as the home pool under its six formats and the two ADP files as its feeds;
-    read back, they are the frames the CSVs were."""
+    """0017 takes espn_players.csv as the home pool under its six formats and the two ADP files as its feeds."""
     from pathlib import Path
     import pandas as pd
     from alembic import command
-    from ffl import adp, config, leagues, players
+    from ffl import config
     data = tmp_path / "data"
     data.mkdir()
     fx = Path(__file__).parent / "fixtures"
@@ -373,18 +372,20 @@ def test_migration_imports_the_draft_input_csvs(tmp_path, monkeypatch, empty_db)
     monkeypatch.setenv("SEASON", "2026")
     monkeypatch.setenv("MY_TEAM_ID", "7")
     db.reset()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    home = leagues.get("espn:100000001")
-    want = pd.read_csv(data / "espn_players.csv").assign(on_team_id=0, status="")   # ownership is never imported
-    pd.testing.assert_frame_equal(players.pool(home), want)
-    stored = db.espn_pool_rows(list(db.league_scoring_keys(home.key).values()), 2026)
-    assert not any({"on_team_id", "status"} & set(r) for rows in stored.values() for r in rows)
-    pd.testing.assert_frame_equal(adp.load_feed("2qb", 10, 2026), pd.read_csv(data / "adp_2qb.csv"))
-    assert adp.load_feed("ppr", 10, 2026).adp[0] == 30.0
-    assert db.sleeper_season_raw(2026) is None, "sleeper_players.csv is rescored already: never imported"
-    stored = db.espn_pool_rows(list(db.league_scoring_keys(home.key).values()), 2026)
-    assert len(stored) == 6, "every position's format gets a row, an empty one included"
+    command.upgrade(db._alembic_config(), "0017")
+    eng = sa.create_engine(db.url())                     # at 0017: db's readers are head's
+    with eng.connect() as c:
+        pools = {r.scoring_format: r.rows for r in c.execute(sa.text("SELECT scoring_format, rows FROM espn_pools"))}
+        feeds = {r.fmt: r.rows for r in c.execute(sa.text("SELECT fmt, rows FROM adp_feeds WHERE teams = 10"))}
+        sleeper = c.execute(sa.text("SELECT count(*) FROM sleeper_season")).scalar()
+    eng.dispose()
+    assert len(pools) == 6, "every position's format gets a row, an empty one included"
+    rows = [r for rs in pools.values() for r in rs]
+    assert sorted((r["player_id"], r["pos"], r["proj"]) for r in rows) == [(1, "QB", 300.0), (2, "RB", 300.0),
+                                                                          (3, "K", 0.0)]
+    assert not any({"on_team_id", "status"} & set(r) for r in rows), "ownership is never imported"
+    assert [(r["name"], r["adp"]) for r in feeds["2qb"]] == [("Q", 1.5)] and feeds["ppr"][0]["adp"] == 30.0
+    assert sleeper == 0, "sleeper_players.csv is rescored already: never imported"
 
 
 def _other_league():
@@ -443,8 +444,7 @@ def _at_0017(tmp_path, monkeypatch, empty_db, seed_home: bool):
 def test_migration_backfills_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
     url = _at_0017(tmp_path, monkeypatch, empty_db, seed_home=True)
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
+    command.upgrade(db._alembic_config(), "0018")
     eng = sa.create_engine(url)
     with eng.connect() as c:
         rows = [dict(r._mapping) for r in c.execute(sa.text("SELECT * FROM draft_picks ORDER BY overall"))]
@@ -452,16 +452,15 @@ def test_migration_backfills_home_league(tmp_path, monkeypatch, empty_db):
     eng.dispose()
     assert [r["league"] for r in rows] == ["espn:100000001"] * 2
     assert pk == ["league", "season", "overall"]
-    assert db.picks(ref=leagues.get("espn:100000001")) == [PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}]
-    db.put_picks([PICK], ref=leagues.get("espn:100000001"))                                 # the new key upserts
-    assert len(db.picks(ref=leagues.get("espn:100000001"))) == 2
+    assert [{k: r[k] for k in db._PICK_COLS} for r in rows] == \
+        [PICK, {**PICK, "overall": 2, "player_id": 4426348, "player": "Jayden Daniels"}]
 
 
 def test_migration_refuses_picks_with_no_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
     _at_0017(tmp_path, monkeypatch, empty_db, seed_home=False)
     with pytest.raises(RuntimeError, match="home league"):
-        command.upgrade(db._alembic_config(), "head")
+        command.upgrade(db._alembic_config(), "0018")
 
 
 # 0021: one row in each league-data table at 0020, as the live data/ffl.db stands before it
@@ -561,7 +560,7 @@ def _schema(url: str) -> dict:
 def test_0021_files_every_row_under_home(tmp_path, monkeypatch, empty_db):
     from alembic import command
     url = _at_0020(tmp_path, monkeypatch, empty_db)
-    command.upgrade(db._alembic_config(), "head")
+    command.upgrade(db._alembic_config(), "0021")
     s = _schema(url)
     for t, rows in _SEED.items():
         assert s[t]["n"] == len(rows), t
@@ -582,7 +581,7 @@ def test_0021_downgrade_keeps_home_rows(tmp_path, monkeypatch, empty_db):
     from alembic import command
     url = _at_0020(tmp_path, monkeypatch, empty_db)
     before = _schema(url)
-    command.upgrade(db._alembic_config(), "head")
+    command.upgrade(db._alembic_config(), "0021")
     eng = sa.create_engine(url)
     with eng.begin() as c:
         c.execute(sa.text("INSERT INTO results (league, season, week, opponent, my_score, opp_score, result) "
@@ -604,7 +603,7 @@ def test_0021_refuses_rows_with_no_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
     _at_0020(tmp_path, monkeypatch, empty_db, seed_home=False)
     with pytest.raises(RuntimeError, match="home league"):
-        command.upgrade(db._alembic_config(), "head")
+        command.upgrade(db._alembic_config(), "0021")
 
 
 def test_league_data_is_kept_per_league():
@@ -818,7 +817,7 @@ def test_no_league_named_is_home_whatever_ffl_league_says(monkeypatch):
 def test_0021_downgrade_refuses_rows_with_no_home_league(tmp_path, monkeypatch, empty_db):
     from alembic import command
     url = _at_0020(tmp_path, monkeypatch, empty_db)
-    command.upgrade(db._alembic_config(), "head")
+    command.upgrade(db._alembic_config(), "0021")
     eng = sa.create_engine(url)
     with eng.begin() as c:
         c.execute(sa.text("DELETE FROM leagues"))
@@ -842,7 +841,7 @@ def test_0021_upgrades_an_empty_db_with_no_home_league(tmp_path, monkeypatch, em
     with eng.begin() as c:
         c.execute(sa.text("DELETE FROM leagues"))
     eng.dispose()
-    command.upgrade(db._alembic_config(), "head")
+    command.upgrade(db._alembic_config(), "0021")
     assert _schema(url)["results"]["pk"] == _PK_0021["results"]
 
 

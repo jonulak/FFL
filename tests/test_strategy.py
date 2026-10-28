@@ -59,7 +59,7 @@ def test_suggested_caps_never_exceed_the_league_limit():
     ref = leagues.register(LeagueRef("espn:6", "espn", "6", 2026, "tight", 2, None, "2qb-10team"), user_id=0)
     provider_limits(ref.key, {"QB": 2})
     assert strategy.caps(ref)["QB"] == 2
-    assert db.caps_rows(ref.key)["QB"]["my_cap"] == 2
+    assert db.caps_rows(ref=ref)["QB"]["my_cap"] == 2
 
 
 def test_a_league_without_a_preset_keeps_its_own_caps():
@@ -118,15 +118,17 @@ def test_0020_links_the_public_league_where_it_is_registered(tmp_path, monkeypat
         c.execute(sa.text("INSERT INTO leagues (key, provider, provider_id, season, name, team_id, home, added_at) "
                           "VALUES ('espn:950458410', 'espn', '950458410', 2026, 'public', 1, false, '2026-10-25')"))
     eng.dispose()
-    command.upgrade(db._alembic_config(), "head")
-    ref = leagues.get("espn:950458410")
-    assert ref.strategy == "1qb-10team"
-    provider_limits(ref.key, LIMITS)
-    assert strategy.caps(ref) == LIMITS
+    command.upgrade(db._alembic_config(), "0020")
+
+    def at(sql):
+        e = sa.create_engine(url)                         # db's readers are head's
+        with e.connect() as c:
+            v = c.execute(sa.text(sql)).scalar()
+        e.dispose()
+        return v
+    assert at("SELECT strategy FROM leagues WHERE key = 'espn:950458410'") == "1qb-10team"
+    assert at("SELECT count(*) FROM strategies WHERE key = '1qb-10team'") == 1
     command.downgrade(db._alembic_config(), "0019")
-    eng = sa.create_engine(url)  # the registry as 0019 has it (no memberships to read it through)
-    with eng.connect() as c:
-        assert c.execute(sa.text("SELECT strategy FROM leagues WHERE key = 'espn:950458410'")).scalar() is None
-    eng.dispose()
-    assert db.strategy_row("1qb-10team") is None
+    assert at("SELECT strategy FROM leagues WHERE key = 'espn:950458410'") is None
+    assert at("SELECT count(*) FROM strategies WHERE key = '1qb-10team'") == 0
     db.reset()

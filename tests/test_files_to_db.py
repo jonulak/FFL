@@ -53,6 +53,15 @@ def _sample(tmp_path):
     return data, journal, snap
 
 
+def _q(url: str, sql: str, **kw) -> list:
+    """Rows straight off the database at the revision a test left it (db's readers are head's)."""
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        rows = [tuple(r) for r in c.execute(sa.text(sql), kw)]
+    eng.dispose()
+    return rows
+
+
 def test_migration_imports_each_file_kind_once(tmp_path, monkeypatch, empty_db):
     from alembic import command
     data, journal, snap = _sample(tmp_path)
@@ -62,22 +71,23 @@ def test_migration_imports_each_file_kind_once(tmp_path, monkeypatch, empty_db):
     monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    assert db.trace_rows() == [{"at": "2026-10-14T17:33:12.123-04:00", "event": "probe", "from": "land check"},
-                               {"at": "2026-10-14T17:37:01.424-04:00", "event": "hello"}]
-    logs = {(r["source"], r["log_id"]): r for r in db.draft_logs_rows()}
+    command.upgrade(db._alembic_config(), "0019")
+    traces = "SELECT at, doc FROM traces ORDER BY id"
+    assert _q(url, traces) == [("2026-10-14T17:33:12.123-04:00", {"event": "probe", "from": "land check"}),
+                               ("2026-10-14T17:37:01.424-04:00", {"event": "hello"})]
+    logs = {(src, i): (rows, meta) for src, i, rows, meta in _q(url, "SELECT source, log_id, rows, meta FROM draft_logs")}
     assert set(logs) == {("ffc", "18507075"), ("practice", "practice-8-slot4")}
-    assert logs[("practice", "practice-8-slot4")]["rows"][1]["adp_2qb"] is None
-    assert logs[("practice", "practice-8-slot4")]["meta"] == {"file": str(journal / "draft" / "practice-8-slot4.csv")}
-    assert db.props_snapshot_docs() == [snap]
-    assert db.props_raw_docs(4, "sun") == {"abc123": {"id": "abc123", "bookmakers": []}}
+    rows, meta = logs[("practice", "practice-8-slot4")]
+    assert rows[1]["adp_2qb"] is None and meta == {"file": str(journal / "draft" / "practice-8-slot4.csv")}
+    assert _q(url, "SELECT doc FROM props_snapshots") == [(snap,)]
+    assert _q(url, "SELECT event_id, doc FROM props_raw WHERE week = 4 AND kind = 'sun'") == \
+        [("abc123", {"id": "abc123", "bookmakers": []})]
     eng = sa.create_engine(url)
     with eng.begin() as c:
         again = _migration().import_files(c)
     eng.dispose()
     assert again == {"traces": 0, "draft_logs": 0, "props_snapshots": 0, "props_raw": 0}
-    assert len(db.trace_rows()) == 2 and len(db.draft_logs_rows()) == 2
+    assert len(_q(url, traces)) == 2 and len(_q(url, "SELECT 1 FROM draft_logs")) == 2
     assert (data / "trace.jsonl").exists() and (data / "ffc" / "18507075.csv").exists(), "the files stay"
 
 
@@ -96,15 +106,14 @@ def test_down_to_0018_drops_the_tables_and_up_again(tmp_path, monkeypatch, empty
     monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
-    command.upgrade(db._alembic_config(), "head")
+    command.upgrade(db._alembic_config(), "0019")
     command.downgrade(db._alembic_config(), "0018")
     eng = sa.create_engine(url)
     assert not {"traces", "draft_logs", "props_snapshots", "props_raw"} & set(sa.inspect(eng).get_table_names())
     eng.dispose()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    db.add_trace("t", {"event": "x"})
-    assert db.trace_rows() == [{"at": "t", "event": "x"}]
+    command.upgrade(db._alembic_config(), "0019")
+    assert {"traces", "draft_logs", "props_snapshots", "props_raw"} <= set(
+        t for (t,) in _q(url, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
 
 
 def test_draft_log_is_stored_once():
@@ -239,16 +248,15 @@ def test_a_failed_upgrade_leaves_the_db_where_it_was(tmp_path, monkeypatch, empt
     command.upgrade(db._alembic_config(), "0018")
     monkeypatch.setattr(config, "DATA", 0)   # Path(0) raises in 0019's import, after its tables are created
     with pytest.raises(TypeError):
-        command.upgrade(db._alembic_config(), "head")
+        command.upgrade(db._alembic_config(), "0019")
     eng = sa.create_engine(url)
     with eng.connect() as c:
         assert c.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() == "0018"
         assert not sa.inspect(c).has_table("traces"), "the new tables went with the failed run"
     eng.dispose()
     monkeypatch.setattr(config, "DATA", data)
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    assert len(db.trace_rows()) == 2
+    command.upgrade(db._alembic_config(), "0019")
+    assert len(_q(url, "SELECT 1 FROM traces")) == 2
 
 
 def test_upgrade_writes_a_nan_in_an_imported_file_as_null(tmp_path, monkeypatch, empty_db):
@@ -259,9 +267,9 @@ def test_upgrade_writes_a_nan_in_an_imported_file_as_null(tmp_path, monkeypatch,
     (data / "props" / "week-4-sun.json").write_text(json.dumps(snap))
     monkeypatch.setattr(config, "DATA", data)
     monkeypatch.setattr(config, "JOURNAL", journal)
-    monkeypatch.setenv("FFL_DB_URL", empty_db())
+    url = empty_db()
+    monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    assert db.props_snapshot_docs()[0]["rows"][0]["proj3"] is None
+    command.upgrade(db._alembic_config(), "0019")
+    assert _q(url, "SELECT doc FROM props_snapshots")[0][0]["rows"][0]["proj3"] is None

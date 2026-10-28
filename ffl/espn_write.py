@@ -47,7 +47,7 @@ class _Fake:
     slots: dict[int, str] = field(default_factory=dict)  # player id -> the slot a fake move put him in
 
 
-_FAKES: dict[str, _Fake] = {}
+_FAKES: dict[tuple[str, int | None], _Fake] = {}  # (league, team): a team's fake moves are its own
 _IDS = itertools.count(1)  # global, so a fake claim id is unique across leagues
 _READ: dict[str, tuple[float, dict]] = {}  # league key -> its last pending document and when it was read (monotonic)
 _GEN = 0  # bumped by every write, so a read in flight across one is not kept
@@ -92,8 +92,8 @@ def _writes() -> bool:
 
 
 def _fake(ref) -> _Fake:
-    """That league's fake store, made on first use."""
-    return _FAKES.setdefault(ref.key, _Fake())
+    """That team's fake store in its league (co-managers share it, as ESPN would), made on first use."""
+    return _FAKES.setdefault((ref.key, ref.team_id), _Fake())
 
 
 def reset_fakes() -> None:

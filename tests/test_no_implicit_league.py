@@ -31,13 +31,42 @@ def test_no_implicit_league_in_the_code():
     assert hits == [], "\n".join(hits)
 
 
+# What the API and its jobs run (ffl-soc.6.2.3): they act for the signed-in user or for each member in turn, never as
+# the CLI's user (FFL_USER, leagues.acting) nor through the first league registered.
+SERVER = ["api.py", "notify.py", "espn_season.py", "espn_write.py", "live.py", "outlook.py", "watch.py", "season.py",
+          "auth.py", "claims.py", "news.py", "nfl.py", "plays.py", "playbook.py", "journal.py", "newsdesk"]
+SERVER_FORBIDDEN = {
+    r"\bleagues\.acting(_user)?\(": "the CLI's user",
+    r"FFL_USER\b": "the CLI's user",
+    r"\bleagues\.oldest\(": "the first league registered",
+}
+OLDEST_OK = {"news.py", "newsdesk/players.py"}  # NFL-wide player reads through some league's view: no one's data
+
+
+def test_no_implicit_user_on_the_server():
+    hits = []
+    for name in SERVER:
+        for path in sorted((FFL / name).rglob("*.py")) if (FFL / name).is_dir() else [FFL / name]:
+            rel = str(path.relative_to(FFL))
+            cli = False  # a module's command line (def main, if __name__ == "__main__") acts as FFL_USER, as the CLI does
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                if re.match(r"(def |class |if __name__)", line):
+                    cli = line.startswith(("def main(", "if __name__"))
+                if cli:
+                    continue
+                for pattern, what in SERVER_FORBIDDEN.items():
+                    if re.search(pattern, line) and not (what.startswith("the first") and rel in OLDEST_OK):
+                        hits.append(f"ffl/{rel}:{n}: {what}: {line.strip()}")
+    assert hits == [], "\n".join(hits)
+
+
 def test_the_registry_has_no_home_league():
     assert not hasattr(leagues, "home") and not hasattr(leagues, "current")
     assert "home" not in {f.name for f in dataclasses.fields(leagues.LeagueRef)}
     assert not any(hasattr(config, n) for n in ("LEAGUE_ID", "MY_TEAM_ID", "DRAFT_ROOM_URL", "LEAGUE_URL"))
 
 
-def _at_0028(empty_db, monkeypatch, with_user: bool):
+def _at_0028(empty_db, monkeypatch, with_user: bool) -> str:
     """A database as production stands before 0029: the home league (team 7) and the public one (team 1), home's
     switches in the global prefs row beside the quiet hours, the public league's in its own state."""
     from alembic import command
@@ -60,32 +89,42 @@ def _at_0028(empty_db, monkeypatch, with_user: bool):
         c.execute(sa.text("INSERT INTO league_state (league, season, key, value) "
                           "VALUES ('espn:950458410', 2026, 'notify_prefs', CAST(:v AS JSON))"), {"v": '{"injury": false}'})
     eng.dispose()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
+    command.upgrade(db._alembic_config(), "0029")
+    return url
+
+
+def _q(url: str, sql: str) -> list[tuple]:
+    """Rows straight off the database at the revision a test left it (db's readers are head's)."""
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        rows = [tuple(r) for r in c.execute(sa.text(sql))]
+    eng.dispose()
+    return rows
 
 
 def test_0029_moves_home_switches_to_its_own_state_and_back(empty_db, monkeypatch):
     from alembic import command
-    from ffl import db, notify
-    _at_0028(empty_db, monkeypatch, with_user=True)
-    home, public = leagues.get("espn:100000001"), leagues.get("espn:950458410")
-    assert (home.team_id, public.team_id) == (7, 1), "0028 put each team on the owner's membership"
-    assert db.get_state("prefs") == {"quiet": ["22:00", "06:00"]}, "the global row keeps only the quiet hours"
-    assert notify.prefs(ref=home)["move"] is False and notify.prefs(ref=home)["news"] is True
-    assert notify.prefs(ref=public)["injury"] is False and notify.prefs(ref=public)["move"] is True
-    assert notify.quiet() == ["22:00", "06:00"]
+    from ffl import db
+    url = _at_0028(empty_db, monkeypatch, with_user=True)
+    assert _q(url, "SELECT league, team_id FROM memberships ORDER BY league") == \
+        [("espn:100000001", 7), ("espn:950458410", 1)], "0028 put each team on the owner's membership"
+    assert _q(url, "SELECT value FROM notify_state WHERE key = 'prefs'") == [({"quiet": ["22:00", "06:00"]},)], \
+        "the global row keeps only the quiet hours"
+    assert _q(url, "SELECT league, value FROM league_state WHERE key = 'notify_prefs' ORDER BY league") == \
+        [("espn:100000001", {"move": False, "news": True}), ("espn:950458410", {"injury": False})]
+    assert not {"home", "team_id"} & {c for (c,) in _q(url, "SELECT column_name FROM information_schema.columns "
+                                                           "WHERE table_name = 'leagues'")}
     command.downgrade(db._alembic_config(), "0028")
-    with db._read() as c:
-        rows = c.execute(sa.text("SELECT key, team_id, home FROM leagues ORDER BY key")).all()
-        prefs = c.execute(sa.text("SELECT value FROM notify_state WHERE key = 'prefs'")).scalar()
-        theirs = c.execute(sa.text("SELECT league FROM league_state WHERE key = 'notify_prefs'")).scalars().all()
-    assert [tuple(r) for r in rows] == [("espn:100000001", 7, True), ("espn:950458410", 1, False)]
-    assert prefs == {"move": False, "news": True, "quiet": ["22:00", "06:00"]} and theirs == ["espn:950458410"]
+    assert _q(url, "SELECT key, team_id, home FROM leagues ORDER BY key") == \
+        [("espn:100000001", 7, True), ("espn:950458410", 1, False)]
+    assert _q(url, "SELECT value FROM notify_state WHERE key = 'prefs'") == \
+        [({"move": False, "news": True, "quiet": ["22:00", "06:00"]},)]
+    assert _q(url, "SELECT league FROM league_state WHERE key = 'notify_prefs'") == [("espn:950458410",)]
 
 
 def test_0029_without_a_user_still_takes_home_switches_out_of_the_global_row(empty_db, monkeypatch):
     """No user (a fresh or mock database): nobody holds a team, and home's switches still move to its own state."""
-    from ffl import db
-    _at_0028(empty_db, monkeypatch, with_user=False)
-    home = leagues.get("espn:100000001")
-    assert home.team_id is None and db.get_league_state("notify_prefs", ref=home) == {"move": False, "news": True}
+    url = _at_0028(empty_db, monkeypatch, with_user=False)
+    assert _q(url, "SELECT count(*) FROM memberships") == [(0,)]
+    assert _q(url, "SELECT value FROM league_state WHERE league = 'espn:100000001' AND key = 'notify_prefs'") == \
+        [({"move": False, "news": True},)]

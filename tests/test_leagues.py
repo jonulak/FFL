@@ -18,30 +18,37 @@ def test_migration_seeds_home_from_env(monkeypatch, tmp_path, empty_db):
     from alembic import command
     monkeypatch.setattr(config, "DATA", tmp_path)       # 0015 / 0017 / 0019 import files from DATA: there are none
     monkeypatch.setattr(config, "JOURNAL", tmp_path)    # 0019 imports journal/draft/*.csv: none here either
-    monkeypatch.setenv("FFL_DB_URL", empty_db())
+    url = empty_db()
+    monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.setenv("LEAGUE_ID", "100000001")
     monkeypatch.setenv("SEASON", "2026")
     monkeypatch.setenv("MY_TEAM_ID", "7")
     db.reset()
     command.upgrade(db._alembic_config(), "0014")
-    db.reset()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    assert leagues.get("espn:100000001") == LeagueRef("espn:100000001", "espn", "100000001", 2026, "home", None, None,
-                                                      "2qb-10team"), "no user: the league row alone, nobody's team"
-    assert len(leagues.all_leagues()) == 1
+    assert _leagues_at(url) == [("espn:100000001", "espn", "100000001", 2026, "home", 7, True)]
 
 
 def test_migration_without_env_seeds_nothing(monkeypatch, tmp_path, empty_db):
     from alembic import command
     monkeypatch.setattr(config, "DATA", tmp_path)
     monkeypatch.setattr(config, "JOURNAL", tmp_path)
-    monkeypatch.setenv("FFL_DB_URL", empty_db())
+    url = empty_db()
+    monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.delenv("LEAGUE_ID", raising=False)
     db.reset()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    assert leagues.all_leagues() == []
+    command.upgrade(db._alembic_config(), "0014")
+    assert _leagues_at(url) == []
+
+
+def _leagues_at(url: str) -> list[tuple]:
+    """The registry as 0014 left it (db's readers are head's)."""
+    import sqlalchemy as sa
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        rows = [tuple(r) for r in c.execute(sa.text(
+            "SELECT key, provider, provider_id, season, name, team_id, home FROM leagues ORDER BY key"))]
+    eng.dispose()
+    return rows
 
 
 def test_registry_wins_over_stale_env(monkeypatch):

@@ -142,6 +142,10 @@ def run(journal: Path, data: Path, season: int) -> list[dict]:
                                   ("claim_plans", _plans(journal, season)), ("decisions", _decisions(journal, data, season))]:
         if table in _LEAGUE_TABLES:
             rows = [{"league": home.key, **r} for r in rows]
+        if table == "claim_plans":  # the acting user's team's plans, their decisions (ffl-soc.6.2.3)
+            rows = [{"team_id": home.team_id, **r} for r in rows]
+        elif table == "decisions":
+            rows = [{"user_id": home.user_id, **r} for r in rows]
         # first row per key wins (DO NOTHING keeps it); source counts distinct keys, dupes the rows lost to a shared key
         distinct = {}
         for r in rows:

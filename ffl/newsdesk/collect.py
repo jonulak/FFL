@@ -198,7 +198,8 @@ def _league_rotowire_ids(ref, index: Index | None) -> list[int]:
                    key=lambda r: (r.get("add") is None, -(r.get("add") or 0), -owned.get(r.get("player_id"), 0)))
     top = [pid for pid in dict.fromkeys(ids(frees)) if pid not in rostered][:ROTOWIRE_FA]
     try:
-        watched = {pid for pid in db.watched_ids(ref=ref) if pid > 0}  # a watched D/ST has no Rotowire feed
+        from .. import leagues  # every member's watchlist; a watched D/ST has no Rotowire feed
+        watched = {pid for m in leagues.members(ref.key) for pid in db.watched_ids(ref=m) if pid > 0}
     except db.DBError as e:
         print(f"news: watched ids unreadable, polling without them: {e}")
         watched = set()
