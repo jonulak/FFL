@@ -544,7 +544,7 @@ def test_notify_tick_does_each_leagues_steps_once_and_the_nfl_plays_once(client,
     assert out["leagues"][HOME_KEY]["rollover"] == {"rollover_pass": True}
     assert out["leagues"]["espn:999"] == {"moves": 1, "rollover": {"rollover_pass": True},
                                           "corrections": {"correction_pass": True},
-                                          "watch": {"watch_pass": True}, "pregame": []}
+                                          "watch": {"0": {"watch_pass": True}}, "pregame": []}
 
 
 def test_espn_rolling_its_week_drops_that_leagues_pages_and_rebuilds_them(client, other, monkeypatch):
@@ -607,15 +607,15 @@ def _limits(league: str, **limits):
     import sqlalchemy as sa
     with db._write() as c:
         for pos, n in limits.items():
-            c.execute(db._upsert(db.league_caps, [{"league": league, "pos": pos.replace("DST", "D/ST"), "provider_limit": n,
-                                                   "my_cap": None}], ["league", "pos"], ["provider_limit"]))
+            c.execute(db._upsert(db.league_caps, [{"league": league, "pos": pos.replace("DST", "D/ST"), "provider_limit": n}],
+                                 ["league", "pos"], ["provider_limit"]))
     assert sa  # the import is the table's
 
 
 def test_caps_are_the_open_leagues_and_never_above_its_limit(client, other):
     from ffl import strategy
     _limits("espn:999", QB=4, RB=8)
-    home_before = db.caps_rows(home_league().key)
+    home_before = db.caps_rows(ref=home_league())
     body = client.get("/caps?league=espn:999").json()
     assert body["league"] == "espn:999"
     qb = next(r for r in body["rows"] if r["pos"] == "QB")
@@ -627,7 +627,7 @@ def test_caps_are_the_open_leagues_and_never_above_its_limit(client, other):
     over = client.post("/caps?league=espn:999", json={"pos": "QB", "my_cap": 5})
     assert over.status_code == 422 and "at most 4" in over.json()["detail"]
     assert client.post("/caps?league=espn:999", json={"pos": "XX", "my_cap": 1}).status_code == 422
-    assert db.caps_rows(home_league().key) == home_before, "home's rows are its own"
+    assert db.caps_rows(ref=home_league()) == home_before, "home's rows are its own"
     home_rows = client.get("/caps").json()
     assert home_rows["league"] == home_league().key
 

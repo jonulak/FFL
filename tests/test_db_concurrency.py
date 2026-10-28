@@ -27,28 +27,28 @@ def test_update_league_state_two_threads_lose_nothing():
 def test_update_state_two_threads_lose_nothing():
     def append(start):
         for i in range(start, start + N):
-            db.update_state("news_mutes", lambda v, i=i: [*v, i], [])
+            db.update_state("news_mutes", lambda v, i=i: [*v, i], [], user_id=0)
 
     with ThreadPoolExecutor(2) as ex:
         for f in [ex.submit(append, 0), ex.submit(append, 10_000)]:
             f.result()
-    assert set(db.get_state("news_mutes")) == set(range(N)) | set(range(10_000, 10_000 + N))
+    assert set(db.get_state("news_mutes", user_id=0)) == set(range(N)) | set(range(10_000, 10_000 + N))
 
 
 def test_update_state_returns_the_new_value_and_starts_from_default():
-    assert db.update_state("news_mutes", lambda v: [*v, 1], []) == [1]
+    assert db.update_state("news_mutes", lambda v: [*v, 1], [], user_id=0) == [1]
     assert db.update_league_state("watch_state", lambda v: {**v, "a": 1}, {}, ref=home_league()) == {"a": 1}
     assert db.get_league_state("watch_state", ref=home_league()) == {"a": 1}
 
 
 def test_update_state_rolls_back_when_fn_raises():
-    db.put_state("news_mutes", [1])
+    db.put_state("news_mutes", [1], user_id=0)
 
     def bad(v):
         raise ValueError("no")
     with pytest.raises(ValueError):
-        db.update_state("news_mutes", bad, [])
-    assert db.get_state("news_mutes") == [1]
+        db.update_state("news_mutes", bad, [], user_id=0)
+    assert db.get_state("news_mutes", user_id=0) == [1]
 
 
 def test_update_state_checks_the_key_kind():

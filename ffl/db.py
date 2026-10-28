@@ -43,6 +43,16 @@ def _league():
     return sa.Column("league", sa.String, nullable=False)
 
 
+def _user():
+    """The user a personal row is (ffl-soc.6.2.3); deleting the user deletes it."""
+    return sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+
+def _team():
+    """The fantasy team a row is, in its league: what ESPN keeps per team, which co-managers share."""
+    return sa.Column("team_id", sa.Integer, nullable=False)
+
+
 leagues_table = sa.Table(
     "leagues", metadata,
     sa.Column("key", sa.String, primary_key=True),       # "<provider>:<provider league id>"
@@ -154,7 +164,6 @@ league_caps = sa.Table(
     _league(),
     sa.Column("pos", sa.String, nullable=False),
     sa.Column("provider_limit", sa.Integer),             # the league's own cap (ESPN positionLimits); NULL: none
-    sa.Column("my_cap", sa.Integer),                     # mine, never above the league's; NULL: none
     sa.PrimaryKeyConstraint("league", "pos"),
 )
 
@@ -430,12 +439,14 @@ source_weights = sa.Table(
     sa.PrimaryKeyConstraint("season", "fitted_at"),
 )
 
+# A team's waiver claim plan per week: the team's, as ESPN keeps claims per team (co-managers share it).
 claim_plans = sa.Table(
     "claim_plans", metadata, _league(), _season(),
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("plan", sa.JSON, nullable=False),
     sa.Column("updated", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("league", "season", "week"),
+    _team(),
+    sa.PrimaryKeyConstraint("league", "season", "team_id", "week"),
 )
 
 # The players sat by hand for a week (the Roster sheet's toggle): left out of the lineup call. A row is a sit and
@@ -445,7 +456,8 @@ sits = sa.Table(
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("league", "season", "week", "player_id"),
+    _user(),
+    sa.PrimaryKeyConstraint("user_id", "league", "season", "week", "player_id"),
 )
 
 # The players on the watchlist (the Players page's eye toggle). A row is a watch; unwatching deletes it.
@@ -453,7 +465,8 @@ watchlist = sa.Table(
     "watchlist", metadata, _league(), _season(),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("added_at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("league", "season", "player_id"),
+    _user(),
+    sa.PrimaryKeyConstraint("user_id", "league", "season", "player_id"),
 )
 
 # What happened to a watched player (kind ahead/usage/news/bench/available), one row per `key`; unwatching keeps them.
@@ -465,8 +478,9 @@ watch_signals_table = sa.Table(
     sa.Column("kind", sa.String, nullable=False),
     sa.Column("text", sa.String, nullable=False),
     sa.Column("at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("league", "season", "key"),
-    sa.Index("ix_watch_signals_player", "league", "season", "player_id"),
+    _user(),
+    sa.PrimaryKeyConstraint("user_id", "league", "season", "key"),
+    sa.Index("ix_watch_signals_player", "user_id", "league", "season", "player_id"),
 )
 
 # Which row of a starting slot each player stands in (season.reseat): ESPN's two WR slots are one slot to it and it
@@ -476,16 +490,20 @@ seats = sa.Table(
     "seats", metadata, _league(), _season(),
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("seat_id", sa.Integer, nullable=False),
-    sa.PrimaryKeyConstraint("league", "season", "player_id"),
+    _team(),
+    sa.PrimaryKeyConstraint("league", "season", "team_id", "player_id"),
 )
 
-# Web Push: one row per installed device (the browser's PushSubscription). A 404/410 from the push service deletes it.
+# Web Push: one row per installed device (the browser's PushSubscription), the user who subscribed it last. A 404/410
+# from the push service deletes it.
 push_subscriptions = sa.Table(
     "push_subscriptions", metadata,
     sa.Column("endpoint", sa.String, primary_key=True),
     sa.Column("keys", sa.JSON, nullable=False),          # {p256dh, auth}
     sa.Column("ua", sa.String, nullable=False, default=""),
     sa.Column("created_at", sa.String, nullable=False),
+    _user(),
+    sa.Index("ix_push_subscriptions_user", "user_id"),
 )
 
 # The notification outbox (ffl/notify.py): every detector inserts if absent on key, so an event is one notice however
@@ -500,11 +518,13 @@ notices = sa.Table(
     sa.Column("created_at", sa.String, nullable=False),
     sa.Column("sent_at", sa.String),
     sa.Column("outcome", sa.String),                     # sent / off / expired
-    sa.PrimaryKeyConstraint("league", "season", "key"),
+    _user(),                                             # whose devices it goes to
+    sa.PrimaryKeyConstraint("user_id", "league", "season", "key"),
 )
-sa.Index("ix_notices_unsent", notices.c.league, notices.c.season, notices.c.sent_at)
+sa.Index("ix_notices_unsent", notices.c.user_id, notices.c.sent_at)
 
-# notify's GLOBAL prefs and memory, one JSON value per key; a league's own keys (LEAGUE_STATE_KEYS) live in league_state.
+# notify's GLOBAL memory, one JSON value per key; a league's own keys (LEAGUE_STATE_KEYS) live in league_state, a
+# user's, a member's and a team's in user_state, member_state and team_state (below).
 notify_state = sa.Table(
     "notify_state", metadata, _season(),
     sa.Column("key", sa.String, nullable=False),
@@ -513,13 +533,48 @@ notify_state = sa.Table(
 )
 
 # The state keys that belong to one league (what a waiver run or a claim did is that league's), kept in league_state.
-LEAGUE_STATE_KEYS = frozenset({"waiver_run", "pending_claims", "watch_state", "pregame_pulls",
-                               "decision_prefs", "final_plays_done", "news_to_notify", "notify_prefs", "espn_week"})
+LEAGUE_STATE_KEYS = frozenset({"pregame_pulls", "final_plays_done", "news_to_notify", "espn_week"})
 league_state = sa.Table(
     "league_state", metadata, _league(), _season(),
     sa.Column("key", sa.String, nullable=False),
     sa.Column("value", sa.JSON, nullable=False),
     sa.PrimaryKeyConstraint("league", "season", "key"),
+)
+
+# Personal state (ffl-soc.6.2.3): a user's in every league (quiet hours, news mutes, Players views), a member's in one
+# league (push and decision switches, the watch pass's memory), and what ESPN keeps per team (the claims pending at
+# the last tick and the waiver run they were read against: co-managers share them).
+USER_STATE_KEYS = frozenset({"prefs", "news_mutes", "player_presets"})
+MEMBER_STATE_KEYS = frozenset({"notify_prefs", "decision_prefs", "watch_state"})
+TEAM_STATE_KEYS = frozenset({"pending_claims", "waiver_run"})
+user_state = sa.Table(
+    "user_state", metadata, _user(), _season(),
+    sa.Column("key", sa.String, nullable=False),
+    sa.Column("value", sa.JSON, nullable=False),
+    sa.PrimaryKeyConstraint("user_id", "season", "key"),
+)
+member_state = sa.Table(
+    "member_state", metadata,
+    sa.Column("user_id", sa.Integer, nullable=False), _league(), _season(),
+    sa.Column("key", sa.String, nullable=False),
+    sa.Column("value", sa.JSON, nullable=False),
+    sa.ForeignKeyConstraint(["user_id", "league"], ["memberships.user_id", "memberships.league"], ondelete="CASCADE"),
+    sa.PrimaryKeyConstraint("user_id", "league", "season", "key"),
+)
+team_state = sa.Table(
+    "team_state", metadata, _league(), _season(), _team(),
+    sa.Column("key", sa.String, nullable=False),
+    sa.Column("value", sa.JSON, nullable=False),
+    sa.PrimaryKeyConstraint("league", "season", "team_id", "key"),
+)
+# A member's roster caps (`ffl.leagues caps`, Settings): never above the league's (league_caps.provider_limit).
+member_caps = sa.Table(
+    "member_caps", metadata,
+    sa.Column("user_id", sa.Integer, nullable=False), _league(),
+    sa.Column("pos", sa.String, nullable=False),
+    sa.Column("my_cap", sa.Integer, nullable=False),
+    sa.ForeignKeyConstraint(["user_id", "league"], ["memberships.user_id", "memberships.league"], ondelete="CASCADE"),
+    sa.PrimaryKeyConstraint("user_id", "league", "pos"),
 )
 
 # The decision journal (was journal/DECISIONS.md): every lineup move, sit, claims submit and free add the app makes,
@@ -547,7 +602,9 @@ decisions_table = sa.Table(
     sa.Column("body", sa.String),
     sa.Column("player_ids", sa.JSON(none_as_null=True)),
     sa.Column("import_key", sa.String),
+    _user(),
     sa.UniqueConstraint("league", "season", "import_key", name="uq_decisions_import"),
+    sa.Index("ix_decisions_user", "user_id", "league", "season"),
 )
 sa.Index("ix_decisions_week_kind", decisions_table.c.league, decisions_table.c.season, decisions_table.c.week,
          decisions_table.c.kind)
@@ -794,11 +851,12 @@ def league_rows() -> list[dict]:
         return [dict(r._mapping) for r in c.execute(sa.select(t).order_by(t.c.added_at, t.c.key))]
 
 
-def member_rows(user_id: int | None = None) -> list[dict]:
+def member_rows(user_id: int | None = None, *, everyone: bool = False) -> list[dict]:
     """Leagues as a member sees them: the leagues row with the membership's team, default, name and strategy laid
     over it (NULL keeps the league's), plus `user_id`, `is_default` and `owner` (the member is the league's lowest
     user id). `user_id` None: every league through its owner's membership (none: no team, user_id None), oldest
-    first; a user: their memberships only, their default first."""
+    first; a user: their memberships only, their default first; `everyone`: every membership, by league (oldest
+    first) then user."""
     t, m = leagues_table, memberships
     first = sa.select(m.c.league, sa.func.min(m.c.user_id).label("owner_id")).group_by(m.c.league).subquery()
     cols = [t.c.key, t.c.provider, t.c.provider_id, t.c.season, t.c.lineup_format,
@@ -808,7 +866,9 @@ def member_rows(user_id: int | None = None) -> list[dict]:
             m.c.user_id, sa.func.coalesce(m.c.is_default, sa.false()).label("is_default"),
             (m.c.user_id == first.c.owner_id).label("owner")]
     q = sa.select(*cols).select_from(t.outerjoin(first, first.c.league == t.c.key))
-    if user_id is None:
+    if everyone:
+        q = q.join(m, m.c.league == t.c.key).order_by(t.c.added_at, t.c.key, m.c.user_id)
+    elif user_id is None:
         q = q.outerjoin(m, sa.and_(m.c.league == t.c.key, m.c.user_id == first.c.owner_id)) \
             .order_by(t.c.added_at, t.c.key)
     else:
@@ -865,7 +925,7 @@ def league_settings_doc(league: str, season: int) -> dict | None:
             return None
         lineup = c.execute(sa.select(lf.c.doc).join(lg, lg.c.lineup_format == lf.c.key)
                            .where(lg.c.key == league)).scalar()
-        caps = {r.pos: {"provider_limit": r.provider_limit, "my_cap": r.my_cap}
+        caps = {r.pos: {"provider_limit": r.provider_limit}
                 for r in c.execute(sa.select(lc).where(lc.c.league == league))}
         ls, sf = league_scoring, scoring_formats
         tables = {r.pos: r.table for r in c.execute(
@@ -880,19 +940,26 @@ def league_scoring_tables(league: str) -> dict[str, dict[str, float]]:
             sa.select(ls.c.pos, sf.c.table).join(sf, sf.c.key == ls.c.scoring_format).where(ls.c.league == league))}
 
 
-def caps_rows(league: str) -> dict[str, dict]:
-    """{pos: {provider_limit, my_cap}} for the league; empty when nothing is stored."""
-    t = league_caps
+def caps_rows(*, ref) -> dict[str, dict]:
+    """{pos: {provider_limit, my_cap}}: the league's limits and the member's own caps (a league seen through no
+    member: its limits alone); a position in neither is left out (empty when nothing is stored)."""
+    t, m, league = league_caps, member_caps, ref.key
     with _read() as c:
-        return {r.pos: {"provider_limit": r.provider_limit, "my_cap": r.my_cap}
-                for r in c.execute(sa.select(t).where(t.c.league == league))}
+        out = {r.pos: {"provider_limit": r.provider_limit, "my_cap": None}
+               for r in c.execute(sa.select(t).where(t.c.league == league))}
+        mine = [] if ref.user_id is None else c.execute(sa.select(m).where(m.c.user_id == ref.user_id,
+                                                                           m.c.league == league))
+        for r in mine:
+            out.setdefault(r.pos, {"provider_limit": None})["my_cap"] = r.my_cap
+    return out
 
 
-def put_my_cap(league: str, pos: str, my_cap: int | None) -> None:
-    """Set my cap at a position, keeping the league's limit (a row without one is inserted with none)."""
+def put_my_cap(pos: str, my_cap: int, *, ref) -> None:
+    """The member's cap at a position."""
+    user, league = _member(ref)
     with _write() as c:
-        c.execute(_upsert(league_caps, [{"league": league, "pos": pos, "provider_limit": None, "my_cap": my_cap}],
-                          ["league", "pos"], ["my_cap"]))
+        c.execute(_upsert(member_caps, [{"user_id": user, "league": league, "pos": pos, "my_cap": my_cap}],
+                          ["user_id", "league", "pos"], ["my_cap"]))
 
 
 def strategy_row(key: str) -> dict | None:
@@ -910,14 +977,14 @@ def strategy_rows() -> list[dict]:
         return [dict(r._mapping) for r in c.execute(sa.select(t).order_by(t.c.key, t.c.version))]
 
 
-def seed_my_caps(league: str, caps: dict[str, int]) -> None:
-    """My cap at each position that has none yet, in one transaction (a set cap is never touched)."""
-    t = league_caps
+def seed_my_caps(caps: dict[str, int], *, ref) -> None:
+    """The member's cap at each position that has none yet, in one statement (a set cap is never touched)."""
+    if not caps:
+        return
+    user, league = _member(ref)
     with _write() as c:
-        c.execute(_upsert(t, [{"league": league, "pos": p, "provider_limit": None, "my_cap": None} for p in caps],
-                          ["league", "pos"], None))
-        for p, n in caps.items():
-            c.execute(sa.update(t).where(t.c.league == league, t.c.pos == p, t.c.my_cap.is_(None)).values(my_cap=n))
+        c.execute(_upsert(member_caps, [{"user_id": user, "league": league, "pos": p, "my_cap": n}
+                                        for p, n in caps.items()], ["user_id", "league", "pos"], None))
 
 
 def league_scoring_keys(league: str) -> dict[str, str]:
@@ -984,6 +1051,22 @@ def put_adp_feed(fmt: str, teams: int, year: int, rows: list[dict], meta: dict, 
 
 def _league_key(ref) -> str:
     return ref.key
+
+
+def _member(ref) -> tuple[int, str]:
+    """(user id, league key) of the member `ref` is the view of: whose personal rows a read or write touches. A league
+    seen through no member has none (ValueError: a caller that reaches here without a member is a bug)."""
+    if ref.user_id is None:
+        raise ValueError(f"{ref.key}: personal rows need a member's view of the league")
+    return ref.user_id, ref.key
+
+
+def _team_of(ref) -> tuple[str, int]:
+    """(league key, team id) of the member's team: what ESPN keeps per team. ValueError when the membership has no
+    team."""
+    if ref.team_id is None:
+        raise ValueError(f"{ref.key}: no team on this membership")
+    return ref.key, ref.team_id
 
 
 def add_plays(rows: list[dict], season: int = SEASON, *, ref) -> int:
@@ -1519,103 +1602,110 @@ def active_source_weights(season: int = SEASON) -> dict | None:
 
 
 def put_claim_plan(plan: dict, season: int = SEASON, *, ref) -> None:
-    """The week's waiver claim plan, replaced whole (upsert by week)."""
+    """The week's waiver claim plan of the member's team, replaced whole (upsert by week)."""
     from datetime import datetime
-    league = _league_key(ref)
+    league, team = _team_of(ref)
     with _write() as c:
-        c.execute(_upsert(claim_plans, [{"league": league, "season": season, "week": plan["week"], "plan": plan,
-                                         "updated": datetime.now().isoformat(timespec="seconds")}],
+        c.execute(_upsert(claim_plans, [{"league": league, "season": season, "team_id": team, "week": plan["week"],
+                                         "plan": plan, "updated": datetime.now().isoformat(timespec="seconds")}],
                           _KEYS["claim_plans"], ["plan", "updated"]))
 
 
 def claim_plan(week: int, season: int = SEASON, *, ref) -> dict | None:
-    t = claim_plans
-    q = sa.select(t.c.plan).where(t.c.league == _league_key(ref), t.c.season == season, t.c.week == week)
+    t, (league, team) = claim_plans, _team_of(ref)
+    q = sa.select(t.c.plan).where(t.c.league == league, t.c.season == season, t.c.team_id == team, t.c.week == week)
     with _read() as c:
         return c.execute(q).scalar()
 
 
 def put_sit(week: int, player_id: int, sat: bool, season: int = SEASON, *, ref) -> None:
-    """Sit him for the week (a repeat is a no-op) or stand him back up (delete)."""
+    """The member sits him for the week (a repeat is a no-op) or stands him back up (delete)."""
     from datetime import datetime
-    league = _league_key(ref)
+    user, league = _member(ref)
     with _write() as c:
         if sat:
-            c.execute(_upsert(sits, [{"league": league, "season": season, "week": week, "player_id": player_id,
+            c.execute(_upsert(sits, [{"user_id": user, "league": league, "season": season, "week": week,
+                                      "player_id": player_id,
                                       "at": datetime.now().astimezone().isoformat(timespec="seconds")}],
-                              ["league", "season", "week", "player_id"], None))
+                              ["user_id", "league", "season", "week", "player_id"], None))
         else:
-            c.execute(sa.delete(sits).where(sits.c.league == league, sits.c.season == season, sits.c.week == week,
-                                            sits.c.player_id == player_id))
+            c.execute(sa.delete(sits).where(sits.c.user_id == user, sits.c.league == league, sits.c.season == season,
+                                            sits.c.week == week, sits.c.player_id == player_id))
 
 
 def watched_ids(season: int = SEASON, *, ref) -> list[int]:
-    t = watchlist
-    q = (sa.select(t.c.player_id).where(t.c.league == _league_key(ref), t.c.season == season)
+    t, (user, league) = watchlist, _member(ref)
+    q = (sa.select(t.c.player_id).where(t.c.user_id == user, t.c.league == league, t.c.season == season)
          .order_by(t.c.added_at, t.c.player_id))
     with _read() as c:
         return list(c.execute(q).scalars())
 
 
 def put_watch(player_id: int, watched: bool, season: int = SEASON, *, ref) -> None:
-    """Watch him (a repeat is a no-op) or stop (delete the watch; his signals stay)."""
-    t, league = watchlist, _league_key(ref)
+    """The member watches him (a repeat is a no-op) or stops (delete the watch; his signals stay)."""
+    t, (user, league) = watchlist, _member(ref)
     with _write() as c:
         if watched:
-            c.execute(_upsert(t, [{"league": league, "season": season, "player_id": player_id, "added_at": _now()}],
-                              ["league", "season", "player_id"], None))
+            c.execute(_upsert(t, [{"user_id": user, "league": league, "season": season, "player_id": player_id,
+                                   "added_at": _now()}], ["user_id", "league", "season", "player_id"], None))
         else:
-            c.execute(sa.delete(t).where(t.c.league == league, t.c.season == season, t.c.player_id == player_id))
+            c.execute(sa.delete(t).where(t.c.user_id == user, t.c.league == league, t.c.season == season,
+                                         t.c.player_id == player_id))
 
 
 _SIGNAL_COLS = ("key", "player_id", "kind", "text", "at")
 
 
 def add_watch_signals(rows: list[dict], season: int = SEASON, *, ref) -> list[dict]:
-    """Store the signals not already known (key: league, season, key). Returns only the rows newly inserted."""
+    """Store the member's signals not already known (key: user, league, season, key). Returns only the rows newly
+    inserted."""
     if not rows:
         return []
-    t, league = watch_signals_table, _league_key(ref)
+    t, (user, league) = watch_signals_table, _member(ref)
     offered: dict[str, dict] = {}
     for r in rows:
         offered.setdefault(r["key"], {k: r[k] for k in _SIGNAL_COLS})
     # new = what this INSERT made (RETURNING), so a concurrent writer's rows are not reported twice; the keys go in
     # sorted, so two writers offering overlapping signals take their row locks in one order and cannot deadlock
     with _write() as c:
-        made = set(c.execute(_upsert(t, [{"league": league, "season": season, **offered[k]} for k in sorted(offered)],
-                                     ["league", "season", "key"], None).returning(t.c.key)).scalars())
+        made = set(c.execute(_upsert(t, [{"user_id": user, "league": league, "season": season, **offered[k]}
+                                         for k in sorted(offered)],
+                                     ["user_id", "league", "season", "key"], None).returning(t.c.key)).scalars())
     return [v for k, v in offered.items() if k in made]
 
 
 def watch_signals(since: str, season: int = SEASON, *, ref) -> list[dict]:
-    """Signals with `at` >= since, newest first."""
-    t = watch_signals_table
+    """The member's signals with `at` >= since, newest first."""
+    t, (user, league) = watch_signals_table, _member(ref)
     q = (sa.select(*[t.c[k] for k in _SIGNAL_COLS])
-         .where(t.c.league == _league_key(ref), t.c.season == season, t.c.at >= since)
+         .where(t.c.user_id == user, t.c.league == league, t.c.season == season, t.c.at >= since)
          .order_by(t.c.at.desc(), t.c.key))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 
 
 def seat_map(season: int = SEASON, *, ref) -> dict[int, int]:
-    q = sa.select(seats.c.player_id, seats.c.seat_id).where(seats.c.league == _league_key(ref), seats.c.season == season)
+    league, team = _team_of(ref)
+    q = sa.select(seats.c.player_id, seats.c.seat_id).where(seats.c.league == league, seats.c.season == season,
+                                                            seats.c.team_id == team)
     with _read() as c:
         return dict(c.execute(q).all())
 
 
 def put_seats(rows: dict[int, int], season: int = SEASON, *, ref) -> None:
-    """Upsert player -> seat in one transaction."""
+    """Upsert player -> seat of the member's team in one transaction."""
     if not rows:
         return
-    league = _league_key(ref)
+    league, team = _team_of(ref)
     with _write() as c:
-        c.execute(_upsert(seats, [{"league": league, "season": season, "player_id": p, "seat_id": s}
+        c.execute(_upsert(seats, [{"league": league, "season": season, "team_id": team, "player_id": p, "seat_id": s}
                                   for p, s in rows.items()],
-                          ["league", "season", "player_id"], ["seat_id"]))
+                          ["league", "season", "team_id", "player_id"], ["seat_id"]))
 
 
 def sat_ids(week: int, season: int = SEASON, *, ref) -> set[int]:
-    q = sa.select(sits.c.player_id).where(sits.c.league == _league_key(ref), sits.c.season == season,
+    user, league = _member(ref)
+    q = sa.select(sits.c.player_id).where(sits.c.user_id == user, sits.c.league == league, sits.c.season == season,
                                           sits.c.week == week)
     with _read() as c:
         return set(c.execute(q).scalars())
@@ -1626,41 +1716,56 @@ def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def put_subscription(endpoint: str, keys: dict, ua: str = "") -> None:
-    """One device's push subscription; the same endpoint again replaces its keys (browsers rotate them)."""
+def put_subscription(endpoint: str, keys: dict, ua: str = "", *, user_id: int) -> None:
+    """One device's push subscription, the user's; the same endpoint again replaces its keys (browsers rotate them)
+    and moves it to whoever subscribed it last (one browser, another user signed in)."""
     with _write() as c:
-        c.execute(_upsert(push_subscriptions, [{"endpoint": endpoint, "keys": keys, "ua": ua, "created_at": _now()}],
-                          ["endpoint"], ["keys", "ua"]))
+        c.execute(_upsert(push_subscriptions, [{"endpoint": endpoint, "keys": keys, "ua": ua, "created_at": _now(),
+                                                "user_id": user_id}],
+                          ["endpoint"], ["keys", "ua", "user_id"]))
 
 
-def drop_subscription(endpoint: str) -> None:
+def drop_subscription(endpoint: str, *, user_id: int | None) -> None:
+    """Forget a device: the user's own (`user_id`), or, for the push service's 404/410 (None), whoever's it is."""
+    t = push_subscriptions
+    q = sa.delete(t).where(t.c.endpoint == endpoint)
     with _write() as c:
-        c.execute(sa.delete(push_subscriptions).where(push_subscriptions.c.endpoint == endpoint))
+        c.execute(q if user_id is None else q.where(t.c.user_id == user_id))
 
 
-def subscriptions() -> list[dict]:
+def subscriptions(*, user_id: int) -> list[dict]:
+    """The user's devices."""
+    t = push_subscriptions
     with _read() as c:
-        return [dict(r._mapping) for r in c.execute(sa.select(push_subscriptions))]
+        return [dict(r._mapping) for r in c.execute(sa.select(t).where(t.c.user_id == user_id).order_by(t.c.created_at,
+                                                                                                         t.c.endpoint))]
+
+
+_NOTICE_IN = ("key", "kind", "title", "body", "url", "created_at")
 
 
 def add_notices(rows: list[dict], season: int = SEASON, *, ref) -> int:
-    """Queue the notices not already known (key: league, season, key). Returns how many were new."""
+    """Queue the member's notices not already known (key: user, league, season, key). Returns how many were new."""
     if not rows:
         return 0
-    league = _league_key(ref)
-    vals = [{"league": league, "season": season, **{k: r[k] for k in ("key", "kind", "title", "body", "url", "created_at")}}
-            for r in rows]
+    user, league = _member(ref)
+    vals = [{"user_id": user, "league": league, "season": season, **{k: r[k] for k in _NOTICE_IN}} for r in rows]
     with _write() as c:
-        return len(c.execute(_upsert(notices, vals, ["league", "season", "key"], None).returning(notices.c.key)).all())
+        return len(c.execute(_upsert(notices, vals, ["user_id", "league", "season", "key"], None)
+                             .returning(notices.c.key)).all())
 
 
 _NOTICE_COLS = ("key", "kind", "title", "body", "url", "created_at", "sent_at", "outcome")
 
 
+def _notices_of(ref, season: int):
+    user, league = _member(ref)
+    return sa.and_(notices.c.user_id == user, notices.c.league == league, notices.c.season == season)
+
+
 def unsent_notices(season: int = SEASON, *, ref) -> list[dict]:
     t = notices
-    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS])
-         .where(t.c.league == _league_key(ref), t.c.season == season, t.c.sent_at.is_(None))
+    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(_notices_of(ref, season), t.c.sent_at.is_(None))
          .order_by(t.c.created_at, t.c.key))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
@@ -1669,38 +1774,60 @@ def unsent_notices(season: int = SEASON, *, ref) -> list[dict]:
 def mark_notices(keys: list[str], outcome: str, at: str, season: int = SEASON, *, ref) -> None:
     if not keys:
         return
-    t, league = notices, _league_key(ref)
+    t = notices
     with _write() as c:
-        c.execute(sa.update(t).where(t.c.league == league, t.c.season == season, t.c.key.in_(keys))
-                  .values(sent_at=at, outcome=outcome))
+        c.execute(sa.update(t).where(_notices_of(ref, season), t.c.key.in_(keys)).values(sent_at=at, outcome=outcome))
 
 
 def recent_notices(limit: int = 20, season: int = SEASON, *, ref) -> list[dict]:
     t = notices
-    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(t.c.league == _league_key(ref), t.c.season == season)
+    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(_notices_of(ref, season))
          .order_by(t.c.created_at.desc(), t.c.key.desc()).limit(limit))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
 
 
-def _check_key(key: str, league: bool) -> None:
-    if (key in LEAGUE_STATE_KEYS) != league:
-        raise ValueError(f"state key {key!r} is {'not ' if league else ''}a league's: use "
-                         f"{'put/get_state' if league else 'put/get_league_state'}")
+_STATE_HOMES = {"user": USER_STATE_KEYS, "member": MEMBER_STATE_KEYS, "team": TEAM_STATE_KEYS,
+                "league": LEAGUE_STATE_KEYS}
 
 
-def get_state(key: str, default=None, season: int = SEASON):
-    _check_key(key, False)
-    q = sa.select(notify_state.c.value).where(notify_state.c.season == season, notify_state.c.key == key)
+def _check_key(key: str, home: str) -> None:
+    """A state key is read and written where it lives: global (notify_state), a user's, a league's (a member's and a
+    team's keys go through the league functions, which take the member's ref)."""
+    where = next((h for h, keys in _STATE_HOMES.items() if key in keys), "global")
+    if where in ("member", "team"):
+        where = "league"
+    if where != home:
+        fix = {"global": "put/get_state", "user": "put/get_state(user_id=)", "league": "put/get_league_state"}[where]
+        raise ValueError(f"state key {key!r} is {where}: use {fix}")
+
+
+def _state_row(key: str, season: int, user_id: int | None) -> tuple[sa.Table, dict]:
+    """The table and key columns of a global state key (user_id None) or a user's (USER_STATE_KEYS: user_id required)."""
+    if key in USER_STATE_KEYS:
+        if user_id is None:
+            raise ValueError(f"state key {key!r} is a user's: pass user_id")
+        _check_key(key, "user")
+        return user_state, {"user_id": user_id, "season": season, "key": key}
+    _check_key(key, "global")
+    if user_id is not None:
+        raise ValueError(f"state key {key!r} is global, not a user's")
+    return notify_state, {"season": season, "key": key}
+
+
+def get_state(key: str, default=None, season: int = SEASON, *, user_id: int | None = None):
+    """A global state key's value; a user's (USER_STATE_KEYS) with `user_id`."""
+    t, keys = _state_row(key, season, user_id)
+    q = sa.select(t.c.value).where(*[t.c[k] == v for k, v in keys.items()])
     with _read() as c:
         v = c.execute(q).scalar()
     return default if v is None else v
 
 
-def put_state(key: str, value, season: int = SEASON) -> None:
-    _check_key(key, False)
+def put_state(key: str, value, season: int = SEASON, *, user_id: int | None = None) -> None:
+    t, keys = _state_row(key, season, user_id)
     with _write() as c:
-        c.execute(_upsert(notify_state, [{"season": season, "key": key, "value": value}], ["season", "key"], ["value"]))
+        c.execute(_upsert(t, [{**keys, "value": value}], list(keys), ["value"]))
 
 
 def _update(table: sa.Table, keys: dict, fn, default):
@@ -1716,34 +1843,43 @@ def _update(table: sa.Table, keys: dict, fn, default):
     return new
 
 
-def update_state(key: str, fn, default=None, season: int = SEASON):
-    """A global state key's value changed by `fn` (its value, or `default` when unset) without losing a concurrent
-    update (a get then a put can). Returns the value written."""
-    _check_key(key, False)
-    return _update(notify_state, {"season": season, "key": key}, fn, default)
+def update_state(key: str, fn, default=None, season: int = SEASON, *, user_id: int | None = None):
+    """A global state key's value (a user's with `user_id`) changed by `fn` (its value, or `default` when unset)
+    without losing a concurrent update (a get then a put can). Returns the value written."""
+    return _update(*_state_row(key, season, user_id), fn, default)
+
+
+def _league_state_row(key: str, season: int, ref) -> tuple[sa.Table, dict]:
+    """Where a league-side key lives for the member `ref` is the view of: the league's own, the member's
+    (MEMBER_STATE_KEYS) or the member's team's (TEAM_STATE_KEYS)."""
+    _check_key(key, "league")
+    if key in MEMBER_STATE_KEYS:
+        user, league = _member(ref)
+        return member_state, {"user_id": user, "league": league, "season": season, "key": key}
+    if key in TEAM_STATE_KEYS:
+        league, team = _team_of(ref)
+        return team_state, {"league": league, "season": season, "team_id": team, "key": key}
+    return league_state, {"league": _league_key(ref), "season": season, "key": key}
 
 
 def update_league_state(key: str, fn, default=None, season: int = SEASON, *, ref):
-    """A league's state key changed by `fn`, as update_state."""
-    _check_key(key, True)
-    return _update(league_state, {"league": _league_key(ref), "season": season, "key": key}, fn, default)
+    """A league-side state key changed by `fn`, as update_state."""
+    return _update(*_league_state_row(key, season, ref), fn, default)
 
 
 def get_league_state(key: str, default=None, season: int = SEASON, *, ref):
-    _check_key(key, True)
-    t = league_state
-    q = sa.select(t.c.value).where(t.c.league == _league_key(ref), t.c.season == season, t.c.key == key)
+    """A league-side state key: the league's, the member's or their team's, by the key (_league_state_row)."""
+    t, keys = _league_state_row(key, season, ref)
+    q = sa.select(t.c.value).where(*[t.c[k] == v for k, v in keys.items()])
     with _read() as c:
         v = c.execute(q).scalar()
     return default if v is None else v
 
 
 def put_league_state(key: str, value, season: int = SEASON, *, ref) -> None:
-    _check_key(key, True)
-    league = _league_key(ref)
+    t, keys = _league_state_row(key, season, ref)
     with _write() as c:
-        c.execute(_upsert(league_state, [{"league": league, "season": season, "key": key, "value": value}],
-                          ["league", "season", "key"], ["value"]))
+        c.execute(_upsert(t, [{**keys, "value": value}], list(keys), ["value"]))
 
 
 def _page_owner(ref) -> tuple[str, int]:
@@ -1867,7 +2003,7 @@ def news_item_hashes(source_id: str, ext_ids: list[str], season: int = SEASON) -
 def notice_keys(prefix: str, season: int = SEASON, *, ref) -> list[str]:
     """Keys of the notices already pushed (sent_at set, outcome sent) that start with `prefix`."""
     t = notices
-    q = (sa.select(t.c.key).where(t.c.league == _league_key(ref), t.c.season == season, t.c.sent_at.is_not(None),
+    q = (sa.select(t.c.key).where(_notices_of(ref, season), t.c.sent_at.is_not(None),
                                   t.c.outcome == "sent", t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
     with _read() as c:
         return list(c.execute(q).scalars())
@@ -1878,7 +2014,7 @@ def notices_since(prefix: str, since: str, season: int = SEASON, *, ref) -> list
     = still waiting). Compared as text, so the caller passes a margin and re-checks the times."""
     t = notices
     q = (sa.select(t.c.key, t.c.created_at, t.c.outcome)
-         .where(t.c.league == _league_key(ref), t.c.season == season, t.c.created_at >= since,
+         .where(_notices_of(ref, season), t.c.created_at >= since,
                 t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
@@ -2138,14 +2274,21 @@ def news_feed(before: str | None, limit: int, player_id: int | None = None, sinc
 
 
 def _decision_out(r) -> dict:
-    # league and season are implied by the read and import_key is the import's own dedupe key: none is part of a decision
-    return {k: v for k, v in r._mapping.items() if k not in ("league", "season", "import_key")}
+    # user, league and season are implied by the read and import_key is the import's own dedupe key: none is part of a
+    # decision
+    return {k: v for k, v in r._mapping.items() if k not in ("user_id", "league", "season", "import_key")}
+
+
+def _decisions_of(ref, season: int):
+    t, (user, league) = decisions_table, _member(ref)
+    return sa.and_(t.c.user_id == user, t.c.league == league, t.c.season == season)
 
 
 def add_decision(row: dict, season: int = SEASON, *, ref) -> int:
-    league = _league_key(ref)
+    """The member's decision; its id."""
+    user, league = _member(ref)
     with _write() as c:
-        return c.execute(sa.insert(decisions_table).values({**row, "league": league, "season": season})
+        return c.execute(sa.insert(decisions_table).values({**row, "user_id": user, "league": league, "season": season})
                          .returning(decisions_table.c.id)).scalar()
 
 
@@ -2156,42 +2299,42 @@ def put_week_claims(week: int, row: dict, season: int = SEASON, *, ref) -> dict:
     t = decisions_table
     keep = {"rationale", "rationale_note", "outcome", "outcome_at"}
     gen = (row.get("facts") or {}).get("gen", 0)
-    league = _league_key(ref)
+    user, league = _member(ref)
     with _write() as c:
         # two submits of one week must not both find no row and both insert (held to the transaction's end)
-        c.execute(sa.select(sa.func.pg_advisory_xact_lock(sa.func.hashtext(f"claims:{league}:{season}:{week}"))))
+        c.execute(sa.select(sa.func.pg_advisory_xact_lock(
+            sa.func.hashtext(f"claims:{user}:{league}:{season}:{week}"))))
         rows = c.execute(sa.select(t.c.id, t.c.rationale, t.c.facts).where(
-            t.c.league == league, t.c.season == season, t.c.week == week, t.c.kind == "claims",
-            t.c.source == "app")).all()
+            _decisions_of(ref, season), t.c.week == week, t.c.kind == "claims", t.c.source == "app")).all()
         old = next((r for r in rows if (r.facts or {}).get("gen", 0) == gen), None)
         if old is None:
-            i = c.execute(sa.insert(t).values({**row, "league": league, "season": season, "week": week})
-                          .returning(t.c.id)).scalar()
+            i = c.execute(sa.insert(t).values({**row, "user_id": user, "league": league, "season": season,
+                                               "week": week}).returning(t.c.id)).scalar()
             return {"id": i, "needs_rationale": row.get("rationale") is None}
         c.execute(sa.update(t).where(t.c.id == old.id).values({k: v for k, v in row.items() if k not in keep}))
         return {"id": old.id, "needs_rationale": old.rationale is None}
 
 
 def update_decision(id: int, fields: dict, season: int = SEASON, *, ref) -> dict | None:
-    t, league = decisions_table, _league_key(ref)
+    t = decisions_table
     with _write() as c:
-        if not c.execute(sa.update(t).where(t.c.league == league, t.c.season == season, t.c.id == id)
-                         .values(fields)).rowcount:
+        if not c.execute(sa.update(t).where(_decisions_of(ref, season), t.c.id == id).values(fields)).rowcount:
             return None
         return _decision_out(c.execute(sa.select(t).where(t.c.id == id)).one())
 
 
 def decision(id: int, season: int = SEASON, *, ref) -> dict | None:
     t = decisions_table
-    q = sa.select(t).where(t.c.league == _league_key(ref), t.c.season == season, t.c.id == id)
+    q = sa.select(t).where(_decisions_of(ref, season), t.c.id == id)
     with _read() as c:
         r = c.execute(q).first()
     return _decision_out(r) if r else None
 
 
 def decisions(season: int = SEASON, *, ref) -> list[dict]:
+    """The member's decisions in the league, newest first."""
     t = decisions_table
-    q = sa.select(t).where(t.c.league == _league_key(ref), t.c.season == season).order_by(t.c.at.desc(), t.c.id.desc())
+    q = sa.select(t).where(_decisions_of(ref, season)).order_by(t.c.at.desc(), t.c.id.desc())
     with _read() as c:
         return [_decision_out(r) for r in c.execute(q)]
 
@@ -2200,7 +2343,7 @@ def decisions(season: int = SEASON, *, ref) -> list[dict]:
 _KEYS = {"transactions": ["league", "season", "id"], "draft_picks": ["league", "season", "overall"],
          "results": ["league", "season", "week"], "plays": ["league", "season", "week", "player_id", "at", "total"],
          "outlooks": ["league", "season", "week", "kind", "player_id"], "sigma_fits": ["season", "fitted_at"],
-         "claim_plans": ["league", "season", "week"], "decisions": ["league", "season", "import_key"]}
+         "claim_plans": ["league", "season", "team_id", "week"], "decisions": ["league", "season", "import_key"]}
 
 
 def insert_new(table_name: str, rows: list[dict]) -> int:

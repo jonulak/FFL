@@ -202,29 +202,32 @@ def _at_0027(empty_db, monkeypatch, with_user: bool):
             c.execute(sa.text("INSERT INTO users (email, created_at) VALUES ('me@example.com', 'now')"))
             c.execute(sa.text("INSERT INTO users (email, created_at) VALUES ('later@example.com', 'now')"))
     eng.dispose()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
+    command.upgrade(db._alembic_config(), "0028")
+    return url
+
+
+def _q(url: str, sql: str) -> list[tuple]:
+    """Rows as 0028 left them (db's readers are head's)."""
+    eng = sa.create_engine(url)
+    with eng.connect() as c:
+        rows = [tuple(r) for r in c.execute(sa.text(sql))]
+    eng.dispose()
+    return rows
 
 
 def test_migration_files_every_league_under_the_first_user(empty_db, monkeypatch):
-    _at_0027(empty_db, monkeypatch, with_user=True)
-    with db._read() as c:
-        rows = [dict(r._mapping) for r in c.execute(sa.select(db.memberships))]
-        page_users = c.execute(sa.select(db.page_cache.c.user_id)).scalars().all()
-    me = db.user_by_email("me@example.com")["id"]
-    assert [(r["user_id"], r["league"], r["team_id"], r["is_default"], r["name"], r["strategy"]) for r in rows] == [
+    url = _at_0027(empty_db, monkeypatch, with_user=True)
+    [(me,)] = _q(url, "SELECT id FROM users WHERE email = 'me@example.com'")
+    assert _q(url, "SELECT user_id, league, team_id, is_default, name, strategy FROM memberships") == [
         (me, "espn:100000001", 7, True, None, "2qb-10team")]
-    assert page_users == [me]
-    assert leagues.get("espn:100000001").name == "Renamed"
+    assert _q(url, "SELECT user_id FROM page_cache") == [(me,)]
+    assert _q(url, "SELECT name FROM leagues") == [("Renamed",)], "the league's name stays the league's"
 
 
 def test_migration_without_a_user_files_nothing(empty_db, monkeypatch):
-    _at_0027(empty_db, monkeypatch, with_user=False)
-    with db._read() as c:
-        assert c.execute(sa.select(sa.func.count()).select_from(db.memberships)).scalar() == 0
-        assert c.execute(sa.select(db.page_cache.c.user_id)).scalars().all() == [0]  # no user's: served as before
-    # no member: 0029 dropped the leagues row's team with nobody to hold it (production has its user)
-    assert leagues.get("espn:100000001").user_id is None and leagues.get("espn:100000001").team_id is None
+    url = _at_0027(empty_db, monkeypatch, with_user=False)
+    assert _q(url, "SELECT count(*) FROM memberships") == [(0,)]
+    assert _q(url, "SELECT user_id FROM page_cache") == [(0,)]  # no user's: served as before
 
 
 def test_sign_in_never_makes_a_membership(monkeypatch):

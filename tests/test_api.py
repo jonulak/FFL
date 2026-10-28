@@ -2068,10 +2068,10 @@ def test_api_news_routes(news_client):
     assert news_client.get("/news/search").json() == {"players": []}
 
     assert news_client.post("/news/mute/2", json={"muted": True}).json() == {"muted": True}
-    assert db.get_state("news_mutes") == [2]
+    assert db.get_state("news_mutes", user_id=0) == [2]
     assert news_client.get("/news/player/2").json()["muted"] is True
     assert news_client.post("/news/mute/2", json={"muted": False}).json() == {"muted": False}
-    assert db.get_state("news_mutes") == []
+    assert db.get_state("news_mutes", user_id=0) == []
 
 
 def test_news_hides_stories_that_move_nobody(news_client):

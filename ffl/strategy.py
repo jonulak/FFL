@@ -43,8 +43,8 @@ def for_league(ref: leagues.LeagueRef) -> Strategy:
 def caps(ref: leagues.LeagueRef) -> dict[str, int]:
     """`leagues.caps(ref)`, after any position with no cap of mine takes the preset's suggestion (never above
     the league's limit). A league with no preset keeps only the caps it has."""
-    if ref.strategy:
-        rows = db.caps_rows(ref.key)
+    if ref.strategy and ref.user_id is not None:  # a league seen through no member has no caps of mine
+        rows = db.caps_rows(ref=ref)
         unset = [p for p in leagues.CAP_POSITIONS if rows.get(p, {}).get("my_cap") is None]
         if unset:
             suggested = for_league(ref).constants.get("suggested_caps") or {}
@@ -54,7 +54,7 @@ def caps(ref: leagues.LeagueRef) -> dict[str, int]:
                     limit = rows.get(p, {}).get("provider_limit")
                     seed[p] = suggested[p] if limit is None else min(suggested[p], limit)
             if seed:
-                db.seed_my_caps(ref.key, seed)
+                db.seed_my_caps(seed, ref=ref)
     return leagues.caps(ref)
 
 

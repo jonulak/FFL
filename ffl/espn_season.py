@@ -591,7 +591,7 @@ def record_projections(*, ref: leagues.LeagueRef) -> dict:
 def my_team_id(lg, ref: leagues.LeagueRef) -> int:
     """leagues.my_team_id of `ref`'s settings, but a failure is a RuntimeError: the API's `except Exception` paths must catch it (SystemExit would escape them)."""
     try:
-        return leagues.my_team_id(load(ref), ref)
+        return leagues.my_team_id({}, ref)  # the membership's: no settings read (ffl-soc.6.2.3)
     except SystemExit as e:
         raise RuntimeError(str(e)) from e
 

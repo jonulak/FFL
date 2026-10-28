@@ -42,9 +42,12 @@ def move_notices(rows: list[dict], at: str) -> list[dict]:
 
 
 def enqueue_moves(rows: list[dict], *, ref) -> int:
-    """Queue a league's new log rows. Never fails the sync that found them: a DB error is logged."""
+    """Queue a league's new log rows for every member of it (a move is news to each). Never fails the sync that found
+    them: a DB error is logged."""
+    from . import leagues
+    queued = move_notices(rows, now())
     try:
-        return db.add_notices(move_notices(rows, now()), ref=ref)
+        return sum(db.add_notices(queued, ref=m) for m in leagues.members(ref.key))
     except db.DBError as e:
         log.warning("notify: moves not queued: %s", e)
         return 0
@@ -107,14 +110,28 @@ def source_notices(status: dict, t: datetime, at: str, hours: int = 24) -> list[
     return out
 
 
+def operator_emails() -> list[str]:
+    """FFL_OPERATOR_EMAILS (comma-separated, read now): who hears about the app itself."""
+    return [e.strip() for e in (os.environ.get("FFL_OPERATOR_EMAILS") or "").split(",") if e.strip()]
+
+
 def app_notices(rows: list[dict]) -> int:
-    """Queue notices about the app itself (a source failing, fitted weights) once, not once per league: under the
-    oldest registered league, whose queue every device already gets, until notices are per user (6.2.3). None
-    registered: nothing queued."""
+    """Queue notices about the app itself (a source failing, fitted weights) for each operator (FFL_OPERATOR_EMAILS),
+    once, under their default league; nobody else hears of them. An operator with no account or no league, or no
+    operator at all, gets nothing (logged)."""
     from . import leagues
-    if not rows or not leagues.all_leagues():
+    if not rows:
         return 0
-    return db.add_notices(rows, ref=leagues.oldest())
+    n = 0
+    for email in operator_emails() or [None]:
+        user = db.user_by_email(email) if email else None
+        ref = leagues.default_for(user["id"]) if user else None
+        if ref is None:
+            log.warning("notify: app notice not queued for %s: %s", email or "nobody (FFL_OPERATOR_EMAILS unset)",
+                        "no league" if user else "no such user")
+            continue
+        n += db.add_notices(rows, ref=ref)
+    return n
 
 
 def check_sources() -> int:
@@ -132,13 +149,14 @@ SWITCHES = ("move", "injury", "waivers", "news", "watch")
 
 
 def prefs(*, ref) -> dict:
-    """A league's push switches (its own `notify_prefs` state) and the quiet hours (`quiet`, every league's)."""
-    return {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {}), "quiet": quiet()}
+    """The member's push switches in a league (their `notify_prefs` state) and their quiet hours (`quiet`, every
+    league's)."""
+    return {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {}), "quiet": quiet(ref.user_id)}
 
 
-def quiet() -> list[str]:
-    """The quiet hours, every league's: the global `prefs` row."""
-    return {**DEFAULT_PREFS, **db.get_state("prefs", {})}["quiet"]
+def quiet(user_id: int) -> list[str]:
+    """The user's quiet hours, every league's: their `prefs` row."""
+    return {**DEFAULT_PREFS, **db.get_state("prefs", {}, user_id=user_id)}["quiet"]
 
 
 def _checked(merged: dict) -> dict:
@@ -156,7 +174,7 @@ def put_prefs(p: dict, *, ref) -> dict:
     change = {k: v for k, v in p.items() if k in DEFAULT_PREFS}
     _checked({**prefs(ref=ref), **change})  # refuse before writing anything
     quiet = {"quiet": change["quiet"]} if "quiet" in change else {}
-    shared = db.update_state("prefs", lambda cur: {**(cur or {}), **quiet}, {})
+    shared = db.update_state("prefs", lambda cur: {**(cur or {}), **quiet}, {}, user_id=ref.user_id)
     mine = db.update_league_state("notify_prefs", lambda cur: {k: {**DEFAULT_PREFS, **(cur or {}), **change}[k]
                                                                 for k in SWITCHES}, {}, ref=ref)
     return {**DEFAULT_PREFS, **mine, "quiet": {**DEFAULT_PREFS, **shared}["quiet"]}
@@ -315,12 +333,13 @@ def for_league(push: dict, ref, named: bool) -> dict:
     return {**push, "title": title, "url": league_url(push["url"], ref), "tag": tag, "ref": ref}
 
 
-def _send_all(pushes: list[dict], send, at: str) -> int:
-    subs, sent = db.subscriptions(), 0
+def _send_all(pushes: list[dict], send, at: str, user_id: int) -> int:
+    """The user's pushes to the user's devices."""
+    subs, sent = db.subscriptions(user_id=user_id), 0
     for push in pushes:
         ok, dead = deliver(push, subs, send)
         for ep in dead:
-            db.drop_subscription(ep)
+            db.drop_subscription(ep, user_id=None)
         subs = [s for s in subs if s["endpoint"] not in dead]
         if ok:
             db.mark_notices(push["keys"], "sent", at, ref=push.get("ref"))
@@ -329,52 +348,66 @@ def _send_all(pushes: list[dict], send, at: str) -> int:
 
 
 def flush(t: datetime | None = None, send=None) -> dict:
-    """Send every league's queue: nothing in quiet hours (every league's); each league's switched-off and stale
-    notices are marked, the rest grouped within the league and pushed, each naming its league once there are two."""
+    """Send every user's queue to that user's devices: nothing in their quiet hours (every league's); in each of their
+    leagues the notices switched off there and the stale ones are marked, the rest grouped within the league and
+    pushed, each naming its league once the user has two."""
     from . import leagues
     send = send or sender()
     if send is None:
         return {"disabled": True}
     t = t or datetime.now().astimezone()
-    refs = leagues.all_leagues()
-    unsent = {r.key: db.unsent_notices(ref=r) for r in refs}
-    if in_quiet(t, quiet()):
-        return {"held": sum(len(u) for u in unsent.values())}
+    by_user: dict[int, list] = {}
+    for r in leagues.memberships():
+        by_user.setdefault(r.user_id, []).append(r)
     at = t.isoformat(timespec="seconds")
-    pushes, counts = [], {"off": 0, "expired": 0}
-    for r in refs:
-        planned, marks = plan(unsent[r.key], prefs(ref=r), t)
-        for outcome, keys in marks.items():
-            db.mark_notices(keys, outcome, at, ref=r)
-            counts[outcome] += len(keys)
-        pushes += [for_league(p, r, len(refs) > 1) for p in planned]
-    return {"sent": _send_all(pushes, send, at), "pushes": len(pushes), **counts}
+    out = {"sent": 0, "pushes": 0, "off": 0, "expired": 0, "held": 0}
+    for uid, refs in by_user.items():
+        unsent = {r.key: db.unsent_notices(ref=r) for r in refs}
+        if in_quiet(t, quiet(uid)):
+            out["held"] += sum(len(u) for u in unsent.values())
+            continue
+        pushes = []
+        for r in refs:
+            planned, marks = plan(unsent[r.key], prefs(ref=r), t)
+            for outcome, keys in marks.items():
+                db.mark_notices(keys, outcome, at, ref=r)
+                out[outcome] += len(keys)
+            pushes += [for_league(p, r, len(refs) > 1) for p in planned]
+        out["sent"] += _send_all(pushes, send, at, uid)
+        out["pushes"] += len(pushes)
+    return out
 
 
-def send_test(send=None) -> dict:
-    """Settings' Send test: straight to every device, whatever the hour; not queued."""
+def send_test(user_id: int, send=None) -> dict:
+    """Settings' Send test: straight to the user's devices, whatever the hour; not queued."""
     send = send or sender()
     if send is None:
         return {"disabled": True}
     push = {"keys": [], "title": "FFL", "body": "Notifications are on for this device.", "url": "/settings", "tag": "test"}
-    subs = db.subscriptions()
+    subs = db.subscriptions(user_id=user_id)
     ok, dead = deliver(push, subs, send)
     for ep in dead:
-        db.drop_subscription(ep)
+        db.drop_subscription(ep, user_id=None)
     return {"devices": len(subs) - len(dead), "accepted": ok}
 
 
 # --- I/O: the tick (POST /notify/tick, every 15 min from launchd/com.jonulak.ffl-notify) ---
 
 def check_injuries(*, ref) -> int:
-    """My starters in the league `ref` names off one fresh mRoster read; queues the ones
-    OUT/Doubtful/IR before their lock."""
-    from . import espn_season
+    """Each member's starters in the league `ref` names, off one fresh mRoster read: queues, for each member, the
+    starters of their team OUT/Doubtful/IR before their lock (a co-manager hears of the same ones)."""
+    from . import espn_season, leagues
+    members = [m for m in leagues.members(ref.key) if m.team_id is not None]
+    if not members:
+        return 0
     lg = espn_season.fresh_league(ref)
     doc = espn_season.raw_league_get("mRoster", ref=ref)
-    flags = espn_season.parse_roster_flags(doc, espn_season.my_team_id(lg, ref))
     week = int(doc.get("scoringPeriodId") or lg.current_week)
-    return db.add_notices(injury_notices(flags, week, now()), ref=ref)
+    at, by_team = now(), {}
+    for m in members:
+        if m.team_id not in by_team:
+            by_team[m.team_id] = injury_notices(espn_season.parse_roster_flags(doc, m.team_id), week, at)
+    return sum(db.add_notices(by_team[m.team_id], ref=m) for m in members)
 
 
 def check_waivers(synced: bool = True, *, ref) -> int:
@@ -383,18 +416,43 @@ def check_waivers(synced: bool = True, *, ref) -> int:
     Nothing is touched when the run is unreadable, or when it is new and the log did not sync this tick (its
     WAIVER ADDED rows would be missing and every win would read as a loss): the next tick decides. Each league's
     run is its own (its waiver day, its claims)."""
+    from . import espn_write, leagues
+    run = espn_write.last_waiver_run(ref=ref)
+    if run is None:
+        return 0
+    teams: dict[int, list] = {}
+    for m in leagues.members(ref.key):
+        if m.team_id is not None:
+            teams.setdefault(m.team_id, []).append(m)
+    n, failed = 0, None
+    for members in teams.values():
+        try:
+            n += _team_waivers(run, synced, members)
+        except Exception as e:  # noqa: BLE001 — one team's unreadable claims never hold back another's; re-raised after
+            log.warning("notify: waivers of %s team %s: %s", ref.key, members[0].team_id, e)
+            failed = failed or e
+    if failed is not None:  # the tick reports the step failed (the teams that read fine are stored)
+        raise failed
+    return n
+
+
+def _team_waivers(run: str, synced: bool, members: list) -> int:
+    """One team's share of check_waivers: its pending claims against ESPN's run, the result to each member on it. The
+    run seen and the claims pending are the team's (team_state), read and written through its first member."""
     from . import espn_season, espn_write, season
-    run, prev = espn_write.last_waiver_run(ref=ref), db.get_league_state("waiver_run", ref=ref)
-    if run is None or (run != prev and not synced):
+    ref = members[0]
+    prev = db.get_league_state("waiver_run", ref=ref)
+    if run != prev and not synced:
         return 0
     pending = db.get_league_state("pending_claims", [], ref=ref)
     fresh = espn_write.pending_claims(ref=ref)   # before the notice, and a raise stores nothing: the next tick retries
     lg = espn_season.fresh_league(ref)
-    me = espn_season.my_team_id(lg, ref)
+    me = ref.team_id
     my_adds = {r["player_id"] for r in db.transactions(ref=ref) if r["action"] == "WAIVER ADDED"
                and (t := season.parse_tx_id(r["id"])) and t[1] == me and (prev is None or r["date"] > prev[:16])}
     names = {c["add"]: lg.player_map.get(c["add"]) for c in pending if isinstance(lg.player_map.get(c["add"]), str)}
-    n = db.add_notices(waiver_notices(run, prev, pending, my_adds, names, now(), {c["id"] for c in fresh}), ref=ref)
+    rows = waiver_notices(run, prev, pending, my_adds, names, now(), {c["id"] for c in fresh})
+    n = sum(db.add_notices(rows, ref=m) for m in members)
     db.put_league_state("waiver_run", run, ref=ref)
     db.put_league_state("pending_claims", fresh, ref=ref)
     return n

@@ -180,7 +180,7 @@ def rows_for(league: str, season: int, doc: dict, now: str | None = None) -> dic
         "lineup_formats": [{"key": lkey, "doc": lineup, "added_at": now}],
         "league_settings": [{"league": league, "season": season, "fetched_at": now,
                              "doc": {**rest, "_keys": list(doc), "first_week": first_week, "scoring_items": items}}],
-        "league_caps": [{"league": league, "pos": p, "provider_limit": limits.get(p), "my_cap": None}
+        "league_caps": [{"league": league, "pos": p, "provider_limit": limits.get(p)}
                         for p in POSITIONS],
         "lineup_key": lkey,
         "name": (doc.get("name") or "").strip() or None,

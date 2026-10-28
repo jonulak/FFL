@@ -197,21 +197,29 @@ def test_migration_imports_settings_json(tmp_path, monkeypatch, empty_db):
     data.mkdir()
     (data / "settings.json").write_text(FX.read_text())
     monkeypatch.setattr(config, "DATA", data)
-    monkeypatch.setenv("FFL_DB_URL", empty_db())
+    url = empty_db()
+    monkeypatch.setenv("FFL_DB_URL", url)
     monkeypatch.setenv("LEAGUE_ID", "100000001")
     monkeypatch.setenv("SEASON", "2026")
     monkeypatch.setenv("MY_TEAM_ID", "7")
     db.reset()
-    command.upgrade(db._alembic_config(), "head")
-    db.reset()
-    home = leagues.get("espn:100000001")
-    got = settings.load(home)
-    assert {k: v for k, v in got.items() if k not in ("scoring_tables", "scoring_items")} == \
-        {**fixture(), "first_week": 1, "league_key": HOME}
-    assert leagues.caps(home) == {"QB": 3, "RB": 7, "WR": 7, "TE": 2, "K": 1, "D/ST": 1}
-    assert home.name == "2026 Fantasy Football"
-    assert home.lineup_format == formats.lineup_key(formats.lineup_from_settings(fixture()))
-    assert formats.league_table(home)["QB"]["pass_int"] == -2.0
+    command.upgrade(db._alembic_config(), "0015")
+    eng = sa.create_engine(url)                          # at 0015: db's readers are head's
+    with eng.connect() as c:
+        q = lambda sql: c.execute(sa.text(sql), {"l": HOME}).all()
+        [(doc,)] = q("SELECT doc FROM league_settings WHERE league = :l")
+        caps = {p: (lim, mine) for p, lim, mine in q("SELECT pos, provider_limit, my_cap FROM league_caps WHERE league = :l")}
+        [(name, lineup)] = q("SELECT name, lineup_format FROM leagues WHERE key = :l")
+        [(qb,)] = q("SELECT f.\"table\" FROM league_scoring s JOIN scoring_formats f ON f.key = s.scoring_format "
+                    "WHERE s.league = :l AND s.pos = 'QB'")
+    eng.dispose()
+    assert doc["_keys"] == list(fixture())
+    limits = fixture()["position_limits"]
+    mine = {"QB": 3, "RB": 7, "WR": 7, "TE": 2, "K": 1, "D/ST": 1}
+    assert caps == {p: (limits.get(p), mine[p]) for p in mine}
+    assert name == "2026 Fantasy Football"
+    assert lineup == formats.lineup_key(formats.lineup_from_settings(fixture()))
+    assert qb["pass_int"] == -2.0
 
 
 def test_store_is_one_transaction(monkeypatch):

@@ -163,7 +163,7 @@ def test_notify_tick_reports_a_failed_pass(pool, monkeypatch):
     monkeypatch.setattr(api, "final_plays", lambda: {})
     monkeypatch.setattr(api, "pregame_pull", lambda **k: [])
     monkeypatch.setattr(api, "watch_pass", lambda **k: (_ for _ in ()).throw(RuntimeError("pool down")))
-    assert TestClient(api.app).post("/notify/tick").json()["leagues"][HOME_KEY]["watch"] == {"error": "pool down"}
+    assert TestClient(api.app).post("/notify/tick").json()["leagues"][HOME_KEY]["watch"] == {"0": {"error": "pool down"}}, "each member's pass its own line"
 
 
 def test_unwatch_clears_state_no_false_available_on_rewatch(client, pool):

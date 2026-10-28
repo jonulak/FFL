@@ -67,11 +67,26 @@ def _notify_league(written: list, index: players.Index, *, ref) -> dict:
     A story's own earlier notices never hold back its newer revision: one already sent makes it a material update,
     and one still waiting (quiet hours) is marked `superseded` whatever the newer revision produces: a revision that
     no longer pushes means the news no longer warrants one, so its outdated predecessor must not go out either."""
+    from .. import leagues
     pending = _queue(written, ref=ref)
+    out = {"stories": len(pending), "queued": 0, "superseded": 0, "watch": 0}
     if not pending:
-        return {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
-    who, me = owners(ref=ref)
-    muted = {int(p) for p in db.get_state("news_mutes", []) or []}
+        return out
+    who, _ = owners(ref=ref)  # one read for every member: whose each player is, which is the league's
+    for m in leagues.members(ref.key):
+        got = _notify_member(pending, who, index, ref=m)
+        for k in ("queued", "superseded", "watch"):
+            out[k] += got[k]
+    done = {(sid, rev) for sid, rev, _ in pending}  # only these: one queued since this run read the queue waits on
+    db.update_league_state(PENDING, lambda cur: [p for p in cur or [] if (p[0], p[1]) not in done], [], ref=ref)
+    return out
+
+
+def _notify_member(pending: list, who: dict[int, dict], index: players.Index, *, ref) -> dict:
+    """One member's pushes for the league's pending revisions: framed on their team (`ref.team_id`), their mutes,
+    their watchlist and their own queue of earlier news notices."""
+    me = ref.team_id if ref.team_id is not None else -1
+    muted = {int(p) for p in db.get_state("news_mutes", [], user_id=ref.user_id) or []}
     pushed = db.notice_keys("news:", ref=ref)
     waiting = [n["key"] for n in db.unsent_notices(ref=ref) if n["key"].startswith("news:")]
     at, t = notify.now(), datetime.now().astimezone()
@@ -130,10 +145,7 @@ def _notify_league(written: list, index: players.Index, *, ref) -> dict:
         by_player.setdefault(sig["player_id"], []).append(sig)
     out += [watch.notice_for({"player_id": pid, "name": (index.by_id.get(pid) or {}).get("name") or f"Player {pid}"},
                              sigs, day, at) for pid, sigs in by_player.items() if pid not in carried and pid not in who and pid not in muted]
-    n_queued = db.add_notices(out, ref=ref)
-    done = {(sid, rev) for sid, rev, _ in pending}  # only these: one queued since this run read the queue waits on
-    db.update_league_state(PENDING, lambda cur: [p for p in cur or [] if (p[0], p[1]) not in done], [], ref=ref)
-    return {"stories": len(pending), "queued": n_queued, "superseded": len(superseded), "watch": len(new)}
+    return {"queued": db.add_notices(out, ref=ref), "superseded": len(superseded), "watch": len(new)}
 
 
 def _health() -> int:

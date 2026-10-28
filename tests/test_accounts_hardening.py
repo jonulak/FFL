@@ -150,4 +150,4 @@ def test_migration_refuses_duplicate_emails(monkeypatch, empty_db):
             c.execute(sa.text("INSERT INTO users (email, created_at) VALUES (:e, 'now')"), {"e": e})
     eng.dispose()
     with pytest.raises(RuntimeError, match="a@b.com"):
-        command.upgrade(db._alembic_config(), "head")
+        command.upgrade(db._alembic_config(), "0027")
