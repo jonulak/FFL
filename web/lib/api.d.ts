@@ -21,15 +21,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/google/start": {
+    "/auth/{provider}/start": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Google Start */
-        get: operations["google_start_auth_google_start_get"];
+        /** Signin Start */
+        get: operations["signin_start_auth__provider__start_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -38,7 +38,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/google/link": {
+    "/auth/{provider}/link": {
         parameters: {
             query?: never;
             header?: never;
@@ -46,11 +46,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Google Link
-         * @description Signed in: Google's round trip, its identity then linked to this user (ffl-soc.6.2.4), back to Settings. The
-         *     callback is the sign-in's (one redirect URI); `link_user` in the signed oidc cookie tells it apart.
+         * Link Start
+         * @description Signed in: the provider's round trip, its identity then linked to this user (ffl-soc.6.2.4), back to Settings.
+         *     The callback is the sign-in's (one redirect URI); `link_user` in the signed oidc cookie tells it apart.
          */
-        get: operations["google_link_auth_google_link_get"];
+        get: operations["link_start_auth__provider__link_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -59,15 +59,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/google/callback": {
+    "/auth/apple/callback": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Google Callback */
-        get: operations["google_callback_auth_google_callback_get"];
+        get?: never;
+        put?: never;
+        /**
+         * Apple Callback Post
+         * @description Apple answers by a form the browser POSTs here from appleid.apple.com: a cross-site POST, which never carries
+         *     the SameSite=Lax ffl_oidc cookie that holds the round trip's state. So this reads the form only, never the
+         *     session, and sends the browser on to the GET callback with it: a cross-site top-level GET does carry Lax cookies,
+         *     and that callback checks state and nonce as Google's does.
+         */
+        post: operations["apple_callback_post_auth_apple_callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Signin Callback */
+        get: operations["signin_callback_auth__provider__callback_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -220,13 +243,13 @@ export interface paths {
             cookie?: never;
         };
         /** Health */
-        get: operations["health_health_get"];
+        get: operations["health_health_head"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         /** Health */
-        head: operations["health_health_get"];
+        head: operations["health_health_head"];
         patch?: never;
         trace?: never;
     };
@@ -1444,13 +1467,15 @@ export interface operations {
             };
         };
     };
-    google_start_auth_google_start_get: {
+    signin_start_auth__provider__start_get: {
         parameters: {
             query?: {
                 next?: string | null;
             };
             header?: never;
-            path?: never;
+            path: {
+                provider: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1475,7 +1500,38 @@ export interface operations {
             };
         };
     };
-    google_link_auth_google_link_get: {
+    link_start_auth__provider__link_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apple_callback_post_auth_apple_callback_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1495,11 +1551,15 @@ export interface operations {
             };
         };
     };
-    google_callback_auth_google_callback_get: {
+    signin_callback_auth__provider__callback_get: {
         parameters: {
-            query?: never;
+            query?: {
+                user?: string | null;
+            };
             header?: never;
-            path?: never;
+            path: {
+                provider: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1511,6 +1571,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1679,7 +1748,7 @@ export interface operations {
             };
         };
     };
-    health_health_get: {
+    health_health_head: {
         parameters: {
             query?: never;
             header?: never;
@@ -1699,7 +1768,7 @@ export interface operations {
             };
         };
     };
-    health_health_get: {
+    health_health_head: {
         parameters: {
             query?: never;
             header?: never;

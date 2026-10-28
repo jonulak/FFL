@@ -491,9 +491,10 @@ def warm(ref: LeagueRef) -> None:
 
 
 app = FastAPI(title="FFL season API", lifespan=lifespan)
-# Google's round trip (authlib's state, the saved `next`) in a signed cookie. Added first, so it sits inside
+# A provider's round trip (authlib's state, the saved `next`) in a signed cookie. Added first, so it sits inside
 # AuthMiddleware, which decides before anything else. Unset FFL_AUTH_SECRET: a per-process random key keeps the app
-# starting (dev, tests) while /auth/google/* answer 503 (auth.google_enabled reads the env per request).
+# starting (dev, tests) while /auth/<provider>/* answer 503 (auth.enabled reads the env per request). Lax:
+# Apple's form POST never carries it, so auth.apple_callback_post hands on to the GET callback, which does.
 app.add_middleware(SessionMiddleware, secret_key=auth.oidc_secret() or secrets.token_urlsafe(32),
                    session_cookie=auth.OIDC_COOKIE, max_age=auth.OIDC_MAX_AGE, same_site="lax",
                    https_only=auth.cookie_secure())

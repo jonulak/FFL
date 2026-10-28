@@ -17,7 +17,7 @@ import { Spinner } from "./motion";
 
 const PROVIDER: Record<string, string> = { google: "Google", apple: "Apple" };
 
-// What a ?link= answer from the Google round trip says (ffl/auth.py `_link_result`)
+// What a ?link= answer from a provider's round trip says (ffl/auth.py `_link_result`)
 const LINKED: Record<string, string> = {
   linked: "Linked. You can sign in with either now.",
   taken: "That sign-in belongs to another FFL account, so it was not linked.",

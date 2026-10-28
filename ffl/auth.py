@@ -6,19 +6,25 @@ signs in only if it already maps to a user or its provider-verified email is in 
 """
 from __future__ import annotations
 
+import base64
 import functools
 import hmac
 import json
 import logging
 import os
+import time
 from typing import Callable
+from urllib.parse import parse_qs, urlencode
 
 import httpx
 from authlib.integrations.base_client import OAuthError
+from authlib.integrations.httpx_client._compat import httpx2 as authlib_httpx
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from joserfc import jwt
 from joserfc.errors import JoseError
+from joserfc.jwk import ECKey
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection, Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
@@ -31,15 +37,23 @@ SESSION_COOKIE = "ffl_session"  # the default name; FFL_SESSION_COOKIE overrides
 OIDC_COOKIE = "ffl_oidc"  # Starlette's signed session: authlib's state and the saved `next`, for the round trip only
 OIDC_MAX_AGE = 600
 GOOGLE_METADATA = "https://accounts.google.com/.well-known/openid-configuration"
+APPLE_ISSUER = "https://appleid.apple.com"
+APPLE_METADATA = APPLE_ISSUER + "/.well-known/openid-configuration"
+APPLE_SECRET_DAYS = 7
+APPLE_FORM = ("code", "state", "error", "user")  # what the POST callback carries on to the GET
 SESSION_DAYS = 90
 SETTINGS_PATH = "/settings"
-PROVIDERS = ("google",)  # the providers a user signs in with and can link; 6.2.5 adds apple
+PROVIDERS = ("google", "apple")  # the providers a user signs in with and can link
 JOB_HEADER = "x-ffl-job"
+# authlib talks through httpx2 when it is installed (it is: the dev group, which `uv sync` installs on the box too),
+# whose errors are not httpx's
+NET_ERRORS = (httpx.HTTPError, authlib_httpx.HTTPError)
 
 # (method, request path), matched exactly. Everything not named here needs a signed-in session.
 PUBLIC: frozenset[tuple[str, str]] = frozenset({
     ("GET", "/health"), ("HEAD", "/health"), ("GET", "/auth/providers"), ("GET", "/auth/google/start"),
-    ("GET", "/auth/google/callback"), ("POST", "/auth/dev")})
+    ("GET", "/auth/google/callback"), ("GET", "/auth/apple/start"),
+    ("GET", "/auth/apple/callback"), ("POST", "/auth/apple/callback"), ("POST", "/auth/dev")})
 # The timers' routes: the job token only (signed in without it is 403, signed out 401).
 JOB_ONLY: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"), ("POST", "/refresh")})
@@ -230,10 +244,56 @@ def _google(client_id: str, client_secret: str):
                             server_metadata_url=GOOGLE_METADATA, client_kwargs={"scope": "openid email profile"})
 
 
-def _google_client():
-    if not google_enabled():
-        raise HTTPException(503, "google_not_configured")
-    return _google(*_google_env())
+def _apple_env() -> tuple[str, str, str, str]:
+    """(Services ID, team id, key id, the .p8 key base64'd whole onto one line: env files and SSM take one line)."""
+    return tuple(os.environ.get(f"FFL_APPLE_{k}", "") for k in ("CLIENT_ID", "TEAM_ID", "KEY_ID", "PRIVATE_KEY"))
+
+
+def apple_enabled() -> bool:
+    """All four Apple values, the OIDC session's secret and an https FFL_APP_URL (Apple takes https return URLs only)."""
+    return bool(all(_apple_env()) and oidc_secret() and cookie_secure())
+
+
+def apple_client_secret(client_id: str, team_id: str, key_id: str, key_b64: str, now: int) -> str:
+    """Apple's client secret: an ES256 JWT signed with the .p8 key (iss the team, sub the Services ID), good for
+    APPLE_SECRET_DAYS from `now` (Apple allows six months; the client is rebuilt daily, so it never runs out)."""
+    key = ECKey.import_key(base64.b64decode(key_b64))
+    claims = {"iss": team_id, "iat": now, "exp": now + APPLE_SECRET_DAYS * 86400, "aud": APPLE_ISSUER,
+              "sub": client_id}
+    return jwt.encode({"alg": "ES256", "kid": key_id}, claims, key)
+
+
+@functools.lru_cache(maxsize=4)
+def _apple(client_id: str, team_id: str, key_id: str, key_b64: str, day: int):
+    """authlib's Apple client, one per day (`day`: days since the epoch) so its JWT secret is always fresh. The secret
+    rides in the token request's body (Apple refuses Basic auth), and the answer comes back as a form POST, the only
+    mode Apple allows when name and email are asked for (`apple_callback_post`)."""
+    secret = apple_client_secret(client_id, team_id, key_id, key_b64, day * 86400)
+    return OAuth().register(
+        "apple", client_id=client_id, client_secret=secret, server_metadata_url=APPLE_METADATA,
+        client_kwargs={"scope": "openid name email", "token_endpoint_auth_method": "client_secret_post"},
+        authorize_params={"response_mode": "form_post"})
+
+
+def _client(provider: str):
+    """The provider's authlib client; 404 for one this app does not have, 503 for one not configured here."""
+    if provider == "google":
+        if not google_enabled():
+            raise HTTPException(503, "google_not_configured")
+        return _google(*_google_env())
+    if provider == "apple":
+        if not apple_enabled():
+            raise HTTPException(503, "apple_not_configured")
+        return _apple(*_apple_env(), int(time.time()) // 86400)
+    raise HTTPException(404, "Not Found")
+
+
+def enabled() -> dict[str, bool]:
+    return {"google": google_enabled(), "apple": apple_enabled()}
+
+
+def _callback_url(provider: str) -> str:
+    return os.environ["FFL_APP_URL"].rstrip("/") + f"/api/auth/{provider}/callback"  # _client() checked it
 
 
 def _set_session(resp, user_id: int, request: Request):
@@ -251,19 +311,18 @@ router = APIRouter()
 
 @router.get("/auth/providers")
 def providers():
-    return {"google": google_enabled(), "apple": False, "dev": dev_signin_enabled()}
+    return {**enabled(), "dev": dev_signin_enabled()}
 
 
-@router.get("/auth/google/start")
-async def google_start(request: Request, next: str | None = None):
-    google = _google_client()
-    app_url = os.environ["FFL_APP_URL"].rstrip("/")  # google_enabled() checked it
+@router.get("/auth/{provider}/start")
+async def signin_start(provider: str, request: Request, next: str | None = None):
+    client = _client(provider)
     request.session["next"] = safe_next(next)  # rides in ffl_oidc to the callback
     request.session.pop("link_user", None)  # an abandoned link's: this round trip signs in
     try:
-        return await google.authorize_redirect(request, app_url + "/api/auth/google/callback")
-    except (OAuthError, httpx.HTTPError, ValueError) as e:  # Google's metadata unreachable
-        log.warning("google sign-in start failed: %s", getattr(e, "error", None) or type(e).__name__)
+        return await client.authorize_redirect(request, _callback_url(provider))
+    except (OAuthError, *NET_ERRORS, ValueError) as e:  # the provider's metadata unreachable
+        log.warning("%s sign-in start failed: %s", provider, getattr(e, "error", None) or type(e).__name__)
         return _signin_error("failed")
 
 
@@ -271,18 +330,17 @@ def _link_result(code: str) -> RedirectResponse:
     return RedirectResponse(f"{SETTINGS_PATH}?link={code}", status_code=302)
 
 
-@router.get("/auth/google/link")
-async def google_link(request: Request):
-    """Signed in: Google's round trip, its identity then linked to this user (ffl-soc.6.2.4), back to Settings. The
-    callback is the sign-in's (one redirect URI); `link_user` in the signed oidc cookie tells it apart."""
+@router.get("/auth/{provider}/link")
+async def link_start(provider: str, request: Request):
+    """Signed in: the provider's round trip, its identity then linked to this user (ffl-soc.6.2.4), back to Settings.
+    The callback is the sign-in's (one redirect URI); `link_user` in the signed oidc cookie tells it apart."""
     user = current_user(request)
-    google = _google_client()
-    app_url = os.environ["FFL_APP_URL"].rstrip("/")
+    client = _client(provider)
     request.session["link_user"] = user["id"]
     try:
-        return await google.authorize_redirect(request, app_url + "/api/auth/google/callback")
-    except (OAuthError, httpx.HTTPError, ValueError) as e:
-        log.warning("google link start failed: %s", getattr(e, "error", None) or type(e).__name__)
+        return await client.authorize_redirect(request, _callback_url(provider))
+    except (OAuthError, *NET_ERRORS, ValueError) as e:
+        log.warning("%s link start failed: %s", provider, getattr(e, "error", None) or type(e).__name__)
         return _link_result("failed")
 
 
@@ -296,16 +354,43 @@ def link(user_id: int, provider: str, subject: str, email: str | None) -> str:
     return "linked"
 
 
-@router.get("/auth/google/callback")
-async def google_callback(request: Request):
-    google = _google_client()
+def _verified(value) -> bool:
+    """An id_token's email_verified: Google sends a boolean, Apple the string "true" as often as not."""
+    return value is True or value == "true"
+
+
+def apple_name(raw: str | None) -> str | None:
+    """The name in Apple's `user` form field (JSON, sent on the first authorization only); None when absent or junk."""
+    try:
+        name = (json.loads(raw) if raw else {}).get("name") or {}
+        full = " ".join(str(name.get(k) or "").strip() for k in ("firstName", "lastName")).strip()
+    except (ValueError, AttributeError):
+        return None
+    return full or None
+
+
+@router.post("/auth/apple/callback")
+async def apple_callback_post(request: Request):
+    """Apple answers by a form the browser POSTs here from appleid.apple.com: a cross-site POST, which never carries
+    the SameSite=Lax ffl_oidc cookie that holds the round trip's state. So this reads the form only, never the
+    session, and sends the browser on to the GET callback with it: a cross-site top-level GET does carry Lax cookies,
+    and that callback checks state and nonce as Google's does."""
+    form = parse_qs((await request.body()).decode("utf-8", "replace"))  # urlencoded: no multipart parser needed
+    params = {k: form[k][0] for k in APPLE_FORM if form.get(k) and form[k][0]}
+    url = os.environ.get("FFL_APP_URL", "").rstrip("/") + "/api/auth/apple/callback"
+    return RedirectResponse(f"{url}?{urlencode(params)}", status_code=303)
+
+
+@router.get("/auth/{provider}/callback")
+async def signin_callback(provider: str, request: Request, user: str | None = None):
+    client = _client(provider)
     next_ = safe_next(request.session.pop("next", None))
     link_user = request.session.pop("link_user", None)
     failed = _link_result("failed") if link_user is not None else _signin_error("failed")
     try:
-        token = await google.authorize_access_token(request)
-    except (OAuthError, JoseError, httpx.HTTPError, ValueError) as e:  # refused, bad state or id_token, no exchange
-        log.warning("google sign-in callback failed: %s", getattr(e, "error", None) or type(e).__name__)
+        token = await client.authorize_access_token(request)
+    except (OAuthError, JoseError, *NET_ERRORS, ValueError) as e:  # refused, bad state or id_token, no exchange
+        log.warning("%s sign-in callback failed: %s", provider, getattr(e, "error", None) or type(e).__name__)
         return failed
     info = (token or {}).get("userinfo") or {}
     if not info.get("sub"):
@@ -313,9 +398,10 @@ async def google_callback(request: Request):
     if link_user is not None:
         if await run_in_threadpool(db.user_row, link_user) is None:  # the account was deleted meanwhile
             return _signin_error("failed")
-        return _link_result(await run_in_threadpool(link, link_user, "google", str(info["sub"]), info.get("email")))
-    uid = await run_in_threadpool(sign_in, "google", str(info["sub"]), info.get("email"),
-                                  info.get("email_verified") is True, info.get("name"))
+        return _link_result(await run_in_threadpool(link, link_user, provider, str(info["sub"]), info.get("email")))
+    name = info.get("name") if provider == "google" else apple_name(user)  # Apple's id_token carries no name
+    uid = await run_in_threadpool(sign_in, provider, str(info["sub"]), info.get("email"),
+                                  _verified(info.get("email_verified")), name)
     if uid is None:
         return _signin_error("closed")
     return await run_in_threadpool(_set_session, RedirectResponse(next_, status_code=302), uid, request)
@@ -401,11 +487,11 @@ def account(request: Request):
     providers configured here that they have not linked yet."""
     user = current_user(request)
     ids = db.user_identities(user["id"])
-    enabled = {"google": google_enabled()}
+    on = enabled()
     have = {i["provider"] for i in ids}
     return {"email": user["email"], "name": user["name"],
             "sessions": db.user_sessions(user["id"], current=request.cookies.get(session_cookie())),
-            "identities": ids, "linkable": [p for p in PROVIDERS if enabled.get(p) and p not in have]}
+            "identities": ids, "linkable": [p for p in PROVIDERS if on.get(p) and p not in have]}
 
 
 @router.get("/auth/me")

@@ -178,6 +178,8 @@ def test_public_routes_need_nothing(monkeypatch):
     assert c.get("/auth/providers").json() == {"google": False, "apple": False, "dev": False}
     assert c.get("/auth/google/start").status_code == 503  # unconfigured, and nothing reaches Google
     assert c.get("/auth/google/callback").status_code == 503
+    assert c.get("/auth/apple/start").status_code == 503
+    assert c.get("/auth/apple/callback").status_code == 503
     r = c.post("/auth/dev", json={"email": "me@example.com"})
     assert r.status_code == 404 and r.json() == {"detail": "Not Found"}  # off: as if no such route
     for m, path in auth.PUBLIC:
@@ -187,7 +189,9 @@ def test_public_routes_need_nothing(monkeypatch):
 
 def test_the_tables_are_the_briefs():
     assert auth.PUBLIC == {("GET", "/health"), ("HEAD", "/health"), ("GET", "/auth/providers"),
-                           ("GET", "/auth/google/start"), ("GET", "/auth/google/callback"), ("POST", "/auth/dev")}
+                           ("GET", "/auth/google/start"), ("GET", "/auth/google/callback"),
+                           ("GET", "/auth/apple/start"), ("GET", "/auth/apple/callback"),
+                           ("POST", "/auth/apple/callback"), ("POST", "/auth/dev")}
     assert auth.JOB_ONLY == {("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"),
                              ("POST", "/refresh")}
     assert auth.JOB_OR_USER == {("POST", "/outlook/refresh")}
