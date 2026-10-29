@@ -464,77 +464,17 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `deployed <sha>` in its last step. Its configuration is repo variables and the `production` environment, no
   secrets (the workflow's header).
 - Never commit `.env` or anything containing `espn_s2`/`SWID`.
+- Issues live in GitHub Issues (`gh issue list`, `gh issue view <n>`, `gh issue create`); beads was retired 2026-10-28 (old ids like `ffl-0gv` are on the issues labelled `from-beads`). Specs, plans, designs and notes go in an issue's body or comments, never in .md files (docs/superpowers/specs, plans, ...), whatever a skill says.
+- Never merge a worktree branch's PR into develop, and never promote develop to main (a deploy), without Jonathan's explicit go-ahead for that branch or promotion. Asking whether to land is fine; a finished task is not permission.
+- Never make roster moves (lineup, sit, claims, adds) on Jonathan's behalf in the home league: he makes every call; the app advises. A real ESPN write only when he asks for that specific one. Exception (Jonathan 2026-10-25, "Do the moves yourself"): the public league `espn:950458410` during ffl-soc.4.11's full-week run: Claude makes its moves through the app, by the league's strategy, each recorded in decisions.
+- Before any irreversible real action whose request is being captured (ESPN roster move, etc.), prove the listener records a harmless write of the same kind first (e.g. a watch-list toggle on/off via `ffl.netcapture`) and see it in the log. No proof, no Confirm.
+- Production and its recovery must not rely on the MacBook (Jonathan 2026-10-26): recovery stays in AWS (EC2 auto-recovery, rehearsed rebuild from Terraform + S3/RDS). The Mac is a dev machine and draft-tool client only.
+- Never hand Jonathan a recurring manual step (weekly command, periodic rerun): schedule it as a launchd agent in `launchd/` (added to `scripts/install.sh`), install and kickstart it, and confirm the log.
+- Multi-league: every league behaves identically (outlooks, pushes, jobs, pages); never make a feature league-specific unless Jonathan says so.
+- Every UI change in `web/` (even a small one, even inside a backend task) goes through the impeccable skill first: load it, run its context, read craft-floor before editing, check phone width (2026-10-25: the league switcher shipped beside the tabs on one row with no room on a phone).
+- A migration's test upgrades to its own revision (never "head") and reads raw SQL, not the app's readers (they need head). Only the newest migration's test and the production-shaped round trip (`tests/test_per_user_migration.py`) go to head: tests pinned to head broke on every later migration touching their tables (2026-10-27).
 - Weekly results go to the `results` table (`journal sync` / the hourly `/transactions/sync`); `journal/results/` is no longer written. Standings are read live from ESPN.
 - UI (`web/`): prebuilt, tested components over hand-rolled ones. Use a shadcn component from `web/components/ui`
   when one fits, and add a missing one with `pnpm dlx shadcn add <name>` (style base-nova, on `@base-ui/react`)
   rather than writing it. If shadcn has nothing that fits, use a well-tested library (Base UI primitives,
   TanStack Table, Recharts, date-fns, ...). Hand-roll only when neither fits, and say why in the commit.
-
-
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
-## Beads Issue Tracker
-
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
-
-### Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
-```
-
-### Rules
-
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-
-### Two memory stores, split by shape
-
-**`bd prime` injects every bd memory's full body every session; `MEMORY.md` injects only its
-one-line index, bodies loading on recall.** So bd's cost grows with every memory kept and
-MEMORY.md's does not.
-
-- **`bd remember`** — rules that must fire **unprompted**: prohibitions, and anything applying to
-  every change. Recall cannot carry these — a rule about what *not* to do has no term in the prompt
-  to trigger it. Keep it small; store the operative rule, not its history.
-- **`MEMORY.md`** — situational knowledge a topic in the prompt will recall. Detail is nearly free.
-
-`bd prime` prints "do NOT use MEMORY.md files"; that is its default guidance, deliberately
-overridden here, and not editable without a `.beads/PRIME.md` override.
-
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
-
-## Agent Context Profiles
-
-The managed Beads block is task-tracking guidance, not permission to override repository, user, or orchestrator instructions.
-
-- **Conservative (default)**: Use `bd` for task tracking. Do not run git commits, git pushes, or Dolt remote sync unless explicitly asked. At handoff, report changed files, validation, and suggested next commands.
-- **Minimal**: Keep tool instruction files as pointers to `bd prime`; use the same conservative git policy unless active instructions say otherwise.
-- **Team-maintainer**: Only when the repository explicitly opts in, agents may close beads, run quality gates, commit, and push as part of session close. A current "do not commit" or "do not push" instruction still wins.
-
-## Session Completion
-
-This protocol applies when ending a Beads implementation workflow. It is subordinate to explicit user, repository, and orchestrator instructions.
-
-1. **File issues for remaining work** - Create beads for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **Handle git/sync by active profile**:
-   ```bash
-   # Conservative/minimal/default: report status and proposed commands; wait for approval.
-   git status
-
-   # Team-maintainer opt-in only, unless current instructions forbid it:
-   git pull --rebase
-   git push
-   git status
-   ```
-5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
-
-**Critical rules:**
-- Explicit user or orchestrator instructions override this Beads block.
-- Do not commit or push without clear authority from the active profile or the current user request.
-- If a required sync or push is blocked, stop and report the exact command and error.
-<!-- END BEADS INTEGRATION -->
