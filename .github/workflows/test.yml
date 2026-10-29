@@ -92,3 +92,12 @@ jobs:
       - name: Lint
         working-directory: web
         run: pnpm lint
+
+      # the browser extension (extension/ffl, #130): its own lockfile; both browsers' builds, the typecheck, Vitest
+      - name: Extension
+        working-directory: extension/ffl
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm test
+          pnpm build

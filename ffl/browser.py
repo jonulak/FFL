@@ -21,11 +21,12 @@ from .config import CDP_PORT, DATA, ROOT
 PROFILE = ROOT / ".chrome-profile"
 
 
-def espn_cookies(user_id: int | None) -> list[dict]:
-    """The acting user's own ESPN cookies for the window (ffl-soc.3: their row, never the environment); none when they
-    have no working connection, and the window then asks ESPN's login."""
+def espn_cookies(user_id: int | None, account: str | None = None) -> list[dict]:
+    """The acting user's own ESPN cookies for the window (ffl-soc.3: their row, never the environment), the account
+    the league's membership names (None: their first); none when it has no working connection, and the window then
+    asks ESPN's login."""
     from . import espn_auth
-    c = espn_auth.own(user_id)
+    c = espn_auth.own(user_id, account)
     if c is None:
         return []
     base = {"domain": ".espn.com", "path": "/", "secure": True}
@@ -33,14 +34,14 @@ def espn_cookies(user_id: int | None) -> list[dict]:
             {"name": "SWID", "value": c.swid, **base}]
 
 
-def launch(url: str, user_id: int | None = None):
+def launch(url: str, user_id: int | None = None, account: str | None = None):
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             str(PROFILE), channel="chrome", headless=False,
             args=[f"--remote-debugging-port={CDP_PORT}", "--window-size=1600,1000"],
             viewport=None, ignore_default_args=["--enable-automation"],
         )
-        if (jar := espn_cookies(user_id)):
+        if (jar := espn_cookies(user_id, account)):
             ctx.add_cookies(jar)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(url, wait_until="domcontentloaded")
@@ -94,4 +95,5 @@ if __name__ == "__main__":
     else:
         from . import leagues
         ref = leagues.acting()
-        launch(config.league_url(ref) if cmd == "league" else config.draft_room_url(ref), ref.user_id)
+        launch(config.league_url(ref) if cmd == "league" else config.draft_room_url(ref), ref.user_id,
+               ref.espn_account)

@@ -26,7 +26,7 @@ function send(message) {
 }
 
 for (const b of document.querySelectorAll("button.open-settings")) b.addEventListener("click", () => send("open-settings"));
-for (const b of document.querySelectorAll("button.open-espn")) b.addEventListener("click", () => send("open-espn"));
+for (const b of document.querySelectorAll("button.open-ffl")) b.addEventListener("click", () => send("open-ffl"));
 for (const b of document.querySelectorAll("button.open-preferences")) b.addEventListener("click", () => send("open-preferences"));
 
 show("unknown");

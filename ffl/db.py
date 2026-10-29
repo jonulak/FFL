@@ -111,6 +111,7 @@ memberships = sa.Table(
     sa.Column("name", sa.String),                        # the member's own name for the league; NULL = the league's
     sa.Column("strategy", sa.String),                    # strategies.key; NULL = the league's
     sa.Column("created_at", sa.String, nullable=False),
+    sa.Column("espn_account", sa.String),                # the ESPN account's swid_hash (#460); NULL = the user's first
     sa.PrimaryKeyConstraint("user_id", "league"),
 )
 sa.Index("uq_memberships_default", memberships.c.user_id, unique=True,
@@ -510,17 +511,22 @@ push_subscriptions = sa.Table(
     sa.Index("ix_push_subscriptions_user", "user_id"),
 )
 
-# A user's ESPN cookies (ffl-soc.3): {espn_s2, swid} sealed as one token (ffl/vault.py, `_cred_aad`), never readable
-# from a row or a dump without FFL_SECRET_KEYS. `failing_since` is set when ESPN refuses them (401/403), cleared by a
-# read they pass or by new cookies.
+# A user's ESPN cookies (ffl-soc.3), one row per ESPN account (#460: a user may connect several): {espn_s2, swid}
+# sealed as one token (ffl/vault.py, `_cred_aad`), never readable from a row or a dump without FFL_SECRET_KEYS.
+# `swid_hash` names the account (`swid_hash()`; NULL on a row from before 0033 until it is first opened).
+# `failing_since` is set when ESPN refuses them (401/403), cleared by a read they pass or by new cookies.
 espn_credentials = sa.Table(
     "espn_credentials", metadata,
-    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("swid_hash", sa.String),
     sa.Column("secret", sa.String, nullable=False),
     sa.Column("updated_at", sa.String, nullable=False),
     sa.Column("last_ok", sa.String),
     sa.Column("failing_since", sa.String),
     sa.Column("failing_reason", sa.String),
+    sa.UniqueConstraint("user_id", "swid_hash", name="uq_espn_credentials_account"),
+    sa.Index("ix_espn_credentials_user", "user_id"),
 )
 
 # Pairing the browser extension to an account (ffl-soc.6.3.3, ffl/espn_connect.py): the extension starts one and shows
@@ -904,7 +910,7 @@ def member_rows(user_id: int | None = None, *, everyone: bool = False) -> list[d
     first = sa.select(m.c.league, sa.func.min(m.c.user_id).label("owner_id")).group_by(m.c.league).subquery()
     cols = [t.c.key, t.c.provider, t.c.provider_id, t.c.season, t.c.lineup_format,
             sa.func.coalesce(m.c.name, t.c.name).label("name"),
-            m.c.team_id,
+            m.c.team_id, m.c.espn_account,
             sa.func.coalesce(m.c.strategy, t.c.strategy).label("strategy"),
             m.c.user_id, sa.func.coalesce(m.c.is_default, sa.false()).label("is_default"),
             (m.c.user_id == first.c.owner_id).label("owner")]
@@ -922,7 +928,7 @@ def member_rows(user_id: int | None = None, *, everyone: bool = False) -> list[d
 
 
 def put_membership(user_id: int, league: str, **values) -> None:
-    """Upsert (user, league) with `values` (team_id, is_default, name, strategy); is_default True clears the user's
+    """Upsert (user, league) with `values` (team_id, is_default, name, strategy, espn_account); is_default True clears the user's
     other default in the same transaction."""
     row = {"user_id": user_id, "league": league, "created_at": _iso(_utc_now()), **values}
     with _write() as c:
@@ -930,6 +936,17 @@ def put_membership(user_id: int, league: str, **values) -> None:
             c.execute(sa.update(memberships).where(memberships.c.user_id == user_id, memberships.c.league != league)
                       .values(is_default=False))
         c.execute(_upsert(memberships, [row], ["user_id", "league"], list(values) or None))
+
+
+def drop_memberships(user_id: int, leagues: list[str]) -> None:
+    """The user leaves these leagues (#460: their ESPN login for them was disconnected): the memberships (and with them
+    member_state, member_caps) and the user's page_cache rows for them. Their own records there (decisions, the
+    watchlist) stay and come back if they join again. The leagues stay registered."""
+    if not leagues:
+        return
+    with _write() as c:
+        c.execute(sa.delete(memberships).where(memberships.c.user_id == user_id, memberships.c.league.in_(leagues)))
+        c.execute(sa.delete(page_cache).where(page_cache.c.user_id == user_id, page_cache.c.league.in_(leagues)))
 
 
 def put_league(row: dict) -> None:
@@ -2600,56 +2617,105 @@ def _cred_aad(user_id: int) -> str:
     return f"espn_credentials:{user_id}:secret"
 
 
-def put_credentials(user_id: int, espn_s2: str, swid: str) -> None:
-    """The user's ESPN cookies, sealed; new cookies clear a failing mark."""
-    from . import vault
-    sealed = vault.seal_json({"espn_s2": espn_s2, "swid": swid}, aad=_cred_aad(user_id))
-    with _write() as c:
-        c.execute(_upsert(espn_credentials, [{"user_id": user_id, "secret": sealed, "updated_at": _now(),
-                                              "last_ok": None, "failing_since": None, "failing_reason": None}],
-                          ["user_id"], ["secret", "updated_at", "last_ok", "failing_since", "failing_reason"]))
+def swid_hash(swid: str) -> str:
+    """An ESPN account's name here: sha256 of its SWID's GUID (braces, percent-encoding and case dropped), so one login
+    however it was copied is one account. The SWID itself is only ever stored sealed."""
+    import hashlib
+    import urllib.parse
+    guid = urllib.parse.unquote(swid).strip().strip("{}").upper()
+    return hashlib.sha256(guid.encode()).hexdigest()
 
 
-def drop_credentials(user_id: int) -> None:
-    with _write() as c:
-        c.execute(sa.delete(espn_credentials).where(espn_credentials.c.user_id == user_id))
+_UNOPENABLE: set[int] = set()   # credential rows this process's ring failed to open: not tried on every read again
 
 
-def credential_row(user_id: int) -> dict | None:
-    """The user's row with its cookies opened (`espn_s2`, `swid`), or None when they have none. A row this ring cannot
-    open comes back with `unreadable` set and no cookies."""
+def _fill_hashes(c, user_id: int) -> None:
+    """Name the user's rows from before 0033 (swid_hash NULL) by opening them; one this ring cannot open stays NULL."""
     from . import vault
     t = espn_credentials
+    for cid, secret in c.execute(sa.select(t.c.id, t.c.secret)
+                                 .where(t.c.user_id == user_id, t.c.swid_hash.is_(None))).all():
+        try:
+            swid = vault.open_json(secret, aad=_cred_aad(user_id))["swid"]
+        except vault.VaultError:
+            _UNOPENABLE.add(cid)
+            continue
+        c.execute(sa.update(t).where(t.c.id == cid).values(swid_hash=swid_hash(swid)))
+
+
+def put_credentials(user_id: int, espn_s2: str, swid: str) -> str:
+    """The user's cookies for one ESPN account, sealed: a new SWID is another account's row, the same one's replaced;
+    new cookies clear a failing mark. A row this ring cannot open (sealed under another ring: a test server's copy of
+    production) is dropped, as one row per user always was replaced: left, it would stand as a dead first account
+    for every membership that names none. The account (its swid_hash)."""
+    from . import vault
+    account = swid_hash(swid)
+    sealed = vault.seal_json({"espn_s2": espn_s2, "swid": swid}, aad=_cred_aad(user_id))
+    t = espn_credentials
+    with _write() as c:
+        _fill_hashes(c, user_id)
+        c.execute(sa.delete(t).where(t.c.user_id == user_id, t.c.swid_hash.is_(None)))
+        c.execute(_upsert(espn_credentials, [{"user_id": user_id, "swid_hash": account, "secret": sealed,
+                                              "updated_at": _now(), "last_ok": None, "failing_since": None,
+                                              "failing_reason": None}],
+                          ["user_id", "swid_hash"], ["secret", "updated_at", "last_ok", "failing_since",
+                                                     "failing_reason"]))
+    return account
+
+
+def drop_credentials(user_id: int, account: str | None = None) -> None:
+    """One of the user's accounts (a swid_hash), or every one."""
+    t = espn_credentials
+    with _write() as c:
+        _fill_hashes(c, user_id)
+        q = sa.delete(t).where(t.c.user_id == user_id)
+        c.execute(q if account is None else q.where(t.c.swid_hash == account))
+
+
+def credential_rows(user_id: int) -> list[dict]:
+    """The user's accounts, first connected first, each with its cookies opened (`espn_s2`, `swid`). A row this ring
+    cannot open comes back with `unreadable` set and no cookies."""
+    t = espn_credentials
+    q = sa.select(t).where(t.c.user_id == user_id).order_by(t.c.id)
     with _read() as c:
-        r = c.execute(sa.select(t).where(t.c.user_id == user_id)).first()
-    if r is None:
-        return None
-    row = dict(r._mapping)
+        rows = [dict(r._mapping) for r in c.execute(q)]
+    if any(r["swid_hash"] is None and r["id"] not in _UNOPENABLE for r in rows):
+        with _write() as c:
+            _fill_hashes(c, user_id)
+            rows = [dict(r._mapping) for r in c.execute(q)]
+    return [_opened(r) for r in rows]
+
+
+def _opened(row: dict) -> dict:
+    from . import vault
+    row = dict(row)
     secret = row.pop("secret")
     try:
-        return {**row, **vault.open_json(secret, aad=_cred_aad(user_id)), "unreadable": None}
+        return {**row, **vault.open_json(secret, aad=_cred_aad(row["user_id"])), "unreadable": None}
     except vault.VaultError as e:
         return {**row, "espn_s2": None, "swid": None, "unreadable": str(e)}
 
 
 def credential_statuses() -> list[dict]:
-    """Every user's connection, no secret: email, updated_at, last_ok, failing_since, failing_reason."""
+    """Every account of every user, no secret: user_id, email, id, updated_at, last_ok, failing_since,
+    failing_reason."""
     t = espn_credentials
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(
-            sa.select(users.c.id.label("user_id"), users.c.email, t.c.updated_at, t.c.last_ok, t.c.failing_since,
-                      t.c.failing_reason).join(t, t.c.user_id == users.c.id).order_by(users.c.id))]
+            sa.select(users.c.id.label("user_id"), users.c.email, t.c.id, t.c.updated_at, t.c.last_ok,
+                      t.c.failing_since, t.c.failing_reason)
+            .join(t, t.c.user_id == users.c.id).order_by(users.c.id, t.c.id))]
 
 
-def mark_credentials(user_id: int, *, ok: bool, reason: str | None = None) -> None:
-    """A read the cookies passed (last_ok, clearing a failing mark) or one ESPN refused (failing_since, kept from the
-    first refusal)."""
+def mark_credentials(cred_id: int, *, ok: bool, reason: str | None = None) -> None:
+    """A read one account's cookies passed (last_ok, clearing a failing mark) or one ESPN refused (failing_since, kept
+    from the first refusal)."""
     t = espn_credentials
     now = _now()
     values = ({"last_ok": now, "failing_since": None, "failing_reason": None} if ok else
               {"failing_since": sa.func.coalesce(t.c.failing_since, now), "failing_reason": reason})
     with _write() as c:
-        c.execute(sa.update(t).where(t.c.user_id == user_id).values(**values))
+        c.execute(sa.update(t).where(t.c.id == cred_id).values(**values))
 
 
 def reseal_all() -> int:
@@ -2658,10 +2724,11 @@ def reseal_all() -> int:
     from . import vault
     n = 0
     with _write() as c:
-        for uid, secret in c.execute(sa.select(espn_credentials.c.user_id, espn_credentials.c.secret)).all():
+        ec = espn_credentials
+        for cid, uid, secret in c.execute(sa.select(ec.c.id, ec.c.user_id, ec.c.secret)).all():
             if vault.stale(secret):
                 plain = vault.open_(secret, aad=_cred_aad(uid))
-                c.execute(sa.update(espn_credentials).where(espn_credentials.c.user_id == uid)
+                c.execute(sa.update(ec).where(ec.c.id == cid)
                           .values(secret=vault.seal(plain, aad=_cred_aad(uid))))
                 n += 1
         t = push_subscriptions

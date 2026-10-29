@@ -17,7 +17,11 @@ typealias PlatformViewController = NSViewController
 #endif
 
 let extensionBundleIdentifier = "com.whitebridgelabs.ffl-cookie-spike.Extension"
-let espnFantasyURL = URL(string: "https://www.espn.com/fantasy/")!
+// FFL's Connect step, in Safari: it finds the extension there and links it with one tap (2026-10-29). The server is
+// the build's FFL_ORIGIN (ffl-origin.sh stamps it into Info.plist as FFLOrigin, the same one the extension was built
+// for), the live site if a build somehow has none.
+let fflOrigin = Bundle.main.object(forInfoDictionaryKey: "FFLOrigin") as? String ?? "https://ffl.whitebridgelabs.com"
+let fflConnectURL = URL(string: "\(fflOrigin)/welcome?from=extension")!
 
 class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMessageHandler {
 
@@ -42,7 +46,7 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         // Recording the setup clips (ffl-soc.6.3.9): the simulator's UI automation can't tap inside the web view, so a
         // launch argument presses the page's buttons. Debug builds only.
         let args = ProcessInfo.processInfo.arguments
-        for action in ["open-settings", "open-espn"] where args.contains("-\(action)") {
+        for action in ["open-settings", "open-ffl"] where args.contains("-\(action)") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.act(action) }
         }
 #endif
@@ -76,7 +80,7 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         act(action)
     }
 
-    /// A button on the page: open-settings / open-espn (iOS), open-preferences (macOS).
+    /// A button on the page: open-settings / open-ffl (iOS), open-preferences (macOS).
     func act(_ action: String) {
 #if os(iOS)
         switch action {
@@ -91,8 +95,8 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
                     self.webView.evaluateJavaScript("cannotOpen()")
                 }
             }
-        case "open-espn":
-            UIApplication.shared.open(espnFantasyURL)
+        case "open-ffl":
+            UIApplication.shared.open(fflConnectURL)
         default:
             break
         }

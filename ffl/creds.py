@@ -60,11 +60,11 @@ def main(argv: list[str]) -> int:
         rows = [r for r in rows if r["user_id"] == uid]
     if not rows:
         print("no ESPN connections stored")
-    for r in rows:
-        st = espn_auth.status(r["user_id"])
-        state = ("unreadable (another key ring's)" if st["unreadable"] else
+    for r in rows:   # one line per ESPN account (#460: a user may have several)
+        opened = next((o for o in db.credential_rows(r["user_id"]) if o["id"] == r["id"]), None)
+        state = ("unreadable (another key ring's)" if opened is None or opened["unreadable"] else
                  f"failing since {r['failing_since']}: {r['failing_reason']}" if r["failing_since"] else "connected")
-        print(f"{r['email']}: {state}; stored {r['updated_at']}, last ok {r['last_ok'] or 'never'}")
+        print(f"{r['email']} account {r['id']}: {state}; stored {r['updated_at']}, last ok {r['last_ok'] or 'never'}")
     return 0
 
 

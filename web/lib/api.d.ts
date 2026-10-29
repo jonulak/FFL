@@ -386,6 +386,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/espn/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave Route
+         * @description Stop following one league: {league: key}.
+         */
+        post: operations["leave_route_espn_leave_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/espn/disconnect": {
         parameters: {
             query?: never;
@@ -395,8 +415,36 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Disconnect Route */
+        /**
+         * Disconnect Route
+         * @description Every ESPN account, or with {account: id} that one alone, and the user's place in the leagues it served:
+         *     {ok, left: [league keys]}.
+         */
         post: operations["disconnect_route_espn_disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/espn/leagues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Leagues
+         * @description The leagues the user's own ESPN logins are in this season, to pick from; `account`: that login's alone.
+         */
+        get: operations["get_leagues_espn_leagues_get"];
+        put?: never;
+        /**
+         * Post Leagues
+         * @description Add or join the picked leagues: {ids: [ESPN league id, ...], default: one of them or null}.
+         */
+        post: operations["post_leagues_espn_leagues_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2087,7 +2135,79 @@ export interface operations {
             };
         };
     };
+    leave_route_espn_leave_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     disconnect_route_espn_disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_leagues_espn_leagues_get: {
+        parameters: {
+            query?: {
+                account?: number | null;
+                fresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_leagues_espn_leagues_post: {
         parameters: {
             query?: never;
             header?: never;

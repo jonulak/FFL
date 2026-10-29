@@ -170,7 +170,8 @@ def test_add_registers_name_and_my_team(monkeypatch):
     _raw(monkeypatch)
     ref = leagues.add("999", season=2025, user_id=0)
     lineup = formats.lineup_key(formats.lineup_from_settings(settings.load(ref)))
-    assert ref == LeagueRef("espn:999", "espn", "999", 2025, "The Other One", 5, lineup, None, user_id=0, owner=True)
+    assert ref == LeagueRef("espn:999", "espn", "999", 2025, "The Other One", 5, lineup, None, user_id=0, owner=True,
+                            espn_account=db.swid_hash("{ME}"))
     assert leagues.get("espn:999") == ref
     assert settings.load(ref)["scoring"] == [{"stat_id": 53, "abbr": "REC", "label": "Each reception", "points": 0.5}]
     assert leagues.caps(ref) == {"QB": 3}, "the league's limit, no cap of mine yet"

@@ -27,7 +27,8 @@ import secrets
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -37,6 +38,7 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
@@ -63,6 +65,15 @@ TTL = 120.0
 # live runner's starters (a stale copy would side plays to the wrong team), logos (bytes) or the draft (not a page).
 PERSIST = ("week", "roster", "league", "waivers", "team", "transactions", "player")
 PLAYER_KEEP = 7 * 86400.0  # a stored player card older than this is pruned at load: one per player ever opened
+# A page GET waits this long on a key's first build, then answers 503 `building` while the build carries on (a league
+# just added reads its whole season the first time; the web's own timeout is 20 s): the page says the league is still
+# being imported and asks again, and the build in flight answers it.
+PAGE_WAIT_S = 8.0
+
+
+class Building(HTTPException):
+    def __init__(self):
+        super().__init__(503, {"source": "api", "error": "building"}, headers={"Retry-After": "3"})
 
 
 class Entry:
@@ -94,6 +105,7 @@ class Cache:
         self._lock = threading.Lock()
         self._threads: dict[str, threading.Thread] = {}
         self._flight = Flight()  # a key's first build in flight, shared by its concurrent callers
+        self._behind: dict[str, Future] = {}  # a first build a page GET stopped waiting on, running on its own thread
         # bumped by drop_prefixes (a league move): a build that began before it read the rosters from before it,
         # so it hands its payload to its caller but never installs it
         self._gen = 0
@@ -103,7 +115,9 @@ class Cache:
         # entry a drop has popped can never land after the drop's delete
         self._db_lock = threading.Lock()
 
-    def get_or_build(self, key: str, fn: Callable[[], object], ttl: float | None = None):
+    def get_or_build(self, key: str, fn: Callable[[], object], ttl: float | None = None, *, wait: float | None = None):
+        """(payload, stale_since). `wait`: a first build longer than this raises `Building` and goes on behind (page
+        GETs only; a job or a write waits it out)."""
         now = time.time()
         with self._lock:
             hit = self._d.get(key)
@@ -115,7 +129,27 @@ class Cache:
             stale = self._stale(hit)  # read before the rebuild starts: a thread that fails fast must not flag this reply
             self._revalidate(key)
             return hit.payload, stale
-        return self._flight.do(key, lambda: self._first_build(key, fn, ttl))
+        if wait is None:
+            return self._flight.do(key, lambda: self._first_build(key, fn, ttl))
+        with self._lock:
+            fut = self._behind.get(key)
+            if fut is None:
+                fut = self._behind[key] = Future()
+                threading.Thread(target=self._build_behind, args=(key, fn, ttl, fut), daemon=True,
+                                 name=f"first build {key}").start()
+        try:
+            return fut.result(timeout=wait)
+        except FutureTimeout:
+            raise Building()
+
+    def _build_behind(self, key: str, fn: Callable[[], object], ttl: float | None, fut: Future) -> None:
+        try:
+            fut.set_result(self._flight.do(key, lambda: self._first_build(key, fn, ttl)))
+        except BaseException as e:  # noqa: BLE001 — the waiting GET gets the 502 a direct build would raise
+            fut.set_exception(e)
+        finally:
+            with self._lock:
+                self._behind.pop(key, None)
 
     def _first_build(self, key: str, fn: Callable[[], object], ttl: float | None):
         """The inline build of a key with nothing cached, shared by every caller that arrives while it runs (warm()
@@ -333,6 +367,16 @@ auth.ON_DELETE.append(forget_user)
 auth.ON_DELETE.append(espn_auth.forget)  # the Leagues built with their cookies
 
 
+def forget_memberships(user_id: int, keys: list[str]) -> None:
+    """Leagues the user left (an ESPN login disconnected) leave their page caches (db.drop_memberships took the rows)."""
+    with _CACHES:
+        for key in [k for k in caches if k[0] == user_id and k[1] in keys]:
+            del caches[key]
+
+
+espn_connect.ON_LEAVE.append(forget_memberships)
+
+
 def caches_for_league(ref: LeagueRef) -> list[Cache]:
     """Every member's page cache of the league `ref` names that is open in this process, `ref`'s first (made when
     absent): what a league-wide change (a move, a correction, a pregame pull) drops or expires."""
@@ -499,13 +543,19 @@ app.add_middleware(SessionMiddleware, secret_key=auth.oidc_secret() or secrets.t
                    session_cookie=auth.OIDC_COOKIE, max_age=auth.OIDC_MAX_AGE, same_site="lax",
                    https_only=auth.cookie_secure())
 app.add_middleware(auth.AuthMiddleware)  # every route needs a session or the job token (auth.decide)
+# The browser extension (ffl-soc.6.3.2) calls its three public routes from its own origin with a bearer, never a
+# cookie. Outermost, so a preflight is answered before AuthMiddleware: extension origins only, no credentials, so no
+# session-bound route opens to them (they still need a session cookie the extension never sends).
+app.add_middleware(CORSMiddleware, allow_origin_regex=espn_connect.EXTENSION_ORIGINS, allow_methods=["POST"],
+                   allow_headers=["authorization", "content-type"], allow_credentials=False, max_age=600)
 app.add_exception_handler(auth.SignedOut, auth.signed_out_handler)
 app.include_router(auth.router)
 app.include_router(espn_connect.router)  # /espn/*: pairing the extension, the cookies, the connection
 
 
-def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: LeagueRef) -> dict:
-    payload, stale = cache_for(ref).get_or_build(key, fn, ttl)
+def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: LeagueRef, page: bool = False) -> dict:
+    """`page`: a page's GET, which answers 503 `building` past PAGE_WAIT_S of a first build rather than hold the page."""
+    payload, stale = cache_for(ref).get_or_build(key, fn, ttl, wait=PAGE_WAIT_S if page else None)
     return {**payload, "stale_since": stale}
 
 
@@ -1080,7 +1130,7 @@ def watch_set(player_id: int, body: WatchIn, ref: LeagueRef = Depends(open_leagu
 
 @app.get("/watch")
 def watch_page(ref: LeagueRef = Depends(open_league)):
-    data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref, page=True)
     groups = watch.page(_watched(data, ref=ref), db.watch_signals(WATCH_SINCE, ref=ref), datetime.now().astimezone())
     return {"week": data["week"], "ros_week": data.get("ros_week", data["week"]), "groups": groups,
             "ids": db.watched_ids(ref=ref), "stale_since": data["stale_since"]}
@@ -1234,16 +1284,16 @@ def _week_payload(data: dict, ref: LeagueRef) -> dict:
             "plays": _plays(data, FEED_ROWS, ref=ref)}
 
 
-def _board(n: int | None, team: int | None, *, ref: LeagueRef) -> dict:
+def _board(n: int | None, team: int | None, *, ref: LeagueRef, page: bool = False) -> dict:
     """My week's board, or with `team` the board of that team's game; each cached under its own key."""
     if team is None:
-        return _serve("week:current" if n is None else f"week:{n}", lambda: espn_season.week_state(n, ref=ref), ref=ref)
-    return _serve(f"week:{n or 'current'}:{team}", lambda: espn_season.week_state(n, team=team, ref=ref), ref=ref)
+        return _serve("week:current" if n is None else f"week:{n}", lambda: espn_season.week_state(n, ref=ref), ref=ref, page=page)
+    return _serve(f"week:{n or 'current'}:{team}", lambda: espn_season.week_state(n, team=team, ref=ref), ref=ref, page=page)
 
 
 @app.get("/week")
 def week_current(ref: LeagueRef = Depends(open_league)):
-    return _week_payload(_board(None, None, ref=ref), ref)
+    return _week_payload(_board(None, None, ref=ref, page=True), ref)
 
 
 @app.get("/plays")
@@ -1268,13 +1318,13 @@ def plays_(team: int | None = None, week: int | None = None, ref: LeagueRef = De
 @app.get("/week/{n}")
 def week(n: int, team: int | None = None, ref: LeagueRef = Depends(open_league)):
     """My week's board, or with `team` the board of that team's game (a League scoreboard tile)."""
-    return _week_payload(_board(n, team, ref=ref), ref)
+    return _week_payload(_board(n, team, ref=ref, page=True), ref)
 
 
 @app.get("/team/{team_id}")
 def team(team_id: int, ref: LeagueRef = Depends(open_league)):
     """Any fantasy team's roster for the current week (the team page), the league's live points laid on."""
-    data = _serve(f"team:{team_id}", lambda: espn_season.team_state(team_id, ref=ref), ref=ref)
+    data = _serve(f"team:{team_id}", lambda: espn_season.team_state(team_id, ref=ref), ref=ref, page=True)
     wk = data["week"]
     return {**data, "side": live.overlay_side(data["side"], _live_points(wk, ref), _live_games(wk, ref),
                                               _live_stats(wk, ref), _scoring(ref=ref))}
@@ -1485,7 +1535,7 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
         view = player_views.resolve(store, preset, player_views.parse_params(pos=pos, fa=fa, cols=cols, f=f, sort=sort))
     except ValueError as e:
         raise HTTPException(422, {"error": str(e)}) from e
-    data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
+    data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref, page=True)
     rostered = data.get("rostered", {})  # absent from a pool cached before it existed
     # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
     written = outlook.written(data["week"], ref=ref)
@@ -1552,7 +1602,7 @@ def player_preset_delete(pid: str, ref: LeagueRef = Depends(open_league)):
 
 @app.get("/league")
 def league_(week: int | None = None, ref: LeagueRef = Depends(open_league)):
-    data = _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week, ref=ref), ref=ref)
+    data = _serve(f"league:{week or 'current'}", lambda: espn_season.league_state(week, ref=ref), ref=ref, page=True)
     return live.overlay_league(data, _live_points(data["week"], ref), _live_games(data["week"], ref), _sigma())
 
 
@@ -1573,7 +1623,7 @@ def logo(team_id: int, ref: LeagueRef = Depends(open_league)):
 @app.get("/transactions")
 def transactions(ref: LeagueRef = Depends(open_league)):
     """The league's adds, drops and trades as moves (an add beside the drop it made room with)."""
-    return _serve("transactions", lambda: espn_season.transactions_state(ref=ref), ref=ref)
+    return _serve("transactions", lambda: espn_season.transactions_state(ref=ref), ref=ref, page=True)
 
 
 @app.get("/decisions")
@@ -1662,7 +1712,7 @@ DRAFT_TTL = 24 * 3600.0  # the draft is over; the record does not move
 
 @app.get("/roster")
 def roster_(ref: LeagueRef = Depends(open_league)):
-    data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
+    data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref, page=True)
     # gated on the payload's week, as /week is: after the rollover the feed still holds last week's
     wk = data["week"]
     data = live.overlay_roster(data, _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref), _scoring(ref=ref))

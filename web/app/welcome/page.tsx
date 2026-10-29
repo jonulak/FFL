@@ -1,33 +1,56 @@
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { AccountSettings, DeleteAccount } from "@/components/account-settings";
+import { ConnectWizard, type InstallLinks } from "@/components/connect-wizard";
 import { SignOutButton } from "@/components/sign-out-button";
 import { Toaster } from "@/components/ui/sonner";
 import { apiGet, type Account, type LeagueEntry } from "@/lib/api";
-import { redirect } from "next/navigation";
+import { platformOf, type EspnStatus } from "@/lib/espn";
 
 export const dynamic = "force-dynamic";
 
-// A signed-in user with no league (ffl-soc.6.2.2: the API answers 404 no_leagues and lib/api.ts sends them here).
-// Outside the app like the sign-in page (app/layout.tsx renders it bare). Adding a league is 6.3's; until then this
-// says so, and holds the account (ffl-soc.6.2.4: /settings reads a league, so it is out of their reach). A user who
-// has a league by now goes back to the start page.
-export default async function Page() {
-  const [leagues, account] = await Promise.all([
+const NO_STATUS: EspnStatus = { connected: false, failing_since: null, accounts: [], devices: 0 };
+
+// The connect wizard (ffl-soc.6.3.5): a signed-in user with no league lands here (ffl-soc.6.2.2: the API answers 404
+// no_leagues and lib/api.ts sends them here), and Settings › Add an ESPN login opens it with ?add=1 (?paste=1: straight
+// to the paste form). Outside the app like the sign-in page (app/layout.tsx renders it bare). A first run also holds
+// the account (ffl-soc.6.2.4: /settings reads a league, so it is out of their reach); a user who has a league by now
+// and didn't ask to add one goes back to the start page.
+export default async function Page({ searchParams }: { searchParams: Promise<{ add?: string; paste?: string; from?: string }> }) {
+  const { add, paste, from } = await searchParams;
+  const [leagues, account, status, h] = await Promise.all([
     apiGet<LeagueEntry[]>("/leagues").catch((): LeagueEntry[] => []),
     apiGet<Account>("/account").catch(() => null),
+    apiGet<EspnStatus>("/espn/status").catch(() => NO_STATUS),
+    headers(),
   ]);
-  if (leagues.length) redirect("/");
+  // the extension's popup opens ?from=extension: connecting this browser, a first run or another login for a user who
+  // has leagues already
+  const adding = add === "1" || (from === "extension" && leagues.length > 0);
+  if (leagues.length && !adding) redirect("/");
+  // the store listings, once they exist (#136): none, and the step names the install with no button
+  const links: InstallLinks = {
+    testflight: process.env.FFL_TESTFLIGHT_URL || null,
+    chrome: process.env.FFL_CHROME_STORE_URL || null,
+    mac: process.env.FFL_MAC_APP_URL || null,
+  };
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-8 px-4 pt-12 pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))]">
-      <div className="space-y-2">
-        <h1 className="font-display text-[2.6rem] font-bold leading-none tracking-tight">FFL</h1>
-        <p className="text-sm text-muted-foreground">
-          You&apos;re signed in, but no league is linked to your account yet. Your leagues will show here once
-          they&apos;re added.
-        </p>
-      </div>
-      {account && <AccountSettings account={account} />}
-      <SignOutButton />
-      {account && <div className="border-t border-foreground/10 pt-5"><DeleteAccount email={account.email} /></div>}
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col md:max-w-[55rem] gap-6 px-4 pt-3 pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))]">
+      <header className="flex h-11 items-center justify-between">
+        <span className="font-display text-[1.6rem] font-bold leading-none tracking-tight">FFL</span>
+        {adding
+          ? <a href="/settings" className="text-sm text-muted-foreground hover:text-foreground">Back to Settings</a>
+          : account && <a href="#account" className="text-sm text-muted-foreground hover:text-foreground">Account</a>}
+      </header>
+      <ConnectWizard platform={platformOf(h.get("user-agent") ?? "")} links={links} initial={status} add={adding}
+                     hasLeagues={leagues.length > 0} startPaste={paste === "1"} />
+      {!adding && account && (
+        <section id="account" className="mt-10 space-y-5 border-t border-foreground/10 pt-6">
+          <AccountSettings account={account} />
+          <SignOutButton />
+          <div className="border-t border-foreground/10 pt-5"><DeleteAccount email={account.email} /></div>
+        </section>
+      )}
       <Toaster position="bottom-center" />
     </main>
   );

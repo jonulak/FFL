@@ -111,11 +111,11 @@
 		C44AA8763092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "FFL Cookie Spike Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C44AA8803092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		C44AA8A0309268600066C393 /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = ../../../spike/popup.js; sourceTree = "<group>"; };
-		C44AA8A1309268600066C393 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../../spike/background.js; sourceTree = "<group>"; };
-		C44AA8A2309268600066C393 /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = popup.html; path = ../../../spike/popup.html; sourceTree = "<group>"; };
-		C44AA8A3309268600066C393 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../../spike/manifest.json; sourceTree = "<group>"; };
-		C44AA8A4309268600066C393 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../../spike/content.js; sourceTree = "<group>"; };
+		C44AA8A0309268600066C393 /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = ../../../ffl/dist/safari/popup.js; sourceTree = "<group>"; };
+		C44AA8A1309268600066C393 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../../ffl/dist/safari/background.js; sourceTree = "<group>"; };
+		C44AA8A2309268600066C393 /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = popup.html; path = ../../../ffl/dist/safari/popup.html; sourceTree = "<group>"; };
+		C44AA8A3309268600066C393 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../../ffl/dist/safari/manifest.json; sourceTree = "<group>"; };
+		C44AA8A4309268600066C393 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../../ffl/dist/safari/content.js; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -306,6 +306,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = C44AA8913092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike Extension (iOS)" */;
 			buildPhases = (
+				FF10A1000000000000000001 /* Build the extension for FFL_ORIGIN */,
 				C44AA86D3092685F0066C393 /* Sources */,
 				C44AA86E3092685F0066C393 /* Frameworks */,
 				C44AA86F3092685F0066C393 /* Resources */,
@@ -444,6 +445,28 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		FF10A1000000000000000001 /* Build the extension for FFL_ORIGIN */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build the extension for FFL_ORIGIN";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/../ffl-origin.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		C44AA84F3092685F0066C393 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -534,6 +557,7 @@
 		C44AA88F3092685F0066C393 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				FFL_ORIGIN_DEFAULT = "https://macbook-pro.tailnet.ts.net:3302";
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -568,7 +592,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -595,6 +619,7 @@
 		C44AA8903092685F0066C393 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				FFL_ORIGIN_DEFAULT = "https://ffl.whitebridgelabs.com";
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -629,7 +654,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
