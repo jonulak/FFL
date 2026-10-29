@@ -218,3 +218,60 @@ def test_units_carry_the_job_token():
         t = (d / f"ffl-{n}.service").read_text()
         assert '-H "x-ffl-job: ${FFL_JOB_TOKEN}"' in t, n
         assert "EnvironmentFile=/etc/ffl/env" in t
+
+
+# --- box_drift: the root-run pieces a release ships but must never install itself ---
+
+def _box(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    """A release's deploy/box (release.sh, Caddyfile, two units) and the box's installed copies, all the same."""
+    rel = tmp_path / "rel"
+    (rel / "deploy" / "box" / "systemd").mkdir(parents=True)
+    (rel / "deploy" / "box" / "release.sh").write_text("#!/bin/sh\necho v1\n")
+    (rel / "deploy" / "box" / "Caddyfile").write_text("ffl.example { }\n")
+    for u in ("ffl-api.service", "ffl-news.timer"):
+        (rel / "deploy" / "box" / "systemd" / u).write_text(f"[Unit]\n# {u}\n")
+    installed = tmp_path / "opt-release.sh"
+    installed.write_text("#!/bin/sh\necho v1\n")
+    units = tmp_path / "units"
+    units.mkdir()
+    for u in ("ffl-api.service", "ffl-news.timer"):
+        (units / u).write_text(f"[Unit]\n# {u}\n")
+    caddy = tmp_path / "Caddyfile"
+    caddy.write_text("ffl.example { }\n")
+    return rel, installed, units, caddy
+
+
+def drift(rel: Path, installed: Path, units: Path, caddy: Path) -> list[str]:
+    r = bash('box_drift "$1" "$2" "$3" "$4"', str(rel), str(installed), str(units), str(caddy))
+    assert r.returncode == 0, r.stderr
+    return r.stdout.splitlines()
+
+
+def test_box_drift_is_empty_when_the_box_has_the_releases_copies(tmp_path):
+    assert drift(*_box(tmp_path)) == []
+
+
+def test_box_drift_names_each_changed_or_new_piece(tmp_path):
+    rel, installed, units, caddy = _box(tmp_path)
+    (rel / "deploy" / "box" / "release.sh").write_text("#!/bin/sh\necho v2\n")
+    (rel / "deploy" / "box" / "systemd" / "ffl-news.timer").write_text("[Timer]\nOnCalendar=*:0/5\n")
+    (rel / "deploy" / "box" / "systemd" / "ffl-new.service").write_text("[Unit]\n")   # not on the box at all
+    (rel / "deploy" / "box" / "Caddyfile").write_text("ffl.example { encode }\n")
+    assert sorted(drift(rel, installed, units, caddy)) == [
+        "deploy/box/Caddyfile", "deploy/box/release.sh", "deploy/box/systemd/ffl-new.service",
+        "deploy/box/systemd/ffl-news.timer"]
+
+
+def test_box_drift_ignores_what_setup_sh_does_not_install(tmp_path):
+    rel, installed, units, caddy = _box(tmp_path)
+    (rel / "deploy" / "box" / "systemd" / "README").write_text("notes\n")
+    (units / "beads-update.timer").write_text("[Timer]\n")    # another repo's unit on the box
+    assert drift(rel, installed, units, caddy) == []
+
+
+def test_main_refuses_a_release_that_changes_box_pieces_before_switching():
+    """The check sits between the unpack and the switch: a drifting release is never made current."""
+    src = SCRIPT.read_text()
+    check = src.index('box_drift "$rel"')
+    assert src.index('say "unpack to $rel"') < check < src.index('say "switch $ROOT/current')
+    assert check < src.index('say "uv sync --frozen"'), "refuse before the slow steps"

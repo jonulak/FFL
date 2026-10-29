@@ -451,7 +451,9 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   --head develop --fill`, `gh pr checks --watch`, `gh pr merge --merge`. The push to main is the deploy (below). It runs
   the box's own `/opt/ffl/release.sh` and units, never the release's: a change to `deploy/box/release.sh` or
   `deploy/box/systemd/` is installed on the box before the promotion (re-run `setup.sh`, or `install` release.sh to
-  `/opt/ffl/release.sh` and the changed units to `/etc/systemd/system` + `systemctl daemon-reload`). Afterwards the main checkout pulls it
+  `/opt/ffl/release.sh` and the changed units to `/etc/systemd/system` + `systemctl daemon-reload`); release.sh enforces it
+  (`box_drift`: a release whose release.sh, units or Caddyfile differ from the box's installed copies is refused before
+  anything is switched, naming each file). Afterwards the main checkout pulls it
   (`cd ~/Developer/FFL && git pull`) only to keep the Mac's checkout current (tunnel, draft tools); it deploys nothing. A worktree session is refused git
   against the main checkout, so that pull goes through the FFL workspace's Herdr tab labelled `Terminal` (a plain shell
   in `~/Developer/FFL`; pane IDs change across Herdr restarts: `herdr workspace list` / `herdr tab list --workspace <id>` /
