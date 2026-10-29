@@ -9,12 +9,15 @@ export function sessionCookie(env: Record<string, string | undefined> = process.
   return env.FFL_SESSION_COOKIE || SESSION_COOKIE;
 }
 export const SIGNIN_PATH = "/signin";
+// The privacy policy (#135): public, since the extension stores link to it and a visitor reads it before signing up.
+export const PRIVACY_PATH = "/privacy";
 // The page a server render is for (path + query), set by web/proxy.ts so lib/api.ts can send a refused call back to it.
 export const PATH_HEADER = "x-ffl-path";
 
-// A page request that must sign in first: no session cookie (its presence only; the API checks it), and never /signin.
+// A page request that must sign in first: no session cookie (its presence only; the API checks it), and never /signin
+// or the privacy policy.
 export function needsSignIn(pathname: string, hasSession: boolean): boolean {
-  return !hasSession && pathname !== SIGNIN_PATH;
+  return !hasSession && pathname !== SIGNIN_PATH && pathname !== PRIVACY_PATH;
 }
 
 // Where to land after signing in: a path on this site only, the API's safe_next (ffl/auth.py) in the browser's terms:
