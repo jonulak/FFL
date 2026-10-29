@@ -139,6 +139,24 @@ def test_a_source_switched_off_here_raises_no_notice_and_shows_no_status(monkeyp
     assert set(api.sources_status()) == {"sharks", "sharks-ros", "cbs"}, "the Mac shows every source"
 
 
+def test_espn_notices_one_per_user_and_day_a_login_began_failing():
+    rows = [{"user_id": 1, "id": 1, "failing_since": "2026-10-28T09:00:00-04:00"},
+            {"user_id": 1, "id": 2, "failing_since": "2026-10-28T21:00:00-04:00"},
+            {"user_id": 2, "id": 3, "failing_since": None}]
+    (n,) = notify.espn_notices(rows, AT)
+    assert (n["key"], n["kind"], n["user_id"], n["url"]) == ("espn:refused:1:2026-10-28", "espn", 1, "/settings")
+
+
+def test_check_espn_queues_under_the_users_default_league():
+    ref = home_league()
+    db.put_credentials(ref.user_id, "s2", "{ABC}")
+    (row,) = db.credential_rows(ref.user_id)
+    db.mark_credentials(row["id"], ok=False, reason="401")
+    assert notify.check_espn() == 1 and notify.check_espn() == 0
+    assert [n["kind"] for n in db.unsent_notices(ref=ref)] == ["espn"]
+    assert notify.prefs(ref=ref)["espn"] is True
+
+
 def test_put_prefs_accepts_news_bool():
     assert notify.prefs(ref=home_league())["news"] is True
     assert notify.put_prefs({"news": False}, ref=home_league())["news"] is False and notify.prefs(ref=home_league())["news"] is False
