@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+    <link rel="stylesheet" href="../Style.css">
+    <script src="../Script.js" defer></script>
+</head>
+<body>
+    <header>
+        <img src="../Icon.png" width="72" height="72" alt="">
+        <h1>FFL Cookie Spike</h1>
+    </header>
+
+    <!-- data-show: the extension's state (on / off / unknown: no SFSafariExtensionManager before iOS 26.2); data-open: whether Settings opens at the extension -->
+    <section class="platform-ios">
+        <p class="status off" data-show="off"><span class="dot"></span>The extension is off</p>
+        <p class="status on" data-show="on"><span class="dot"></span>The extension is on</p>
+
+        <ol class="steps">
+            <li data-show="off unknown"><b>Turn on the extension.</b> <span data-open="yes">Tap the button below, then turn on <i>Allow Extension</i>.</span><span data-open="no">Open Settings, then Apps › Safari › Extensions › FFL, and turn on <i>Allow Extension</i>.</span>
+                <!-- TODO #138: the clip still ends on the old espn.com row; re-record it as Allow Extension alone, and add
+                     the Safari clip (page menu › FFL › Always Allow on This Website, then Connect this browser) -->
+                <figure class="clip">
+                    <video src="../setup-settings.mp4" poster="../setup-settings.jpg" autoplay loop muted playsinline
+                           disablepictureinpicture aria-label="Turning on Allow Extension"></video>
+                    <img src="../setup-settings.jpg" alt="The extension's settings: Allow Extension on">
+                </figure>
+            </li>
+            <li><b>Open FFL in Safari and sign in.</b></li>
+            <li><b>Allow the extension on FFL.</b> Tap the page menu at the left of Safari’s address bar, then <i>FFL</i> › <i>Always Allow</i> › <i>Always Allow on This Website</i>, and reload.</li>
+            <li><b>Tap Connect this browser.</b> When Safari asks about <i>espn.com</i>, choose <i>Always Allow on This Website</i>.</li>
+            <li><b>Sign in to ESPN in Safari</b> if you aren’t already: FFL’s page has a button for it. Your leagues show up by themselves.</li>
+        </ol>
+
+        <div class="actions">
+            <button class="primary open-settings" data-show="off unknown" data-open="yes">Open Safari Extension Settings</button>
+            <button class="primary open-ffl" data-show="on">Open FFL in Safari</button>
+            <button class="secondary open-settings" data-show="on" data-open="yes">Extension Settings</button>
+            <button class="secondary open-ffl" data-show="off unknown">Open FFL in Safari</button>
+        </div>
+        <p class="note">Come back here any time to check the extension is still on.</p>
+    </section>
+
+    <section class="platform-mac">
+        <p class="status off" data-show="off"><span class="dot"></span>The extension is off</p>
+        <p class="status on" data-show="on"><span class="dot"></span>The extension is on</p>
+        <p data-show="unknown">Turn on FFL in Safari’s Extensions settings.</p>
+        <p>In Safari Settings › Extensions, turn on FFL. Then open FFL in Safari, sign in, click the FFL icon in the toolbar and allow it on FFL’s site, and click <i>Connect this browser</i>. Allow it on espn.com when Safari asks.</p>
+        <div class="actions">
+            <button class="primary open-preferences">Quit and Open Safari Settings…</button>
+        </div>
+    </section>
+</body>
+</html>

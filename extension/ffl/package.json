@@ -1,0 +1,21 @@
+{
+  "name": "ffl-extension",
+  "private": true,
+  "version": "0.1.0",
+  "description": "FFL's browser extension (ffl-soc.6.3.2, #130): pairs with an FFL account by a code and sends that browser's ESPN login (espn_s2, SWID) to it.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs --target chrome && node build.mjs --target safari",
+    "build:dev": "node build.mjs --target chrome --origin https://macbook-pro.tailnet.ts.net:3302 && node build.mjs --target safari --origin https://macbook-pro.tailnet.ts.net:3302",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "packageManager": "pnpm@10.29.1",
+  "pnpm": { "onlyBuiltDependencies": ["esbuild"] },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  }
+}

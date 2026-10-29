@@ -1,5 +1,6 @@
 """The only code that writes to ESPN: waiver claims and lineup moves on the fantasy write host, under the acting
-member's own cookies (ffl-soc.3, espn_auth.own: never a league-mate's, never the environment's).
+member's own cookies for the league's ESPN account (ffl-soc.3, espn_auth.own_for: never a league-mate's, never the
+environment's).
 
 ESPN's write API is undocumented; the shapes are what its own web app sent (spike ffl-ut0.1,
 tests/fixtures/espn_write). FFL_WRITES=0 swaps ESPN for an in-memory store so dev and tests exercise
@@ -97,11 +98,10 @@ class Refused(WriteError):
 def _own(ref) -> espn_auth.Cookies:
     """The acting member's own cookies, or the write is refused here: NotConnected with none, Refused when ESPN has
     turned theirs away."""
-    c = espn_auth.own(ref.user_id)
+    c = espn_auth.own_for(ref)
     if c is not None:
         return c
-    st = espn_auth.status(ref.user_id) if ref.user_id is not None else {"failing_since": None}
-    raise Refused() if st["failing_since"] else NotConnected()
+    raise Refused() if espn_auth.failing_for(ref) else NotConnected()
 
 
 def _writes() -> bool:
@@ -215,7 +215,7 @@ def _post(body: dict | list, url: str | None = None, *, cookies: espn_auth.Cooki
     r = requests.post(url or write_url(ref=ref), json=body, headers=HEADERS, cookies=cookies.jar(), timeout=TIMEOUT)
     if r.status_code >= 400:
         if r.status_code in (401, 403):
-            espn_auth.refused(cookies.user_id, f"ESPN {r.status_code} on a write")
+            espn_auth.refused(cookies, f"ESPN {r.status_code} on a write")
         raise WriteError(r.status_code, r.text[:500])
     return r.json()
 
@@ -259,7 +259,7 @@ def _pending_doc(max_age: float, *, ref) -> dict:
     except Exception as e:  # noqa: BLE001 — every read failure is a WriteError, sorted by _read_error
         err = _read_error(e)
         if err.expired:
-            espn_auth.refused(c.user_id, f"ESPN {err.status} on the pending read")
+            espn_auth.refused(c, f"ESPN {err.status} on the pending read")
         raise err from e
     with _GEN_LOCK:
         if gen == _GEN:

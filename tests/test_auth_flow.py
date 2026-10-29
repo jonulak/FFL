@@ -332,5 +332,9 @@ def test_slid_session_keeps_live_stream():
 
 
 def test_middleware_order():
-    """AuthMiddleware decides before the OIDC session middleware reads anything."""
-    assert api.app.user_middleware[0].cls is auth.AuthMiddleware
+    """AuthMiddleware decides before the OIDC session middleware reads anything. Only CORS sits outside it: the
+    browser extension's preflight is answered before the session check, for extension origins and no credentials."""
+    from starlette.middleware.cors import CORSMiddleware
+    from starlette.middleware.sessions import SessionMiddleware
+    assert [m.cls for m in api.app.user_middleware] == [CORSMiddleware, auth.AuthMiddleware, SessionMiddleware]
+    assert api.app.user_middleware[0].kwargs["allow_credentials"] is False

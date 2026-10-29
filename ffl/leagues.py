@@ -32,10 +32,11 @@ class LeagueRef:
     user_id: int | None = None
     is_default: bool = False
     owner: bool = False          # the member is the league's lowest user id (whose view jobs take)
+    espn_account: str | None = None  # the member's ESPN account for it (#460: a swid_hash); None: their first
 
 
 _FIELDS = ("key", "provider", "provider_id", "season", "name", "lineup_format", "strategy")  # the leagues row
-_REF_FIELDS = _FIELDS + ("team_id", "user_id", "is_default", "owner")
+_REF_FIELDS = _FIELDS + ("team_id", "user_id", "is_default", "owner", "espn_account")
 
 
 def key_for(provider: str, provider_id: str | int) -> str:
@@ -211,9 +212,30 @@ def add(provider_id: str, season: int | None = None, *, user_id: int, default: b
     swid = mine.swid if mine else None
     team = next((t for t in raw.get("teams", []) if swid and swid in t.get("owners", [])), None)
     ref = register(replace(ref, name=name, team_id=team["id"] if team else None, is_default=default), user_id=user_id)
+    if mine is not None:
+        db.put_membership(user_id, ref.key, espn_account=mine.account)
     from . import settings
     settings.collect(ref)   # its settings, formats and the league's caps
     return membership(user_id, ref.key)
+
+
+def connect(user_id: int, provider_id: str, season: int, team_id: int, *, account: str, name: str,
+            default: bool = False) -> LeagueRef:
+    """The web's add-or-join (ffl-soc.6.3.4): an ESPN league the user picked from the fan entries of one of their ESPN
+    accounts (`account`, its swid_hash: every call for the league goes out under that account's cookies, #460),
+    `team_id` the one ESPN lists them on (the caller has checked its owners hold that SWID). Unknown here: its settings
+    are read under those cookies and stored, then they are filed as its first member, with no strategy (the web app
+    has none). Registered already: a membership only, the league's row untouched. Already a member: their team, the
+    account and, when asked, their default."""
+    key = key_for("espn", provider_id)
+    if _raw(key) is None:
+        from . import settings
+        # read before anything is filed: a failed read leaves no league without settings behind. The ref names the
+        # user, so the read goes out under their own cookies (espn_auth.for_read), though they are no member yet
+        settings.collect(LeagueRef(key, "espn", str(provider_id), season, name, team_id, None, None, user_id=user_id,
+                                   espn_account=account))
+    db.put_membership(user_id, key, team_id=team_id, espn_account=account, **({"is_default": True} if default else {}))
+    return membership(user_id, key)
 
 
 CAP_POSITIONS = ("QB", "RB", "WR", "TE", "K", "D/ST")

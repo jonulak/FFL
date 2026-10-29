@@ -59,12 +59,12 @@ def test_a_read_takes_the_members_own_cookies_first(two):
 def test_a_shared_read_falls_back_to_another_members_working_cookies(two):
     espn_auth.disconnect(two.b_id)
     assert espn_auth.for_read(two.b).user_id == two.a_id
-    espn_auth.refused(two.a_id, "ESPN 401")
+    espn_auth.refused(espn_auth.own(two.a_id), "ESPN 401")
     assert espn_auth.for_read(two.b) is None, "failing cookies are nobody's fallback"
 
 
 def test_refused_cookies_come_back_with_new_ones(two):
-    espn_auth.refused(two.a_id, "ESPN 401")
+    espn_auth.refused(espn_auth.own(two.a_id), "ESPN 401")
     assert espn_auth.own(two.a_id) is None and espn_auth.status(two.a_id)["failing_since"]
     espn_auth.connect(two.a_id, S2_A, SWID_A)
     assert espn_auth.own(two.a_id) is not None and espn_auth.status(two.a_id)["failing_since"] is None
@@ -181,7 +181,7 @@ def test_a_write_never_borrows_a_league_mates_cookies(two, monkeypatch):
 
 def test_a_write_on_refused_cookies_is_refused_with_a_plain_reason(two, monkeypatch):
     sent = _Posted(monkeypatch)
-    espn_auth.refused(two.a_id, "ESPN 401")
+    espn_auth.refused(espn_auth.own(two.a_id), "ESPN 401")
     with pytest.raises(espn_write.WriteError) as e:
         espn_write.add_free_agent(11, None, 8, ref=two.a)
     assert sent.calls == [] and "reconnect" in e.value.message.lower()

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFL</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --field: oklch(0.962 0.004 250); --panel: oklch(1 0 0); --ink: oklch(0.145 0 0); --muted: oklch(0.45 0 0);
+    --line: oklch(0.145 0 0 / 0.12); --bad: oklch(0.55 0.22 27);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --field: oklch(0.135 0.008 260); --panel: oklch(0.2 0.01 260); --ink: oklch(0.985 0 0); --muted: oklch(0.708 0 0);
+            --line: oklch(1 0 0 / 0.12); --bad: oklch(0.7 0.19 22); }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; width: 320px; max-width: 100%; background: var(--field); color: var(--ink);
+         font: 14px/1.5 system-ui, -apple-system, sans-serif; }
+  ::selection { background: oklch(0.86 0.22 130 / 0.5); }
+  main { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  section { display: flex; flex-direction: column; gap: 10px; }
+  section > button.primary { margin-top: 4px; }
+  .mark { font-weight: 800; font-size: 22px; letter-spacing: -0.01em; font-stretch: condensed; }
+  h1 { margin: 0; font-size: 20px; line-height: 1.15; font-weight: 700; font-stretch: condensed; text-wrap: balance; }
+  p { margin: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .bad { color: var(--bad); }
+  .code { font: 700 34px/1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.12em; text-align: center;
+          padding: 16px 8px; border-radius: 10px; background: var(--panel); box-shadow: 0 0 0 1px var(--line);
+          font-variant-numeric: tabular-nums; user-select: all; }
+  button { font: 500 15px/1 system-ui, -apple-system, sans-serif; height: 44px; padding: 0 16px; border-radius: 10px;
+           border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--ink); color: var(--field); border-color: transparent; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:focus-visible, a:focus-visible { outline: 2px solid oklch(0.86 0.22 130); outline-offset: 2px; }
+  .row { display: flex; gap: 8px; }
+  .row > button { flex: 1; }
+  .link { background: none; border: 0; height: auto; padding: 0; color: var(--muted); font-size: 13px;
+          text-decoration: underline; text-underline-offset: 3px; align-self: flex-start; }
+  ul { margin: 0; padding-left: 18px; }
+  li + li { margin-top: 4px; }
+  .rule { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <span class="mark">FFL</span>
+
+  <section id="disclose" hidden>
+    <h1>Connect this browser to FFL</h1>
+    <ul>
+      <li>FFL reads two of ESPN's cookies in this browser, <b>espn_s2</b> and <b>SWID</b>: your ESPN login.</li>
+      <li>They go only to FFL (<span id="host"></span>), to read your fantasy leagues and make the moves you ask for.</li>
+      <li>Nothing else is read, on ESPN or any other site.</li>
+    </ul>
+    <button id="open" class="primary">Open FFL to connect</button>
+    <p class="muted">Sign in to FFL there, then tap <b>Connect this browser</b>.</p>
+    <button id="connect" class="link">Use a code instead</button>
+    <p id="connect-error" class="bad" role="status"></p>
+  </section>
+
+  <section id="code-view" hidden>
+    <h1>Type this code in FFL</h1>
+    <div id="code" class="code" aria-live="polite"></div>
+    <div class="row"><button id="copy">Copy</button><button id="cancel">Cancel</button></div>
+    <p class="muted">In FFL: the Connect step, or Settings › Add an ESPN login. <span id="left"></span></p>
+    <p class="muted" id="waiting">Waiting for FFL… Come back here after typing it.</p>
+  </section>
+
+  <section id="paired" hidden>
+    <h1 id="paired-title">Connected to FFL</h1>
+    <p id="last"></p>
+    <p id="last-at" class="muted"></p>
+    <p id="hint" class="muted">Signing in to ESPN in this browser sends your login to FFL by itself.</p>
+    <button id="send">Send my ESPN login now</button>
+    <div class="rule">
+      <button id="again" class="link">Connect to another FFL account</button>
+      <button id="unpair" class="link">Disconnect this browser</button>
+    </div>
+  </section>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>

@@ -1464,6 +1464,39 @@ def test_a_build_a_move_drops_partway_is_not_installed():
     assert not c.has("roster"), "the revalidate that the move overtook leaves the key dropped"
 
 
+def test_a_page_stops_waiting_on_a_slow_first_build_and_the_build_goes_on():
+    """A league just added reads its whole season on its first page: past the page's wait the GET answers 503
+    `building` (the web says the league is still being imported) while the build carries on; the next GET joins that
+    build rather than starting another, and once it lands the page is served from the cache."""
+    c = api.Cache(120, ref=home_league())
+    gate, calls = threading.Event(), []
+
+    def slow():
+        calls.append(1)
+        gate.wait(5)
+        return {"n": 1}
+    with pytest.raises(api.Building) as e:
+        c.get_or_build("roster", slow, wait=0.05)
+    assert e.value.status_code == 503 and e.value.detail["error"] == "building"
+    with pytest.raises(api.Building):
+        c.get_or_build("roster", slow, wait=0.05)
+    gate.set()
+    assert c.get_or_build("roster", slow, wait=2)[0] == {"n": 1}
+    assert calls == [1], "one build, however many GETs asked while it ran"
+    assert c.get_or_build("roster", slow, wait=0.05)[0] == {"n": 1}
+
+
+def test_a_first_build_that_fails_behind_is_the_pages_502():
+    c = api.Cache(120, ref=home_league())
+
+    def broken():
+        raise RuntimeError("espn down")
+    with pytest.raises(api.HTTPException) as e:
+        c.get_or_build("roster", broken, wait=2)
+    assert e.value.status_code == 502
+    assert c.get_or_build("roster", lambda: {"n": 2}, wait=2)[0] == {"n": 2}, "a failed build leaves no build behind"
+
+
 def test_every_rewarm_thread_is_joined():
     c = api.Cache(120, ref=home_league())
     gate = threading.Event()

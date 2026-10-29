@@ -184,6 +184,9 @@ def test_public_routes_need_nothing(monkeypatch):
     assert r.status_code == 404 and r.json() == {"detail": "Not Found"}  # off: as if no such route
     for m, path in auth.PUBLIC:
         r = c.request(m, path)
+        if path in ("/espn/pair/poll", "/espn/cookies"):  # past the middleware, each checks its own secret
+            assert r.json() != auth.SIGNED_OUT and r.status_code in (400, 401), (m, path)
+            continue
         assert r.status_code not in (401, 403), (m, path)
 
 
@@ -191,7 +194,8 @@ def test_the_tables_are_the_briefs():
     assert auth.PUBLIC == {("GET", "/health"), ("HEAD", "/health"), ("GET", "/auth/providers"),
                            ("GET", "/auth/google/start"), ("GET", "/auth/google/callback"),
                            ("GET", "/auth/apple/start"), ("GET", "/auth/apple/callback"),
-                           ("POST", "/auth/apple/callback"), ("POST", "/auth/dev")}
+                           ("POST", "/auth/apple/callback"), ("POST", "/auth/dev"),
+                           ("POST", "/espn/pair/start"), ("POST", "/espn/pair/poll"), ("POST", "/espn/cookies")}
     assert auth.JOB_ONLY == {("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"),
                              ("POST", "/refresh")}
     assert auth.JOB_OR_USER == {("POST", "/outlook/refresh")}

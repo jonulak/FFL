@@ -1,10 +1,13 @@
 import { TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { LeagueImporting } from "./league-importing";
 
 // Plain serialisable props only: an Error object passed through JSX props can carry a
 // `cause` chain (AggregateError from a refused fetch) that React Flight cannot serialise.
+// A page still being built for the first time (the API's 503 `building`) is no error: it says the league is importing.
 export function ErrorCard({ status, source, message }: { status: number; source: string; message: string }) {
+  if (status === 503 && message === "building") return <LeagueImporting />;
   return (
     <Alert variant="destructive" className="log-in border-destructive/40 bg-destructive/10 px-4 py-3">
       <TriangleAlert aria-hidden />

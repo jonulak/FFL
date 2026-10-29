@@ -63,7 +63,7 @@ def source_off(name: str) -> bool:
 
 
 _LEAGUES: dict[tuple[str, int, bool], object] = {}  # (provider_id, season, fetch_league) -> its espn-api League
-_LEAGUES_BY: dict[tuple[str, int, bool], int | None] = {}  # the same key -> whose cookies built it (None: none)
+_LEAGUES_BY: dict[tuple[str, int, bool], object] = {}  # the same key -> the espn_auth.Cookies that built it (None: none)
 _LEAGUES_LOCK = threading.Lock()
 
 
@@ -84,12 +84,12 @@ def _build(ref, fetch_league: bool):
         except ESPNAccessDenied as e:
             if c is None:
                 raise espn_auth.NoConnection(ref.key) from e
-            espn_auth.refused(c.user_id, str(e))
+            espn_auth.refused(c, str(e))
             tried.add(c.user_id)
             continue
         if c is not None:
             espn_auth.passed(c)
-        return built, c.user_id if c else None
+        return built, c
 
 
 def league(ref, fetch_league: bool = True):
@@ -122,7 +122,7 @@ def _evict(ref) -> None:
 def _evict_user(user_id: int) -> None:
     """Drop every cached League built with `user_id`'s cookies (they changed, were refused, or the user left)."""
     with _LEAGUES_LOCK:
-        for key in [k for k, by in _LEAGUES_BY.items() if by == user_id]:
+        for key in [k for k, by in _LEAGUES_BY.items() if by is not None and by.user_id == user_id]:
             _LEAGUES.pop(key, None)
             del _LEAGUES_BY[key]
 

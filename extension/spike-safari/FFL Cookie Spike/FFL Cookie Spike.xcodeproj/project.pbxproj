@@ -1,0 +1,1032 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		C44AA8573092685F0066C393 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44AA8563092685F0066C393 /* AppDelegate.swift */; };
+		C44AA8593092685F0066C393 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44AA8583092685F0066C393 /* SceneDelegate.swift */; };
+		C44AA85C3092685F0066C393 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = C44AA85A3092685F0066C393 /* LaunchScreen.storyboard */; };
+		C44AA85F3092685F0066C393 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = C44AA85D3092685F0066C393 /* Main.storyboard */; };
+		C44AA8683092685F0066C393 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44AA8673092685F0066C393 /* AppDelegate.swift */; };
+		C44AA86B3092685F0066C393 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8693092685F0066C393 /* Main.storyboard */; };
+		C44AA8723092685F0066C393 /* FFL Cookie Spike Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C44AA8713092685F0066C393 /* FFL Cookie Spike Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C44AA87C3092685F0066C393 /* FFL Cookie Spike Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C44AA8813092685F0066C393 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8463092685F0066C393 /* Main.html */; };
+		C44AA8823092685F0066C393 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8463092685F0066C393 /* Main.html */; };
+		C44AA8833092685F0066C393 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8483092685F0066C393 /* Icon.png */; };
+		C44AA8843092685F0066C393 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8483092685F0066C393 /* Icon.png */; };
+		F1C1A0000000000000000011 /* setup-settings.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = F1C1A0000000000000000001 /* setup-settings.mp4 */; };
+		F1C1A0000000000000000021 /* setup-settings.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = F1C1A0000000000000000001 /* setup-settings.mp4 */; };
+		F1C1A0000000000000000012 /* setup-settings.jpg in Resources */ = {isa = PBXBuildFile; fileRef = F1C1A0000000000000000002 /* setup-settings.jpg */; };
+		F1C1A0000000000000000022 /* setup-settings.jpg in Resources */ = {isa = PBXBuildFile; fileRef = F1C1A0000000000000000002 /* setup-settings.jpg */; };
+		C44AA8853092685F0066C393 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8493092685F0066C393 /* Style.css */; };
+		C44AA8863092685F0066C393 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8493092685F0066C393 /* Style.css */; };
+		C44AA8873092685F0066C393 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA84A3092685F0066C393 /* Script.js */; };
+		C44AA8883092685F0066C393 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA84A3092685F0066C393 /* Script.js */; };
+		C44AA8893092685F0066C393 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44AA84B3092685F0066C393 /* ViewController.swift */; };
+		C44AA88A3092685F0066C393 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44AA84B3092685F0066C393 /* ViewController.swift */; };
+		C44AA88B3092685F0066C393 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C44AA84C3092685F0066C393 /* Assets.xcassets */; };
+		C44AA88C3092685F0066C393 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C44AA84C3092685F0066C393 /* Assets.xcassets */; };
+		C44AA88D3092685F0066C393 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44AA84E3092685F0066C393 /* SafariWebExtensionHandler.swift */; };
+		C44AA88E3092685F0066C393 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44AA84E3092685F0066C393 /* SafariWebExtensionHandler.swift */; };
+		C44AA8A5309268600066C393 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A0309268600066C393 /* popup.js */; };
+		C44AA8A6309268600066C393 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A1309268600066C393 /* background.js */; };
+		C44AA8A7309268600066C393 /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A2309268600066C393 /* popup.html */; };
+		C44AA8A8309268600066C393 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A3309268600066C393 /* manifest.json */; };
+		C44AA8A9309268600066C393 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A4309268600066C393 /* content.js */; };
+		C44AA8AA309268600066C393 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A0309268600066C393 /* popup.js */; };
+		C44AA8AB309268600066C393 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A1309268600066C393 /* background.js */; };
+		C44AA8AC309268600066C393 /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A2309268600066C393 /* popup.html */; };
+		C44AA8AD309268600066C393 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A3309268600066C393 /* manifest.json */; };
+		C44AA8AE309268600066C393 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A4309268600066C393 /* content.js */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C44AA8733092685F0066C393 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C44AA8403092685F0066C393 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C44AA8703092685F0066C393;
+			remoteInfo = "FFL Cookie Spike Extension (iOS)";
+		};
+		C44AA87D3092685F0066C393 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C44AA8403092685F0066C393 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C44AA87A3092685F0066C393;
+			remoteInfo = "FFL Cookie Spike Extension (macOS)";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C44AA8943092685F0066C393 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				C44AA8723092685F0066C393 /* FFL Cookie Spike Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA89B3092685F0066C393 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				C44AA87C3092685F0066C393 /* FFL Cookie Spike Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		C44AA8473092685F0066C393 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		C44AA8483092685F0066C393 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		F1C1A0000000000000000001 /* setup-settings.mp4 */ = {isa = PBXFileReference; lastKnownFileType = video.mpeg4; path = setup-settings.mp4; sourceTree = "<group>"; };
+		F1C1A0000000000000000002 /* setup-settings.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = setup-settings.jpg; sourceTree = "<group>"; };
+		C44AA8493092685F0066C393 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		C44AA84A3092685F0066C393 /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		C44AA84B3092685F0066C393 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		C44AA84C3092685F0066C393 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C44AA84E3092685F0066C393 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		C44AA8533092685F0066C393 /* FFL Cookie Spike.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FFL Cookie Spike.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C44AA8563092685F0066C393 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		C44AA8583092685F0066C393 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		C44AA85B3092685F0066C393 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		C44AA85E3092685F0066C393 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		C44AA8603092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C44AA8653092685F0066C393 /* FFL Cookie Spike.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FFL Cookie Spike.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C44AA8673092685F0066C393 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		C44AA86A3092685F0066C393 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		C44AA86C3092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C44AA8713092685F0066C393 /* FFL Cookie Spike Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "FFL Cookie Spike Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C44AA8763092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "FFL Cookie Spike Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C44AA8803092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C44AA8A0309268600066C393 /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = ../../../ffl/dist/safari/popup.js; sourceTree = "<group>"; };
+		C44AA8A1309268600066C393 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../../ffl/dist/safari/background.js; sourceTree = "<group>"; };
+		C44AA8A2309268600066C393 /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = popup.html; path = ../../../ffl/dist/safari/popup.html; sourceTree = "<group>"; };
+		C44AA8A3309268600066C393 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../../ffl/dist/safari/manifest.json; sourceTree = "<group>"; };
+		C44AA8A4309268600066C393 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../../ffl/dist/safari/content.js; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C44AA8503092685F0066C393 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA8623092685F0066C393 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA86E3092685F0066C393 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA8783092685F0066C393 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C44AA83F3092685F0066C393 = {
+			isa = PBXGroup;
+			children = (
+				C44AA8443092685F0066C393 /* Shared (App) */,
+				C44AA84D3092685F0066C393 /* Shared (Extension) */,
+				C44AA8553092685F0066C393 /* iOS (App) */,
+				C44AA8663092685F0066C393 /* macOS (App) */,
+				C44AA8753092685F0066C393 /* iOS (Extension) */,
+				C44AA87F3092685F0066C393 /* macOS (Extension) */,
+				C44AA8543092685F0066C393 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C44AA8443092685F0066C393 /* Shared (App) */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA84B3092685F0066C393 /* ViewController.swift */,
+				C44AA84C3092685F0066C393 /* Assets.xcassets */,
+				C44AA8453092685F0066C393 /* Resources */,
+			);
+			path = "Shared (App)";
+			sourceTree = "<group>";
+		};
+		C44AA8453092685F0066C393 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA8463092685F0066C393 /* Main.html */,
+				C44AA8483092685F0066C393 /* Icon.png */,
+				F1C1A0000000000000000001 /* setup-settings.mp4 */,
+				F1C1A0000000000000000002 /* setup-settings.jpg */,
+				C44AA8493092685F0066C393 /* Style.css */,
+				C44AA84A3092685F0066C393 /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		C44AA84D3092685F0066C393 /* Shared (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA89F309268600066C393 /* Resources */,
+				C44AA84E3092685F0066C393 /* SafariWebExtensionHandler.swift */,
+			);
+			path = "Shared (Extension)";
+			sourceTree = "<group>";
+		};
+		C44AA8543092685F0066C393 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA8533092685F0066C393 /* FFL Cookie Spike.app */,
+				C44AA8653092685F0066C393 /* FFL Cookie Spike.app */,
+				C44AA8713092685F0066C393 /* FFL Cookie Spike Extension.appex */,
+				C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C44AA8553092685F0066C393 /* iOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA8563092685F0066C393 /* AppDelegate.swift */,
+				C44AA8583092685F0066C393 /* SceneDelegate.swift */,
+				C44AA85A3092685F0066C393 /* LaunchScreen.storyboard */,
+				C44AA85D3092685F0066C393 /* Main.storyboard */,
+				C44AA8603092685F0066C393 /* Info.plist */,
+			);
+			path = "iOS (App)";
+			sourceTree = "<group>";
+		};
+		C44AA8663092685F0066C393 /* macOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA8673092685F0066C393 /* AppDelegate.swift */,
+				C44AA8693092685F0066C393 /* Main.storyboard */,
+				C44AA86C3092685F0066C393 /* Info.plist */,
+			);
+			path = "macOS (App)";
+			sourceTree = "<group>";
+		};
+		C44AA8753092685F0066C393 /* iOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA8763092685F0066C393 /* Info.plist */,
+			);
+			path = "iOS (Extension)";
+			sourceTree = "<group>";
+		};
+		C44AA87F3092685F0066C393 /* macOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA8803092685F0066C393 /* Info.plist */,
+			);
+			path = "macOS (Extension)";
+			sourceTree = "<group>";
+		};
+		C44AA89F309268600066C393 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C44AA8A0309268600066C393 /* popup.js */,
+				C44AA8A1309268600066C393 /* background.js */,
+				C44AA8A2309268600066C393 /* popup.html */,
+				C44AA8A3309268600066C393 /* manifest.json */,
+				C44AA8A4309268600066C393 /* content.js */,
+			);
+			name = Resources;
+			path = "Shared (Extension)";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C44AA8523092685F0066C393 /* FFL Cookie Spike (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C44AA8953092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike (iOS)" */;
+			buildPhases = (
+				C44AA84F3092685F0066C393 /* Sources */,
+				C44AA8503092685F0066C393 /* Frameworks */,
+				C44AA8513092685F0066C393 /* Resources */,
+				C44AA8943092685F0066C393 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C44AA8743092685F0066C393 /* PBXTargetDependency */,
+			);
+			name = "FFL Cookie Spike (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "FFL Cookie Spike (iOS)";
+			productReference = C44AA8533092685F0066C393 /* FFL Cookie Spike.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C44AA8643092685F0066C393 /* FFL Cookie Spike (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C44AA89C3092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike (macOS)" */;
+			buildPhases = (
+				C44AA8613092685F0066C393 /* Sources */,
+				C44AA8623092685F0066C393 /* Frameworks */,
+				C44AA8633092685F0066C393 /* Resources */,
+				C44AA89B3092685F0066C393 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C44AA87E3092685F0066C393 /* PBXTargetDependency */,
+			);
+			name = "FFL Cookie Spike (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "FFL Cookie Spike (macOS)";
+			productReference = C44AA8653092685F0066C393 /* FFL Cookie Spike.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C44AA8703092685F0066C393 /* FFL Cookie Spike Extension (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C44AA8913092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike Extension (iOS)" */;
+			buildPhases = (
+				FF10A1000000000000000001 /* Build the extension for FFL_ORIGIN */,
+				C44AA86D3092685F0066C393 /* Sources */,
+				C44AA86E3092685F0066C393 /* Frameworks */,
+				C44AA86F3092685F0066C393 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "FFL Cookie Spike Extension (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "FFL Cookie Spike Extension (iOS)";
+			productReference = C44AA8713092685F0066C393 /* FFL Cookie Spike Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		C44AA87A3092685F0066C393 /* FFL Cookie Spike Extension (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C44AA8983092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike Extension (macOS)" */;
+			buildPhases = (
+				C44AA8773092685F0066C393 /* Sources */,
+				C44AA8783092685F0066C393 /* Frameworks */,
+				C44AA8793092685F0066C393 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "FFL Cookie Spike Extension (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "FFL Cookie Spike Extension (macOS)";
+			productReference = C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C44AA8403092685F0066C393 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					C44AA8523092685F0066C393 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					C44AA8643092685F0066C393 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					C44AA8703092685F0066C393 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					C44AA87A3092685F0066C393 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = C44AA8433092685F0066C393 /* Build configuration list for PBXProject "FFL Cookie Spike" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = C44AA83F3092685F0066C393;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C44AA8543092685F0066C393 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C44AA8523092685F0066C393 /* FFL Cookie Spike (iOS) */,
+				C44AA8643092685F0066C393 /* FFL Cookie Spike (macOS) */,
+				C44AA8703092685F0066C393 /* FFL Cookie Spike Extension (iOS) */,
+				C44AA87A3092685F0066C393 /* FFL Cookie Spike Extension (macOS) */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C44AA8513092685F0066C393 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C44AA8833092685F0066C393 /* Icon.png in Resources */,
+				F1C1A0000000000000000011 /* setup-settings.mp4 in Resources */,
+				F1C1A0000000000000000012 /* setup-settings.jpg in Resources */,
+				C44AA85C3092685F0066C393 /* LaunchScreen.storyboard in Resources */,
+				C44AA8813092685F0066C393 /* Main.html in Resources */,
+				C44AA8873092685F0066C393 /* Script.js in Resources */,
+				C44AA88B3092685F0066C393 /* Assets.xcassets in Resources */,
+				C44AA85F3092685F0066C393 /* Main.storyboard in Resources */,
+				C44AA8853092685F0066C393 /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA8633092685F0066C393 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C44AA8843092685F0066C393 /* Icon.png in Resources */,
+				F1C1A0000000000000000021 /* setup-settings.mp4 in Resources */,
+				F1C1A0000000000000000022 /* setup-settings.jpg in Resources */,
+				C44AA8863092685F0066C393 /* Style.css in Resources */,
+				C44AA86B3092685F0066C393 /* Main.storyboard in Resources */,
+				C44AA8883092685F0066C393 /* Script.js in Resources */,
+				C44AA88C3092685F0066C393 /* Assets.xcassets in Resources */,
+				C44AA8823092685F0066C393 /* Main.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA86F3092685F0066C393 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C44AA8AD309268600066C393 /* manifest.json in Resources */,
+				C44AA8AB309268600066C393 /* background.js in Resources */,
+				C44AA8AC309268600066C393 /* popup.html in Resources */,
+				C44AA8AA309268600066C393 /* popup.js in Resources */,
+				C44AA8AE309268600066C393 /* content.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA8793092685F0066C393 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C44AA8A8309268600066C393 /* manifest.json in Resources */,
+				C44AA8A6309268600066C393 /* background.js in Resources */,
+				C44AA8A7309268600066C393 /* popup.html in Resources */,
+				C44AA8A5309268600066C393 /* popup.js in Resources */,
+				C44AA8A9309268600066C393 /* content.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		FF10A1000000000000000001 /* Build the extension for FFL_ORIGIN */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build the extension for FFL_ORIGIN";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/../ffl-origin.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C44AA84F3092685F0066C393 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C44AA8893092685F0066C393 /* ViewController.swift in Sources */,
+				C44AA8573092685F0066C393 /* AppDelegate.swift in Sources */,
+				C44AA8593092685F0066C393 /* SceneDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA8613092685F0066C393 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C44AA88A3092685F0066C393 /* ViewController.swift in Sources */,
+				C44AA8683092685F0066C393 /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA86D3092685F0066C393 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C44AA88D3092685F0066C393 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44AA8773092685F0066C393 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C44AA88E3092685F0066C393 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C44AA8743092685F0066C393 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C44AA8703092685F0066C393 /* FFL Cookie Spike Extension (iOS) */;
+			targetProxy = C44AA8733092685F0066C393 /* PBXContainerItemProxy */;
+		};
+		C44AA87E3092685F0066C393 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C44AA87A3092685F0066C393 /* FFL Cookie Spike Extension (macOS) */;
+			targetProxy = C44AA87D3092685F0066C393 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		C44AA8463092685F0066C393 /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				C44AA8473092685F0066C393 /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		C44AA85A3092685F0066C393 /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				C44AA85B3092685F0066C393 /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		C44AA85D3092685F0066C393 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				C44AA85E3092685F0066C393 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+		C44AA8693092685F0066C393 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				C44AA86A3092685F0066C393 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		C44AA88F3092685F0066C393 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				FFL_ORIGIN_DEFAULT = "https://macbook-pro.tailnet.ts.net:3302";
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		C44AA8903092685F0066C393 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				FFL_ORIGIN_DEFAULT = "https://ffl.whitebridgelabs.com";
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		C44AA8923092685F0066C393 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QYT6X3UW99;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike.Extension";
+				PRODUCT_NAME = "FFL Cookie Spike Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C44AA8933092685F0066C393 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QYT6X3UW99;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike.Extension";
+				PRODUCT_NAME = "FFL Cookie Spike Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		C44AA8963092685F0066C393 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QYT6X3UW99;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike";
+				PRODUCT_NAME = "FFL Cookie Spike";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C44AA8973092685F0066C393 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QYT6X3UW99;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike";
+				PRODUCT_NAME = "FFL Cookie Spike";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		C44AA8993092685F0066C393 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QYT6X3UW99;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike.Extension";
+				PRODUCT_NAME = "FFL Cookie Spike Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C44AA89A3092685F0066C393 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QYT6X3UW99;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike.Extension";
+				PRODUCT_NAME = "FFL Cookie Spike Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C44AA89D3092685F0066C393 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QYT6X3UW99;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike";
+				PRODUCT_NAME = "FFL Cookie Spike";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C44AA89E3092685F0066C393 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QYT6X3UW99;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike";
+				PRODUCT_NAME = "FFL Cookie Spike";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C44AA8433092685F0066C393 /* Build configuration list for PBXProject "FFL Cookie Spike" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C44AA88F3092685F0066C393 /* Debug */,
+				C44AA8903092685F0066C393 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C44AA8913092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike Extension (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C44AA8923092685F0066C393 /* Debug */,
+				C44AA8933092685F0066C393 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C44AA8953092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C44AA8963092685F0066C393 /* Debug */,
+				C44AA8973092685F0066C393 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C44AA8983092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike Extension (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C44AA8993092685F0066C393 /* Debug */,
+				C44AA89A3092685F0066C393 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C44AA89C3092685F0066C393 /* Build configuration list for PBXNativeTarget "FFL Cookie Spike (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C44AA89D3092685F0066C393 /* Debug */,
+				C44AA89E3092685F0066C393 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = C44AA8403092685F0066C393 /* Project object */;
+}
