@@ -40,7 +40,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import auth, espn_auth, fastcast, news, playbook, vault, watch
+from . import auth, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -501,6 +501,7 @@ app.add_middleware(SessionMiddleware, secret_key=auth.oidc_secret() or secrets.t
 app.add_middleware(auth.AuthMiddleware)  # every route needs a session or the job token (auth.decide)
 app.add_exception_handler(auth.SignedOut, auth.signed_out_handler)
 app.include_router(auth.router)
+app.include_router(espn_connect.router)  # /espn/*: pairing the extension, the cookies, the connection
 
 
 def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: LeagueRef) -> dict:
@@ -1887,7 +1888,8 @@ def notify_tick():
                         ((n, functools.partial(fn, ref=r)) for n, fn in
                          (("rollover", rollover_pass), ("corrections", correction_pass), ("watch", watch_members),
                           ("pregame", pregame_pull))))
-        _tick_steps(out, (("final_plays", final_plays), ("sessions", db.sweep_sessions)))
+        _tick_steps(out, (("final_plays", final_plays), ("sessions", db.sweep_sessions),
+                         ("pairings", db.sweep_pairings)))
     finally:
         _NOTIFY.release()
     return out

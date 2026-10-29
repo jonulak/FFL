@@ -35,6 +35,7 @@ class SchemaError(RuntimeError):
 
 
 DBError = sa.exc.SQLAlchemyError  # callers outside db.py catch DB errors through this
+IntegrityError = sa.exc.IntegrityError  # a unique key taken (a DBError too)
 
 
 def _season():
@@ -520,6 +521,32 @@ espn_credentials = sa.Table(
     sa.Column("last_ok", sa.String),
     sa.Column("failing_since", sa.String),
     sa.Column("failing_reason", sa.String),
+)
+
+# Pairing the browser extension to an account (ffl-soc.6.3.3, ffl/espn_connect.py): the extension starts one and shows
+# its code, the signed-in user types the code (confirmed: user_id set), the extension's poll then turns it into an
+# extension_devices row and the pairing is deleted. Only hashes are stored.
+espn_pairings = sa.Table(
+    "espn_pairings", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("code_hash", sa.String, nullable=False, unique=True),
+    sa.Column("poll_hash", sa.String, nullable=False, unique=True),
+    sa.Column("label", sa.String, nullable=False),
+    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE")),  # NULL until confirmed
+    sa.Column("created_at", sa.String, nullable=False),
+    sa.Column("expires_at", sa.String, nullable=False),
+    sa.Column("confirmed_at", sa.String),
+)
+# A paired extension: its token can do one thing, send the user's ESPN cookies (POST /espn/cookies). Revoking deletes it.
+extension_devices = sa.Table(
+    "extension_devices", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("token_hash", sa.String, nullable=False, unique=True),
+    _user(),
+    sa.Column("label", sa.String, nullable=False),
+    sa.Column("created_at", sa.String, nullable=False),
+    sa.Column("last_used_at", sa.String),
+    sa.Index("ix_extension_devices_user", "user_id"),
 )
 
 # The notification outbox (ffl/notify.py): every detector inserts if absent on key, so an event is one notice however
@@ -2645,6 +2672,96 @@ def reseal_all() -> int:
                           .values(keys=vault.seal(plain, aad=_push_aad(endpoint))))
                 n += 1
     return n
+
+
+def create_pairing(code: str, poll_secret: str, label: str, ttl_s: int) -> None:
+    """A pending pairing; only the hashes of the code and the poll secret are stored."""
+    from datetime import timedelta
+    now = _utc_now()
+    with _write() as c:
+        c.execute(sa.insert(espn_pairings).values(
+            code_hash=_token_hash(code), poll_hash=_token_hash(poll_secret), label=label, created_at=_iso(now),
+            expires_at=_iso(now + timedelta(seconds=ttl_s))))
+
+
+def open_pairings() -> int:
+    """Live pairings nobody has confirmed yet (the ceiling on unauthenticated starts)."""
+    t = espn_pairings
+    with _read() as c:
+        return c.execute(sa.select(sa.func.count()).select_from(t).where(
+            t.c.user_id.is_(None), t.c.expires_at > _iso(_utc_now()))).scalar_one()
+
+
+def confirm_pairing(code: str, user_id: int) -> str | None:
+    """Bind a live, unconfirmed pairing to the user; its label, or None when no such code is pending."""
+    t = espn_pairings
+    now = _iso(_utc_now())
+    with _write() as c:
+        return c.execute(sa.update(t).where(t.c.code_hash == _token_hash(code), t.c.user_id.is_(None),
+                                            t.c.expires_at > now)
+                         .values(user_id=user_id, confirmed_at=now).returning(t.c.label)).scalar()
+
+
+def poll_pairing(poll_secret: str, device_token: str) -> tuple[str, int | None]:
+    """("pending", None) until confirmed; ("connected", device id) once, when the confirmed pairing becomes a device
+    under `device_token` (stored hashed) and the pairing is deleted; ("expired", None) for an unknown or lapsed one."""
+    t = espn_pairings
+    now = _iso(_utc_now())
+    h = _token_hash(poll_secret)
+    with _read() as c:   # anyone may poll: a secret that matches nothing never opens a write
+        if c.execute(sa.select(t.c.id).where(t.c.poll_hash == h)).first() is None:
+            return "expired", None
+    with _write() as c:
+        r = c.execute(sa.select(t).where(t.c.poll_hash == h).with_for_update()).first()
+        if r is None:
+            return "expired", None
+        if r.user_id is None:
+            return ("pending", None) if r.expires_at > now else ("expired", None)
+        device = c.execute(sa.insert(extension_devices).values(
+            token_hash=_token_hash(device_token), user_id=r.user_id, label=r.label, created_at=now)
+            .returning(extension_devices.c.id)).scalar_one()
+        c.execute(sa.delete(t).where(t.c.id == r.id))
+        return "connected", device
+
+
+def sweep_pairings() -> int:
+    """Delete every pairing past expires_at, confirmed or not (an extension that never polled pairs again)."""
+    with _write() as c:
+        return c.execute(sa.delete(espn_pairings).where(espn_pairings.c.expires_at <= _iso(_utc_now()))).rowcount
+
+
+def device_user(token: str) -> tuple[int, int] | None:
+    """(device id, user id) for a paired extension's token, marking it used; None for an unknown or revoked one."""
+    t = extension_devices
+    h = _token_hash(token)
+    with _read() as c:   # anyone may present a token: one that matches nothing never opens a write
+        if c.execute(sa.select(t.c.id).where(t.c.token_hash == h)).first() is None:
+            return None
+    with _write() as c:
+        r = c.execute(sa.update(t).where(t.c.token_hash == h).values(last_used_at=_iso(_utc_now()))
+                      .returning(t.c.id, t.c.user_id)).first()
+    return (r.id, r.user_id) if r else None
+
+
+def user_devices(user_id: int) -> list[dict]:
+    """The user's paired extensions, newest first: id, label, created_at, last_used_at."""
+    t = extension_devices
+    with _read() as c:
+        rows = c.execute(sa.select(t.c.id, t.c.label, t.c.created_at, t.c.last_used_at)
+                         .where(t.c.user_id == user_id).order_by(t.c.id.desc())).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def revoke_device(user_id: int, device_id: int) -> bool:
+    """Unpair one of the user's extensions; False when they have none by that id."""
+    t = extension_devices
+    with _write() as c:
+        return c.execute(sa.delete(t).where(t.c.user_id == user_id, t.c.id == device_id)).rowcount > 0
+
+
+def revoke_devices(user_id: int) -> int:
+    with _write() as c:
+        return c.execute(sa.delete(extension_devices).where(extension_devices.c.user_id == user_id)).rowcount
 
 
 def delete_user(user_id: int) -> None:

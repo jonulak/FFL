@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FFL cookie spike</title>
+  <style>
+    :root { color-scheme: light dark; font: 13px/1.4 -apple-system, system-ui, sans-serif; }
+    body { margin: 0; padding: 12px; min-width: 300px; max-width: 420px; }
+    h1 { font-size: 15px; margin: 0 0 4px; }
+    p { margin: 0 0 10px; opacity: .75; }
+    button { font: inherit; padding: 8px 12px; margin: 0 6px 10px 0; border-radius: 8px; }
+    pre { white-space: pre-wrap; word-break: break-word; font: 11px/1.35 ui-monospace, monospace; margin: 0; }
+    .ok { color: #1a7f37; } .no { color: #cf222e; }
+    #verdict { font-weight: 600; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <h1>FFL cookie spike</h1>
+  <p>Open an espn.com page signed in first. This shows whether each cookie is readable (and its length), never its value, and sends nothing.</p>
+  <button id="run">Read again</button><button id="copy">Copy report</button>
+  <div id="verdict"></div>
+  <pre id="out">reading…</pre>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+    <link rel="stylesheet" href="../Style.css">
+    <script src="../Script.js" defer></script>
+</head>
+<body>
+    <header>
+        <img src="../Icon.png" width="72" height="72" alt="">
+        <h1>FFL Cookie Spike</h1>
+    </header>
+
+    <!-- data-show: the extension's state (on / off / unknown: no SFSafariExtensionManager before iOS 26.2); data-open: whether Settings opens at the extension -->
+    <section class="platform-ios">
+        <p class="status off" data-show="off"><span class="dot"></span>The extension is off</p>
+        <p class="status on" data-show="on"><span class="dot"></span>The extension is on</p>
+
+        <ol class="steps">
+            <li data-show="off unknown"><b>Turn on the extension.</b> <span data-open="yes">Tap the button below, then turn on <i>Allow Extension</i>.</span><span data-open="no">Open Settings, then Apps › Safari › Extensions › FFL Cookie Spike, and turn on <i>Allow Extension</i>.</span></li>
+            <li><b>Allow it on ESPN.</b> In the extension’s settings, under Permissions, set <i>espn.com</i> to <i>Allow</i>.
+                <figure class="clip">
+                    <video src="../setup-settings.mp4" poster="../setup-settings.jpg" autoplay loop muted playsinline
+                           disablepictureinpicture aria-label="Turning on Allow Extension, then setting espn.com to Allow"></video>
+                    <img src="../setup-settings.jpg" alt="The extension's settings: Allow Extension on, espn.com set to Allow">
+                </figure>
+            </li>
+            <li><b>Sign in to ESPN in Safari.</b> Open ESPN Fantasy and sign in, then reload the page.</li>
+            <li><b>Open the extension.</b> On ESPN, tap the page menu at the left of Safari’s address bar, then <i>FFL cookie spike</i>.</li>
+        </ol>
+
+        <div class="actions">
+            <button class="primary open-settings" data-show="off unknown" data-open="yes">Open Safari Extension Settings</button>
+            <button class="primary open-espn" data-show="on">Open ESPN Fantasy in Safari</button>
+            <button class="secondary open-settings" data-show="on" data-open="yes">Extension Settings</button>
+            <button class="secondary open-espn" data-show="off unknown">Open ESPN Fantasy in Safari</button>
+        </div>
+        <p class="note">Come back here any time to check the extension is still on.</p>
+    </section>
+
+    <section class="platform-mac">
+        <p class="status off" data-show="off"><span class="dot"></span>The extension is off</p>
+        <p class="status on" data-show="on"><span class="dot"></span>The extension is on</p>
+        <p data-show="unknown">Turn on FFL Cookie Spike in Safari’s Extensions settings.</p>
+        <p>In Safari Settings › Extensions, turn on FFL Cookie Spike and allow it on espn.com. Then sign in on espn.com and click the extension’s toolbar icon.</p>
+        <div class="actions">
+            <button class="primary open-preferences">Quit and Open Safari Settings…</button>
+        </div>
+    </section>
+</body>
+</html>

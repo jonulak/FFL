@@ -131,6 +131,11 @@ def _fill(ref: leagues.LeagueRef) -> None:
                      "decision": "d"}, ref=ref)
     db.put_sit(3, 202, True, ref=ref)
     db.create_session(ref.user_id, "ua")
+    db.create_pairing(f"C{ref.user_id}{ref.key}", f"poll-{ref.user_id}{ref.key}", "Safari on iPhone", 600)
+    db.confirm_pairing(f"C{ref.user_id}{ref.key}", ref.user_id)
+    db.create_pairing(f"D{ref.user_id}{ref.key}", f"poll-d{ref.user_id}{ref.key}", "Chrome on Mac", 600)
+    db.confirm_pairing(f"D{ref.user_id}{ref.key}", ref.user_id)
+    db.poll_pairing(f"poll-d{ref.user_id}{ref.key}", f"token-{ref.user_id}{ref.key}")   # a paired extension
     with db._write() as c:
         c.execute(sa.insert(db.page_cache).values(league=ref.key, season=ref.season, key="week:3", payload={},
                                                   built_at=0, user_id=ref.user_id))

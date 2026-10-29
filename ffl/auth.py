@@ -53,7 +53,9 @@ NET_ERRORS = (httpx.HTTPError, authlib_httpx.HTTPError)
 PUBLIC: frozenset[tuple[str, str]] = frozenset({
     ("GET", "/health"), ("HEAD", "/health"), ("GET", "/auth/providers"), ("GET", "/auth/google/start"),
     ("GET", "/auth/google/callback"), ("GET", "/auth/apple/start"),
-    ("GET", "/auth/apple/callback"), ("POST", "/auth/apple/callback"), ("POST", "/auth/dev")})
+    ("GET", "/auth/apple/callback"), ("POST", "/auth/apple/callback"), ("POST", "/auth/dev"),
+    # the browser extension's (ffl/espn_connect.py): each checks its own secret (poll secret, device token)
+    ("POST", "/espn/pair/start"), ("POST", "/espn/pair/poll"), ("POST", "/espn/cookies")})
 # The timers' routes: the job token only (signed in without it is 403, signed out 401).
 JOB_ONLY: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"), ("POST", "/refresh")})

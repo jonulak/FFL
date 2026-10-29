@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "FFL cookie spike",
+  "version": "0.0.1",
+  "description": "ffl-soc.6.3.1: can this browser's extension read ESPN's espn_s2 and SWID? Reports presence and length only, never a value, and sends nothing anywhere.",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": ["*://*.espn.com/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["*://*.espn.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ],
+  "action": { "default_title": "FFL cookie spike", "default_popup": "popup.html" }
+}

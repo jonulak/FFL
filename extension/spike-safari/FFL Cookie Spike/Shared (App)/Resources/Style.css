@@ -1,0 +1,86 @@
+* {
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    cursor: default;
+    box-sizing: border-box;
+}
+
+:root {
+    color-scheme: light dark;
+    --ink: #1c1c1e;
+    --muted: #6e6e73;
+    --surface: #f2f2f7;
+    --page: #ffffff;
+    --accent: #0a66d8;
+    --accent-fill: #0a66d8;
+    --on: #1f8a3b;
+    --off: #c4372c;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --ink: #f2f2f7;
+        --muted: #a1a1a6;
+        --surface: #1c1c1e;
+        --page: #000000;
+        --accent: #4c9bff;
+        --on: #43c463;
+        --off: #ff6b5e;
+    }
+}
+
+body {
+    margin: 0;
+    padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+    font: -apple-system-body;
+    color: var(--ink);
+    background: var(--page);
+    max-width: 520px;
+    margin-inline: auto;
+}
+
+header { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+header img { border-radius: 16px; }
+h1 { font-size: 1.4em; margin: 0; }
+
+.status { display: flex; align-items: center; gap: 10px; font-weight: 600; margin: 0 0 16px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+.status.on .dot { background: var(--on); }
+.status.off .dot { background: var(--off); }
+
+.steps { margin: 0 0 24px; padding-left: 1.4em; }
+.steps li { margin-bottom: 12px; line-height: 1.4; }
+.steps li::marker { color: var(--muted); font-weight: 600; }
+
+.actions { display: flex; flex-direction: column; gap: 10px; }
+button {
+    font: -apple-system-headline;
+    min-height: 50px;
+    border-radius: 12px;
+    border: 0;
+    padding: 0 16px;
+}
+button.primary { background: var(--accent-fill); color: #fff; }   /* white text keeps 5.6:1 in dark mode too */
+button.secondary { background: var(--surface); color: var(--accent); }
+
+/* the setup clip: a phone screen, looping; a still in its place under Reduce Motion */
+.clip { margin: 12px 0 4px; display: flex; justify-content: center; }
+.clip video, .clip img {
+    width: min(56vw, 220px);
+    aspect-ratio: 1206 / 2622;
+    border-radius: 22px;
+    border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+    background: var(--surface);
+}
+.clip img { display: none; }
+@media (prefers-reduced-motion: reduce) {
+    .clip video { display: none; }
+    .clip img { display: block; }
+}
+
+.note { color: var(--muted); font-size: 0.9em; margin-top: 20px; }
+
+/* which platform; data-show and data-open are resolved by Script.js */
+body:not(.platform-ios) .platform-ios,
+body:not(.platform-mac) .platform-mac,
+[hidden] { display: none !important; }
