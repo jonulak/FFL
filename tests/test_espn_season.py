@@ -534,7 +534,7 @@ def test_season_lookup_sums_the_remaining_sleeper_weeks_and_drops_them_on_a_fail
         fetched.append(week)
         if week == 17:
             raise requests.ConnectionError("sleeper down")
-        return [week]
+        return []
 
     monkeypatch.setattr(espn_season, "fetch_sleeper_rows", fake_week)
     monkeypatch.setattr(espn_season, "parse_sleeper_rows", lambda rows, ks: {("jalen hurts", "QB"): 10.0})
@@ -1272,7 +1272,7 @@ def test_concurrent_cold_sleeper_weeks_share_one_fetch(monkeypatch):
     def fake_week(week):
         park(espn_season._SL_FLIGHT, 4, 1)
         calls.append(week)
-        return [week]
+        return []
 
     monkeypatch.setattr(espn_season, "fetch_sleeper_rows", fake_week)
     monkeypatch.setattr(espn_season, "parse_sleeper_rows", lambda rows, ks: {("jalen hurts", "QB"): 10.0})

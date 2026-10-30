@@ -13,7 +13,10 @@ import io
 import re
 import sys
 
-import pandas as pd
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pandas loads on a frame's first use: the API never builds one (#472)
+    import pandas as pd
 import requests
 
 API = "https://fantasyfootballcalculator.com/api/v1/adp/{fmt}"
@@ -37,10 +40,12 @@ def csv_frame(df: pd.DataFrame) -> pd.DataFrame:
     """The frame as pd.read_csv read it back when the draft inputs were CSV files: same dtypes, an empty
     string read as NaN, a fresh RangeIndex. Every stored draft input is read through it, so the board is
     built from exactly the frames it always was."""
+    import pandas as pd
     return pd.read_csv(io.StringIO(df.to_csv(index=False)))
 
 
 def fetch(fmt: str, teams: int, year: int) -> pd.DataFrame:
+    import pandas as pd
     r = requests.get(API.format(fmt=fmt), params={"teams": teams, "year": year}, timeout=30)
     r.raise_for_status()
     d = r.json()
@@ -80,6 +85,7 @@ def feed_keys(settings: dict) -> dict[str, tuple[str, int, int]]:
 
 def load_feed(fmt: str, teams: int, year: int) -> pd.DataFrame:
     """A stored feed as adp_2qb.csv / adp_1qb.csv held it."""
+    import pandas as pd
     from . import db
     row = db.adp_feed(fmt, teams, year)
     if row is None:

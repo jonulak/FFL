@@ -14,44 +14,9 @@ import pandas as pd
 from . import adp as adp_mod, leagues, players as players_mod, sleeper as sleeper_mod
 from .adp import norm_name
 from .settings import key_scoring, load
+from .slots import SEASON_WEEKS, bench_depth, is_multi_qb, starter_counts
 
-FLEX_SPLIT = {"RB/WR/TE": {"RB": 0.5, "WR": 0.4, "TE": 0.1}, "RB/WR": {"RB": 0.55, "WR": 0.45},
-              "WR/TE": {"WR": 0.8, "TE": 0.2}, "OP": {"QB": 0.85, "RB": 0.1, "WR": 0.05}}
-# Extra players past the starter line that still get rostered (bench depth / injury cover),
-# expressed per team so it tracks league size. This sets replacement level, so it decides how
-# valuable a position looks.
-BENCH_PER_TEAM = {"QB": 0.3, "RB": 0.8, "WR": 0.8, "TE": 0.2, "D/ST": 0.0, "K": 0.0}
-# In a 1QB league hardly anyone carries a backup QB. Start two and nearly every team wants a
-# QB3, which pushes replacement from ~QB23 down to ~QB28 — a ~47 point swing that was making
-# every QB look far cheaper than the 2QB market treats them.
-QB_BENCH_PER_TEAM_MULTI = 0.8
 TIER_GAP = {"QB": 8, "RB": 10, "WR": 10, "TE": 9, "D/ST": 6, "K": 4}
-
-
-def bench_depth(settings: dict) -> dict[str, float]:
-    """League-wide bench demand per position, given the league's size and lineup format."""
-    teams = settings["team_count"]
-    out = {p: v * teams for p, v in BENCH_PER_TEAM.items()}
-    if is_multi_qb(settings):
-        out["QB"] = QB_BENCH_PER_TEAM_MULTI * teams
-    return out
-
-
-def starter_counts(settings: dict) -> dict[str, float]:
-    teams = settings["team_count"]
-    counts = {p: 0.0 for p in BENCH_PER_TEAM}
-    for slot, n in settings["starters"].items():
-        if slot in counts:
-            counts[slot] += n * teams
-        elif slot in FLEX_SPLIT:
-            for p, w in FLEX_SPLIT[slot].items():
-                counts[p] += n * teams * w
-    return counts
-
-
-def is_multi_qb(settings: dict) -> bool:
-    starters = settings["starters"]
-    return starters.get("QB", 1) > 1 or "OP" in starters  # 2QB / superflex
 
 
 def adp_mode(settings: dict) -> str:
@@ -94,7 +59,6 @@ def start_week(settings: dict) -> int:
 
 def weeks_left(settings: dict) -> int:
     """Weeks of the season the drafted roster will play."""
-    from .draft_watch import SEASON_WEEKS  # draft_watch imports this module
     return SEASON_WEEKS - (start_week(settings) - 1)
 
 
@@ -107,7 +71,6 @@ def banner(settings: dict) -> str | None:
 def ros_players(players: pd.DataFrame, lookup: dict[int, dict], settings: dict) -> pd.DataFrame:
     """`proj` on what is still to be played: the sources' rest-of-season consensus where a player has one,
     else the full-season figure scaled by the weeks left. proj_espn / proj_sleeper stay season totals."""
-    from .draft_watch import SEASON_WEEKS
     from .season import NFL_WEEKS
     df = players.copy()
     ros = pd.to_numeric(df.player_id.map(lambda pid: (lookup.get(int(pid)) or {}).get("ros_proj")), errors="coerce")
@@ -134,7 +97,6 @@ def with_injuries(players: pd.DataFrame, injuries: dict[int, dict], settings: di
     return past the fantasy season zeroes `proj` (the sources lag such news, so this cannot double-dock);
     any earlier return leaves `proj` to the sources and shows beside it."""
     from datetime import date
-    from .draft_watch import SEASON_WEEKS
     from .season import week_of
     df = players.copy()
     week1 = date.fromisoformat(settings["week1_start"])

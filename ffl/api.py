@@ -418,7 +418,7 @@ def _league_format(ref: LeagueRef) -> str | None:
     """'2QB · 10 teams' for the switcher; None when the league's settings cannot be read."""
     try:
         s = espn_season.load(ref=ref)
-        qbs = "2QB" if s["starters"].get("QB", 1) > 1 or "OP" in s["starters"] else "1QB"  # board.is_multi_qb
+        qbs = "2QB" if s["starters"].get("QB", 1) > 1 or "OP" in s["starters"] else "1QB"  # slots.is_multi_qb
         return f"{qbs} · {s['team_count']} teams"
     except (Exception, SystemExit) as e:  # noqa: BLE001 — load exits on missing settings; the switcher still lists him
         log.warning("format of %s not read: %s", ref.key, e)

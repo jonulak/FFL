@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import sys
 
-import pandas as pd
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pandas loads on a frame's first use: the API never builds one (#472)
+    import pandas as pd
 import requests
 
 from .adp import csv_frame, norm_name
@@ -59,9 +62,9 @@ def fetch_raw(season: int) -> list[dict]:
     return r.json()
 
 
-def rescore(raw: list[dict], ks: dict) -> pd.DataFrame:
-    """The raw answer scored with `ks` (settings.rescoring: a table per position), one row per (name, position), by projection.
-    K and D/ST take Sleeper's standard points."""
+def rescore_rows(raw: list[dict], ks: dict) -> list[dict]:
+    """The raw answer scored with `ks` (settings.rescoring: a table per position), one row per (name, position), by
+    projection (the first of a pair kept). K and D/ST take Sleeper's standard points."""
     rows = []
     for p in raw:
         pl, st = p.get("player", {}), p.get("stats", {})
@@ -77,14 +80,22 @@ def rescore(raw: list[dict], ks: dict) -> pd.DataFrame:
             name, proj = f"{pl.get('first_name','')} {pl.get('last_name','')}".strip(), score(st, ks[pos])
         rows.append({"name": name, "key": norm_name(name), "pos": pos, "team": team, "proj_sleeper": round(proj, 1),
                      "sleeper_gp": st.get("gp"), "adp_2qb_sleeper": st.get("adp_2qb"), "adp_ppr_sleeper": st.get("adp_ppr")})
-    df = pd.DataFrame(rows).sort_values("proj_sleeper", ascending=False)
-    return df.drop_duplicates(["key", "pos"])
+    first: dict[tuple[str, str], dict] = {}
+    for r in sorted(rows, key=lambda r: -r["proj_sleeper"]):
+        first.setdefault((r["key"], r["pos"]), r)
+    return list(first.values())
 
 
-def fetch(settings: dict) -> pd.DataFrame:
+def rescore(raw: list[dict], ks: dict) -> pd.DataFrame:
+    """rescore_rows as a frame, for the draft board."""
+    import pandas as pd
+    return pd.DataFrame(rescore_rows(raw, ks))
+
+
+def fetch(settings: dict) -> list[dict]:
     """A fresh fetch this season, scored for the league `settings` describe (the in-season season lookup reads it
-    live)."""
-    return rescore(_FLIGHT.do(SEASON, lambda: fetch_raw(SEASON)), rescoring(settings))
+    live, so no frame)."""
+    return rescore_rows(_FLIGHT.do(SEASON, lambda: fetch_raw(SEASON)), rescoring(settings))
 
 
 def stored_raw(season: int, refresh: bool = False) -> list[dict]:

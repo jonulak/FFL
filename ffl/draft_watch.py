@@ -35,6 +35,7 @@ import pandas as pd
 from . import board as board_mod
 from . import config, db, leagues, strategy
 from .config import raw_league_get
+from .slots import SEASON_WEEKS, is_flex as _is_flex
 
 POLL_S = 5
 NEED_WEIGHT = {"starter_open": 1.35, "flex_open": 1.1, "unstartable": 0.15}
@@ -142,10 +143,6 @@ def fetch_picks(ref) -> dict:
     return {"in_progress": dd.get("inProgress"), "drafted": dd.get("drafted"), "picks": picks}
 
 
-def _is_flex(slot: str) -> bool:
-    return slot == "OP" or ("/" in slot and slot != "D/ST")
-
-
 def open_slots(settings: dict, my_pos_counts: dict[str, int]) -> dict[str, int]:
     """How many *starting* slots at each position I still have to fill (flex handled separately)."""
     left = {}
@@ -169,9 +166,6 @@ def flex_positions(settings: dict) -> set[str]:
             continue
         out |= {"QB", "RB", "WR", "TE"} if slot == "OP" else set(slot.split("/"))
     return out
-
-
-SEASON_WEEKS = 17
 
 
 def bye_penalty(pos: str, bye, my_roster: pd.DataFrame, settings: dict, vorp: float) -> float:

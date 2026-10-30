@@ -54,6 +54,9 @@ _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps
 _INJ: list = []  # [expires_at, data]
 _SEASON_FLIGHT = Flight()  # (league key, week) -> its season_lookup in flight: every member's rebuild shares one
 _INJ_FLIGHT = Flight()  # the injuries feed's fetch in flight (8 MB), shared by the builds asking at once
+# the widest any fan-out here runs: glibc gives each thread its own malloc arena, and 30 threads each parsing an MB of
+# ESPN JSON left the box's API at 885 MB RSS on a 228 MB heap (#472)
+WORKERS = 8
 
 
 def refresh_league() -> None:
@@ -371,6 +374,17 @@ def fetch_sleeper_snaps(week: int) -> dict[tuple[str, str], tuple[float, float]]
     return parse_sleeper_snaps(fetch_sleeper_stats(week))
 
 
+SLEEPER_PLAYER = ("first_name", "last_name", "position", "team", "years_exp")
+
+
+def slim_sleeper(rows: list[dict]) -> list[dict]:
+    """Sleeper's rows as the parsers read them: the club, the stat line and the player's name, position, club and
+    years (a key Sleeper left off stays off). Kept whole, the player records and Sleeper's metadata were most of
+    the ~100 MB its cached weeks held (#472)."""
+    return [{"team": p.get("team"), "stats": p.get("stats") or {},
+             "player": {k: v for k, v in (p.get("player") or {}).items() if k in SLEEPER_PLAYER}} for p in rows]
+
+
 def _stats_rows(week: int) -> list[dict]:
     """One week's raw Sleeper stat rows, cached for CACHE_S; [] for this build when the fetch
     fails (no snap share for that game, the points columns unaffected), and not cached."""
@@ -378,7 +392,7 @@ def _stats_rows(week: int) -> list[dict]:
     if hit and hit[0] > time.time():
         return hit[1]
     try:
-        data = fetch_sleeper_stats(week)
+        data = slim_sleeper(fetch_sleeper_stats(week))
     except requests.RequestException as e:
         print(f"sleeper stats unavailable for week {week}: {e}")
         return []
@@ -687,7 +701,7 @@ def _remaining_sleeper_weeks(week: int, settings: dict) -> list[dict] | None:
     because a sum missing a week would undercount every player rather than a few."""
     weeks = list(range(week, S.NFL_WEEKS + 1))
     try:
-        with ThreadPoolExecutor(max(len(weeks), 1)) as pool:
+        with ThreadPoolExecutor(max(min(len(weeks), WORKERS), 1)) as pool:
             return list(pool.map(lambda w: _sleeper_for(w, settings), weeks))
     except requests.RequestException as e:
         print(f"sleeper weekly projections unavailable, ROS rests on the other sources: {e}")
@@ -858,7 +872,7 @@ def _sleeper_rows(week: int) -> list:
         hit = _SL.get(week)
         if hit and hit[0] > time.time():  # the flight before this one landed it
             return hit[1]
-        rows = fetch_sleeper_rows(week)
+        rows = slim_sleeper(fetch_sleeper_rows(week))
         _SL[week] = (time.time() + CACHE_S, rows)
         return rows
 
@@ -1291,7 +1305,7 @@ def player_card(player_id: int, *, ref: leagues.LeagueRef) -> dict:
     reads |= {("sleeper", wk): (lambda wk=wk: _sleeper_for(wk, settings)) for wk in range(lg.current_week, S.NFL_WEEKS + 1)}
     if pos in S.SNAP_POSITIONS:  # his snaps each week this season, off the cached Sleeper stat rows
         reads |= {("snaps", wk): (lambda wk=wk: parse_sleeper_snaps(_stats_rows(wk))) for wk in range(1, lg.current_week + 1)}
-    with ThreadPoolExecutor(max_workers=len(reads)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(reads), WORKERS)) as pool:
         futures = {k: pool.submit(fn) for k, fn in reads.items()}
     schedules, rows, ranks, sleeper, pos_ranks, snaps, current = {}, [], {}, {}, {}, {}, {}
     key = (norm_name(p.get("fullName") or ""), pos)
@@ -1573,9 +1587,9 @@ def _free_agent_boxes(lg, asks: list[tuple[str, int]], size: int, week: int, *,
     """(position, week) -> the free agents ESPN lists there, as espn-api's free_agents builds them (BoxPlayers off
     kona_player_info, the same filter), but with one schedule and one ratings read for the whole build: free_agents
     refetches both on every call, 60 of a build's 90 calls. The ratings are `week`'s: they set only the opponent,
-    which is read off this week's rows alone. One kona call of ~0.6 s per ask, all in flight together."""
+    which is read off this week's rows alone. One kona call of ~0.6 s per ask, WORKERS in flight at once."""
     if not hasattr(lg, "espn_request"):  # tests stub League with free_agents alone
-        with ThreadPoolExecutor(len(asks)) as pool:
+        with ThreadPoolExecutor(min(len(asks), WORKERS)) as pool:
             return dict(zip(asks, pool.map(lambda a: lg.free_agents(week=a[1], size=size, position=a[0]), asks)))
     from espn_api.football.box_player import BoxPlayer
     from espn_api.football.constant import POSITION_MAP
@@ -1590,7 +1604,7 @@ def _free_agent_boxes(lg, asks: list[tuple[str, int]], size: int, week: int, *,
                            "sortDraftRanks": {"sortPriority": 100, "sortAsc": True, "value": "STANDARD"}}}
         data = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(flt)}, scoringPeriodId=w, ref=ref)
         return [BoxPlayer(p, scheds[w], ranks, w, lg.year) for p in data["players"]]
-    with ThreadPoolExecutor(len(asks)) as pool:
+    with ThreadPoolExecutor(min(len(asks), WORKERS)) as pool:
         return dict(zip(asks, pool.map(read, asks)))
 
 
@@ -1842,7 +1856,7 @@ def _gap_games(gaps: dict[int, list[int]], week: int, *, ref: leagues.LeagueRef)
     def read(ask: tuple[int, list[int]]) -> tuple[int, dict[int, list[dict]]]:
         return ask[0], _fetch_gap_rows(ask[0], ask[1], week, ref=ref)
     if asks:
-        with ThreadPoolExecutor(len(asks)) as pool:  # all in flight together, like the free-agent asks
+        with ThreadPoolExecutor(min(len(asks), WORKERS)) as pool:  # WORKERS at once, like the free-agent asks
             answers = list(pool.map(read, asks))
         by_week: dict[int, dict[int, list[dict]]] = {}
         for w, got in answers:

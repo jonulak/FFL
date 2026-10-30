@@ -13,8 +13,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import decisions
-from .board import bench_depth, starter_counts
-from .draft_watch import SEASON_WEEKS, _is_flex
+from .slots import SEASON_WEEKS, bench_depth, is_flex as _is_flex, starter_counts
 
 # The order lineups are printed in — ESPN's own slot order, fixed positions before flex.
 SLOT_ORDER = ["QB", "RB", "WR", "TE", "RB/WR/TE", "RB/WR", "WR/TE", "OP", "D/ST", "K"]
