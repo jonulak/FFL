@@ -2076,9 +2076,11 @@ def news_item_hashes(source_id: str, ext_ids: list[str], season: int = SEASON) -
 
 
 def notice_keys(prefix: str, season: int = SEASON, *, ref) -> list[str]:
-    """Keys of the notices already pushed (sent_at set, outcome sent) that start with `prefix`."""
+    """Keys of the notices already pushed (sent_at set, outcome sent) that start with `prefix`, in any of the member's
+    leagues: a news item reaches a user once, whichever league queued it (#480)."""
     t = notices
-    q = (sa.select(t.c.key).where(_notices_of(ref, season), t.c.sent_at.is_not(None),
+    q = (sa.select(t.c.key).distinct().where(t.c.user_id == _member(ref)[0], t.c.season == season,
+                                             t.c.sent_at.is_not(None),
                                   t.c.outcome == "sent", t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
     with _read() as c:
         return list(c.execute(q).scalars())
