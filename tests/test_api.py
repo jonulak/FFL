@@ -405,6 +405,7 @@ def test_every_board_carries_its_own_games_plays_sided_from_its_left(client, mon
     every = client.get("/plays?team=4").json()
     assert every["mine"] is False and every["me"] == {"team_id": 4, "team": "t4", "abbrev": "L"}
     assert [p["delta"] for p in every["plays"]] == [2.0, 1.0]
+    assert [p["delta"] for p in client.get("/plays?team=4&limit=1").json()["plays"]] == [2.0], "the newest few"
     assert [p["delta"] for p in client.get("/plays").json()["plays"]] == [6.0]
 
 

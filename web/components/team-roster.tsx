@@ -17,6 +17,7 @@ import { TeamPanel } from "./player-media";
 import { SectionHeading } from "./section-heading";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
+import { overlayTeam } from "@/lib/overlay";
 import { useLive } from "./use-live";
 import { gameLinkFor } from "@/lib/nfl";
 import { NAME_LINK } from "@/lib/player-log";
@@ -133,7 +134,7 @@ function StarterTotal({ lineup, projTotal, now }: { lineup: Player[]; projTotal:
 }
 
 export function TeamRosterView({ initial, path }: { initial: TeamRoster; path: string }) {
-  const { data, now } = useLive(initial, path);
+  const { data, now } = useLive(initial, path, { overlay: overlayTeam });
   const { club, side, week } = data;
   return (
     <div className="space-y-6">

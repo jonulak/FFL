@@ -13,6 +13,7 @@ import { usePresets } from "./rationale-form";
 import { type Notice, RosterRows, type SwapControl } from "./roster-cards";
 import { type SheetPick, type SheetSubject, type SitControl, SwapSheet } from "./swap-sheet";
 import { useFlip } from "./use-flip";
+import { overlayRoster } from "@/lib/overlay";
 import { useLive } from "./use-live";
 
 // The write moves players in ESPN and reads the lineup back: give it the claims submit's minute, not a GET's 20 s.
@@ -32,7 +33,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // to confirm (lineup.afterFailure).
 export function RosterLive({ initial }: { initial: Roster }) {
   const router = useRouter();
-  const { data, replace } = useLive(initial, "/roster");
+  const { data, replace } = useLive(initial, "/roster", { overlay: overlayRoster });
   const [open, setOpen] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [fill, setFill] = useState<string | null>(null);

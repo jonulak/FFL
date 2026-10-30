@@ -339,9 +339,15 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   stat row) to every player with a stat that scores; the `Kickoff` component shows clock and score in place
   of the start time, "Final" after. A clock tick alone never bumps the live version (the 60 s poll carries
   it); a quarter or status change does. The client reports errors through `on_error` as they happen, so a
-  callback that raises on every doc shows on `/live/status` instead of reading as "connected". `GET /live` is a server-sent event stream
-  of a version number; `web/components/use-live.ts` refetches the page's GET on each tick, with a 60 s poll as
-  the fallback. The socket is held only while a game is in progress or a kickoff is close (`live.idle_for`),
+  callback that raises on every doc shows on `/live/status` instead of reading as "connected". `GET /live?league=` is a server-sent event stream
+  of one league's ticks (#473; `m<n>` for any league's move, `moves=1` for moves alone): on each tick of its league it
+  sends `live.delta`, the points, game states (clock too) and changed players' `stat_line`/`box`/`volume` since that
+  connection last sent (#474; first delta: every game and the win meter's sigma; a new week: the week alone, a refetch).
+  `web/components/use-live.ts` lays them on through `web/lib/overlay.ts` (the overlay and win_prob ported; Matchup,
+  League, Roster, Team, and it refetches once on the opening line while live), else refetches the page's GET; the Matchup
+  board refreshes its strip from `/plays?limit=` when a tick moves one of its players. `tests/test_live_overlay_fixtures.py`
+  writes `web/lib/overlay.fixtures.json` off the Python and `overlay.test.ts` holds the port to it: change an overlay, rerun
+  with `FFL_WRITE_FIXTURES=1`. A 60 s poll is the fallback, and the bound on any rebuild that does not tick `moved()`. The socket is held only while a game is in progress or a kickoff is close (`live.idle_for`),
   inside `season.is_live`. The stream's `cache-control: no-transform` is load-bearing: without it Next's
   compression gzips the stream and the browser never sees a byte. Run a second dev API with `FFL_LIVE=0`.
   The play feed (`ffl/plays.py`) is derived from the same rescoring: every points change of any league

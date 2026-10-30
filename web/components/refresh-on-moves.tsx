@@ -11,7 +11,7 @@ export function RefreshOnMoves() {
   const router = useRouter();
   useEffect(() => {
     let moves: number | null = null;
-    const es = new EventSource("/api/live");
+    const es = new EventSource("/api/live?moves=1");
     es.onmessage = (e) => {
       const step = movesStep(moves, e.data);
       moves = step.moves;

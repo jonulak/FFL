@@ -1297,9 +1297,11 @@ def week_current(ref: LeagueRef = Depends(open_league)):
 
 
 @app.get("/plays")
-def plays_(team: int | None = None, week: int | None = None, ref: LeagueRef = Depends(open_league)):
+def plays_(team: int | None = None, week: int | None = None, limit: int | None = Query(None, ge=1),
+           ref: LeagueRef = Depends(open_league)):
     """Every feed row of one game's week, newest first (the /plays page): mine, or with `team` that team's;
-    `week` (a finished week's board links its own) else the current one. `me`/`opp` name the two sides the
+    `week` (a finished week's board links its own) else the current one; `limit` the newest that many (the
+    Matchup board's strip, refetched alone when a /live delta moves one of its players). `me`/`opp` name the two sides the
     way the board does; `current` says whether the week is the current one (the way back is then `/`)."""
     runner = _lane(ref)
     current = _board(None, None, ref=ref)
@@ -1311,7 +1313,7 @@ def plays_(team: int | None = None, week: int | None = None, ref: LeagueRef = De
     return {"week": data["week"], "current": data["week"] == current["week"], "live": season.is_live(),
             "mine": data.get("mine", True),
             "game_on": live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"], ref)),
-            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data, ref=ref),
+            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data, limit, ref=ref),
             "stale_since": data.get("stale_since")}
 
 
@@ -1484,23 +1486,32 @@ def player(player_id: int, ref: LeagueRef = Depends(open_league)):
 
 
 @app.get("/live")
-def live_stream(request: Request, league: str | None = Query(None)):
-    """Server-sent events: `data: <version>` whenever the ?league= league's live points change (none: the user's
-    default; a league they are not in, or none at all, ticks moves only), `data: m<n>` when any league's move was
-    logged (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live
-    page refetches its GET on either; Transactions and Players refresh on a move only. Never a 404: an EventSource
-    would retry it every 3 s for good."""
+def live_stream(request: Request, league: str | None = Query(None), moves: bool = Query(False)):
+    """Server-sent events: whenever the ?league= league's live points change (none: the user's default; a league
+    they are not in, or none at all, ticks moves only) the JSON `live.delta` of what changed since this stream last
+    sent (`data: <version>` while the league has no scored week), `data: m<n>` when any league's move was logged
+    (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live page lays
+    a delta on (web/lib/overlay.ts) or refetches its GET; Transactions and Players refresh on a move only, and
+    ask with `moves=1` for nothing else. Never a 404: an EventSource would retry it every 3 s for good."""
     try:
-        key = open_league(request, league).key
+        ref = None if moves else open_league(request, league)
     except HTTPException:
-        key = None
+        ref = None
+    key = ref.key if ref else None
+    # read once per stream: the league's scoring and the win meter's spread change weekly at most, and a page
+    # reopens its stream far more often than that
+    scoring, sigma = (_scoring(ref=ref), _sigma()) if ref else (None, {})
 
     def gen():
         seen = live.STATE.tick(key)
+        sent = live.opened(live.STATE.view(key)) if key else None
         yield live.stream_open(seen)
         while True:
             cur = live.STATE.wait_for_tick(key, seen, timeout=15.0)
-            lines = live.stream_lines(seen, cur)
+            body = None
+            if key and cur[0] != seen[0]:
+                body, sent = live.delta(sent, live.STATE.view(key), scoring, sigma)
+            lines = live.stream_lines(seen, cur, body)
             seen = cur
             yield from lines or [": keepalive\n\n"]
     return StreamingResponse(gen(), media_type="text/event-stream",
