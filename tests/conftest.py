@@ -232,11 +232,13 @@ def _gap_games_reset(monkeypatch):
 @pytest.fixture(autouse=True)
 def _fresh_box_scores():
     """A finished week's box scores are kept for the process (espn_season.box_scores); one test's stub League
-    must not answer another's."""
+    must not answer another's, nor the pool's league half built on them (espn_season._POOL)."""
     from ffl import espn_season
     espn_season._BOXES.clear()
+    espn_season._POOL.clear()
     yield
     espn_season._BOXES.clear()
+    espn_season._POOL.clear()
 
 
 @pytest.fixture(autouse=True)

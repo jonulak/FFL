@@ -233,7 +233,11 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   waiver deltas, `add` — formula in the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`)), `ffl/espn_season.py` is the I/O. Production
   runs on the box (see Config) at https://ffl.whitebridgelabs.com: Caddy :443 -> ffl-web :3300 -> ffl-api :8300. Dev servers on the Mac use :3301 for the UI; 3000/8000 are other projects'.
 - **Players page** (`/players`, was Waivers; `/waivers` redirects with its query): `GET /players?preset=&pos=&fa=&cols=&f=&sort=&q=`.
-  `espn_season.free_agent_pool` returns `positions` (free agents only, `POOL_SIZE` deep per position: claims,
+  `espn_season.free_agent_pool` is `dress_pool(league_pool(ref=))` (#475): `league_pool` is the league's half (free agents and
+  their form, every rostered player by team, claim status, owners), built once per league for `POOL_TTL_S` under one flight
+  (~33 ESPN calls: one kona read per position and form week, one schedule and one ratings read, not espn-api's three per call)
+  and dropped by `forget_current_boxes` (`forget_league_pool`); `dress_pool` is the member's (deltas against their roster,
+  `roster` with an mRoster read, `mine`, `watched`) and writes nothing into the shared half. It returns `positions` (free agents only, `POOL_SIZE` deep per position: claims,
   the waiver outlook and the calibration snapshot read it, so it must never carry a rostered player) and
   `rostered` (every rostered player through the same `waiver_deltas`, "worth to me", tagged `owner`/`mine`;
   my own rows carry no add or deltas). `fa=1` (default) serves `positions[pos]`, `fa=0` adds `rostered[pos]`,
