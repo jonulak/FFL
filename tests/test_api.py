@@ -1442,8 +1442,9 @@ def _move_lg():
                            espn_request=SimpleNamespace(league_get=lambda extend="", params=None, headers=None: topics))
 
 
-ROSTER_KEYS = ["transactions", "roster", "waivers", "week:current", "week:5:3", "league:current", "team:3",
+ROSTER_KEYS = ["transactions", "waivers", "week:current", "week:5:3", "league:current", "team:6",
                "starters:current"]
+OTHER_TEAMS_KEYS = ["roster", "team:3", "player:9"]  # my roster, another team's, a card of nobody in the move
 
 
 def test_a_build_a_move_drops_partway_is_not_installed():
@@ -1521,7 +1522,7 @@ def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypat
             built[key] = built.get(key, 0) + 1
             return {"key": key, "n": built[key]}
         return fn
-    for key in ROSTER_KEYS + ["player:9", "logo:3", "draft_picks"]:
+    for key in ROSTER_KEYS + OTHER_TEAMS_KEYS + ["player:5083754", "logo:3", "draft_picks"]:
         api.cache_for(home_league()).get_or_build(key, builder(key))
     monkeypatch.setattr(espn_season, "_BOXES", {("espn:100000001", 4): (math.inf, None, ["done"]), ("espn:100000001", 5): (9e18, None, ["now"])})
     monkeypatch.setattr(live, "STATE", live.State())
@@ -1530,14 +1531,15 @@ def test_a_logged_move_refreshes_every_page_that_shows_rosters(client, monkeypat
     api.cache_for(home_league()).join()
 
     assert all(built[k] == 2 for k in ROSTER_KEYS), built          # rebuilt behind the move
-    assert built["player:9"] == 1 and not api.cache_for(home_league()).has("player:9")  # dropped, built on its next open
+    assert built["player:5083754"] == 1 and not api.cache_for(home_league()).has("player:5083754")  # dropped, built on its next open
+    assert all(built[k] == 1 and api.cache_for(home_league()).has(k) for k in OTHER_TEAMS_KEYS)  # team 6 moved
     assert built["logo:3"] == built["draft_picks"] == 1 and api.cache_for(home_league()).has("logo:3")
     assert list(espn_season._BOXES) == [("espn:100000001", 4)], "the current week's box scores are refetched, finished weeks kept"
     assert live.STATE.moves == 1 and live.STATE.version == 0
 
     journal.sync_transactions(_move_lg(), ref=home_league())  # nothing new: nothing rebuilt, no tick
     api.cache_for(home_league()).join()
-    assert built["roster"] == 2 and live.STATE.moves == 1
+    assert built["transactions"] == 2 and live.STATE.moves == 1
 
 
 def test_notify_tick_409s_while_another_runs(client, monkeypatch):

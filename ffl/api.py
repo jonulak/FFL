@@ -440,7 +440,29 @@ def on_new_rows(rows: list[dict], *, ref: LeagueRef) -> None:
     /live's moves, so an open page refetches."""
     espn_season.forget_current_boxes(ref=ref)
     for c in caches_for_league(ref):  # every member's pages show the move
-        _start_rewarm(c, c.drop_prefixes(MOVE_KEYS))
+        _start_rewarm(c, c.drop_prefixes(move_keys(rows, c._ref.team_id)))
+
+
+def move_keys(rows: list[dict], team_id: int | None) -> tuple[str, ...]:
+    """The page keys the move `rows` make stale in the cache of a member on `team_id`: the league-wide pages (the
+    week's boards and tiles read the boxes again, one fetch for the league), but a roster and a player's card only
+    for the teams and players in it. No rows (a rollover) or a row naming no team or player is every MOVE_KEYS page."""
+    teams = {_tx_team(r.get("id", "")) for r in rows}
+    players = {r.get("player_id") for r in rows}
+    if not rows or None in teams or None in players:
+        return MOVE_KEYS
+    mine = ("roster",) if team_id in teams else ()
+    return ("transactions", "waivers", "week", "league", "starters", *mine,
+            *(f"team:{t}" for t in sorted(teams)), *(f"player:{p}" for p in sorted(players)))
+
+
+def _tx_team(tx_id: str) -> int | None:
+    """The team of a transaction row id (journal.sync_transactions: date-team-action-player)."""
+    parts = tx_id.split("-", 3)
+    try:
+        return int(parts[1]) if len(parts) == 4 else None
+    except ValueError:
+        return None
 
 
 _REWARMS = itertools.count()
