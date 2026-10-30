@@ -99,7 +99,7 @@ export function EspnConnection({ initial, devices: initialDevices }: { initial: 
   const groups = byAccount(status.accounts, choices ?? []);
   const followed = (choices ?? []).filter((l) => l.joined);
   return (
-    <Card>
+    <Card id="espn" className="scroll-mt-4">
       <CardHeader>
         <CardTitle>ESPN connection</CardTitle>
         <CardDescription>FFL reads your leagues with these ESPN logins. Switch a league off to stop following it.</CardDescription>

@@ -7,6 +7,7 @@
   "scripts": {
     "build": "node build.mjs --target chrome && node build.mjs --target safari",
     "build:dev": "node build.mjs --target chrome --origin https://macbook-pro.tailnet.ts.net:3302 && node build.mjs --target safari --origin https://macbook-pro.tailnet.ts.net:3302",
+    "package": "pnpm build && cd dist/chrome && rm -f ../ffl-chrome-$npm_package_version.zip && zip -qrX ../ffl-chrome-$npm_package_version.zip . && echo dist/ffl-chrome-$npm_package_version.zip",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

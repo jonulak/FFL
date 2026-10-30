@@ -17,7 +17,8 @@ const KINDS = [["move", "League moves", "Adds, drops and trades, batched per syn
                ["injury", "My starter hurt", "OUT, Doubtful or IR before his game locks"],
                ["waivers", "Waiver results", "Claims won and lost after the run"],
                ["news", "Player news", "Hurts one of mine, or helps a free agent"],
-               ["watch", "Watched players", "When a player you're watching gets his chance"]] as const;
+               ["watch", "Watched players", "When a player you're watching gets his chance"],
+               ["espn", "ESPN login", "When ESPN stops taking your login"]] as const;
 
 const noSubscribe = () => () => {};
 

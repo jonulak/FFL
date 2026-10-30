@@ -110,6 +110,30 @@ def source_notices(status: dict, t: datetime, at: str, hours: int = 24) -> list[
     return out
 
 
+def espn_notices(rows: list[dict], at: str) -> list[dict]:
+    """One notice per user and day an ESPN login of theirs began failing (`credential_statuses` rows): its leagues
+    stop updating until they sign in again. Keyed espn:refused:<user>:<date>, so a login refused again on a later day
+    is another."""
+    out = {}
+    for r in rows:
+        if since := r.get("failing_since"):
+            key = f"espn:refused:{r['user_id']}:{since[:10]}"
+            out[key] = {"key": key, "kind": "espn", "user_id": r["user_id"], "title": "Reconnect ESPN",
+                        "body": "ESPN stopped taking your login. Sign in to ESPN again, or paste it in Settings.",
+                        "url": "/settings", "created_at": at}
+    return list(out.values())
+
+
+def check_espn() -> int:
+    """Queue espn_notices, each under its user's default league (a user with no league hears nothing)."""
+    from . import leagues
+    n = 0
+    for row in espn_notices(db.credential_statuses(), now()):
+        if (ref := leagues.default_for(row.pop("user_id"))) is not None:
+            n += db.add_notices([row], ref=ref)
+    return n
+
+
 def operator_emails() -> list[str]:
     """FFL_OPERATOR_EMAILS (comma-separated, read now): who hears about the app itself."""
     return [e.strip() for e in (os.environ.get("FFL_OPERATOR_EMAILS") or "").split(",") if e.strip()]
@@ -139,13 +163,13 @@ def check_sources() -> int:
     return app_notices(source_notices(on_only(db.get_state("source_status", {}) or {}), datetime.now().astimezone(), now()))
 
 
-DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "news": True, "watch": True, "quiet": ["23:00", "07:00"]}
+DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "news": True, "watch": True, "espn": True, "quiet": ["23:00", "07:00"]}
 MAX_AGE = timedelta(hours=24)
 BODY_MAX = 180
 _HM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-SWITCHES = ("move", "injury", "waivers", "news", "watch")
+SWITCHES = ("move", "injury", "waivers", "news", "watch", "espn")
 
 
 def prefs(*, ref) -> dict:
@@ -482,11 +506,11 @@ def league_tick(ref) -> dict:
 
 def tick() -> dict:
     """Every league's share (under `leagues`, by key), then the global work
-    once: the sources' health, the flush. A step that fails is reported and the rest still run: an ESPN outage must
+    once: the sources' health, refused ESPN logins, the flush. A step that fails is reported and the rest still run: an ESPN outage must
     not hold back notices already queued, nor one league's another's."""
     from . import leagues
     out: dict = {"leagues": {r.key: league_tick(r) for r in leagues.joined()}}
-    _steps(out, (("sources", check_sources),))
+    _steps(out, (("sources", check_sources), ("espn", check_espn)))
     try:
         out["flush"] = flush()
     except db.DBError as e:

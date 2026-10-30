@@ -24,6 +24,9 @@ export type EspnStatus = {
   connected: boolean; failing_since: string | null; accounts: EspnAccount[]; devices: number; refused?: Refusal | null;
 };
 
+// The Reconnect banner shows while any login is refused or unreadable (its leagues stop updating); unread, never.
+export const needsReconnect = (st: EspnStatus | null) => !!st?.accounts.some((a) => !a.connected);
+
 // A refusal that came after the page opened (`before`: the status it opened with): the waiting line's reason.
 export function newRefusal(st: EspnStatus, before: EspnStatus): Refusal | null {
   const r = st.refused;

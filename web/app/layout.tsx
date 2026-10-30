@@ -6,15 +6,17 @@ import { LeagueProvider } from "@/components/league-context";
 import { Nav } from "@/components/nav";
 import { PageTransition } from "@/components/page-transition";
 import { PlayerDialogProvider } from "@/components/player-dialog";
+import { ReconnectBanner } from "@/components/reconnect-banner";
 import { SwRegister } from "@/components/sw-register";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WatchProvider } from "@/components/watch-context";
 import { headers } from "next/headers";
 import { apiGet, type DecisionPrefs, type LeagueEntry, type WatchIds } from "@/lib/api";
-import { PATH_HEADER, SIGNIN_PATH } from "@/lib/auth";
+import { PATH_HEADER, PRIVACY_PATH, SIGNIN_PATH } from "@/lib/auth";
 import { LEAGUE_ARRIVE, LEAGUE_HEADER, WELCOME_PATH } from "@/lib/league";
 import { DEFAULT_DECISION_PREFS } from "@/lib/decisions";
+import type { EspnStatus } from "@/lib/espn";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -36,9 +38,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const h = await headers();
   // The sign-in page (ffl-soc.6.2.1) stands outside the app: no nav, no providers, none of the calls below, which a
   // signed-out visitor's session would only have refused. One check here rather than a route group moving every page.
-  // So does the welcome page of a user with no league (ffl-soc.6.2.2): a nav with no league has nothing to open.
+  // So does the welcome page of a user with no league (ffl-soc.6.2.2): a nav with no league has nothing to open, and
+  // the privacy policy, which anyone may read signed out.
   const bare = (h.get(PATH_HEADER) ?? "").split("?", 1)[0];
-  if (bare === SIGNIN_PATH || bare === WELCOME_PATH) {
+  if (bare === SIGNIN_PATH || bare === WELCOME_PATH || bare === PRIVACY_PATH) {
     return (
       <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${barlow.variable}`} suppressHydrationWarning>
         <body className="min-h-dvh bg-background text-foreground antialiased">{children}</body>
@@ -49,11 +52,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // and the watched players' ids, so a star draws filled on the first paint; unread, every star starts empty
   // the leagues for the switcher, and the one this document's URL names (web/proxy.ts: its header); every call here
   // reads that league, and a switch is a full load, so the layout never shows another league's stars or switches
-  const [prefs, watched, all, open] = await Promise.all([
+  // and the ESPN logins' state, for the Reconnect banner (not on Settings, whose ESPN card says the same at length)
+  const [prefs, watched, all, open, espn] = await Promise.all([
     apiGet<DecisionPrefs>("/decisions/prefs").catch(() => DEFAULT_DECISION_PREFS),
     apiGet<WatchIds>("/watch/ids").catch((): WatchIds => ({ ids: [] })),
     apiGet<LeagueEntry[]>("/leagues").catch((): LeagueEntry[] => []),
     h.get(LEAGUE_HEADER),
+    bare === "/settings" ? null : apiGet<EspnStatus>("/espn/status").catch(() => null),
   ]);
   const league = all.find((l) => (open ? l.key === open : l.home)) ?? null;
   // The font variables belong on <html>: globals.css applies `font-sans` there, and
@@ -71,7 +76,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <PlayerDialogProvider>
                 <Nav leagues={all} league={league} />
                 {/* one 64rem column on every page, the nav's width; the Players page's claims dock stands outside it */}
-                <main className="mx-auto max-w-5xl px-3 py-4"><PageTransition>{children}</PageTransition></main>
+                <main className="mx-auto max-w-5xl px-3 py-4"><ReconnectBanner status={espn} /><PageTransition>{children}</PageTransition></main>
               </PlayerDialogProvider>
               </LeagueProvider>
             </WatchProvider>

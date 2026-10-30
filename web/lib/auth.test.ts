@@ -23,6 +23,9 @@ describe("needsSignIn", () => {
   it("lets a page with a session through (the API checks it)", () => {
     expect(needsSignIn("/roster", true)).toBe(false);
   });
+  it("lets the privacy policy through signed out", () => {
+    expect(needsSignIn("/privacy", false)).toBe(false);
+  });
   it("never sends /signin to itself", () => {
     expect(needsSignIn("/signin", false)).toBe(false);
     expect(needsSignIn("/signin", true)).toBe(false);

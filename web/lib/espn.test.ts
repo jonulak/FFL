@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrivedAccount, byAccount, canPaste, espnMessage, initials, loginLabel, newRefusal, platformOf, pickable,
+import { arrivedAccount, byAccount, canPaste, espnMessage, initials, loginLabel, needsReconnect, newRefusal, platformOf, pickable,
          resentAccount,
          type EspnAccount, type EspnStatus, type LeagueChoice } from "./espn";
 
@@ -58,6 +58,15 @@ describe("Settings' logins", () => {
                                         league({ key: "a", name: "Alpha", account: 7 }),
                                         league({ key: "c", name: "Gamma", account: 3 })]);
     expect(groups.map((g) => [g.account.id, g.leagues.map((l) => l.key)])).toEqual([[7, ["a", "b"]], [3, ["c"]]]);
+  });
+});
+
+describe("needsReconnect", () => {
+  it("is any login refused, never no logins or an unread status", () => {
+    expect(needsReconnect(status([acct(1, "a"), acct(2, "b", false)]))).toBe(true);
+    expect(needsReconnect(status([acct(1, "a")]))).toBe(false);
+    expect(needsReconnect(status([]))).toBe(false);
+    expect(needsReconnect(null)).toBe(false);
   });
 });
 

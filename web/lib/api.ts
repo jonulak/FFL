@@ -13,7 +13,7 @@ export type LeagueEntry = { key: string; name: string; provider: string; format:
 export const API_TIMEOUT_MS = 20_000;
 
 // ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
-export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; quiet: [string, string] };
+export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; espn: boolean; quiet: [string, string] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
 
 // ffl/auth.py GET /account: Settings' Account section (ffl-soc.6.2.4)

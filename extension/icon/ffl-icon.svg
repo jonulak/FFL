@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- The app's mark (web/public/icon-192.png) redrawn as shapes, measured off that file, so every size is sharp -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B2130"/>
+      <stop offset="1" stop-color="#0C0F16"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" fill="url(#bg)"/>
+  <g fill="#F3EFE6">
+    <path d="M28 46h43v15H45v19h16v15H45v35H28z"/>
+    <path d="M76 46h43v15H93v19h16v15H93v35H76z"/>
+    <path d="M124 46h17v69h27v15h-44z"/>
+  </g>
+  <rect x="53.3" y="149.3" width="86.7" height="7.7" fill="#F2A541"/>
+</svg>

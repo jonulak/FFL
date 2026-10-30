@@ -13,8 +13,8 @@
 		C44AA85F3092685F0066C393 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = C44AA85D3092685F0066C393 /* Main.storyboard */; };
 		C44AA8683092685F0066C393 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44AA8673092685F0066C393 /* AppDelegate.swift */; };
 		C44AA86B3092685F0066C393 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8693092685F0066C393 /* Main.storyboard */; };
-		C44AA8723092685F0066C393 /* FFL Cookie Spike Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C44AA8713092685F0066C393 /* FFL Cookie Spike Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		C44AA87C3092685F0066C393 /* FFL Cookie Spike Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C44AA8723092685F0066C393 /* FFL Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C44AA8713092685F0066C393 /* FFL Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C44AA87C3092685F0066C393 /* FFL Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C44AA87B3092685F0066C393 /* FFL Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C44AA8813092685F0066C393 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8463092685F0066C393 /* Main.html */; };
 		C44AA8823092685F0066C393 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8463092685F0066C393 /* Main.html */; };
 		C44AA8833092685F0066C393 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8483092685F0066C393 /* Icon.png */; };
@@ -37,6 +37,8 @@
 		C44AA8A6309268600066C393 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A1309268600066C393 /* background.js */; };
 		C44AA8A7309268600066C393 /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A2309268600066C393 /* popup.html */; };
 		C44AA8A8309268600066C393 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A3309268600066C393 /* manifest.json */; };
+		C44AA8B0309268600066C393 /* images in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8AF309268600066C393 /* images */; };
+		C44AA8B1309268600066C393 /* images in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8AF309268600066C393 /* images */; };
 		C44AA8A9309268600066C393 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A4309268600066C393 /* content.js */; };
 		C44AA8AA309268600066C393 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A0309268600066C393 /* popup.js */; };
 		C44AA8AB309268600066C393 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = C44AA8A1309268600066C393 /* background.js */; };
@@ -69,7 +71,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				C44AA8723092685F0066C393 /* FFL Cookie Spike Extension.appex in Embed Foundation Extensions */,
+				C44AA8723092685F0066C393 /* FFL Extension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -80,7 +82,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				C44AA87C3092685F0066C393 /* FFL Cookie Spike Extension.appex in Embed Foundation Extensions */,
+				C44AA87C3092685F0066C393 /* FFL Extension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -97,24 +99,25 @@
 		C44AA84B3092685F0066C393 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		C44AA84C3092685F0066C393 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C44AA84E3092685F0066C393 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
-		C44AA8533092685F0066C393 /* FFL Cookie Spike.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FFL Cookie Spike.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C44AA8533092685F0066C393 /* FFL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FFL.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C44AA8563092685F0066C393 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		C44AA8583092685F0066C393 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		C44AA85B3092685F0066C393 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		C44AA85E3092685F0066C393 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		C44AA8603092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		C44AA8653092685F0066C393 /* FFL Cookie Spike.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FFL Cookie Spike.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C44AA8653092685F0066C393 /* FFL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FFL.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C44AA8673092685F0066C393 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		C44AA86A3092685F0066C393 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		C44AA86C3092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		C44AA8713092685F0066C393 /* FFL Cookie Spike Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "FFL Cookie Spike Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C44AA8713092685F0066C393 /* FFL Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "FFL Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C44AA8763092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "FFL Cookie Spike Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C44AA87B3092685F0066C393 /* FFL Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "FFL Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C44AA8803092685F0066C393 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C44AA8A0309268600066C393 /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = ../../../ffl/dist/safari/popup.js; sourceTree = "<group>"; };
 		C44AA8A1309268600066C393 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../../ffl/dist/safari/background.js; sourceTree = "<group>"; };
 		C44AA8A2309268600066C393 /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = popup.html; path = ../../../ffl/dist/safari/popup.html; sourceTree = "<group>"; };
 		C44AA8A3309268600066C393 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../../ffl/dist/safari/manifest.json; sourceTree = "<group>"; };
+		C44AA8AF309268600066C393 /* images */ = {isa = PBXFileReference; lastKnownFileType = folder; name = images; path = ../../../ffl/dist/safari/images; sourceTree = "<group>"; };
 		C44AA8A4309268600066C393 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../../ffl/dist/safari/content.js; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -198,10 +201,10 @@
 		C44AA8543092685F0066C393 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C44AA8533092685F0066C393 /* FFL Cookie Spike.app */,
-				C44AA8653092685F0066C393 /* FFL Cookie Spike.app */,
-				C44AA8713092685F0066C393 /* FFL Cookie Spike Extension.appex */,
-				C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */,
+				C44AA8533092685F0066C393 /* FFL.app */,
+				C44AA8653092685F0066C393 /* FFL.app */,
+				C44AA8713092685F0066C393 /* FFL Extension.appex */,
+				C44AA87B3092685F0066C393 /* FFL Extension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -252,6 +255,7 @@
 				C44AA8A2309268600066C393 /* popup.html */,
 				C44AA8A3309268600066C393 /* manifest.json */,
 				C44AA8A4309268600066C393 /* content.js */,
+				C44AA8AF309268600066C393 /* images */,
 			);
 			name = Resources;
 			path = "Shared (Extension)";
@@ -278,7 +282,7 @@
 			packageProductDependencies = (
 			);
 			productName = "FFL Cookie Spike (iOS)";
-			productReference = C44AA8533092685F0066C393 /* FFL Cookie Spike.app */;
+			productReference = C44AA8533092685F0066C393 /* FFL.app */;
 			productType = "com.apple.product-type.application";
 		};
 		C44AA8643092685F0066C393 /* FFL Cookie Spike (macOS) */ = {
@@ -299,7 +303,7 @@
 			packageProductDependencies = (
 			);
 			productName = "FFL Cookie Spike (macOS)";
-			productReference = C44AA8653092685F0066C393 /* FFL Cookie Spike.app */;
+			productReference = C44AA8653092685F0066C393 /* FFL.app */;
 			productType = "com.apple.product-type.application";
 		};
 		C44AA8703092685F0066C393 /* FFL Cookie Spike Extension (iOS) */ = {
@@ -319,7 +323,7 @@
 			packageProductDependencies = (
 			);
 			productName = "FFL Cookie Spike Extension (iOS)";
-			productReference = C44AA8713092685F0066C393 /* FFL Cookie Spike Extension.appex */;
+			productReference = C44AA8713092685F0066C393 /* FFL Extension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		C44AA87A3092685F0066C393 /* FFL Cookie Spike Extension (macOS) */ = {
@@ -338,7 +342,7 @@
 			packageProductDependencies = (
 			);
 			productName = "FFL Cookie Spike Extension (macOS)";
-			productReference = C44AA87B3092685F0066C393 /* FFL Cookie Spike Extension.appex */;
+			productReference = C44AA87B3092685F0066C393 /* FFL Extension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -428,6 +432,7 @@
 				C44AA8AC309268600066C393 /* popup.html in Resources */,
 				C44AA8AA309268600066C393 /* popup.js in Resources */,
 				C44AA8AE309268600066C393 /* content.js in Resources */,
+				C44AA8B1309268600066C393 /* images in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -440,6 +445,7 @@
 				C44AA8A7309268600066C393 /* popup.html in Resources */,
 				C44AA8A5309268600066C393 /* popup.js in Resources */,
 				C44AA8A9309268600066C393 /* content.js in Resources */,
+				C44AA8B0309268600066C393 /* images in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -678,9 +684,9 @@
 				DEVELOPMENT_TEAM = QYT6X3UW99;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = FFL;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -691,8 +697,8 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike.Extension";
-				PRODUCT_NAME = "FFL Cookie Spike Extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.whitebridgelabs.ffl.Extension;
+				PRODUCT_NAME = "FFL Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -712,9 +718,9 @@
 				DEVELOPMENT_TEAM = QYT6X3UW99;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = FFL;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -725,8 +731,8 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike.Extension";
-				PRODUCT_NAME = "FFL Cookie Spike Extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.whitebridgelabs.ffl.Extension;
+				PRODUCT_NAME = "FFL Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -749,13 +755,13 @@
 				DEVELOPMENT_TEAM = QYT6X3UW99;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike";
+				INFOPLIST_KEY_CFBundleDisplayName = FFL;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -767,8 +773,8 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike";
-				PRODUCT_NAME = "FFL Cookie Spike";
+				PRODUCT_BUNDLE_IDENTIFIER = com.whitebridgelabs.ffl;
+				PRODUCT_NAME = FFL;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -790,13 +796,13 @@
 				DEVELOPMENT_TEAM = QYT6X3UW99;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike";
+				INFOPLIST_KEY_CFBundleDisplayName = FFL;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -808,8 +814,8 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike";
-				PRODUCT_NAME = "FFL Cookie Spike";
+				PRODUCT_BUNDLE_IDENTIFIER = com.whitebridgelabs.ffl;
+				PRODUCT_NAME = FFL;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -833,21 +839,21 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = FFL;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike.Extension";
-				PRODUCT_NAME = "FFL Cookie Spike Extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.whitebridgelabs.ffl.Extension;
+				PRODUCT_NAME = "FFL Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -869,21 +875,21 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = FFL;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike.Extension";
-				PRODUCT_NAME = "FFL Cookie Spike Extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.whitebridgelabs.ffl.Extension;
+				PRODUCT_NAME = "FFL Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -908,14 +914,14 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (App)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike";
+				INFOPLIST_KEY_CFBundleDisplayName = FFL;
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"-framework",
@@ -923,8 +929,8 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike";
-				PRODUCT_NAME = "FFL Cookie Spike";
+				PRODUCT_BUNDLE_IDENTIFIER = com.whitebridgelabs.ffl;
+				PRODUCT_NAME = FFL;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -950,14 +956,14 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (App)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "FFL Cookie Spike";
+				INFOPLIST_KEY_CFBundleDisplayName = FFL;
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"-framework",
@@ -965,8 +971,8 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.whitebridgelabs.ffl-cookie-spike";
-				PRODUCT_NAME = "FFL Cookie Spike";
+				PRODUCT_BUNDLE_IDENTIFIER = com.whitebridgelabs.ffl;
+				PRODUCT_NAME = FFL;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
