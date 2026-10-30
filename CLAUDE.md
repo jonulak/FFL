@@ -52,6 +52,8 @@ uv run python -m ffl.vault keygen      # a new FFL_SECRET_KEYS entry; `rotate` r
 uv run uvicorn ffl.api:app --host 127.0.0.1 --port 8300   # dev API
 cd web && pnpm dev                     # dev UI on :3301 against the API above; pnpm typecheck / test / lint
 cd extension/ffl && pnpm build         # the browser extension -> dist/chrome, dist/safari; `pnpm test`, `pnpm package`
+# Safari: extension/spike-safari (Xcode). Xcode Cloud archives both shared schemes on a push to main touching extension/
+#   and hands them to TestFlight; ci_scripts/ci_post_clone.sh installs Node and builds dist/safari
 uv run python scripts/pageload.py [base]   # load time of every page on a throttled phone (default :3300)
 curl -X POST -H "x-ffl-job: $FFL_JOB_TOKEN" 127.0.0.1:8300/notify/tick   # also /outlook/refresh, /news/run, /transactions/sync, /refresh
 docker compose pull && docker compose up -d   # upgrade an install (in its directory)
