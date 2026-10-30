@@ -16,7 +16,7 @@ import Cocoa
 typealias PlatformViewController = NSViewController
 #endif
 
-let extensionBundleIdentifier = "com.whitebridgelabs.ffl-cookie-spike.Extension"
+let extensionBundleIdentifier = "com.whitebridgelabs.ffl.Extension"
 // FFL's Connect step, in Safari: it finds the extension there and links it with one tap (2026-10-29). The server is
 // the build's FFL_ORIGIN (ffl-origin.sh stamps it into Info.plist as FFLOrigin, the same one the extension was built
 // for), the live site if a build somehow has none.

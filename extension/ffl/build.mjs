@@ -1,10 +1,11 @@
 // Builds the extension for one browser: node build.mjs --target chrome|safari [--origin https://...]
-// into dist/<target>/: manifest.json, background.js, content.js, popup.html, popup.js. Safari's wrapper (Xcode) bundles
-// exactly those five files from dist/safari, so their names never change. --origin is FFL's address, fixed into the
+// into dist/<target>/: manifest.json, background.js, content.js, popup.html, popup.js and images/ (the icons, from
+// ../icon/make-icons.sh). Safari's wrapper (Xcode) bundles exactly those five files and that folder from dist/safari,
+// so their names never change. The manifest's version is package.json's: the Web Store refuses one version twice. --origin is FFL's address, fixed into the
 // build (--origin, else the FFL_ORIGIN environment variable, else production; a test server's for a dev build) and
 // granted as the extension's second host.
 import { build } from "esbuild";
-import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({ options: { target: { type: "string" }, origin: { type: "string" } } });
@@ -32,18 +33,22 @@ await build({
   logLevel: "warning",
 });
 await copyFile("src/popup.html", `${out}/popup.html`);
+await cp("src/icons", `${out}/images`, { recursive: true });
+const { version } = JSON.parse(await readFile("package.json", "utf8"));
+const icons = Object.fromEntries([16, 32, 48, 128].map((s) => [s, `images/icon-${s}.png`]));
 
 const manifest = {
   manifest_version: 3,
   name: "FFL",
-  version: "0.1.0",
+  version,
   description: "Connects your ESPN fantasy leagues to FFL: sends this browser's ESPN login to your FFL account, and nothing else.",
+  icons,
   permissions: ["cookies", "storage"],
   host_permissions: ["*://*.espn.com/*", site],
   background: { service_worker: "background.js" },
   // the same script on FFL's site answers its Connect step (content.ts onFfl): linking with one tap, no code
   content_scripts: [{ matches: ["*://*.espn.com/*", site], js: ["content.js"], run_at: "document_idle" }],
-  action: { default_title: "FFL", default_popup: "popup.html" },
+  action: { default_title: "FFL", default_popup: "popup.html", default_icon: icons },
 };
 await writeFile(`${out}/manifest.json`, JSON.stringify(manifest, null, 2) + "\n");
 console.log(`built ${out} for ${origin}`);
