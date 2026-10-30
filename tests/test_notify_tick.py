@@ -15,12 +15,57 @@ def lg(monkeypatch):
     return league
 
 
-def test_check_injuries_reads_my_roster(monkeypatch, lg):
-    doc = {"scoringPeriodId": 5, "teams": [{"id": 7, "roster": {"entries": [
-        {"playerId": 9, "lineupSlotId": 2, "playerPoolEntry": {"player": {"injuryStatus": "OUT", "fullName": "Isiah Pacheco"}}}]}}]}
-    monkeypatch.setattr(espn_season, "raw_league_get", lambda view, **k: doc)
-    assert notify.check_injuries(ref=home_league()) == 1 and notify.check_injuries(ref=home_league()) == 0
-    assert db.unsent_notices(ref=home_league())[0]["key"] == "injury:5:9:OUT"
+def _stored(ref, team: int, entries: list[tuple[int, int]]) -> None:
+    """A stored week-5 box score where `team` holds (player, lineup slot id) entries."""
+    side = {"teamId": team, "rosterForCurrentScoringPeriod": {"entries": [
+        {"playerId": p, "lineupSlotId": s} for p, s in entries]}}
+    db.put_box_doc(5, {"matchups": [{"home": side, "away": {"teamId": 99}}]}, "h", 0.0, ref=ref)
+
+
+def _mroster(team: int, slot: int) -> dict:
+    return {"scoringPeriodId": 5, "teams": [{"id": team, "roster": {"entries": [{"playerId": 9, "lineupSlotId": slot,
+            "playerPoolEntry": {"player": {"injuryStatus": "OUT", "fullName": "Isiah Pacheco"}}}]}}]}
+
+
+def test_injuries_read_only_the_leagues_starting_a_newly_hurt_player(monkeypatch):
+    """Three leagues: he starts in home, was benched since the stored read in another, is absent from the third. One
+    fresh read each for the first two, none for the third; only home's member hears; a quiet tick reads nothing."""
+    from ffl import leagues
+    uid = home_league().user_id
+    benched = leagues.register(leagues.LeagueRef("espn:998", "espn", "998", 2026, "benched", 3, None, None), user_id=uid)
+    absent = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "absent", 4, None, None), user_id=uid)
+    _stored(home_league(), 7, [(9, 2)])
+    _stored(benched, 3, [(9, 2)])           # stored as a starter; mRoster below has him on the bench (20)
+    _stored(absent, 4, [(5, 2)])
+    feed = {9: {"status": "Out"}, 5: {"status": "Questionable"}}
+    monkeypatch.setattr(espn_season, "fetch_injuries", lambda: feed)
+    reads = []
+    docs = {HOME_KEY: _mroster(7, 2), "espn:998": _mroster(3, 20)}
+    monkeypatch.setattr(espn_season, "raw_league_get", lambda view, ref: reads.append(ref.key) or docs[ref.key])
+    assert notify.check_injuries() == 1
+    assert sorted(reads) == [HOME_KEY, "espn:998"]
+    assert [n["key"] for n in db.unsent_notices(ref=home_league())] == ["injury:5:9:OUT"]
+    assert db.unsent_notices(ref=leagues.get("espn:998")) == []
+    reads.clear()
+    assert notify.check_injuries() == 0 and reads == [], "nobody newly hurt: no league is read"
+    feed[9] = {"status": "Injured Reserve"}
+    monkeypatch.setattr(espn_season, "fetch_injuries", lambda: {})
+    assert notify.check_injuries() == 0 and reads == [], "the feed down: nothing read, nothing forgotten"
+    assert db.get_state("injury_seen") == {"9": "OUT"}
+
+
+def test_injuries_a_failed_league_read_is_tried_again(monkeypatch):
+    _stored(home_league(), 7, [(9, 2)])
+    monkeypatch.setattr(espn_season, "fetch_injuries", lambda: {9: {"status": "Doubtful"}})
+
+    def down(view, ref):
+        raise ConnectionError("espn down")
+    monkeypatch.setattr(espn_season, "raw_league_get", down)
+    with pytest.raises(ConnectionError):
+        notify.check_injuries()
+    monkeypatch.setattr(espn_season, "raw_league_get", lambda view, ref: _mroster(7, 2))
+    assert notify.check_injuries() == 1
+    assert [n["key"] for n in db.unsent_notices(ref=home_league())] == ["injury:5:9:DOUBTFUL"], "the feed's, not mRoster's"
 
 
 def test_check_waivers_seeds_then_reports(monkeypatch, lg):
@@ -47,11 +92,12 @@ def test_tick_runs_every_step_even_when_espn_is_down(monkeypatch, lg):
     monkeypatch.setattr(espn_season, "raw_league_get", down)
     monkeypatch.setattr(espn_season, "record_projections", down)
     monkeypatch.setattr(espn_write, "last_waiver_run", lambda **k: None)  # the real failure mode: None, never a raise
+    monkeypatch.setattr(espn_season, "fetch_injuries", lambda: {})       # the feed down, nothing cached
     flushed = []
     monkeypatch.setattr(notify, "flush", lambda: flushed.append(1) or {"disabled": True})
     out = notify.tick()
     home = out["leagues"][HOME_KEY]
-    assert home["moves"] == {"error": "espn down"} and home["injuries"] == {"error": "espn down"}
+    assert home["moves"] == {"error": "espn down"} and out["injuries"] == 0
     assert home["projections"] == {"error": "espn down"} and out["sources"] == 0
     assert home["waivers"] == 0 and flushed == [1]
 
@@ -167,8 +213,9 @@ def test_tick_does_each_leagues_work_once_and_the_global_work_once(monkeypatch, 
     monkeypatch.setattr(notify, "check_sources", rec("sources", 0))
     monkeypatch.setattr(notify, "flush", rec("flush", {"sent": 0}))
     out = notify.tick()
-    for step in ("moves", "injuries", "waivers", "projections"):
+    for step in ("moves", "waivers", "projections"):
         assert [r for n, r in calls if n == step] == [home_league(), other], step
     assert [n for n, _ in calls].count("sources") == 1 and [n for n, _ in calls].count("flush") == 1
-    each = {"moves": 0, "injuries": 0, "waivers": 0, "projections": {}}
+    assert [n for n, _ in calls].count("injuries") == 1 and out["injuries"] == 0
+    each = {"moves": 0, "waivers": 0, "projections": {}}
     assert out["leagues"] == {HOME_KEY: each, "espn:999": each}

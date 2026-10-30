@@ -186,7 +186,6 @@ def test_a_league_move_reaches_every_member_once(two, client, monkeypatch):
 
 def test_a_starter_out_is_news_to_each_member_whose_starter_he_is(two, monkeypatch):
     """One roster read for the league; each member hears of their own team's starters (a co-manager too)."""
-    from types import SimpleNamespace
     from ffl import espn_season
 
     def entry(pid, name):
@@ -196,8 +195,11 @@ def test_a_starter_out_is_news_to_each_member_whose_starter_he_is(two, monkeypat
                                              {"id": 3, "roster": {"entries": [entry(19, "Theirs")]}}]}
     reads = []
     monkeypatch.setattr(espn_season, "raw_league_get", lambda view, **k: reads.append(view) or doc)
-    monkeypatch.setattr(espn_season, "fresh_league", lambda *a, **k: SimpleNamespace(current_week=WEEK))
-    assert notify.check_injuries(ref=leagues.get(two.a.key)) == 3
+    monkeypatch.setattr(espn_season, "fetch_injuries", lambda: {9: {"status": "Out"}, 19: {"status": "Out"}})
+    starters = [{"teamId": t, "rosterForCurrentScoringPeriod": {"entries": [{"playerId": p, "lineupSlotId": 2}]}}
+                for t, p in ((7, 9), (3, 19))]
+    db.put_box_doc(WEEK, {"matchups": [{"home": starters[0], "away": starters[1]}]}, "h", 0.0, ref=two.a)
+    assert notify.check_injuries() == 3
     assert reads == ["mRoster"], "one read for every member"
     keys = lambda ref: [n["key"] for n in db.unsent_notices(ref=ref)]
     assert keys(two.a) == keys(two.c) == [f"injury:{WEEK}:9:OUT"] and keys(two.b) == [f"injury:{WEEK}:19:OUT"]

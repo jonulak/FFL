@@ -52,6 +52,11 @@ _SL_SCORED: dict[tuple[int, str], tuple[list, dict]] = {}  # (week, sources.scor
 _SL_FLIGHT = Flight()  # week -> its Sleeper fetch in flight, shared by the builds asking at once
 _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
 _INJ: list = []  # [expires_at, data]
+_SEASON_FLIGHT = Flight()  # (league key, week) -> its season_lookup in flight: every member's rebuild shares one
+_INJ_FLIGHT = Flight()  # the injuries feed's fetch in flight (8 MB), shared by the builds asking at once
+# the widest any fan-out here runs: glibc gives each thread its own malloc arena, and 30 threads each parsing an MB of
+# ESPN JSON left the box's API at 885 MB RSS on a 228 MB heap (#472)
+WORKERS = 8
 
 
 def refresh_league() -> None:
@@ -369,6 +374,17 @@ def fetch_sleeper_snaps(week: int) -> dict[tuple[str, str], tuple[float, float]]
     return parse_sleeper_snaps(fetch_sleeper_stats(week))
 
 
+SLEEPER_PLAYER = ("first_name", "last_name", "position", "team", "years_exp")
+
+
+def slim_sleeper(rows: list[dict]) -> list[dict]:
+    """Sleeper's rows as the parsers read them: the club, the stat line and the player's name, position, club and
+    years (a key Sleeper left off stays off). Kept whole, the player records and Sleeper's metadata were most of
+    the ~100 MB its cached weeks held (#472)."""
+    return [{"team": p.get("team"), "stats": p.get("stats") or {},
+             "player": {k: v for k, v in (p.get("player") or {}).items() if k in SLEEPER_PLAYER}} for p in rows]
+
+
 def _stats_rows(week: int) -> list[dict]:
     """One week's raw Sleeper stat rows, cached for CACHE_S; [] for this build when the fetch
     fails (no snap share for that game, the points columns unaffected), and not cached."""
@@ -376,7 +392,7 @@ def _stats_rows(week: int) -> list[dict]:
     if hit and hit[0] > time.time():
         return hit[1]
     try:
-        data = fetch_sleeper_stats(week)
+        data = slim_sleeper(fetch_sleeper_stats(week))
     except requests.RequestException as e:
         print(f"sleeper stats unavailable for week {week}: {e}")
         return []
@@ -685,7 +701,7 @@ def _remaining_sleeper_weeks(week: int, settings: dict) -> list[dict] | None:
     because a sum missing a week would undercount every player rather than a few."""
     weeks = list(range(week, S.NFL_WEEKS + 1))
     try:
-        with ThreadPoolExecutor(max(len(weeks), 1)) as pool:
+        with ThreadPoolExecutor(max(min(len(weeks), WORKERS), 1)) as pool:
             return list(pool.map(lambda w: _sleeper_for(w, settings), weeks))
     except requests.RequestException as e:
         print(f"sleeper weekly projections unavailable, ROS rests on the other sources: {e}")
@@ -696,10 +712,18 @@ def season_lookup(settings: dict, week: int, ref) -> dict[int, dict]:
     """The whole player pool's season and rest-of-season projections, cached for CACHE_S per week
     (one ESPN call, Sleeper's season and every remaining week, CBS's and FantasySharks' pages).
     `ref` is the league whose ESPN scoring prices the pool."""
+    cache_key = (ref.key, week)
+    hit = _SEASON_CACHE.get(cache_key)
+    if hit and time.time() - hit[0] < CACHE_S:
+        return hit[1]
+    return _SEASON_FLIGHT.do(cache_key, lambda: _build_season_lookup(settings, week, ref))
+
+
+def _build_season_lookup(settings: dict, week: int, ref) -> dict[int, dict]:
     now = time.time()
     cache_key = (ref.key, week)
     hit = _SEASON_CACHE.get(cache_key)
-    if hit and now - hit[0] < CACHE_S:
+    if hit and now - hit[0] < CACHE_S:  # the flight before this one landed it
         return hit[1]
     # four independent sources of one to four seconds each, in flight together: in sequence they
     # were most of what the Refresh button waited on
@@ -779,6 +803,12 @@ def fetch_injuries() -> dict[int, dict]:
     """
     if _INJ and _INJ[0] > time.time():
         return _INJ[1]
+    return _INJ_FLIGHT.do("injuries", _fetch_injuries)
+
+
+def _fetch_injuries() -> dict[int, dict]:
+    if _INJ and _INJ[0] > time.time():  # the flight before this one landed it
+        return _INJ[1]
     try:
         # site.api.espn.com answers 403 to anything browser-shaped in User-Agent (Mozilla/…, or a
         # descriptive custom string) and 200 to requests' default — so no header here.
@@ -842,7 +872,7 @@ def _sleeper_rows(week: int) -> list:
         hit = _SL.get(week)
         if hit and hit[0] > time.time():  # the flight before this one landed it
             return hit[1]
-        rows = fetch_sleeper_rows(week)
+        rows = slim_sleeper(fetch_sleeper_rows(week))
         _SL[week] = (time.time() + CACHE_S, rows)
         return rows
 
@@ -886,6 +916,7 @@ def forget_current_boxes(*, ref: leagues.LeagueRef) -> None:
     key = ref.key
     for k in [k for k, hit in list(_BOXES.items()) if k[0] == key and hit[0] != math.inf]:  # a builder thread may be adding
         _BOXES.pop(k, None)
+    forget_league_pool(ref=ref)  # the pool's league half was built on them
     try:
         db.expire_live_boxes(ref=ref)
     except db.DBError as e:
@@ -1274,7 +1305,7 @@ def player_card(player_id: int, *, ref: leagues.LeagueRef) -> dict:
     reads |= {("sleeper", wk): (lambda wk=wk: _sleeper_for(wk, settings)) for wk in range(lg.current_week, S.NFL_WEEKS + 1)}
     if pos in S.SNAP_POSITIONS:  # his snaps each week this season, off the cached Sleeper stat rows
         reads |= {("snaps", wk): (lambda wk=wk: parse_sleeper_snaps(_stats_rows(wk))) for wk in range(1, lg.current_week + 1)}
-    with ThreadPoolExecutor(max_workers=len(reads)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(reads), WORKERS)) as pool:
         futures = {k: pool.submit(fn) for k, fn in reads.items()}
     schedules, rows, ranks, sleeper, pos_ranks, snaps, current = {}, [], {}, {}, {}, {}, {}
     key = (norm_name(p.get("fullName") or ""), pos)
@@ -1539,25 +1570,89 @@ def roster_flags(lg, *, ref: leagues.LeagueRef) -> dict[int, dict]:
 POOL_SIZE = 150
 
 
-def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dict | None = None,
-                    season: dict | None = None, injuries: dict | None = None,
-                    snaps: dict | None = None, *, ref: leagues.LeagueRef) -> dict:
-    """The Players page's pool: `positions` holds the free agents ranked for a claim (claims, the
-    waiver outlook and the calibration snapshot read it, so it never carries a rostered man);
-    `rostered` holds every rostered player priced the same way, tagged with his owner. `ref` is the league."""
+def _pro_schedule(doc: dict, week: int) -> dict[int, tuple[int, int]]:
+    """espn-api's League._get_pro_schedule(week) over the cached proTeamSchedules_wl document: pro team id ->
+    (opponent id, kickoff ms) for that week, a bye left out. espn-api fetches the document again on every call."""
+    out: dict[int, tuple[int, int]] = {}
+    for t in doc.get("settings", {}).get("proTeams", []):
+        games = (t.get("proGamesByScoringPeriod") or {}).get(str(week))
+        if t.get("id") and games:
+            g = games[0]
+            out[t["id"]] = (g["homeProTeamId"], g["date"]) if t["id"] == g["awayProTeamId"] else (g["awayProTeamId"], g["date"])
+    return out
+
+
+def _free_agent_boxes(lg, asks: list[tuple[str, int]], size: int, week: int, *,
+                      ref: leagues.LeagueRef) -> dict[tuple[str, int], list]:
+    """(position, week) -> the free agents ESPN lists there, as espn-api's free_agents builds them (BoxPlayers off
+    kona_player_info, the same filter), but with one schedule and one ratings read for the whole build: free_agents
+    refetches both on every call, 60 of a build's 90 calls. The ratings are `week`'s: they set only the opponent,
+    which is read off this week's rows alone. One kona call of ~0.6 s per ask, WORKERS in flight at once."""
+    if not hasattr(lg, "espn_request"):  # tests stub League with free_agents alone
+        with ThreadPoolExecutor(min(len(asks), WORKERS)) as pool:
+            return dict(zip(asks, pool.map(lambda a: lg.free_agents(week=a[1], size=size, position=a[0]), asks)))
+    from espn_api.football.box_player import BoxPlayer
+    from espn_api.football.constant import POSITION_MAP
+
+    doc, ranks = _schedule_doc(lg), lg._get_positional_ratings(week)
+    scheds = {w: _pro_schedule(doc, w) for w in {w for _, w in asks}}
+
+    def read(ask: tuple[str, int]) -> list:
+        pos, w = ask
+        flt = {"players": {"filterStatus": {"value": ["FREEAGENT", "WAIVERS"]}, "filterSlotIds": {"value": [POSITION_MAP[pos]]},
+                           "limit": size, "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+                           "sortDraftRanks": {"sortPriority": 100, "sortAsc": True, "value": "STANDARD"}}}
+        data = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(flt)}, scoringPeriodId=w, ref=ref)
+        return [BoxPlayer(p, scheds[w], ranks, w, lg.year) for p in data["players"]]
+    with ThreadPoolExecutor(min(len(asks), WORKERS)) as pool:
+        return dict(zip(asks, pool.map(read, asks)))
+
+
+POOL_TTL_S = BOXES_TTL_S  # the league half is as fresh as the box scores it reads, and a move drops it with them
+_POOL: dict[str, tuple[float, dict]] = {}  # league key -> (expires_at, league_pool's answer)
+_POOL_FLIGHT = Flight()  # (league key, box epoch) -> its build in flight, shared by every member rebuilding at once
+POSITIONS = ["QB", "RB", "WR", "TE", "D/ST", "K"]
+
+
+def forget_league_pool(*, ref: leagues.LeagueRef) -> None:
+    """Drop `ref`'s league half of the pool: the next league_pool builds it again. forget_current_boxes calls it."""
+    _POOL.pop(ref.key, None)
+
+
+def league_pool(week: int | None = None, size: int = POOL_SIZE, sources: dict | None = None,
+                season: dict | None = None, injuries: dict | None = None,
+                snaps: dict | None = None, *, ref: leagues.LeagueRef) -> dict:
+    """The Players pool's league half, the same for every member (dress_pool adds the member's): the free agents
+    per position (`frees`, enriched), every rostered player (`rostered`, and `teams`: team id -> his rows), their
+    form, ESPN's claim `status` and `owners`, and `enrich` for a row read later (a watched man). The default call
+    (the API's) is kept per league for POOL_TTL_S under one flight, so M members cost one build; forget_league_pool
+    (every forget_current_boxes: a move, a lineup move, a pull) drops it, and a build that began before that drop
+    is handed to its callers but not kept. A call with its inputs given is built every time. Never mutate it."""
+    if week is not None or size != POOL_SIZE or any(x is not None for x in (sources, season, injuries, snaps)):
+        return _build_league_pool(week, size, sources, season, injuries, snaps, ref=ref)
+    hit = _POOL.get(ref.key)
+    if hit is not None and time.time() < hit[0]:
+        return hit[1]
+    epoch = _BOXES_EPOCH[0]
+
+    def build() -> dict:
+        base = _build_league_pool(None, size, None, None, None, None, ref=ref)
+        if _BOXES_EPOCH[0] == epoch:
+            _POOL[ref.key] = (time.time() + POOL_TTL_S, base)
+        return base
+    return _POOL_FLIGHT.do((ref.key, epoch), build)
+
+
+def _build_league_pool(week, size, sources, season, injuries, snaps, *, ref: leagues.LeagueRef) -> dict:
     lg = fresh_league(ref)
     settings = load(ref)
     week = week or league_week(lg, ref=ref)
     # the league's strategy, "Waivers" (`uv run python -m ffl.strategy show`): ROS starts from the first week whose games are not all played
     rw = ros_week_for(lg, week)
-    week_over = rw > week
-    me = my_team_id(lg, ref)
     src = sources if sources is not None else weekly_sources(week, settings)
     seas = _season_for(settings, season, rw, ref=ref)
     inj, w1 = _injuries_for(injuries), _week1_start(settings)
     boxes = _boxes_by_team(lg, week, ref=ref)
-    if me not in boxes:
-        raise RuntimeError(f"no box score for team {me} in week {week}")
     home = home_by_team(lg, week)  # so the Waivers page can say "at" when a free agent travels
     byes, weeks = bye_by_team(lg), form_weeks(week)
     snap_weeks = _snaps_for(weeks, snaps)
@@ -1567,61 +1662,72 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
     def enrich(players: list[dict], games: dict[int, list[dict]]) -> list[dict]:
         return apply_form(apply_exp(apply_home(apply_injuries(apply_season(merge_weekly(players, src), seas), inj, w1), home), exp),
                           games, snap_weeks, rw, byes, refs, usage)
-    # my players carry the same enrichment as a free agent: the page compares him against them
-    my_players = enrich([flatten_box_player(bp) for bp in boxes[me]], roster_games)
-    # every rostered player carries his form too: the replacement line runs on the adjusted ROS
-    rostered = enrich([flatten_box_player(bp) for lineup in boxes.values() for bp in lineup], roster_games)
-    out, frees_by_pos = {}, {}
-    positions = ["QB", "RB", "WR", "TE", "D/ST", "K"]
-    # one ESPN call of ~0.6 s per position and form week (the pool is the same set each week,
-    # sorted by ownership; only the stats change): all in flight together, not one after another
-    asks = [(pos, w) for pos in positions for w in weeks]
-    with ThreadPoolExecutor(len(asks)) as pool:
-        fetched = dict(zip(asks, pool.map(lambda a: lg.free_agents(week=a[1], size=size, position=a[0]), asks)))
-    for pos in positions:
+    # every rostered player carries his form too: the replacement line runs on the adjusted ROS; a member's own
+    # players are his team's rows of it, the same enrichment as a free agent (the page compares one against them)
+    seats = [(tid, bp) for tid, lineup in boxes.items() for bp in lineup]
+    rostered = enrich([flatten_box_player(bp) for _, bp in seats], roster_games)
+    teams: dict[int, list[dict]] = {tid: [] for tid in boxes}
+    for (tid, _), p in zip(seats, rostered):  # enrich keeps one row per player, in order
+        teams[tid].append(p)
+    # the pool is the same set each week, sorted by ownership; only the stats change
+    fetched = _free_agent_boxes(lg, [(pos, w) for pos in POSITIONS for w in weeks], size, week, ref=ref)
+    frees: dict[str, list[dict]] = {}
+    for pos in POSITIONS:
         games: dict[int, list[dict]] = {}
         for w in weeks:
             for obj in fetched[(pos, w)]:
                 games.setdefault(obj.playerId, []).extend(player_games(obj, [w], week))
-        frees = enrich([flatten_box_player(bp) for bp in fetched[(pos, week)]], games)
-        for f in frees:
-            f["slot"] = "FA"
-        out[pos] = S.waiver_deltas(frees, my_players, rostered + frees, settings, rw, week_over=week_over)
+        frees[pos] = [{**f, "slot": "FA"} for f in enrich([flatten_box_player(bp) for bp in fetched[(pos, week)]], games)]
+    # claim facts (ffl/claims.py): a failed read leaves the defaults, so nothing is ever added instantly
+    # by mistake (unknown status counts as WAIVERS)
+    try:
+        status = pool_status(ref=ref)
+    except Exception as e:
+        print(f"waiver status not read: {e}")
+        status = {}
+    return {"week": week, "ros_week": rw, "week_over": rw > week, "settings": settings, "rostered": rostered,
+            "teams": teams, "frees": frees, "status": status, "owners": _owners(lg, week, ref=ref),
+            "enrich": enrich, "ros_source": ros_source(seas)}
+
+
+def dress_pool(base: dict, *, ref: leagues.LeagueRef) -> dict:
+    """league_pool's answer as `ref`'s member sees it: the free agents and every rostered player priced against
+    the member's roster (worth to me), their own rows (`roster`, with ESPN's flags off a fresh mRoster read), `mine`,
+    and their watched players. Writes nothing into base, which every member shares."""
+    lg = fresh_league(ref)
+    me = my_team_id(lg, ref)
+    week, rw, week_over, settings = base["week"], base["ros_week"], base["week_over"], base["settings"]
+    if me not in base["teams"]:
+        raise RuntimeError(f"no box score for team {me} in week {week}")
+    my_players, rostered, frees, status = base["teams"][me], base["rostered"], base["frees"], base["status"]
+    out = {}
+    for pos in POSITIONS:
+        out[pos] = S.waiver_deltas(frees[pos], my_players, rostered + frees[pos], settings, rw, week_over=week_over)
         for r in out[pos]:
-            r["owner"], r["mine"] = None, False
-        frees_by_pos[pos] = frees
+            s = status.get(r["player_id"]) or {}
+            r["owner"], r["mine"], r["status"], r["waiver_date"] = None, False, s.get("status"), s.get("waiver_date")
     # what the blend read this ROS week, kept for ffl.calibrate; never a reason for the page to fail
     try:
         calibrate.write_snapshot(rw, calibrate.snapshot_rows(out, rw), ref=ref)
     except db.DBError as e:
         print(f"calibration snapshot not written: {e}")
     roster = S.roster_rows(my_players, rw)
-    # claim facts (ffl/claims.py): a failed read leaves the defaults, so nothing is ever added instantly
-    # by mistake (unknown status counts as WAIVERS) and ESPN is left to refuse an undroppable cut
-    try:
-        status = pool_status(ref=ref)
-    except Exception as e:
-        print(f"waiver status not read: {e}")
-        status = {}
+    # a failed read leaves the defaults: ESPN is left to refuse an undroppable cut
     try:
         flags = roster_flags(lg, ref=ref)
     except Exception as e:
         print(f"roster flags not read: {e}")
         flags = {}
-    for rows in out.values():
-        for r in rows:
-            s = status.get(r["player_id"]) or {}
-            r["status"], r["waiver_date"] = s.get("status"), s.get("waiver_date")
     for r in roster:
         f = flags.get(r["player_id"]) or {}
         r["droppable"], r["locked"] = f.get("droppable", True), f.get("locked", False)
     # the Players page: every rostered player, priced as a free agent would be (worth to me);
     # my own carry no worth, measuring a man against my weakest being circular
-    owners = _owners(lg, week, ref=ref)
+    owners = base["owners"]
     rostered_out: dict[str, list[dict]] = {}
-    for pos in positions:
+    for pos in POSITIONS:
         rows = S.waiver_deltas([p for p in rostered if p["pos"] == pos], my_players,
-                               rostered + frees_by_pos[pos], settings, rw, week_over=week_over)
+                               rostered + frees[pos], settings, rw, week_over=week_over)
         for r in rows:
             r["owner"] = owners.get(r["player_id"])
             r["mine"] = bool(r["owner"]) and r["owner"]["team_id"] == me
@@ -1637,17 +1743,26 @@ def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dic
         watching = []
     found = {r["player_id"]: r for rows in (*out.values(), *rostered_out.values()) for r in rows}
     deep, games = _watched_rows(lg, [pid for pid in watching if pid not in found and pid > 0], week, ref=ref)
-    deep = enrich(deep, games)
-    for pos in positions:
+    deep = base["enrich"](deep, games)
+    for pos in POSITIONS:
         at = [{**p, "slot": "FA"} for p in deep if p["pos"] == pos]
         # replacement level off the same pool a free agent's row reads: the deep man does not move it
-        for r in S.waiver_deltas(at, my_players, rostered + frees_by_pos[pos], settings, rw, week_over=week_over):
+        for r in S.waiver_deltas(at, my_players, rostered + frees[pos], settings, rw, week_over=week_over):
             s = status.get(r["player_id"]) or {}
             found[r["player_id"]] = {**r, "status": s.get("status"), "waiver_date": s.get("waiver_date"),
                                      "owner": None, "mine": False}
     watched = [dict(found[pid]) for pid in watching if pid in found]
     return {"week": week, "ros_week": rw, "week_over": week_over, "positions": out, "rostered": rostered_out,
-            "roster": roster, "watched": watched, "ros_source": ros_source(seas)}
+            "roster": roster, "watched": watched, "ros_source": base["ros_source"]}
+
+
+def free_agent_pool(week: int | None = None, size: int = POOL_SIZE, sources: dict | None = None,
+                    season: dict | None = None, injuries: dict | None = None,
+                    snaps: dict | None = None, *, ref: leagues.LeagueRef) -> dict:
+    """The Players page's pool for `ref`'s member: dress_pool over the league's league_pool. `positions` holds the
+    free agents ranked for a claim (claims, the waiver outlook and the calibration snapshot read it, so it never
+    carries a rostered man); `rostered` holds every rostered player priced the same way, tagged with his owner."""
+    return dress_pool(league_pool(week, size, sources, season, injuries, snaps, ref=ref), ref=ref)
 
 
 def _roster_games(lg, boxes: dict[int, list], week: int, *, ref: leagues.LeagueRef) -> dict[int, list[dict]]:
@@ -1741,7 +1856,7 @@ def _gap_games(gaps: dict[int, list[int]], week: int, *, ref: leagues.LeagueRef)
     def read(ask: tuple[int, list[int]]) -> tuple[int, dict[int, list[dict]]]:
         return ask[0], _fetch_gap_rows(ask[0], ask[1], week, ref=ref)
     if asks:
-        with ThreadPoolExecutor(len(asks)) as pool:  # all in flight together, like the free-agent asks
+        with ThreadPoolExecutor(min(len(asks), WORKERS)) as pool:  # WORKERS at once, like the free-agent asks
             answers = list(pool.map(read, asks))
         by_week: dict[int, dict[int, list[dict]]] = {}
         for w, got in answers:
@@ -1775,7 +1890,7 @@ def _watched_rows(lg, ids: list[int], week: int, *, ref: leagues.LeagueRef) -> t
     filt = {"players": {"filterIds": {"value": ids}}}
     try:
         doc = raw_league_get("kona_player_info", headers={"x-fantasy-filter": json.dumps(filt)}, scoringPeriodId=week, ref=ref)
-        sched, ranks = lg._get_pro_schedule(week), lg._get_positional_ratings(week)
+        sched, ranks = _pro_schedule(_schedule_doc(lg), week), lg._get_positional_ratings(week)
     except Exception as e:  # noqa: BLE001 — a watched man is not worth the Players page
         log.warning("watched players %s not read: %s", ids, e)
         return [], {}

@@ -15,7 +15,10 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-import pandas as pd
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pandas loads on a frame's first use: the API never builds one (#472)
+    import pandas as pd
 from espn_api.football.constant import PRO_TEAM_MAP
 
 from . import db, formats, leagues
@@ -110,6 +113,7 @@ def pool(ref) -> pd.DataFrame:
     projection. Never fetches. The sort is stable, so tied players keep position order, then ESPN's: an
     unstable sort reorders them, and the board's ranks with them. The rows are shared by every league on the
     format, so they carry no ownership: on_team_id is 0 and status "" for every player."""
+    import pandas as pd
     keys = formats.position_formats(ref)
     stored = db.espn_pool_rows(list(keys.values()), ref.season)
     missing = [pos for pos in POSITIONS if keys[pos] not in stored]

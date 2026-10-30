@@ -534,7 +534,7 @@ def test_season_lookup_sums_the_remaining_sleeper_weeks_and_drops_them_on_a_fail
         fetched.append(week)
         if week == 17:
             raise requests.ConnectionError("sleeper down")
-        return [week]
+        return []
 
     monkeypatch.setattr(espn_season, "fetch_sleeper_rows", fake_week)
     monkeypatch.setattr(espn_season, "parse_sleeper_rows", lambda rows, ks: {("jalen hurts", "QB"): 10.0})
@@ -1097,7 +1097,8 @@ def _watched_pool(monkeypatch, matchup, get):
     """free_agent_pool over the stub league, the claim-fact reads stubbed so `get` sees only the by-id ask."""
     calls = {"box": 0, "fa": []}
     lg = _stub_league(matchup, calls)
-    lg._get_pro_schedule = lambda w: {1: (2, 1_800_000_000_000)}
+    monkeypatch.setattr(espn_season, "_schedule_doc", lambda lg: {"settings": {"proTeams": [{"id": 1, "proGamesByScoringPeriod": {
+        "1": [{"homeProTeamId": 2, "awayProTeamId": 1, "date": 1_800_000_000_000}]}}]}})
     lg._get_positional_ratings = lambda w: {}
     monkeypatch.setattr(espn_season, "league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
@@ -1271,7 +1272,7 @@ def test_concurrent_cold_sleeper_weeks_share_one_fetch(monkeypatch):
     def fake_week(week):
         park(espn_season._SL_FLIGHT, 4, 1)
         calls.append(week)
-        return [week]
+        return []
 
     monkeypatch.setattr(espn_season, "fetch_sleeper_rows", fake_week)
     monkeypatch.setattr(espn_season, "parse_sleeper_rows", lambda rows, ks: {("jalen hurts", "QB"): 10.0})
@@ -1357,3 +1358,97 @@ def test_refresh_league_mid_call_does_not_break_the_doc():
         return PRO_SCHEDULE
     lg = SimpleNamespace(espn_request=SimpleNamespace(get_pro_schedule=get))
     assert espn_season._schedule_doc(lg) is PRO_SCHEDULE
+
+
+def test_members_of_a_league_share_one_pool_build_and_each_is_priced_against_their_own_roster(monkeypatch):
+    """#475: the league half (free agents, rostered, form, status, owners) is built once for every member; the
+    member's roster, `mine` and worth-to-me are dressed per member. A move (forget_current_boxes) drops it."""
+    from dataclasses import replace
+    calls = {"box": 0, "fa": []}
+    m = _matchup()
+    m.away_lineup = [as_box({**season_roster()[3], "player_id": 500, "name": "Their RB"})]
+    lg = _stub_league(m, calls)
+    monkeypatch.setattr(espn_season, "league", lambda *a, **k: lg)
+    monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
+    monkeypatch.setattr(espn_season, "my_team_id", lambda lg, ref: ref.team_id)
+    real, builds = espn_season._build_league_pool, []
+    monkeypatch.setattr(espn_season, "_build_league_pool",
+                        lambda week, size, *a, ref: builds.append(ref.user_id) or real(1, size, {}, {}, {}, {}, ref=ref))
+    a = replace(home_league(), team_id=7)
+    b = replace(a, user_id=a.user_id + 1, team_id=2)
+    pa, pb = espn_season.free_agent_pool(ref=a), espn_season.free_agent_pool(ref=b)
+    assert builds == [a.user_id] and len(calls["fa"]) == 6, "one league build, one free-agent read per position"
+    assert {r["player_id"] for r in pb["roster"]} == {500}
+    assert 500 not in {r["player_id"] for r in pa["roster"]}
+    them = {r["player_id"]: r for r in pa["rostered"]["RB"]}[500]
+    assert them["mine"] is False and isinstance(them["add"], float)
+    assert {r["player_id"]: r for r in pb["rostered"]["RB"]}[500]["mine"] is True
+    assert pa["positions"]["RB"][0]["delta_roster"] != pb["positions"]["RB"][0]["delta_roster"], "against each roster"
+    espn_season.forget_current_boxes(ref=a)
+    espn_season.free_agent_pool(ref=b)
+    assert builds == [a.user_id, b.user_id], "a move drops the league half"
+
+
+def test_free_agent_reads_share_one_schedule_and_ratings_read(monkeypatch):
+    """espn-api's free_agents refetched the pro schedule and the positional ratings on every call (60 of 90 calls)."""
+    monkeypatch.setattr(espn_season, "_SCHED", [None])
+    sched = {"settings": {"proTeams": [{"id": 1, "proGamesByScoringPeriod": {
+        str(w): [{"homeProTeamId": 1, "awayProTeamId": 2, "date": 1_800_000_000_000}] for w in (1, 2)}}]}}
+    counts = {"sched": 0, "ranks": 0}
+
+    def count(name, value):
+        counts[name] += 1
+        return value
+    lg = SimpleNamespace(year=espn_season.SEASON, espn_request=SimpleNamespace(get_pro_schedule=lambda: count("sched", sched)),
+                         _get_positional_ratings=lambda w: count("ranks", {"2": {"2": 5}}))
+    asked = []
+
+    def get(view, headers=None, *, ref=None, **params):
+        asked.append((view, json.loads(headers["x-fantasy-filter"])["players"], params["scoringPeriodId"]))
+        return {"players": [_deep_doc(77, params["scoringPeriodId"])]}
+    monkeypatch.setattr(espn_season, "raw_league_get", get)
+    asks = [(pos, w) for pos in ("RB", "WR") for w in (1, 2)]
+    got = espn_season._free_agent_boxes(lg, asks, 150, 2, ref=home_league())
+    assert counts == {"sched": 1, "ranks": 1} and len(asked) == 4
+    assert {(f["filterSlotIds"]["value"][0], f["limit"], w) for _, f, w in asked} == {(2, 150, 1), (2, 150, 2), (4, 150, 1), (4, 150, 2)}
+    bp = got[("RB", 2)][0]
+    assert bp.playerId == 77 and bp.projected_points == 9.5 and bp.pro_opponent == "BUF" and not bp.on_bye_week
+
+
+def test_season_lookup_is_one_build_for_every_member_asking_at_once(monkeypatch):
+    """A pregame pull rebuilds every member's pages at once: they share one lookup per (league, week), not one each."""
+    from tests.test_flight import park, race
+    espn_season._SEASON_CACHE.clear()
+    builds = []
+
+    def pool(*, ref):
+        builds.append(1)
+        park(espn_season._SEASON_FLIGHT, (ref.key, 7), 2)
+        return SEASON_ESPN
+
+    monkeypatch.setattr(espn_season, "fetch_pool", pool)
+    monkeypatch.setattr(espn_season, "fetch_sleeper_season", lambda settings: SEASON_SLEEPER)
+    monkeypatch.setattr(espn_season, "_remaining_sleeper_weeks", lambda week, settings: None)
+    monkeypatch.setattr(espn_season, "ROS_SOURCES", {})
+    out = race(3, lambda: espn_season.season_lookup({**TWO_QB, "scoring": []}, week=7, ref=home_league()))
+    assert len(builds) == 1 and out[0] is out[1] is out[2] and isinstance(out[0], dict)
+    espn_season._SEASON_CACHE.clear()
+
+
+def test_fetch_injuries_is_one_download_for_every_build_asking_at_once(monkeypatch):
+    from tests.test_flight import park, race
+    espn_season._INJ.clear()
+    gets = []
+
+    class R:
+        def raise_for_status(self): pass
+        def json(self): return {"injuries": []}
+
+    def get(*a, **k):
+        gets.append(1)
+        park(espn_season._INJ_FLIGHT, "injuries", 2)
+        return R()
+
+    monkeypatch.setattr(espn_season.requests, "get", get)
+    assert race(3, espn_season.fetch_injuries) == [{}, {}, {}] and len(gets) == 1
+    espn_season._INJ.clear()

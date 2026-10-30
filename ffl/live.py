@@ -38,10 +38,12 @@ LATE_KICKOFF = 2 * 3600
 
 
 class State:
-    """What the API reads: each league's latest per-player points and a version that ticks on change."""
+    """What the API reads: each league's latest per-player points and versions that tick on change: `version` on
+    any league's, `versions[key]` on that league's own (the /live stream a page opens counts its league's alone)."""
 
     def __init__(self):
         self.version = 0
+        self.versions: dict[str, int] = {}
         self.moves = 0  # logged league moves (moved()); the stream sends them as `data: m<n>`
         # every league's {key: (points, week)}, scored off the same documents on its own table. The week is the NFL
         # week the points were scored for: the socket drops after Monday night and the totals stay here until the next
@@ -56,16 +58,29 @@ class State:
         self.cond = threading.Condition()
 
     def update(self, leagues: dict[str, tuple[dict[int, float], int | None]], games: dict[str, dict] | None = None,
-               stats: dict[int, dict] | None = None) -> bool:
+               stats: dict[int, dict] | None = None,
+               scope: dict[str, tuple[set[int], set[str]]] | None = None) -> bool:
         """Store every league's latest (points, week), the game states and stat rows; tick `version` (and wake the
-        stream) only when a point moved or a game changed status or quarter. The clock alone
+        stream) only when a point moved or a game changed status or quarter. `versions[key]` ticks only on that
+        league's own change: a point of one of its `scope` players or a game of one of its `scope` clubs (the
+        lane's starters and their pro teams; the points are scored for every NFL player, so without it every
+        league would tick in lockstep). A league with no scope ticks on any change. The clock alone
         never wakes the page: every GET reads the stored clock, and the 60 s poll keeps it
         fresh enough. A stat that moves without moving points (an incompletion) rides along."""
         games = games if games is not None else self.games
+        scope = scope or {}
         with self.cond:
+            old_g, new_g = _sans_clock(self.games), _sans_clock(games)
+            clubs = {t for t in old_g.keys() | new_g.keys() if old_g.get(t) != new_g.get(t)}
             same_points = ({k: p for k, (p, _) in leagues.items()}
                            == {k: p for k, (p, _) in self.leagues.items()})
-            same_games = _sans_clock(games) == _sans_clock(self.games)
+            same_games = not clubs
+            for k in leagues.keys() | self.leagues.keys():
+                old, new = self.points_for(k), leagues.get(k, ({},))[0]
+                ids, teams = scope.get(k, (None, None))
+                pts = old != new if ids is None else any(old.get(i) != new.get(i) for i in ids)
+                if pts or (bool(clubs) if teams is None else bool(clubs & teams)):
+                    self.versions[k] = self.versions.get(k, 0) + 1
             self.games = games
             if stats is not None:
                 self.stats = stats
@@ -93,11 +108,16 @@ class State:
             self.moves += 1
             self.cond.notify_all()
 
-    def wait_for_tick(self, seen: tuple[int, int], timeout: float) -> tuple[int, int]:
-        """Block until (version, moves) moves past `seen` or `timeout` elapses; returns the current pair."""
+    def tick(self, key: str | None) -> tuple[int, int]:
+        """(the league's version, moves): what a /live stream counts. No league (None): 0, so only moves tick."""
         with self.cond:
-            self.cond.wait_for(lambda: (self.version, self.moves) != seen, timeout=timeout)
-            return self.version, self.moves
+            return self.versions.get(key, 0) if key else 0, self.moves
+
+    def wait_for_tick(self, key: str | None, seen: tuple[int, int], timeout: float) -> tuple[int, int]:
+        """Block until (the league's version, moves) moves past `seen` or `timeout` elapses; returns the current pair."""
+        with self.cond:
+            self.cond.wait_for(lambda: self.tick(key) != seen, timeout=timeout)
+            return self.tick(key)
 
     def wait_for_change(self, seen: int, timeout: float) -> int:
         """Block until `version` moves past `seen` or `timeout` elapses; returns the version."""
@@ -109,7 +129,8 @@ class State:
         with self.cond:
             return {"version": self.version, "at": self.at, "connected": self.connected,
                     "error": self.error,
-                    "leagues": {k: {"players": len(p), "week": w} for k, (p, w) in self.leagues.items()}}
+                    "leagues": {k: {"players": len(p), "week": w, "version": self.versions.get(k, 0)}
+                                for k, (p, w) in self.leagues.items()}}
 
 
 def stream_open(cur: tuple[int, int]) -> str:
@@ -119,8 +140,8 @@ def stream_open(cur: tuple[int, int]) -> str:
 
 
 def stream_lines(seen: tuple[int, int], cur: tuple[int, int]) -> list[str]:
-    """The /live events between two (version, moves) ticks: `data: m<n>` for a move (the Transactions and Players
-    pages refresh only on these), `data: <version>` for points. Live pages refetch on either."""
+    """The /live events between two (league version, moves) ticks: `data: m<n>` for a move (the Transactions and
+    Players pages refresh only on these), `data: <version>` for the stream's own league's points. Live pages refetch on either."""
     out = []
     if cur[1] != seen[1]:
         out.append(f"data: m{cur[1]}\n\n")
@@ -487,7 +508,9 @@ class Runner(threading.Thread):
                       if self.state.week_for(ln.key) == ln.week else after
                       for ln, before, after in zip(self.lanes, befores, afters)]
         self.state.update({ln.key: (a, ln.week) for ln, a in zip(self.lanes, afters)}, fc.game_states(doc),
-                          fc.player_stats(doc))
+                          fc.player_stats(doc),
+                          {ln.key: (set(ln.roster), {r["team"] for r in ln.roster.values()})
+                           for ln in self.lanes if ln.roster})
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if not first:

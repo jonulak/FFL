@@ -417,20 +417,73 @@ def send_test(user_id: int, send=None) -> dict:
 
 # --- I/O: the tick (POST /notify/tick, every 15 min from launchd/com.jonulak.ffl-notify) ---
 
-def check_injuries(*, ref) -> int:
-    """Each member's starters in the league `ref` names, off one fresh mRoster read: queues, for each member, the
-    starters of their team OUT/Doubtful/IR before their lock (a co-manager hears of the same ones)."""
+INJURY_CODE = {"Out": "OUT", "Doubtful": "DOUBTFUL", "IR": "INJURY_RESERVE"}  # watch.hurt_status -> ESPN's injuryStatus
+
+
+def stored_starters(doc: dict) -> set[int]:
+    """The players some team starts in a stored box-score document (db.box_doc's doc): no ESPN call."""
+    from .espn_season import _SLOT_NAME
+    out = set()
+    for m in doc.get("matchups") or []:
+        for side in (m.get("home"), m.get("away")):
+            for e in ((side or {}).get("rosterForCurrentScoringPeriod") or {}).get("entries") or []:
+                if (slot := _SLOT_NAME.get(e.get("lineupSlotId"))) and slot not in NOT_STARTING:
+                    out.add(int(e["playerId"]))
+    return out
+
+
+def _stored_week_doc(ref) -> dict | None:
+    """The league's current week as last stored: ESPN's week off the rollover pass, else the newest stored week."""
+    week = db.get_league_state("espn_week", ref=ref) or max(db.box_weeks(ref=ref), default=None)
+    row = db.box_doc(week, ref=ref) if week else None
+    return row["doc"] if row else None
+
+
+def check_injuries() -> int:
+    """One global run off ESPN's public injuries feed: only a player newly OUT/Doubtful/IR there matters. Nobody new:
+    no league is read. Else each league whose stored current-week box scores start him gets one fresh mRoster read
+    (a member may have benched him since) and each member of a team still starting him before his lock hears of it
+    (keys as before, injury:<week>:<pid>:<status>, the feed's status: mRoster's can lag it). A league whose read fails keeps its players new
+    for the next tick; the failure is re-raised after the others."""
+    from . import espn_season, leagues, watch
+    feed = espn_season.fetch_injuries()
+    if not feed:  # the feed down with nothing cached is no answer, never "nobody hurt" (that would reset what was seen)
+        return 0
+    hurt = {str(pid): code for pid, r in feed.items() if (code := INJURY_CODE.get(watch.hurt_status(r.get("status"))))}
+    seen = db.get_state("injury_seen", {})
+    new = {int(pid) for pid, code in hurt.items() if seen.get(pid) != code}
+    n, failed, held = 0, None, set()
+    for ref in leagues.joined() if new else []:
+        mine = new
+        try:
+            doc = _stored_week_doc(ref)
+            mine = new & stored_starters(doc) if doc else set()
+            if mine:
+                n += _league_injuries(ref, {p: hurt[str(p)] for p in mine})
+        except Exception as e:  # noqa: BLE001 — one league's refused read never holds back another's; re-raised after
+            log.warning("notify: injuries of %s: %s", ref.key, e)
+            failed, held = failed or e, held | mine
+    db.put_state("injury_seen", {pid: code for pid, code in hurt.items() if int(pid) not in held}
+                 | {pid: seen[pid] for pid in hurt if int(pid) in held and pid in seen})
+    if failed is not None:
+        raise failed
+    return n
+
+
+def _league_injuries(ref, hurt: dict[int, str]) -> int:
+    """One fresh mRoster read of the league: each member hears of the `hurt` ({id: status}) their team still starts
+    (a co-manager too)."""
     from . import espn_season, leagues
     members = [m for m in leagues.members(ref.key) if m.team_id is not None]
     if not members:
         return 0
-    lg = espn_season.fresh_league(ref)
     doc = espn_season.raw_league_get("mRoster", ref=ref)
-    week = int(doc.get("scoringPeriodId") or lg.current_week)
+    week = int(doc["scoringPeriodId"])
     at, by_team = now(), {}
     for m in members:
         if m.team_id not in by_team:
-            by_team[m.team_id] = injury_notices(espn_season.parse_roster_flags(doc, m.team_id), week, at)
+            flags = espn_season.parse_roster_flags(doc, m.team_id)
+            by_team[m.team_id] = injury_notices({p: {**f, "injury": hurt[p]} for p, f in flags.items() if p in hurt}, week, at)
     return sum(db.add_notices(by_team[m.team_id], ref=m) for m in members)
 
 
@@ -494,23 +547,22 @@ def _steps(out: dict, steps) -> dict:
 
 
 def league_tick(ref) -> dict:
-    """One league's share of the tick: sync its log (moves queue themselves), check its injuries and
-    waivers, record its projections."""
+    """One league's share of the tick: sync its log (moves queue themselves), check its waivers, record its
+    projections (its injuries are the global run's, check_injuries)."""
     from . import espn_season, journal
     out: dict = {}
     return _steps(out, (("moves", lambda: len(journal.sync_transactions(espn_season.fresh_league(ref), ref=ref))),
-                        ("injuries", lambda: check_injuries(ref=ref)),
                         ("waivers", lambda: check_waivers(synced=not isinstance(out.get("moves"), dict), ref=ref)),
                         ("projections", lambda: espn_season.record_projections(ref=ref))))
 
 
 def tick() -> dict:
     """Every league's share (under `leagues`, by key), then the global work
-    once: the sources' health, refused ESPN logins, the flush. A step that fails is reported and the rest still run: an ESPN outage must
+    once: injuries (off the NFL feed), the sources' health, refused ESPN logins, the flush. A step that fails is reported and the rest still run: an ESPN outage must
     not hold back notices already queued, nor one league's another's."""
     from . import leagues
     out: dict = {"leagues": {r.key: league_tick(r) for r in leagues.joined()}}
-    _steps(out, (("sources", check_sources), ("espn", check_espn)))
+    _steps(out, (("injuries", check_injuries), ("sources", check_sources), ("espn", check_espn)))
     try:
         out["flush"] = flush()
     except db.DBError as e:

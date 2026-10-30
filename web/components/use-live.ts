@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clientGet } from "@/app/api-client";
 import { generation } from "@/lib/generation";
+import { leagueOf, withLeague } from "@/lib/league";
 
 // A page's data kept live: the server render hands us `initial`; we always listen to the API's
 // /live event stream and refetch `path` on every tick (a tick means a player's points, or a
@@ -60,7 +61,8 @@ export function useLive<T extends { live: boolean }>(initial: T, path: string, o
         .finally(() => { inflight = false; if (again && !closed) { again = false; refetch(); } });
     };
     refetchRef.current = refetch;
-    const es = new EventSource("/api/live");
+    // the page's own league: the stream ticks on that league's points alone (and on any league's move)
+    const es = new EventSource(`/api${withLeague("/live", leagueOf(window.location.search))}`);
     let first = true;
     es.onmessage = () => {
       // the stream opens with the current version; only later messages are changes
