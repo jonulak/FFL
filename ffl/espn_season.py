@@ -52,6 +52,8 @@ _SL_SCORED: dict[tuple[int, str], tuple[list, dict]] = {}  # (week, sources.scor
 _SL_FLIGHT = Flight()  # week -> its Sleeper fetch in flight, shared by the builds asking at once
 _SNAPS: dict[int, tuple[float, dict]] = {}  # week -> (expires_at, sleeper snaps)
 _INJ: list = []  # [expires_at, data]
+_SEASON_FLIGHT = Flight()  # (league key, week) -> its season_lookup in flight: every member's rebuild shares one
+_INJ_FLIGHT = Flight()  # the injuries feed's fetch in flight (8 MB), shared by the builds asking at once
 
 
 def refresh_league() -> None:
@@ -696,10 +698,18 @@ def season_lookup(settings: dict, week: int, ref) -> dict[int, dict]:
     """The whole player pool's season and rest-of-season projections, cached for CACHE_S per week
     (one ESPN call, Sleeper's season and every remaining week, CBS's and FantasySharks' pages).
     `ref` is the league whose ESPN scoring prices the pool."""
+    cache_key = (ref.key, week)
+    hit = _SEASON_CACHE.get(cache_key)
+    if hit and time.time() - hit[0] < CACHE_S:
+        return hit[1]
+    return _SEASON_FLIGHT.do(cache_key, lambda: _build_season_lookup(settings, week, ref))
+
+
+def _build_season_lookup(settings: dict, week: int, ref) -> dict[int, dict]:
     now = time.time()
     cache_key = (ref.key, week)
     hit = _SEASON_CACHE.get(cache_key)
-    if hit and now - hit[0] < CACHE_S:
+    if hit and now - hit[0] < CACHE_S:  # the flight before this one landed it
         return hit[1]
     # four independent sources of one to four seconds each, in flight together: in sequence they
     # were most of what the Refresh button waited on
@@ -778,6 +788,12 @@ def fetch_injuries() -> dict[int, dict]:
     a missing return week is degraded advice, not an error.
     """
     if _INJ and _INJ[0] > time.time():
+        return _INJ[1]
+    return _INJ_FLIGHT.do("injuries", _fetch_injuries)
+
+
+def _fetch_injuries() -> dict[int, dict]:
+    if _INJ and _INJ[0] > time.time():  # the flight before this one landed it
         return _INJ[1]
     try:
         # site.api.espn.com answers 403 to anything browser-shaped in User-Agent (Mozilla/…, or a

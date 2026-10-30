@@ -1413,3 +1413,42 @@ def test_free_agent_reads_share_one_schedule_and_ratings_read(monkeypatch):
     assert {(f["filterSlotIds"]["value"][0], f["limit"], w) for _, f, w in asked} == {(2, 150, 1), (2, 150, 2), (4, 150, 1), (4, 150, 2)}
     bp = got[("RB", 2)][0]
     assert bp.playerId == 77 and bp.projected_points == 9.5 and bp.pro_opponent == "BUF" and not bp.on_bye_week
+
+
+def test_season_lookup_is_one_build_for_every_member_asking_at_once(monkeypatch):
+    """A pregame pull rebuilds every member's pages at once: they share one lookup per (league, week), not one each."""
+    from tests.test_flight import park, race
+    espn_season._SEASON_CACHE.clear()
+    builds = []
+
+    def pool(*, ref):
+        builds.append(1)
+        park(espn_season._SEASON_FLIGHT, (ref.key, 7), 2)
+        return SEASON_ESPN
+
+    monkeypatch.setattr(espn_season, "fetch_pool", pool)
+    monkeypatch.setattr(espn_season, "fetch_sleeper_season", lambda settings: SEASON_SLEEPER)
+    monkeypatch.setattr(espn_season, "_remaining_sleeper_weeks", lambda week, settings: None)
+    monkeypatch.setattr(espn_season, "ROS_SOURCES", {})
+    out = race(3, lambda: espn_season.season_lookup({**TWO_QB, "scoring": []}, week=7, ref=home_league()))
+    assert len(builds) == 1 and out[0] is out[1] is out[2] and isinstance(out[0], dict)
+    espn_season._SEASON_CACHE.clear()
+
+
+def test_fetch_injuries_is_one_download_for_every_build_asking_at_once(monkeypatch):
+    from tests.test_flight import park, race
+    espn_season._INJ.clear()
+    gets = []
+
+    class R:
+        def raise_for_status(self): pass
+        def json(self): return {"injuries": []}
+
+    def get(*a, **k):
+        gets.append(1)
+        park(espn_season._INJ_FLIGHT, "injuries", 2)
+        return R()
+
+    monkeypatch.setattr(espn_season.requests, "get", get)
+    assert race(3, espn_season.fetch_injuries) == [{}, {}, {}] and len(gets) == 1
+    espn_season._INJ.clear()

@@ -14,12 +14,14 @@ import requests
 
 from .adp import csv_frame, norm_name
 from .config import SEASON
+from .flight import Flight
 from .formats import RESCORED
 from .settings import load, rescoring
 
 API = "https://api.sleeper.app/projections/nfl/{season}"
 POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
 TWO_POINT = ("pass_2pt", "rush_2pt", "rec_2pt")
+_FLIGHT = Flight()  # season -> its raw fetch in flight: leagues rebuilding at once share it
 TEAM_FIX = {"JAC": "JAX", "WSH": "WAS", "LA": "LAR"}
 DST_NAMES = {"ARI": "Cardinals", "ATL": "Falcons", "BAL": "Ravens", "BUF": "Bills", "CAR": "Panthers", "CHI": "Bears",
              "CIN": "Bengals", "CLE": "Browns", "DAL": "Cowboys", "DEN": "Broncos", "DET": "Lions", "GB": "Packers",
@@ -82,7 +84,7 @@ def rescore(raw: list[dict], ks: dict) -> pd.DataFrame:
 def fetch(settings: dict) -> pd.DataFrame:
     """A fresh fetch this season, scored for the league `settings` describe (the in-season season lookup reads it
     live)."""
-    return rescore(fetch_raw(SEASON), rescoring(settings))
+    return rescore(_FLIGHT.do(SEASON, lambda: fetch_raw(SEASON)), rescoring(settings))
 
 
 def stored_raw(season: int, refresh: bool = False) -> list[dict]:
