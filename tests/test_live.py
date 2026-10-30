@@ -127,13 +127,47 @@ def test_a_move_wakes_the_stream_without_touching_the_points_version():
     baseline", and a move before kickoff must not turn that checkpoint into a burst of plays."""
     st = live.State()
     got = []
-    t = threading.Thread(target=lambda: got.append(st.wait_for_tick((0, 0), timeout=5)))
+    t = threading.Thread(target=lambda: got.append(st.wait_for_tick(HOME, (0, 0), timeout=5)))
     t.start()
     st.moved()
     t.join(2)
     assert got == [(0, 1)] and st.version == 0
-    assert st.update({HOME: ({1: 2.0}, None)}) and st.wait_for_tick((0, 1), timeout=0.05) == (1, 1)
-    assert st.wait_for_tick((1, 1), timeout=0.05) == (1, 1), "timeout returns the current tick"
+    assert st.update({HOME: ({1: 2.0}, None)}) and st.wait_for_tick(HOME, (0, 1), timeout=0.05) == (1, 1)
+    assert st.wait_for_tick(HOME, (1, 1), timeout=0.05) == (1, 1), "timeout returns the current tick"
+
+
+def test_each_league_ticks_on_its_own_points_and_every_league_on_a_game():
+    """A page counts its own league's version: another league's point change must not wake it (#473). A game's
+    status is the NFL's, so it ticks every league; a move ticks every stream."""
+    other = "espn:950458410"
+    st = live.State()
+    st.update({HOME: ({1: 2.0}, None), other: ({5: 1.0}, None)})
+    assert st.tick(HOME) == (1, 0) and st.tick(other) == (1, 0)
+    assert st.update({HOME: ({1: 2.0}, None), other: ({5: 7.0}, None)})
+    assert st.tick(HOME) == (1, 0) and st.tick(other) == (2, 0) and st.version == 2
+    assert st.wait_for_tick(HOME, (1, 0), timeout=0.05) == (1, 0), "another league's points never wake it"
+    st.update({HOME: ({1: 2.0}, None), other: ({5: 7.0}, None)}, {"JAX": {"status": "in", "quarter": 2}})
+    assert st.tick(HOME) == (2, 0) and st.tick(other) == (3, 0)
+    st.moved()
+    assert st.tick(HOME) == (2, 1) and st.tick(None) == (0, 1), "no league: moves alone"
+    st.update({HOME: ({1: 3.0}, None)}, {"JAX": {"status": "in", "quarter": 2}})  # a league dropped: its points went
+    assert st.tick(HOME) == (3, 1) and st.tick(other) == (4, 1)
+    assert st.snapshot()["leagues"][HOME]["version"] == 3
+
+
+def test_a_scoped_league_ticks_on_its_own_starters_and_clubs_alone():
+    """The points are scored for every NFL player: a league ticks only when one of its starters' points or one of
+    their clubs' games moves, else every league would tick in lockstep."""
+    other = "espn:950458410"
+    st = live.State()
+    scope = {HOME: ({1}, {"JAX"}), other: ({5}, {"CLE"})}
+    st.update({HOME: ({1: 2.0, 5: 1.0}, None), other: ({1: 2.0, 5: 1.0}, None)}, {}, None, scope)
+    assert st.tick(HOME) == (1, 0) and st.tick(other) == (1, 0)
+    st.update({HOME: ({1: 2.0, 5: 4.0}, None), other: ({1: 2.0, 5: 4.0}, None)}, {}, None, scope)
+    assert st.tick(HOME) == (1, 0) and st.tick(other) == (2, 0), "player 5 is the other league's starter only"
+    st.update({HOME: ({1: 2.0, 5: 4.0}, None), other: ({1: 2.0, 5: 4.0}, None)},
+              {"JAX": {"status": "in", "quarter": 1}}, None, scope)
+    assert st.tick(HOME) == (2, 0) and st.tick(other) == (2, 0), "JAX's game is home's starters' alone"
 
 
 def test_the_stream_opens_with_both_counts():

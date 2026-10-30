@@ -1484,15 +1484,22 @@ def player(player_id: int, ref: LeagueRef = Depends(open_league)):
 
 
 @app.get("/live")
-def live_stream():
-    """Server-sent events: `data: <version>` whenever live points change, `data: m<n>` when a league move was
+def live_stream(request: Request, league: str | None = Query(None)):
+    """Server-sent events: `data: <version>` whenever the ?league= league's live points change (none: the user's
+    default; a league they are not in, or none at all, ticks moves only), `data: m<n>` when any league's move was
     logged (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live
-    page refetches its GET on either; Transactions and Players refresh on a move only."""
+    page refetches its GET on either; Transactions and Players refresh on a move only. Never a 404: an EventSource
+    would retry it every 3 s for good."""
+    try:
+        key = open_league(request, league).key
+    except HTTPException:
+        key = None
+
     def gen():
-        seen = (live.STATE.version, live.STATE.moves)
+        seen = live.STATE.tick(key)
         yield live.stream_open(seen)
         while True:
-            cur = live.STATE.wait_for_tick(seen, timeout=15.0)
+            cur = live.STATE.wait_for_tick(key, seen, timeout=15.0)
             lines = live.stream_lines(seen, cur)
             seen = cur
             yield from lines or [": keepalive\n\n"]
