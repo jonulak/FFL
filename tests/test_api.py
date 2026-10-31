@@ -294,7 +294,7 @@ def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeyp
     import threading
     gate = threading.Event()
     take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
-    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), [take])[1])
+    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt, **kw: (gate.wait(5), [take])[1])
     r = client.post("/outlook/refresh")
     assert r.status_code == 202 and r.json() == {"started": True, "pending": None}
     assert client.post("/outlook/refresh").status_code == 409
@@ -330,7 +330,7 @@ def test_waiver_outlook_is_written_on_a_post_and_read_on_a_get(client, monkeypat
     _fa_pool(monkeypatch)
     gate = threading.Event()
     take = {"label": "Take", "text": "A stash.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
-    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), [take])[1])
+    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt, **kw: (gate.wait(5), [take])[1])
     assert client.get("/players?pos=RB").json()["rows"][0]["has_outlook"] is False
     assert client.get("/waivers/outlook/7").json() == {"bullets": None, "at": None, "stale": False, "running": False, "error": None}
     assert client.post("/waivers/outlook/7").status_code == 202
@@ -445,7 +445,7 @@ def test_card_outlook_is_rewritten_on_a_post_and_polled_on_a_get(client, monkeyp
     import threading
     gate = threading.Event()
     take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
-    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt: (gate.wait(5), [take])[1])
+    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt, **kw: (gate.wait(5), [take])[1])
     monkeypatch.setattr(api.outlook, "_WRITING", {})
     assert client.post("/outlook/1").status_code == 202
     assert client.post("/outlook/1").status_code == 409
@@ -2026,11 +2026,29 @@ def test_news_status(client):
     assert [s["id"] for s in body["sources"]] == ["pft", "site:DAL"]
     assert set(body["sources"][0]) == {"id", "name", "kind", "active", "ok_at", "error", "failing_since"}
     assert body["last_run"]["stages"] == {"seed": 2}
-    assert body["haiku_usage"] == {} and body["jev_usage"] == {}
-    db.put_state("news_haiku_usage", {"2026-10-19": {"input": 5, "output": 1, "calls": 1}})
+    assert "haiku_usage" not in body and body["jev_usage"] == {}   # the writer's cost is /llm/usage
     db.put_state("news_jev_usage", {"2026-10-19": {"input": 9, "output": 2, "calls": 3}})
     body = client.get("/news/status").json()
-    assert body["haiku_usage"]["2026-10-19"]["input"] == 5 and body["jev_usage"]["2026-10-19"]["calls"] == 3
+    assert body["jev_usage"]["2026-10-19"]["calls"] == 3
+
+
+def test_llm_usage_totals_by_day_and_kind(client):
+    """GET /llm/usage: llm_calls summed per (UTC day, kind) over the last `days` days; older rows are left out."""
+    from datetime import datetime, timedelta, timezone
+    for kind, cost in (("outlook", 0.02), ("outlook", 0.03), ("news", 0.001)):
+        db.add_llm_call(kind=kind, model="sonnet", league="espn:1", player_id=7, input=100, output=10,
+                        cost_usd=cost, ok=True)
+    old = (datetime.now(timezone.utc) - timedelta(days=9)).isoformat(timespec="seconds")
+    with db.engine().begin() as c:
+        c.execute(db.sa.insert(db.llm_calls).values(at=old, kind="outlook", model="sonnet", input=1, output=1,
+                                                    cost_usd=5.0, ok=True))
+    body = client.get("/llm/usage?days=7").json()
+    today = datetime.now(timezone.utc).date().isoformat()
+    assert body["days"] == 7
+    assert {r["kind"]: (r["day"], r["calls"], r["input"], round(r["cost_usd"], 4)) for r in body["rows"]} == {
+        "outlook": (today, 2, 200, 0.05), "news": (today, 1, 100, 0.001)}
+    assert len(client.get("/llm/usage?days=30").json()["rows"]) == 3
+    assert client.get("/llm/usage?days=0").status_code == 422
 
 
 def test_api_feed_orders_by_latest_news(news_client):

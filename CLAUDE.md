@@ -204,7 +204,7 @@ every installed page payload in `api.PERSIST` that survives a JSON round-trip, w
 back expired with no builder, so the first open after a restart is served at once and rebuilt behind; `drop`/`drop_prefixes`/`clear`
 delete the rows; player cards older than 7 days pruned at load; a key's inline first build is single-flight (`ffl/flight.py`): callers arriving
 while it runs share its payload or its 502, as do concurrent cold reads of `sources.Cached`, `_sleeper_for` and `box_scores`); `decisions` ← `journal/DECISIONS.md` (frozen; `ffl.decisions` parses it on import; app rows carry `facts` and a rationale of preset keys, NULL = open);
-  migration 0019 (insert-if-absent from the files, which it leaves in place): `traces` ← `data/trace.jsonl` (`POST /trace`, `db.trace_rows()`);
+  migration 0019 (insert-if-absent from the files, which it leaves in place): `traces` ← `data/trace.jsonl` (`POST /trace`, `db.trace_rows()`); `llm_calls` (0034, #64: one row per `claude -p` call, answered or failed, written by `claude_cli.run` (kind outlook/news, model alias, league, player, tokens, cost); `GET /llm/usage?days=` sums it per UTC day and kind, Settings shows this week's);
   `draft_logs` (source, log_id; `rows` the pick-log shape, `meta`) ← `data/ffc/<id>.csv` (source `ffc`, `ffl.ffc fetch`) and
   the committed `journal/draft/*.csv` pick logs (source `practice`, the file stem; `ffl.replay` names a log `source:id`);
   `props_snapshots` (week, kind) ← `data/props/week-<n>-<kind>.json` and `props_raw` (week, kind, event_id) ← `data/props/raw/`.
@@ -273,7 +273,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   `collect.run_all` then `collect.recheck` (in that order: recheck's "still in the feed" is the poll just made) →
   `media.run_all` (transcripts split per player) → `tag.run` (Jev: effect ▲/▼/●, kind, story) → `write.run` (Haiku through
   `claude -p`: headline, overview, a line per player it moves ▲/▼; one it only names gets no line and no place on his news page) → notices → `health.notices`, each stage tried alone (the index's
-  stages skipped without one), the stage dict in state `news_last_run`. `POST /news/run` (202; 409 while `_NEWS` is held)
+  stages skipped without one), the stage dict in state `news_last_run`. The writer's cost is its `llm_calls` rows (no `news_haiku_usage` state since #64); Jev's day total stays in `news_jev_usage`. `POST /news/run` (202; 409 while `_NEWS` is held)
   runs it on a thread and flushes after if `_NOTIFY` is free; `ffl-news.timer` POSTs it every 10 min;
   `GET /news/status` is the sources' health and the last run. A push (`notices.for_story`, kind `news`, the `news` pref)
   is a written revision's ▼ on my roster or ▲ on a free agent at `NEWS_PUSH_PROB`, with a line, unflagged, not muted

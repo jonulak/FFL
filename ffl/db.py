@@ -271,6 +271,24 @@ traces = sa.Table(
     sa.Column("doc", sa.JSON, nullable=False),           # {event, **fields}
 )
 
+# Every `claude -p` call (ffl/claude_cli.py, #64): what it cost, by kind (outlook / news), model and league. `at` is
+# UTC ISO, so its first ten characters are the day.
+llm_calls = sa.Table(
+    "llm_calls", metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("at", sa.String, nullable=False),
+    sa.Column("kind", sa.String, nullable=False),
+    sa.Column("model", sa.String, nullable=False),
+    sa.Column("league", sa.String),
+    sa.Column("player_id", sa.Integer),
+    sa.Column("input", sa.Integer, nullable=False),          # every token read, the cache's too
+    sa.Column("output", sa.Integer, nullable=False),
+    sa.Column("cost_usd", sa.Float, nullable=False),
+    sa.Column("ok", sa.Boolean, nullable=False),
+)
+sa.Index("ix_llm_calls_at", llm_calls.c.at)
+sa.Index("ix_llm_calls_kind", llm_calls.c.kind)
+
 # The props trial (ffl/props.py, weeks 4-6): each pull's snapshot, and The Odds API's raw answers per event.
 props_snapshots = sa.Table(
     "props_snapshots", metadata,
@@ -1506,6 +1524,29 @@ def trace_rows() -> list[dict]:
     """Every trace row in arrival order, as the old trace.jsonl line: {at, **doc}."""
     with _read() as c:
         return [{"at": r.at, **r.doc} for r in c.execute(sa.select(traces).order_by(traces.c.id))]
+
+
+def add_llm_call(*, kind: str, model: str, league: str | None, player_id: int | None, input: int, output: int,
+                 cost_usd: float, ok: bool) -> None:
+    from datetime import datetime, timezone
+    with _write() as c:
+        c.execute(sa.insert(llm_calls).values(
+            at=datetime.now(timezone.utc).isoformat(timespec="seconds"), kind=kind, model=model, league=league,
+            player_id=player_id, input=input, output=output, cost_usd=cost_usd, ok=ok))
+
+
+def llm_usage(days: int) -> list[dict]:
+    """The last `days` UTC days of llm_calls (today included), one row per (day, kind): calls, input, output, cost_usd."""
+    from datetime import datetime, timedelta, timezone
+    t = llm_calls
+    since = (datetime.now(timezone.utc) - timedelta(days=days - 1)).date().isoformat()
+    day = sa.func.substr(t.c.at, 1, 10).label("day")
+    q = (sa.select(day, t.c.kind, sa.func.count().label("calls"), sa.func.sum(t.c.input).label("input"),
+                   sa.func.sum(t.c.output).label("output"), sa.func.sum(t.c.cost_usd).label("cost_usd"))
+         .where(t.c.at >= since).group_by(day, t.c.kind).order_by(day, t.c.kind))
+    with _read() as c:
+        return [{"day": r.day, "kind": r.kind, "calls": r.calls, "input": int(r.input), "output": int(r.output),
+                 "cost_usd": float(r.cost_usd)} for r in c.execute(q)]
 
 
 def props_snapshot_exists(week: int, kind: str) -> bool:

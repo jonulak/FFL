@@ -135,27 +135,20 @@ def test_data_block_escapes_text_and_attributes():
 
 
 def test_usage_recorded():
-    """The CLI's usage (input with the cache's tokens, output) is added up per run and into the day's total."""
+    """The CLI's usage (input with the cache's tokens, output) is added up per run; each call is asked as kind news
+    (its llm_calls row is claude_cli's), and no day's total is kept in state any more."""
     a, b = make(), make()
+    seen = []
 
     def fake(prompt, **kw):
+        seen.append(kw["kind"])
         got = claude_cli.Structured({"stories": answer(a)["stories"] + answer(b)["stories"]})
         got.usage = {"input": 1200, "output": 300, "cost_usd": 0.01}
         return got
 
     out = write.run(INDEX, run_cli=fake)
     assert out["usage"] == {"input": 1200, "output": 300, "calls": 1}
-    day = datetime.now(timezone.utc).date().isoformat()
-    assert db.get_state("news_haiku_usage") == {day: {"input": 1200, "output": 300, "calls": 1}}
-    db.ask_reword(a)
-    write.run(INDEX, run_cli=fake)
-    assert db.get_state("news_haiku_usage") == {day: {"input": 2400, "output": 600, "calls": 2}}
-    old = {f"2026-09-{d:02d}": {"input": 1, "output": 1, "calls": 1} for d in range(1, 31)}
-    db.put_state("news_haiku_usage", {**old, day: {"input": 0, "output": 0, "calls": 0}})
-    db.ask_reword(a)
-    write.run(INDEX, run_cli=fake)
-    kept = db.get_state("news_haiku_usage")
-    assert len(kept) == 30 and "2026-09-01" not in kept and kept[day]["calls"] == 1
+    assert seen == ["news"] and db.get_state("news_haiku_usage") is None
 
 
 def test_reword_writes_without_a_written_id():

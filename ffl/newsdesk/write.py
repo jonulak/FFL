@@ -140,8 +140,8 @@ def _put(s: dict, w: dict | None) -> bool:
 
 def run(index: Index, run_cli=claude_cli.run) -> dict:
     """`written_ids`: the (story, rev) written for a new rev, which may push; `refreshed`: the stories written again at
-    the same rev only because Jev found the headline stale, which never do. `usage` is what Haiku read and wrote this run, added to
-    the day's in state `news_haiku_usage`."""
+    the same rev only because Jev found the headline stale, which never do. `usage` is what Haiku read and wrote this run (each
+    call's cost is its llm_calls row)."""
     out = {"written": 0, "written_ids": [], "refreshed": 0, "missing": 0, "failed": False, "error": None,
            "usage": usage.zero()}
     stories = db.unwritten_stories()  # all of them, newest first: no cap a run (Jonathan, 2026-10-19)
@@ -150,7 +150,7 @@ def run(index: Index, run_cli=claude_cli.run) -> dict:
         batch = stories[at:at + BATCH]
         try:
             got = run_cli(prompt(batch, index, sources), model=MODEL, schema=SCHEMA, tools="", cwd=CLAUDE_CWD,
-                          timeout=TIMEOUT)
+                          timeout=TIMEOUT, kind="news")
         except Exception as e:  # noqa: BLE001 — any failure of the CLI stops the run, with its text
             out["failed"], out["error"] = True, str(e)
             out["missing"] += len(stories) - at
@@ -173,8 +173,4 @@ def run(index: Index, run_cli=claude_cli.run) -> dict:
                 out["written_ids"].append((s["id"], s["rev"]))
             else:
                 out["refreshed"] += 1
-    try:
-        usage.record(usage.HAIKU, out["usage"], datetime.now(timezone.utc))
-    except db.DBError as e:
-        print(f"news write: usage not recorded: {e}")
     return out

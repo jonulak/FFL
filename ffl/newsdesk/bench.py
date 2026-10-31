@@ -108,7 +108,7 @@ class Cache:
         self._put(key, jev.MODEL, dict(got), getattr(got, "usage", None) or {})
         return got
 
-    def run_cli(self, prompt: str, *, model: str, schema: dict, tools: str, cwd: Path, timeout: int):
+    def run_cli(self, prompt: str, *, model: str, schema: dict, tools: str, cwd: Path, timeout: int, **ledger):
         """claude_cli.run, saved."""
         key = self._key(model, prompt, schema)
         saved = self._get(key)
@@ -117,7 +117,7 @@ class Cache:
             out = claude_cli.Structured(saved)
             out.usage = {"input": 0, "output": 0, "cost_usd": 0.0}
             return out
-        out = self._run_cli(prompt, model=model, schema=schema, tools=tools, cwd=cwd, timeout=timeout)
+        out = self._run_cli(prompt, model=model, schema=schema, tools=tools, cwd=cwd, timeout=timeout, **ledger)
         self._miss("haiku", "stories " + ",".join(p.split(" ", 1)[0] for p in prompt.split("## Story ")[1:]))
         self._put(key, model, dict(out), getattr(out, "usage", None) or {})
         return out

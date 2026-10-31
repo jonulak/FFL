@@ -259,11 +259,11 @@ def parse_envelope(stdout: str) -> list[dict]:
     return normalize(claude_cli.parse_envelope(stdout))
 
 
-def run_claude(prompt: str) -> list[dict]:
+def run_claude(prompt: str, *, league: str | None = None, player_id: int | None = None) -> list[dict]:
     """One outlook through the Claude Code CLI: MODEL with no tools, structured output, the sheet on stdin, run from the neutral
-    OUTLOOK_DIR so the CLI reads no CLAUDE.md (the sheet is the whole prompt)."""
+    OUTLOOK_DIR so the CLI reads no CLAUDE.md (the sheet is the whole prompt). `league`/`player_id` go on its llm_calls row."""
     return normalize(claude_cli.run(prompt, model=MODEL, schema=SCHEMA, tools=TOOLS, cwd=OUTLOOK_DIR,
-                                    timeout=TIMEOUT_S))
+                                    timeout=TIMEOUT_S, kind="outlook", league=league, player_id=player_id))
 
 
 def pending(cards: list[dict], entries: dict[int, dict], ctxs: dict[int, dict], today: date) -> list[dict]:
@@ -295,7 +295,7 @@ def generate(cards: list[dict], week: int, run=run_claude, gather=None, now: dat
 
     def one(c: dict) -> None:
         ctx = ctxs[c["player_id"]]
-        bullets = run(fact_sheet(c, week, ctx, today))
+        bullets = run(fact_sheet(c, week, ctx, today), league=ref.key, player_id=c["player_id"])
         stamp = (now or datetime.now().astimezone()).isoformat(timespec="minutes")
         with lock:
             entries[c["player_id"]] = {"hash": fact_hash(c, ctx), "card_hash": card_hash(c),
@@ -422,7 +422,7 @@ def start_one(row: dict, week: int, run=run_claude, gather=None, kind: str = WAI
         try:
             today = date.today()
             ctx = (gather or news.gather)([row], week)[pid]
-            bullets = run(fact_sheet(row, week, ctx, today, free_agent=kind == WAIVERS))
+            bullets = run(fact_sheet(row, week, ctx, today, free_agent=kind == WAIVERS), league=ref.key, player_id=pid)
             entry = {"card_hash": card_hash(row), "bullets": bullets,
                      "generated_at": datetime.now().astimezone().isoformat(timespec="minutes")}
             if kind == ROSTER:

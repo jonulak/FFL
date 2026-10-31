@@ -3,7 +3,7 @@ import { ErrorCard } from "@/components/error-card";
 import { EspnConnection } from "@/components/espn-connection";
 import { NotifySettings } from "@/components/notify-settings";
 import { SignOutButton } from "@/components/sign-out-button";
-import { apiGet, type Account, type NotifyConfig } from "@/lib/api";
+import { apiGet, type Account, type LlmUsage, type NotifyConfig } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 import type { EspnStatus, ExtensionDevice } from "@/lib/espn";
 
@@ -14,11 +14,12 @@ export const dynamic = "force-dynamic";
 // from the gear beside it in the league switcher. `?link=` is a provider link's answer (ffl/auth.py).
 export default async function Page({ searchParams }: { searchParams: Promise<{ link?: string }> }) {
   const { link } = await searchParams;
-  let config: NotifyConfig, account: Account, espn: EspnStatus, devices: { devices: ExtensionDevice[] };
+  let config: NotifyConfig, account: Account, espn: EspnStatus, devices: { devices: ExtensionDevice[] }, usage: LlmUsage | null;
   try {
-    [config, account, espn, devices] = await Promise.all([
+    [config, account, espn, devices, usage] = await Promise.all([
       apiGet<NotifyConfig>("/notify/config"), apiGet<Account>("/account"),
       apiGet<EspnStatus>("/espn/status"), apiGet<{ devices: ExtensionDevice[] }>("/espn/devices"),
+      apiGet<LlmUsage>("/llm/usage?days=7").catch(() => null),  // the cost line is not worth failing Settings over
     ]);
   } catch (e) {
     return <ErrorCard {...errorFields(e)} />;
@@ -29,8 +30,16 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ l
       <NotifySettings config={config} />
       <EspnConnection initial={espn} devices={devices.devices} />
       <AccountSettings account={account} link={link} />
+      {usage && <p className="border-t border-foreground/10 pt-5 text-sm text-muted-foreground tabular-nums">
+        This week: outlooks {cost(usage, "outlook")}, news {cost(usage, "news")}
+      </p>}
       <div className="border-t border-foreground/10 pt-5"><SignOutButton /></div>
       <div className="border-t border-foreground/10 pt-5"><DeleteAccount email={account.email} /></div>
     </div>
   );
+}
+
+function cost(usage: LlmUsage, kind: string): string {
+  const usd = usage.rows.filter((r) => r.kind === kind).reduce((sum, r) => sum + r.cost_usd, 0);
+  return `$${usd.toFixed(2)}`;
 }

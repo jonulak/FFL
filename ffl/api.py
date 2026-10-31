@@ -2134,8 +2134,14 @@ def news_status():
     cols = ("id", "name", "kind", "active", "ok_at", "error", "failing_since")
     return {"sources": [{k: s[k] for k in cols} for s in db.news_sources(active_only=False)],
             "last_run": db.get_state("news_last_run"),
-            # {UTC date: {input, output, calls}}, the last 30 days (ffl/newsdesk/usage.py)
-            "haiku_usage": db.get_state(news_usage.HAIKU, {}) or {}, "jev_usage": db.get_state(news_usage.JEV, {}) or {}}
+            # {UTC date: {input, output, calls}}, the last 30 days (ffl/newsdesk/usage.py); the writer's is /llm/usage
+            "jev_usage": db.get_state(news_usage.JEV, {}) or {}}
+
+
+@app.get("/llm/usage")
+def llm_usage(days: int = Query(7, ge=1, le=366)):
+    """What `claude -p` cost over the last `days` UTC days (today included): one row per (day, kind) off llm_calls."""
+    return {"days": days, "rows": db.llm_usage(days)}
 
 
 def correction_pass(*, ref: LeagueRef) -> dict:

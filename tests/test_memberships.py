@@ -286,7 +286,7 @@ def test_a_member_never_writes_to_espn_with_the_owners_cookies(other, monkeypatc
 GLOBAL_ROUTES = {
     "/health", "/leagues", "/live", "/live/status", "/sources/status", "/decisions/presets", "/outlook/refresh", "/refresh",
     "/transactions/sync", "/notify/subscribe", "/notify/unsubscribe", "/notify/test", "/trace",
-    "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status",
+    "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status", "/llm/usage",
 }
 
 

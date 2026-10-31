@@ -14,6 +14,8 @@ export const API_TIMEOUT_MS = 20_000;
 
 // ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
 export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; espn: boolean; quiet: [string, string] };
+// GET /llm/usage: what `claude -p` cost, one row per (UTC day, kind) over the last `days` days.
+export type LlmUsage = { days: number; rows: { day: string; kind: string; calls: number; input: number; output: number; cost_usd: number }[] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
 
 // ffl/auth.py GET /account: Settings' Account section (ffl-soc.6.2.4)

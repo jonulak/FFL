@@ -459,13 +459,13 @@ export interface paths {
             cookie?: never;
         };
         /** Health */
-        get: operations["health_health_head"];
+        get: operations["health_health_get"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         /** Health */
-        head: operations["health_health_head"];
+        head: operations["health_health_get"];
         patch?: never;
         trace?: never;
     };
@@ -692,7 +692,8 @@ export interface paths {
         /**
          * Plays
          * @description Every feed row of one game's week, newest first (the /plays page): mine, or with `team` that team's;
-         *     `week` (a finished week's board links its own) else the current one. `me`/`opp` name the two sides the
+         *     `week` (a finished week's board links its own) else the current one; `limit` the newest that many (the
+         *     Matchup board's strip, refetched alone when a /live delta moves one of its players). `me`/`opp` name the two sides the
          *     way the board does; `current` says whether the week is the current one (the way back is then `/`).
          */
         get: operations["plays__plays_get"];
@@ -814,9 +815,12 @@ export interface paths {
         };
         /**
          * Live Stream
-         * @description Server-sent events: `data: <version>` whenever live points change, `data: m<n>` when a league move was
-         *     logged (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live
-         *     page refetches its GET on either; Transactions and Players refresh on a move only.
+         * @description Server-sent events: whenever the ?league= league's live points change (none: the user's default; a league
+         *     they are not in, or none at all, ticks moves only) the JSON `live.delta` of what changed since this stream last
+         *     sent (`data: <version>` while the league has no scored week), `data: m<n>` when any league's move was logged
+         *     (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live page lays
+         *     a delta on (web/lib/overlay.ts) or refetches its GET; Transactions and Players refresh on a move only, and
+         *     ask with `moves=1` for nothing else. Never a 404: an EventSource would retry it every 3 s for good.
          */
         get: operations["live_stream_live_get"];
         put?: never;
@@ -1484,6 +1488,26 @@ export interface paths {
         };
         /** News Status */
         get: operations["news_status_news_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/llm/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Llm Usage
+         * @description What `claude -p` cost over the last `days` UTC days (today included): one row per (day, kind) off llm_calls.
+         */
+        get: operations["llm_usage_llm_usage_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2227,7 +2251,7 @@ export interface operations {
             };
         };
     };
-    health_health_head: {
+    health_health_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2247,7 +2271,7 @@ export interface operations {
             };
         };
     };
-    health_health_head: {
+    health_health_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2664,6 +2688,7 @@ export interface operations {
             query?: {
                 team?: number | null;
                 week?: number | null;
+                limit?: number | null;
                 league?: string | null;
             };
             header?: never;
@@ -2860,7 +2885,10 @@ export interface operations {
     };
     live_stream_live_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+                moves?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2874,6 +2902,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4089,6 +4126,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    llm_usage_llm_usage_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
