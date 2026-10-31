@@ -281,8 +281,8 @@ export function Failure({ f, reload }: { f: LineupFailure; reload: () => void })
   );
 }
 
-function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
-  c: Card; week: number; runBusy: boolean; open: boolean; onOpen: (open: boolean) => void; swap: SwapControl;
+function PlayerRow({ c, week, open, onOpen, swap, notice, illegal }: {
+  c: Card; week: number; open: boolean; onOpen: (open: boolean) => void; swap: SwapControl;
   notice: string | null; illegal: boolean;
 }) {
   const idle = c.call === "BYE" || c.call === "OUT" || c.call === "IR" || c.call === "SIT";
@@ -373,7 +373,7 @@ function PlayerRow({ c, week, runBusy, open, onOpen, swap, notice, illegal }: {
             <Reason text={c.reason} />
             <Sources c={c} live={live} />
             {c.stat_line && <StatLine text={c.stat_line} />}
-            <div className="border-t border-foreground/10 pt-2"><Outlook c={c} runBusy={runBusy} /></div>
+            <div className="border-t border-foreground/10 pt-2"><Outlook c={c} /></div>
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -424,8 +424,8 @@ function items(cards: Card[], group: Card["group"], empty: string[]): Item[] {
   return rows.map((r, i) => [r, i] as const).sort(([a, i], [b, j]) => order(slotOf(a)) - order(slotOf(b)) || i - j).map(([r]) => r);
 }
 
-export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, notice, rootRef }: {
-  cards: Card[]; empty: string[]; week: number; runBusy: boolean;
+export function RosterRows({ cards, empty, week, open, setOpen, swap, notice, rootRef }: {
+  cards: Card[]; empty: string[]; week: number;
   open: number | null; setOpen: (id: number | null) => void; swap: SwapControl; notice: Notice | null;
   // the board's root, for RosterLive's move animation (use-flip.ts); the groups, cards and rows carry its marks
   rootRef?: Ref<HTMLDivElement>;
@@ -457,7 +457,7 @@ export function RosterRows({ cards, empty, week, runBusy, open, setOpen, swap, n
             </h2>
             <ul data-flip-list={key} className="divide-y divide-foreground/10 overflow-hidden rounded-lg bg-card shadow-[0_10px_28px_-16px_rgb(0_0_0_/_0.55)]">
               {rows.map((r) => r.kind === "card"
-                ? <PlayerRow key={r.c.player_id} c={r.c} week={week} runBusy={runBusy} swap={swap}
+                ? <PlayerRow key={r.c.player_id} c={r.c} week={week} swap={swap}
                     notice={notice?.id === r.c.player_id ? notice.text : null} illegal={bad?.player_id === r.c.player_id}
                     open={open === r.c.player_id} onOpen={(o) => setOpen(o ? r.c.player_id : null)} />
                 : <EmptyRow key={r.key} flip={r.key} slot={r.slot} swap={swap} />)}

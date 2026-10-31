@@ -22,7 +22,7 @@ const MOVE_MS = 60_000;
 const ASK_DELAY_MS = 700;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-// Only the rows go live: the page header (outlook run, stale badge) is server state. The swap lives here: tap a
+// Only the rows go live: the page header (stale badge) is server state. The swap lives here: tap a
 // player's swap button (or an empty starting slot) and the sheet lists the moves; a tap on one closes the sheet and
 // re-slots the rows at once, before ESPN answers. Each move or sit is an op: the ops are posted one at a time in tap
 // order (the API holds one lineup write at a time, and a later move may fill a slot an earlier one emptied), and
@@ -166,7 +166,7 @@ export function RosterLive({ initial }: { initial: Roster }) {
 
   return (
     <>
-      <RosterRows cards={shown.cards} empty={shown.empty_slots} week={shown.week} runBusy={shown.outlook_run.running}
+      <RosterRows cards={shown.cards} empty={shown.empty_slots} week={shown.week}
         open={open} setOpen={setOpen} swap={swap} notice={notice} rootRef={root} />
       <SwapSheet subject={subject} move={move} onClose={close} blocked={irIllegal(shown.cards)} onFix={pick}
         week={shown.week} sit={sit} busy={held} />

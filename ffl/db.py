@@ -399,13 +399,12 @@ box_score_corrections = sa.Table(
 )
 
 outlooks = sa.Table(
-    "outlooks", metadata, _league(), _season(),
+    "outlooks", metadata, _season(),                     # shared by every league: one card per player and week
     sa.Column("week", sa.Integer, nullable=False),
-    sa.Column("kind", sa.String, nullable=False),        # outlook.ROSTER ("week") / outlook.WAIVERS ("waivers-week")
     sa.Column("player_id", sa.Integer, nullable=False),
     sa.Column("entry", sa.JSON, nullable=False),         # hash, card_hash, bullets, generated_at, error
     sa.Column("updated", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("league", "season", "week", "kind", "player_id"),
+    sa.PrimaryKeyConstraint("season", "week", "player_id"),
 )
 
 calibration_snapshots = sa.Table(
@@ -1581,23 +1580,22 @@ def props_raw_docs(week: int, kind: str) -> dict[str, object]:
                                                       .where(t.c.week == week, t.c.kind == kind))}
 
 
-def put_outlooks(week: int, kind: str, entries: dict[int, dict], season: int = SEASON, *, ref) -> None:
+def put_outlooks(week: int, entries: dict[int, dict], season: int = SEASON) -> None:
     """Upsert each player's entry; never deletes."""
     if not entries:
         return
     from datetime import datetime
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    league = _league_key(ref)
-    vals = [{"league": league, "season": season, "week": week, "kind": kind, "player_id": int(pid), "entry": e,
+    vals = [{"season": season, "week": week, "player_id": int(pid), "entry": e,
              "updated": now} for pid, e in entries.items()]
     with _write() as c:
         c.execute(_upsert(outlooks, vals, _KEYS["outlooks"], ["entry", "updated"]))
 
 
-def outlooks_for(week: int, kind: str, season: int = SEASON, *, ref) -> dict[int, dict]:
+def outlooks_for(week: int, season: int = SEASON) -> dict[int, dict]:
     t = outlooks
     q = sa.select(t.c.player_id, t.c.entry).where(
-        t.c.league == _league_key(ref), t.c.season == season, t.c.week == week, t.c.kind == kind)
+        t.c.season == season, t.c.week == week)
     with _read() as c:
         return {pid: e for pid, e in c.execute(q)}
 
@@ -2460,7 +2458,7 @@ def decisions(season: int = SEASON, *, ref) -> list[dict]:
 # the natural key of each table the file import writes (ON CONFLICT DO NOTHING on it); sigma_fits stays global
 _KEYS = {"transactions": ["league", "season", "id"], "draft_picks": ["league", "season", "overall"],
          "results": ["league", "season", "week"], "plays": ["league", "season", "week", "player_id", "at", "total"],
-         "outlooks": ["league", "season", "week", "kind", "player_id"], "sigma_fits": ["season", "fitted_at"],
+         "outlooks": ["season", "week", "player_id"], "sigma_fits": ["season", "fitted_at"],
          "claim_plans": ["league", "season", "team_id", "week"], "decisions": ["league", "season", "import_key"]}
 
 

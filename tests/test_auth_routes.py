@@ -44,7 +44,7 @@ def _echo_app() -> FastAPI:
     def ran(request: Request):
         return {"user": request.scope["state"].get("user")}
 
-    for _, path in auth.JOB_ONLY | auth.JOB_OR_USER:
+    for _, path in auth.JOB_ONLY:
         app.add_api_route(path, ran, methods=["POST"])
     app.add_api_route("/me", who, methods=["GET"])
     return app
@@ -112,15 +112,6 @@ def test_job_token_is_not_a_session():
     """The timers' token opens the job routes only, never a page."""
     assert auth.decide("GET", "/week/1", None, TOKEN) == (401, None)
     assert auth.decide("POST", "/lineup", None, TOKEN) == (401, None)
-
-
-def test_outlook_refresh_takes_either():
-    c = _client(_echo_app())
-    assert c.post("/outlook/refresh", headers={auth.JOB_HEADER: TOKEN}).json() == {"user": None}
-    assert c.post("/outlook/refresh").status_code == 401
-    c.cookies.set(auth.SESSION_COOKIE, _session())
-    r = c.post("/outlook/refresh")
-    assert r.status_code == 200 and r.json()["user"]["email"] == "me@example.com"
 
 
 def test_current_user_reads_the_session():
@@ -197,8 +188,7 @@ def test_the_tables_are_the_briefs():
                            ("POST", "/auth/apple/callback"), ("POST", "/auth/dev"),
                            ("POST", "/espn/pair/start"), ("POST", "/espn/pair/poll"), ("POST", "/espn/cookies")}
     assert auth.JOB_ONLY == {("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"),
-                             ("POST", "/refresh")}
-    assert auth.JOB_OR_USER == {("POST", "/outlook/refresh")}
+                             ("POST", "/refresh"), ("POST", "/outlook/refresh")}
 
 
 def test_head_health_is_public():

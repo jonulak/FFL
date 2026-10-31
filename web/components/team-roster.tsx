@@ -1,9 +1,13 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import type { Player, TeamRoster } from "@/lib/api";
+import type { Player, TeamPlayer, TeamRoster } from "@/lib/api";
 import { BOARD_CARD, HEALTHY, isIdle, LABEL, SLOT_LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, ordinal, pts, record } from "@/lib/format";
 import { gameOn, gamePhase, sideTotals } from "@/lib/game";
@@ -23,9 +27,10 @@ import { gameLinkFor } from "@/lib/nfl";
 import { NAME_LINK } from "@/lib/player-log";
 import { LiveChip } from "./live-chip";
 import { Presence, Swap, Ticker, useReorder } from "./motion";
+import { Outlook, OutlookAge, outlookAgeLabel } from "./outlook";
 
-// Any team's roster as a plain list (tap a team's name anywhere): no calls, no outlooks, just who
-// they have and what each is worth this week. Starters in slot order with the slot down the left
+// Any team's roster as a plain list (tap a team's name anywhere): no calls, just who they have and
+// what each is worth this week, and each player's outlook behind a chevron (the Roster row's disclosure). Starters in slot order with the slot down the left
 // edge like the Matchup board's spine, then bench and IR. Every row is the player's portrait on
 // his club's colours, his name (opens the season modal), position and game, and the week's
 // number: the projection before kickoff, the points once his game is on.
@@ -52,13 +57,15 @@ function Num({ p, now, week }: { p: Player; now: number; week: number }) {
   );
 }
 
-function Row({ p, slot, week, now }: { p: Player; slot: string | null; week: number; now: number }) {
+function Row({ p, slot, week, now }: { p: TeamPlayer; slot: string | null; week: number; now: number }) {
+  const [open, setOpen] = useState(false);
   const hurt = !HEALTHY.has(p.injury);
   const status = p.injury.replaceAll("_", " ");
   const back = p.return_week != null && p.return_week > week ? p.return_week : null;
   const idle = isIdle(p);
   return (
-    <TableRow data-key={p.player_id} className="border-foreground/10 hover:bg-transparent">
+    <>
+    <TableRow data-key={p.player_id} className="border-0 hover:bg-transparent">
       <TableCell className="w-10 pl-3 text-center font-display text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:w-14 sm:pl-4 sm:text-xs">
         {slot}
       </TableCell>
@@ -88,14 +95,36 @@ function Row({ p, slot, week, now }: { p: Player; slot: string | null; week: num
           </div>
         </div>
       </TableCell>
-      <TableCell className="w-20 pr-3 align-middle sm:pr-4">
+      <TableCell className="w-20 pr-0 align-middle">
         <Num p={p} now={now} week={week} />
       </TableCell>
+      {/* every row has the chevron, written or not, so the number column stays in line */}
+      <TableCell className="w-12 pr-1 pl-1 sm:w-14 sm:pr-2">
+        <Button variant="ghost" size="icon" aria-expanded={open} onClick={() => setOpen(!open)}
+          aria-label={`${open ? "Hide" : "Show"} ${p.name}'s outlook${outlookAgeLabel(p, now)}`}
+          className="group/chev size-10 flex-col gap-0.5">
+          <ChevronDown aria-hidden className="transition-transform duration-300 ease-(--ease-arrive) group-aria-expanded/chev:rotate-180 motion-reduce:transition-none" />
+          <OutlookAge c={p} now={now} />
+        </Button>
+      </TableCell>
     </TableRow>
+    {/* the detail sits under the player column, its row sliding with his on a reorder; closed it is
+        no height, and it carries the line between players */}
+    <TableRow data-key={`${p.player_id}-outlook`} className={`border-foreground/10 hover:bg-transparent ${open ? "bg-muted/50" : ""}`}>
+      <TableCell className="p-0" />
+      <TableCell colSpan={3} className="p-0 whitespace-normal">
+        <Collapsible open={open} onOpenChange={setOpen}>
+          <CollapsibleContent>
+            <div className="pt-1 pr-4 pb-3 pl-2"><Outlook c={p} /></div>
+          </CollapsibleContent>
+        </Collapsible>
+      </TableCell>
+    </TableRow>
+    </>
   );
 }
 
-function Group({ title, players, slots, week, now, total }: { title: string; players: Player[]; slots: boolean; week: number; now: number; total?: React.ReactNode }) {
+function Group({ title, players, slots, week, now, total }: { title: string; players: TeamPlayer[]; slots: boolean; week: number; now: number; total?: React.ReactNode }) {
   // a lineup changed on ESPN: rows slide to their new places
   const body = useReorder<HTMLTableSectionElement>(players.map((p) => p.player_id).join());
   if (players.length === 0) return null;

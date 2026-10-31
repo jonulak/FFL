@@ -279,12 +279,14 @@ def test_a_member_never_writes_to_espn_with_the_owners_cookies(other, monkeypatc
     assert sent == [{"espn_s2": "owners-s2", "SWID": "{OWNER}"}]
 
 
-# Routes that open no league: global (health, the switcher's list, live, sources, news, devices, traces, presets) or a
-# job that resolves its own ?league= through open_league (outlook refresh, transactions sync, refresh). A new route that is
+# Routes that open no league: global (health, the switcher's list, live, sources, news, devices, traces, presets, a
+# player's outlook, shared by every league) or a job that walks every league or resolves its own ?league= through
+# open_league (outlook refresh, transactions sync, refresh). A new route that is
 # neither must open the league (Depends(open_league)) or be added here on purpose: a league route without it would
 # serve the owner's league to any signed-in user.
 GLOBAL_ROUTES = {
-    "/health", "/leagues", "/live", "/live/status", "/sources/status", "/decisions/presets", "/outlook/refresh", "/refresh",
+    "/health", "/leagues", "/live", "/live/status", "/sources/status", "/decisions/presets", "/outlook/refresh",
+    "/outlook/{player_id:int}", "/refresh",
     "/transactions/sync", "/notify/subscribe", "/notify/unsubscribe", "/notify/test", "/trace",
     "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status", "/llm/usage",
 }

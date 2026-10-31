@@ -152,13 +152,11 @@ def test_plays_round_trip_dedupe_and_order():
     assert db.plays_rows(5, ref=home_league()) == []
 
 
-def test_outlooks_kinds_are_apart_and_upsert():
-    db.put_outlooks(5, "week", {1: {"hash": "a", "bullets": ["x"]}}, ref=home_league())
-    db.put_outlooks(5, "waivers-week", {1: {"bullets": ["fa"]}}, ref=home_league())
-    db.put_outlooks(5, "week", {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}, ref=home_league())
-    assert db.outlooks_for(5, "week", ref=home_league()) == {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}
-    assert db.outlooks_for(5, "waivers-week", ref=home_league()) == {1: {"bullets": ["fa"]}}
-    assert db.outlooks_for(6, "week", ref=home_league()) == {}
+def test_outlooks_upsert_per_player_week():
+    db.put_outlooks(5, {1: {"hash": "a", "bullets": ["x"]}})
+    db.put_outlooks(5, {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}})
+    assert db.outlooks_for(5) == {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}
+    assert db.outlooks_for(6) == {}
 
 
 CAL = {"player_id": 1, "name": "A", "pos": "QB", "model": 234.3, "l3": 13.7, "weight": 1.12, "games_left": 14}

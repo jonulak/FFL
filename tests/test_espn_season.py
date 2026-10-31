@@ -1452,3 +1452,31 @@ def test_fetch_injuries_is_one_download_for_every_build_asking_at_once(monkeypat
     monkeypatch.setattr(espn_season.requests, "get", get)
     assert race(3, espn_season.fetch_injuries) == [{}, {}, {}] and len(gets) == 1
     espn_season._INJ.clear()
+
+
+def test_outlook_cards_unions_watched_and_reads_the_deep_ones(monkeypatch):
+    """Every member's watchlist counts; a watched man deeper than the pool is read by id, a K among them dropped."""
+    from dataclasses import replace
+    from ffl import db, leagues, outlook
+    a = home_league()
+    b = replace(a, user_id=a.user_id + 1)
+    row = lambda pid, pos="WR": {"player_id": pid, "pos": pos, "name": f"P{pid}", "form": None}  # noqa: E731
+    pool = {"week": 6, "rostered": [row(1, "QB"), row(2, "K")], "frees": {"WR": [row(10), row(11)], "K": [row(12, "K")]},
+            "enrich": lambda rows, games: [{**r, "form": games[r["player_id"]]} for r in rows]}
+    monkeypatch.setattr(espn_season, "league_pool", lambda **k: pool)
+    monkeypatch.setattr(leagues, "members", lambda key: [a, b] if key == a.key else [])
+    monkeypatch.setattr(db, "watched_ids", lambda *, ref: {a.user_id: [11, 2], b.user_id: [20, 21, -16001]}[ref.user_id])
+    news = {}
+    monkeypatch.setattr(outlook, "recent_up", lambda ids, today: news.update(ids=sorted(ids)) or set())
+    monkeypatch.setattr(espn_season, "fresh_league", lambda ref: "LG")
+    asked = {}
+
+    def deep(lg, ids, week, *, ref):
+        asked.update(lg=lg, ids=sorted(ids), week=week)
+        return [row(20, "TE"), row(21, "K")], {20: {"l3": 4}, 21: {}}
+    monkeypatch.setattr(espn_season, "_watched_rows", deep)
+    cards, week = espn_season.outlook_cards(ref=a)
+    assert week == 6 and news["ids"] == [10, 11], "news is read for skill-position free agents only"
+    assert asked == {"lg": "LG", "ids": [20, 21], "week": 6}, "only the ids the pool lacks, no D/ST id"
+    assert [c["player_id"] for c in cards] == [1, 11, 20]
+    assert cards[-1]["form"] == {"l3": 4}, "the deep row is enriched like the pool's"

@@ -58,9 +58,8 @@ PUBLIC: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/espn/pair/start"), ("POST", "/espn/pair/poll"), ("POST", "/espn/cookies")})
 # The timers' routes: the job token only (signed in without it is 403, signed out 401).
 JOB_ONLY: frozenset[tuple[str, str]] = frozenset({
-    ("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"), ("POST", "/refresh")})
-# The token or a session: the Roster page's outlook button posts it too.
-JOB_OR_USER: frozenset[tuple[str, str]] = frozenset({("POST", "/outlook/refresh")})
+    ("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"), ("POST", "/refresh"),
+    ("POST", "/outlook/refresh")})
 
 SIGNED_OUT = {"error": "signed_out"}
 JOB_ONLY_BODY = {"error": "job_only"}
@@ -124,7 +123,7 @@ def decide(method: str, path: str, cookie: str | None, job_header: str | None, *
     key = (method, path)
     if key in PUBLIC:
         return 0, None
-    if (key in JOB_ONLY or key in JOB_OR_USER) and job_ok(job_header):
+    if key in JOB_ONLY and job_ok(job_header):
         return 0, None
     user, slid = db.session_lookup(cookie) if cookie else (None, False)
     if key in JOB_ONLY:

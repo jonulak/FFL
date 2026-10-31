@@ -120,7 +120,7 @@ export function winProb(a: Priced[], b: Priced[], sigma: Record<string, number>)
 const odds = (a: Priced[], b: Priced[], live: LiveState) => round(winProb(a, b, live.sigma ?? SIGMA_FALLBACK), 3);
 
 // live.overlay_side
-function side(s: Side, live: LiveState): Side {
+function side<P extends Player>(s: Side<P>, live: LiveState): Side<P> {
   const out = { ...s, lineup: players(s.lineup, live), bench: players(s.bench, live), ir: players(s.ir, live) };
   out.actual_total = round(out.lineup.reduce((t, p) => t + p.actual, 0), 2);
   return out;

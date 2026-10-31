@@ -108,7 +108,7 @@ export function PlayerDialogProvider({ children }: { children: React.ReactNode }
 }
 
 // The tap target: a row's tile and name, never the whole row, so the row's own controls (the
-// compare chevron, the outlook button, Rewrite) keep their clicks. `pick` lets a matchup view open
+// compare chevron, the outlook button) keep their clicks. `pick` lets a matchup view open
 // its own breakdown instead (the Matchup strip's plays); it answers false for a player it does not
 // hold, and the season modal opens as anywhere else.
 export function PlayerTrigger({ p, pick, className = "", children }: {

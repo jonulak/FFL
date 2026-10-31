@@ -198,15 +198,13 @@ def test_play_store_is_the_runner_lane_of_the_league(monkeypatch, other):
     assert isinstance(api._play_store(2, ref=other), api.plays_mod.Store) and api._play_store(2, ref=other).ref == other
 
 
-def test_other_league_roster_attaches_its_own_outlooks(client, two, other, monkeypatch):
+def test_other_league_roster_attaches_the_shared_outlooks(client, two, other, monkeypatch):
     loaded = []
-    monkeypatch.setattr(api.outlook, "load", lambda week, kind="roster", *, ref: loaded.append(ref) or {})
-    monkeypatch.setattr(api.outlook, "attach", lambda cards, entries, writing: [{**c, "outlook": "x"} for c in cards])
+    monkeypatch.setattr(api.outlook, "load", lambda week: loaded.append(week) or {})
+    monkeypatch.setattr(api.outlook, "attach", lambda cards, entries: [{**c, "outlook": "x"} for c in cards])
     body = client.get("/roster?league=espn:999").json()
-    assert body["cards"][0]["outlook"] == "x" and body["outlook_run"]["running"] is False
-    assert loaded == [other]
-    client.get("/roster")
-    assert loaded[-1] == home_league()
+    assert body["cards"][0]["outlook"] == "x" and "outlook_run" not in body
+    assert loaded == [3]
 
 
 def test_watch_per_league(client, two, other):
@@ -231,38 +229,20 @@ def test_decision_other_league_404(client, other):
     assert client.post(f"/decisions/{i}", json={"outcome": "ok"}).status_code == 200
 
 
-# outlooks for every league (4.7)
-def test_outlook_routes_follow_the_open_league(client, two, other, monkeypatch):
-    es = api.espn_season
-    monkeypatch.setattr(es, "free_agent_pool", lambda *a, ref=None, **k: {"week": 3, "positions": {"RB": [
-        {"player_id": 7, "name": "A", "league": ref.key}]}, "watched": []})
-    started = []
-    monkeypatch.setattr(api.outlook, "start_one", lambda row, week, *a, ref=None, **k: started.append((row.get("league"), ref)))
-    monkeypatch.setattr(api.outlook, "waiver_entry", lambda row, week, *, ref=None: {"league": ref.key})
-    assert client.post("/waivers/outlook/7?league=espn:999").status_code == 202
-    assert started == [("espn:999", other)]
-    assert client.get("/waivers/outlook/7?league=espn:999").json() == {"league": "espn:999"}
-    monkeypatch.setattr(api.outlook, "roster_entry", lambda card, week, *, ref=None: {"league": ref.key})
-    assert client.get("/outlook/11?league=espn:999").json() == {"league": "espn:999"}
-    assert client.post("/outlook/11?league=espn:999").status_code == 202 and started[-1] == (None, other)
-
-
-def test_outlook_refresh_runs_one_league_for_a_user_and_every_league_for_a_job(client, two, other, monkeypatch, request):
+# outlooks for every league (4.7): one run walks every league, the hourly timer's alone
+@pytest.mark.real_auth
+def test_outlook_refresh_runs_every_league_for_a_job_only(client, two, other, monkeypatch):
+    from ffl import auth
+    monkeypatch.setenv("FFL_JOB_TOKEN", "job-token-for-tests")
     runs = []
-
-    def start_leagues(jobs, run=None):
-        runs.append([(ref.key, build()) for ref, build in jobs])
-    monkeypatch.setattr(api.outlook, "start_leagues", start_leagues)
-    # the Roster page's button names its league; with none (or an empty one), the user's default
-    assert client.post("/outlook/refresh?league=espn:999").status_code == 202
-    assert [k for k, _ in runs[-1]] == ["espn:999"]
-    for bare in ("", "?league="):
-        assert client.post(f"/outlook/refresh{bare}").status_code == 202
-        assert [k for k, _ in runs[-1]] == [HOME_KEY]
-    request.getfixturevalue("as_job")  # the hourly timer: every league, each one's cards read in the run
-    assert client.post("/outlook/refresh").status_code == 202
-    [(home_key, (cards, week)), (other_key, (their_cards, _))] = runs[-1]
-    assert (home_key, other_key, week) == (HOME_KEY, "espn:999", 3)
+    monkeypatch.setattr(api.espn_season, "outlook_cards", lambda *, ref: ([ref.key], 3))
+    monkeypatch.setattr(api.outlook, "start_all", lambda jobs, **k: runs.append([job() for job in jobs]))
+    client.cookies.set(auth.SESSION_COOKIE, db.create_session(db.create_user("me@example.com", "Me"), "pytest"))
+    r = client.post("/outlook/refresh")  # signed in is not enough
+    assert r.status_code == 403 and r.json() == {"error": "job_only"} and runs == []
+    for q in ("", "?league=espn:999"):  # a league named is no narrower
+        assert client.post(f"/outlook/refresh{q}", headers={auth.JOB_HEADER: "job-token-for-tests"}).status_code == 202
+        assert runs[-1] == [([HOME_KEY], 3), (["espn:999"], 3)]
 
 
 def test_refresh_other_league(monkeypatch, client, other):

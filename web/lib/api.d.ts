@@ -1136,15 +1136,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Card Outlook */
+        /**
+         * Card Outlook
+         * @description Any player's stored outlook for the page's week (outlooks are every league's; nothing writes here).
+         */
         get: operations["card_outlook_outlook__player_id__get"];
         put?: never;
-        /**
-         * Card Outlook Write
-         * @description One Roster card's outlook, rewritten in the background whether or not his facts moved; the card
-         *     polls the GET until `outlook_running` clears. 409 while the full run holds the Roster file.
-         */
-        post: operations["card_outlook_write_outlook__player_id__post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1162,34 +1160,10 @@ export interface paths {
         put?: never;
         /**
          * Outlook Refresh
-         * @description The hourly run (ffl-outlook.timer, a job naming no league): every league in turn, one run, each league's
-         *     cards read when the run reaches it (a failure is that league's outlook_run error). With ?league= (the Roster
-         *     page's button; a signed-in user's request with none opens their default) only that league, its cards read
-         *     first so a failure to read them is this answer's 502.
+         * @description The hourly run (ffl-outlook.timer): every joined league's players in one run, each league's read when the
+         *     run reaches it (a failure is that league's line in last()["errors"]). The only outlook write.
          */
         post: operations["outlook_refresh_outlook_refresh_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/waivers/outlook/{player_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Waiver Outlook */
-        get: operations["waiver_outlook_waivers_outlook__player_id__get"];
-        put?: never;
-        /**
-         * Waiver Outlook Write
-         * @description One free agent's outlook, written in the background (a minute or two of Opus with web search);
-         *     the dialog polls the GET until `running` clears.
-         */
-        post: operations["waiver_outlook_write_waivers_outlook__player_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3492,8 +3466,8 @@ export interface operations {
     };
     card_outlook_outlook__player_id__get: {
         parameters: {
-            query?: {
-                league?: string | null;
+            query: {
+                week: number;
             };
             header?: never;
             path: {
@@ -3505,39 +3479,6 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    card_outlook_write_outlook__player_id__post: {
-        parameters: {
-            query?: {
-                league?: string | null;
-            };
-            header?: never;
-            path: {
-                player_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3558,9 +3499,7 @@ export interface operations {
     };
     outlook_refresh_outlook_refresh_post: {
         parameters: {
-            query?: {
-                league?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -3574,81 +3513,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    waiver_outlook_waivers_outlook__player_id__get: {
-        parameters: {
-            query?: {
-                league?: string | null;
-            };
-            header?: never;
-            path: {
-                player_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    waiver_outlook_write_waivers_outlook__player_id__post: {
-        parameters: {
-            query?: {
-                league?: string | null;
-            };
-            header?: never;
-            path: {
-                player_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

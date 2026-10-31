@@ -1,13 +1,13 @@
 """Outlook text: the fact hash, the prompt, the per-week file, and the generation loop (no CLI)."""
 import json
 import re
+import subprocess
 import threading
 from datetime import date, datetime
 
 import pytest
 
 from ffl import outlook
-from tests.home import home_league
 
 TODAY = date(2026, 10, 2)
 TAKE = {"label": "Take", "text": "Lead back.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test/1"}]}
@@ -41,23 +41,24 @@ def card(**kw):
 @pytest.fixture(autouse=True)
 def outlook_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(outlook, "OUTLOOK_DIR", tmp_path / "outlook")
-    # start()'s thread looks LASTS up by name at call time, so a fresh dict per test keeps runs apart
     monkeypatch.setattr(outlook.news, "gather", lambda cards, week: {c["player_id"]: ctx() for c in cards})
-    monkeypatch.setattr(outlook, "LASTS", {})
+    # start_all()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
+    monkeypatch.setattr(outlook, "LAST", {**outlook.LAST, "errors": []})
     return tmp_path / "outlook"
 
 
 def test_fact_sheet_has_the_news_and_no_projections():
     sheet = outlook.fact_sheet(card(injury="QUESTIONABLE", injury_note="ankle"), 5, ctx(), TODAY)
     for s in ("Week 5", "Friday 10/2/2026", "Jahmyr Gibbs, RB, DET", "3 years in the league", "GB",
-              "QUESTIONABLE", "ankle", "Week 3: 74% snaps", "17 carries", "18.4 pts",
+              "QUESTIONABLE", "ankle", "Week 3: 74% snaps", "17 carries",
               "1 of 3", "QB1 Jared Goff: Out", "Goff (thumb) won't play.", "10/1 ▼ <source", "Gibbs hurts ankle.",
-              "https://bsky.app/x/1", "background only", "START", "Injury, Usage, Depth, Team and Take",
+              "https://bsky.app/x/1", "Injury, Usage, Depth, Team and Take",
               "ten days", "https://www.espn.com/nfl/player/gamelog/_/id/1"):
         assert s in sheet, s
     for s in ("20.2", "21.4", "19.0", "320.5", "projection:", "starts at RB"):
         assert s not in sheet, f"{s}: projections and the reason line are already on the card"
     assert "Rotowire" not in sheet, "the news desk is the only news on the sheet"
+    assert "Start/bench call" not in sheet and "weighing a claim" not in sheet and " pts" not in sheet
 
 
 def test_fact_sheet_with_nothing_to_report_says_none():
@@ -85,7 +86,8 @@ def test_card_hash_moves_with_card_facts_not_projections():
     base = outlook.card_hash(card())
     assert outlook.card_hash(card(proj=25.0, spread=9.0, ros_proj=400.0, reason="other")) == base
     assert outlook.card_hash(card(injury_note="limited")) != base
-    assert outlook.card_hash(card(call="BENCH")) != base
+    assert outlook.card_hash(card(call="BENCH", model_call="BENCH")) == base
+    assert outlook.card_hash(card(form={"rows": [{"week": 3, "pts": 99.0, "snap_pct": 74, "tgt": 2.0, "car": 17.0, "rec": 2.0}]})) == base
     assert outlook.card_hash(card(form={"rows": [{"week": 4, "pts": 3.0, "snap_pct": 30}]})) != base
 
 
@@ -179,6 +181,7 @@ def test_attach_shows_bullets_flags_moved_card_facts_and_ignores_paragraphs():
     fresh = {1: {"hash": "h", "card_hash": outlook.card_hash(c), "bullets": [TAKE], "generated_at": "t"}}
     a, = outlook.attach([c], fresh)
     assert (a["outlook"], a["outlook_at"], a["outlook_stale"]) == ([TAKE], "t", False)
+    assert "outlook_running" not in a
     b, = outlook.attach([card(injury_note="new")], fresh)
     assert b["outlook_stale"] is True
     for e in ({"hash": "x", "text": "a paragraph from before", "generated_at": "t"}, {"hash": "x"}, "junk"):
@@ -187,9 +190,9 @@ def test_attach_shows_bullets_flags_moved_card_facts_and_ignores_paragraphs():
 
 
 def test_pending_writes_ir_and_out_skips_played_and_quiet_byes():
-    cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, call="IR", group="ir"),
-             card(player_id=4, call="OUT", injury="OUT"), card(player_id=5, call="BYE", bye=True),
-             card(player_id=6, call="BYE", bye=True)]
+    cards = [card(player_id=1), card(player_id=2, game_played=100), card(player_id=3, group="ir"),
+             card(player_id=4, injury="OUT"), card(player_id=5, bye=True),
+             card(player_id=6, bye=True)]
     quiet = ctx(teammates=[], stories=[])
     ctxs = {1: ctx(), 2: ctx(), 3: ctx(), 4: ctx(), 5: quiet, 6: ctx()}
     assert [c["player_id"] for c in outlook.pending(cards, {}, ctxs, TODAY)] == [1, 3, 4, 6]
@@ -197,93 +200,246 @@ def test_pending_writes_ir_and_out_skips_played_and_quiet_byes():
     assert 1 not in [c["player_id"] for c in outlook.pending(cards, same, ctxs, TODAY)]
 
 
+def answer(prompt, ids):
+    """A batch call that writes every player it was asked for."""
+    return {i: [TAKE] for i in ids}
+
+
+def test_batches_sizes_by_workers_and_caps_at_eight():
+    assert [len(b) for b in outlook.batches([card(player_id=i) for i in range(5)], 3)] == [2, 2, 1]
+    thirty = [card(player_id=i) for i in range(30)]
+    got = outlook.batches(thirty, 3)
+    assert [len(b) for b in got] == [8, 8, 8, 6] and [c for b in got for c in b] == thirty, "order kept"
+    c = card()
+    assert outlook.batches([c], 3) == [[c]]
+
+
+def test_batch_prompt_has_each_sheet_once_and_the_voice_once():
+    sheets = [(1, outlook.fact_sheet(card(), 5, ctx(), TODAY)),
+              (2, outlook.fact_sheet(card(player_id=2, name="Amon-Ra St. Brown"), 5, ctx(), TODAY))]
+    prompt = outlook.batch_prompt(sheets)
+    assert prompt.count(outlook.VOICE) == 1 and prompt.endswith(outlook.VOICE)
+    assert "=== player_id 1 ===" in prompt and "=== player_id 2 ===" in prompt
+    assert prompt.count("Jahmyr Gibbs, RB") == 1 and prompt.count("Amon-Ra St. Brown, RB") == 1
+    assert "never mixing facts across players" in prompt
+
+
+def test_run_batch_keeps_only_the_players_asked(monkeypatch):
+    calls = {}
+    def fake(prompt, **kw):
+        calls.update(kw)
+        return {"players": [{"player_id": 7, "bullets": [TAKE]},
+                            {"player_id": 7, "bullets": [{**TAKE, "text": "A second answer."}]},
+                            {"player_id": 99, "bullets": [TAKE]}]}
+    monkeypatch.setattr(outlook.claude_cli, "run", fake)
+    assert outlook.run_batch("p", [7, 8]) == {7: [TAKE]}
+    assert calls["schema"] == outlook.BATCH_SCHEMA and calls["timeout"] == 70 and calls["kind"] == "outlook"
+
+
+def test_run_batch_leaves_out_a_player_without_a_take(monkeypatch):
+    monkeypatch.setattr(outlook.claude_cli, "run", lambda prompt, **kw: {"players": [
+        {"player_id": 7, "bullets": [{**TAKE, "label": "Usage"}]}, {"player_id": 8, "bullets": [TAKE]}]})
+    assert outlook.run_batch("p", [7, 8]) == {8: [TAKE]}
+
+
 def test_generate_writes_bullets_and_keeps_the_old_entry_on_failure(outlook_dir):
     cards = [card(player_id=4, name="Fails"), card(player_id=5, name="New")]
-    outlook.save(5, {4: {"hash": "old", "card_hash": "c", "bullets": [TAKE], "generated_at": "y"}}, ref=home_league())
-    def run(prompt, **kw):
+    outlook.save(5, {4: {"hash": "old", "card_hash": "c", "bullets": [TAKE], "generated_at": "y"}})
+    def fails(prompt, *a):
         if "Fails" in prompt:
             raise RuntimeError("claude exited 1")
-        return [TAKE]
-    counts = outlook.generate(cards, 5, run=run, now=datetime(2026, 10, 2, 9, 30), today=TODAY, ref=home_league())
-    assert counts == {"generated": 1, "skipped": 0, "failed": 1, "last_failure": "RuntimeError: claude exited 1",
-                      "pending": 2}
-    got = outlook.load(5, ref=home_league())
+        return [TAKE] if not a else {i: [TAKE] for i in a[0]}
+    counts = outlook.generate(cards, 5, run=fails, single=fails, now=datetime(2026, 10, 2, 9, 30), today=TODAY)
+    assert counts == {"generated": 1, "skipped": 0, "failed": 1, "retried": 1,
+                      "last_failure": "RuntimeError: claude exited 1", "pending": 2}
+    got = outlook.load(5)
     assert got[4]["hash"] == "old"
     assert got[5] == {"hash": outlook.fact_hash(cards[1], ctx()), "card_hash": outlook.card_hash(cards[1]),
                       "bullets": [TAKE], "generated_at": "2026-10-02T09:30"}
-    outlook.generate([card(player_id=6, name="Aware")], 5, run=run, ref=home_league())
-    assert re.search(r"T\d\d:\d\d[+-]\d\d:\d\d$", outlook.load(5, ref=home_league())[6]["generated_at"])
+    outlook.generate([card(player_id=6, name="Aware")], 5, run=answer)
+    assert re.search(r"T\d\d:\d\d[+-]\d\d:\d\d$", outlook.load(5)[6]["generated_at"])
 
 
-def test_generate_runs_calls_side_by_side(outlook_dir):
-    """Two calls must be in flight at once: serial calls never meet at the barrier."""
-    meet = threading.Barrier(2, timeout=5)
-    def run(prompt, **kw):
-        meet.wait()
+def test_generate_retries_a_missing_player_alone(outlook_dir, monkeypatch):
+    monkeypatch.setattr(outlook, "WORKERS", 1)  # both cards in one batch
+    asked, alone = [], []
+    def run(prompt, ids):
+        asked.append(ids)
+        return {1: [TAKE]}
+    def single(sheet):
+        alone.append(sheet)
         return [TAKE]
-    counts = outlook.generate([card(player_id=1), card(player_id=2, name="Other")], 5, run=run, today=TODAY, ref=home_league())
-    assert counts["generated"] == 2 and counts["failed"] == 0
+    counts = outlook.generate([card(player_id=1), card(player_id=2, name="Other")], 5, run=run, single=single,
+                              today=TODAY)
+    assert asked == [[1, 2]] and len(alone) == 1 and "Other, RB" in alone[0] and "Jahmyr" not in alone[0]
+    assert alone[0].endswith(outlook.VOICE), "the retry is the one-player sheet"
+    assert counts["generated"] == 2 and counts["retried"] == 1 and counts["failed"] == 0
+    assert set(outlook.load(5)) == {1, 2}
+
+
+def test_generate_retries_each_player_when_the_batch_raises(outlook_dir, monkeypatch):
+    monkeypatch.setattr(outlook, "WORKERS", 1)
+    alone = []
+    def run(prompt, ids):
+        raise TimeoutError("batch timed out")
+    def single(sheet):
+        alone.append(sheet)
+        if "Dies" in sheet:
+            raise RuntimeError("claude returned no Take")
+        return [TAKE]
+    counts = outlook.generate([card(player_id=1), card(player_id=2, name="Dies")], 5, run=run, single=single,
+                              today=TODAY)
+    assert len(alone) == 2
+    # the batch's own reason is kept: the retries would hide it otherwise
+    assert counts == {"generated": 1, "skipped": 0, "failed": 1, "retried": 2,
+                      "last_failure": "TimeoutError: batch timed out", "pending": 2}
+    assert set(outlook.load(5)) == {1}
+
+
+def test_generate_stops_a_batchs_retries_at_the_first_timeout(outlook_dir, monkeypatch):
+    monkeypatch.setattr(outlook, "WORKERS", 1)
+    alone = []
+    def single(sheet):
+        alone.append(sheet)
+        raise subprocess.TimeoutExpired("claude", 1)
+    counts = outlook.generate([card(player_id=i, name=f"P{i}") for i in (1, 2, 3)], 5, run=lambda prompt, ids: {},
+                              single=single, today=TODAY)
+    assert len(alone) == 1, "a hung CLI is not asked again for the rest of the batch"
+    assert counts["failed"] == 3 and counts["retried"] == 1 and counts["generated"] == 0
+    assert counts["last_failure"].startswith("TimeoutExpired:")
+    assert outlook.load(5) == {}
+
+
+def test_generate_counts_a_batch_whose_sheets_fail_as_failed(outlook_dir, monkeypatch):
+    monkeypatch.setattr(outlook, "WORKERS", 2)  # one card per batch
+    real = outlook.fact_sheet
+    def sheet(c, *a):
+        if c["player_id"] == 2:
+            raise KeyError("opponent")
+        return real(c, *a)
+    monkeypatch.setattr(outlook, "fact_sheet", sheet)
+    counts = outlook.generate([card(player_id=1), card(player_id=2, name="Broken")], 5, run=answer, today=TODAY)
+    assert counts["generated"] == 1 and counts["failed"] == 1 and counts["last_failure"] == "KeyError: 'opponent'"
+    assert set(outlook.load(5)) == {1}
+
+
+def test_generate_runs_calls_side_by_side(outlook_dir, monkeypatch):
+    """Two batches must be in flight at once: serial calls never meet at the barrier."""
+    monkeypatch.setattr(outlook, "WORKERS", 2)  # one card per batch
+    meet = threading.Barrier(2, timeout=5)
+    def run(prompt, ids):
+        meet.wait()
+        return answer(prompt, ids)
+    counts = outlook.generate([card(player_id=1), card(player_id=2, name="Other")], 5, run=run, today=TODAY)
+    assert counts["generated"] == 2 and counts["failed"] == 0 and counts["retried"] == 0
 
 
 def test_generate_saves_each_card_as_it_lands(outlook_dir, monkeypatch):
-    monkeypatch.setattr(outlook, "WORKERS", 1)  # one at a time, so the second call can see the first on disk
+    monkeypatch.setattr(outlook, "WORKERS", 1)  # one batch of three, so the retry can see the batch on disk
     seen = []
-    def run(prompt, **kw):
-        seen.append(set(outlook.load(5, ref=home_league())))
-        if "Dies" in prompt:
-            raise RuntimeError("timeout")
-        return [TAKE]
+    def run(prompt, ids):
+        return {1: [TAKE], 3: [TAKE]}
+    def single(sheet):
+        seen.append(set(outlook.load(5)))
+        raise RuntimeError("timeout")
     counts = outlook.generate([card(player_id=1), card(player_id=2, name="Dies"), card(player_id=3, name="Last")],
-                              5, run=run, today=TODAY, ref=home_league())
-    assert seen == [set(), {1}, {1}], "card 1 was on disk before the next call started"
-    assert set(outlook.load(5, ref=home_league())) == {1, 3} and counts["failed"] == 1 and counts["pending"] == 3
-
-
-def test_start_records_the_pending_count(outlook_dir):
-    t = outlook.start([card()], 2, run=lambda p, **kw: [TAKE], ref=home_league())
-    t.join(5)
-    assert outlook.last(home_league())["pending"] == 1
+                              5, run=run, single=single, today=TODAY)
+    assert seen == [{1, 3}], "the batch's players were on disk before the retry started"
+    assert set(outlook.load(5)) == {1, 3} and counts["failed"] == 1 and counts["pending"] == 3
 
 
 def test_load_and_save_round_trip_and_an_empty_week(outlook_dir):
-    assert outlook.load(2, ref=home_league()) == {}
-    outlook.save(2, {1: {"hash": "abc", "text": "t", "generated_at": "2026-09-10T09:00"}}, ref=home_league())
-    assert outlook.load(2, ref=home_league()) == {1: {"hash": "abc", "text": "t", "generated_at": "2026-09-10T09:00"}}
+    assert outlook.load(2) == {}
+    outlook.save(2, {1: {"hash": "abc", "text": "t", "generated_at": "2026-09-10T09:00"}})
+    assert outlook.load(2) == {1: {"hash": "abc", "text": "t", "generated_at": "2026-09-10T09:00"}}
 
 
-def test_start_runs_in_the_background_under_the_lock_and_records_last(outlook_dir):
+def test_written_lists_players_with_bullets(outlook_dir):
+    outlook.save(5, {1: {"bullets": [TAKE]}, 2: {"error": "boom"}})
+    assert outlook.written(5) == {1}
+
+
+def job(*cards, week=5):
+    return lambda: (list(cards), week)
+
+
+def test_start_all_records_the_pending_count(outlook_dir):
+    outlook.start_all([job(card(), week=2)], run=answer).join(5)
+    assert outlook.last()["pending"] == 1
+
+
+def test_start_all_writes_each_player_once_across_leagues(outlook_dir):
+    asked = []
+    def run(prompt, ids):
+        asked.append(ids)
+        return answer(prompt, ids)
+    outlook.start_all([job(card()), job(card())], run=run).join(5)
+    assert asked == [[1]] and outlook.written(5) == {1}
+    assert outlook.last()["generated"] == 1 and outlook.last()["errors"] == []
+
+
+def test_start_all_survives_one_leagues_failure(outlook_dir):
+    def broken():
+        raise RuntimeError("espn down")
+    outlook.start_all([broken, job(card(player_id=2))], run=answer).join(5)
+    assert outlook.written(5) == {2}
+    assert outlook.last()["errors"] == ["RuntimeError: espn down"] and outlook.last()["generated"] == 1
+    assert not outlook.running()
+
+
+def test_start_all_a_card_without_an_id_costs_its_league_alone(outlook_dir):
+    outlook.start_all([job(card(player_id=3), {"name": "no id"}), job(card(player_id=2))], run=answer).join(5)
+    assert outlook.written(5) == {2}, "none of the broken league's cards, the other league's all"
+    assert outlook.last()["errors"] == ["KeyError: 'player_id'"] and not outlook.running()
+
+
+def test_attach_plain_adds_the_outlook_without_a_stale_flag():
+    rows = [{"player_id": 1}, {"player_id": 2}, {"player_id": 3}]
+    entries = {1: {"card_hash": "c", "bullets": [TAKE], "generated_at": "t"}, 2: {"error": "boom"}, 3: "junk"}
+    a, b, c = outlook.attach_plain(rows, entries)
+    assert a == {"player_id": 1, "outlook": [TAKE], "outlook_at": "t", "outlook_error": None}
+    assert b == {"player_id": 2, "outlook": None, "outlook_at": None, "outlook_error": "boom"}
+    assert c == {"player_id": 3, "outlook": None, "outlook_at": None, "outlook_error": None}
+
+
+def test_start_all_groups_by_week(outlook_dir):
+    outlook.start_all([job(card(), week=5), job(card(player_id=2), week=6)], run=answer).join(5)
+    assert outlook.written(5) == {1} and outlook.written(6) == {2}
+    assert outlook.last()["generated"] == 2 and outlook.last()["pending"] == 2
+
+
+def test_start_all_runs_in_the_background_under_the_lock_and_records_last(outlook_dir):
     gate = threading.Event()
 
-    def run(prompt, **kw):
+    def run(prompt, ids):
         gate.wait(5)
-        return [TAKE]
+        return answer(prompt, ids)
 
-    t = outlook.start([card()], 2, run=run, ref=home_league())
+    t = outlook.start_all([job(card(), week=2)], run=run)
     assert outlook.running() is True
     with pytest.raises(outlook.Busy):
-        outlook.start([card()], 2, run=run, ref=home_league())
+        outlook.start_all([job(card(), week=2)], run=run)
     gate.set()
     t.join(5)
     assert outlook.running() is False
-    assert outlook.last(home_league())["generated"] == 1
+    assert outlook.last()["generated"] == 1
     # aware, like generated_at: a naive stamp would read in the phone's zone, not the Mac's
-    assert datetime.fromisoformat(outlook.last(home_league())["at"]).tzinfo is not None
-    assert outlook.last(home_league())["error"] is None
-    assert outlook.load(2, ref=home_league())[1]["bullets"] == [TAKE]
+    assert datetime.fromisoformat(outlook.last()["at"]).tzinfo is not None
+    assert outlook.last()["errors"] == []
+    assert outlook.load(2)[1]["bullets"] == [TAKE]
 
 
 @pytest.mark.filterwarnings("error")
-def test_start_releases_the_lock_when_the_run_raises(outlook_dir, monkeypatch):
+def test_start_all_releases_the_lock_when_the_run_raises(outlook_dir, monkeypatch):
     """A dying run must record its error and never let the exception escape the thread."""
     monkeypatch.setattr(outlook, "generate", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
-    t = outlook.start([card()], 2, run=lambda p, **kw: [TAKE], ref=home_league())
-    t.join(5)
+    outlook.start_all([job(card(), week=2)], run=answer).join(5)
     assert outlook.running() is False
-    assert outlook.last(home_league())["error"].startswith("RuntimeError")
-    assert datetime.fromisoformat(outlook.last(home_league())["at"]).tzinfo is not None
+    assert outlook.last()["errors"] == ["RuntimeError: boom"]
+    assert datetime.fromisoformat(outlook.last()["at"]).tzinfo is not None
 
 
-def test_start_releases_the_lock_when_the_thread_will_not_start(outlook_dir, monkeypatch):
+def test_start_all_releases_the_lock_when_the_thread_will_not_start(outlook_dir, monkeypatch):
     """A thread that never ran will never release the lock: refresh would answer 409 forever."""
     class DeadThread:
         def __init__(self, *a, **kw):
@@ -294,8 +450,10 @@ def test_start_releases_the_lock_when_the_thread_will_not_start(outlook_dir, mon
 
     monkeypatch.setattr(outlook.threading, "Thread", DeadThread)
     with pytest.raises(RuntimeError, match="can't start new thread"):
-        outlook.start([card()], 2, run=lambda p, **kw: [TAKE], ref=home_league())
+        outlook.start_all([job(card(), week=2)], run=answer)
     assert outlook.running() is False
+
+
 
 
 def test_run_claude_surfaces_the_cli_message_on_a_non_zero_exit(monkeypatch):
@@ -348,193 +506,6 @@ def test_run_claude_invokes_the_cli_without_tools(monkeypatch):
     assert calls["kw"]["cwd"] == str(outlook.OUTLOOK_DIR)
 
 
-# --- free agents: one outlook at a time, on a click, from the Waivers page ---
-
-def fa(**kw):
-    """A waiver row: the card's facts without the call, with the waiver numbers beside them."""
-    row = {k: v for k, v in card(**kw).items() if k not in ("call", "group", "gap", "close_call", "reason", "slot")}
-    return {**row, "add": 14.2, "ros_proj": 120.0}
-
-
-@pytest.fixture
-def writing(monkeypatch):
-    s: dict[int, str] = {}
-    monkeypatch.setattr(outlook, "_WRITING", s)
-    return s
-
-
-def test_free_agent_sheet_frames_the_claim_and_keeps_projections_out():
-    sheet = outlook.fact_sheet(fa(), 5, ctx(), TODAY, free_agent=True)
-    assert "free agent" in sheet and "weighing a claim" in sheet
-    assert "Start/bench call" not in sheet and "None" not in sheet
-    assert "what adding him would mean" in sheet
-    assert "your own read of what it all means for him" not in sheet, "the roster Take rule is swapped out"
-    for s in ("14.2", "120.0", "20.2"):
-        assert s not in sheet
-    assert "Injury, Usage, Depth, Team and Take" in sheet and "a healthy player gets no Injury bullet" in sheet
-
-
-def test_waiver_outlooks_keep_their_own_store(outlook_dir):
-    outlook.save(5, {1: {"bullets": [TAKE]}}, kind=outlook.WAIVERS, ref=home_league())
-    assert outlook.load(5, ref=home_league()) == {}, "the roster run never sees a free agent's entry"
-    assert outlook.load(5, kind=outlook.WAIVERS, ref=home_league())[1]["bullets"] == [TAKE]
-
-
-def test_start_one_writes_his_outlook_and_waiver_entry_reads_it(outlook_dir, writing):
-    gate, prompts = threading.Event(), []
-
-    def run(prompt, **kw):
-        prompts.append(prompt)
-        gate.wait(5)
-        return [TAKE]
-
-    assert outlook.waiver_entry(fa(), 5, ref=home_league()) == {"bullets": None, "at": None, "stale": False, "running": False, "error": None}
-    t = outlook.start_one(fa(), 5, run=run, ref=home_league())
-    assert outlook.waiver_entry(fa(), 5, ref=home_league())["running"] is True
-    with pytest.raises(outlook.Busy):
-        outlook.start_one(fa(), 5, run=run, ref=home_league())
-    gate.set()
-    t.join(5)
-    e = outlook.waiver_entry(fa(), 5, ref=home_league())
-    assert e["bullets"] == [TAKE] and e["at"] and e["running"] is False and e["error"] is None
-    assert e["stale"] is False and "weighing a claim" in prompts[0]
-    assert outlook.waiver_entry(fa(injury_note="limited Thursday"), 5, ref=home_league())["stale"] is True
-    assert outlook.load(5, ref=home_league()) == {}, "the roster file is untouched"
-
-
-def test_start_one_keeps_the_old_bullets_and_records_a_failure(outlook_dir, writing):
-    outlook.start_one(fa(), 5, run=lambda p, **kw: [TAKE], ref=home_league()).join(5)
-    outlook.start_one(fa(), 5, run=lambda p, **kw: (_ for _ in ()).throw(RuntimeError("Not logged in")), ref=home_league()).join(5)
-    e = outlook.waiver_entry(fa(), 5, ref=home_league())
-    assert e["bullets"] == [TAKE] and e["error"] == "RuntimeError: Not logged in" and e["running"] is False
-    outlook.start_one(fa(), 5, run=lambda p, **kw: [TAKE], ref=home_league()).join(5)
-    assert outlook.waiver_entry(fa(), 5, ref=home_league())["error"] is None, "a good write clears the failure"
-
-
-def test_start_one_caps_the_calls_in_flight(outlook_dir, writing):
-    gate = threading.Event()
-    threads = [outlook.start_one(fa(player_id=i), 5, run=lambda p, **kw: (gate.wait(5), [TAKE])[1], ref=home_league())
-               for i in range(1, outlook.WORKERS + 1)]
-    with pytest.raises(outlook.Busy):
-        outlook.start_one(fa(player_id=99), 5, run=lambda p, **kw: [TAKE], ref=home_league())
-    gate.set()
-    for t in threads:
-        t.join(5)
-    assert set(outlook.load(5, kind=outlook.WAIVERS, ref=home_league())) == set(range(1, outlook.WORKERS + 1)), "parallel saves all land"
-    assert not writing
-
-
-def test_start_one_frees_the_slot_when_the_thread_will_not_start(outlook_dir, writing, monkeypatch):
-    class DeadThread:
-        def __init__(self, *a, **kw):
-            pass
-
-        def start(self):
-            raise RuntimeError("can't start new thread")
-
-    monkeypatch.setattr(outlook.threading, "Thread", DeadThread)
-    with pytest.raises(RuntimeError):
-        outlook.start_one(fa(), 5, run=lambda p, **kw: [TAKE], ref=home_league())
-    assert not writing
-
-
-# --- one Roster card, on a click from its footer ---
-
-def test_start_one_rewrites_a_card_into_the_roster_file_with_its_fact_hash(outlook_dir, writing):
-    gate = threading.Event()
-    sheets = []
-    t = outlook.start_one(card(), 5, run=lambda p, **kw: (sheets.append(p), gate.wait(5), [TAKE])[2], kind=outlook.ROSTER, ref=home_league())
-    assert outlook.roster_entry(card(), 5, ref=home_league())["outlook_running"] is True
-    gate.set()
-    t.join(5)
-    e = outlook.load(5, ref=home_league())[1]
-    assert e["bullets"] == [TAKE] and e["hash"] == outlook.fact_hash(card(), ctx())
-    assert not outlook.load(5, outlook.WAIVERS, ref=home_league()), "a card never lands in the free agents' file"
-    assert outlook.FA_TAKE not in sheets[0], "a card's sheet is the call's, not a claim's"
-    r = outlook.roster_entry(card(), 5, ref=home_league())
-    assert (r["outlook"], r["outlook_running"], r["outlook_error"]) == ([TAKE], False, None)
-    assert outlook.pending([card()], outlook.load(5, ref=home_league()), {1: ctx()}, date.today()) == [], "the hourly run skips him"
-
-
-def test_a_card_rewrite_that_fails_keeps_the_bullets_and_shows_the_reason(outlook_dir, writing):
-    outlook.start_one(card(), 5, run=lambda p, **kw: [TAKE], kind=outlook.ROSTER, ref=home_league()).join(5)
-    outlook.start_one(card(), 5, run=lambda p, **kw: (_ for _ in ()).throw(RuntimeError("Not logged in")),
-                      kind=outlook.ROSTER, ref=home_league()).join(5)
-    a, = outlook.attach([card()], outlook.load(5, ref=home_league()))
-    assert a["outlook"] == [TAKE] and "Not logged in" in a["outlook_error"]
-
-
-def test_start_one_failure_merges_error_into_old_entry(outlook_dir, writing):
-    outlook.save(5, {1: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}}, ref=home_league())
-
-    def boom(sheet, **kw):
-        raise RuntimeError("cli down")
-
-    outlook.start_one(card(), 5, run=boom, kind=outlook.ROSTER, ref=home_league()).join(5)
-    e = outlook.load(5, ref=home_league())[1]
-    assert e["bullets"] == [TAKE] and e["error"].startswith("RuntimeError")
-
-
-def test_a_card_rewrite_and_the_full_run_never_overlap(outlook_dir, writing):
-    gate = threading.Event()
-    t = outlook.start([card(player_id=2)], 5, run=lambda p, **kw: (gate.wait(5), [TAKE])[1], ref=home_league())
-    with pytest.raises(outlook.Busy, match="full outlook run"):
-        outlook.start_one(card(), 5, run=lambda p, **kw: [TAKE], kind=outlook.ROSTER, ref=home_league())
-    gate.set()
-    t.join(5)
-    gate.clear()
-    one = outlook.start_one(card(), 5, run=lambda p, **kw: (gate.wait(5), [TAKE])[1], kind=outlook.ROSTER, ref=home_league())
-    with pytest.raises(outlook.Busy, match="being written"):
-        outlook.start([card(player_id=2)], 5, run=lambda p, **kw: [TAKE], ref=home_league())
-    assert not outlook.running(), "a refused run gives the lock back"
-    gate.set()
-    one.join(5)
-    assert set(outlook.load(5, ref=home_league())) == {1, 2}, "neither write lost the other's card"
-
-
-# --- every league (ffl-soc.4.7) ----------------------------------------------------------------
-
-def _other():
-    from ffl import leagues
-    return leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
-
-
-def test_outlooks_are_kept_per_league(outlook_dir, writing):
-    other = _other()
-    gate = threading.Event()
-    mine = outlook.start_one(fa(), 5, run=lambda p, **kw: (gate.wait(5), [TAKE])[1], ref=home_league())
-    theirs = outlook.start_one(fa(), 5, run=lambda p, **kw: [{**TAKE, "text": "Theirs."}], ref=other)  # the same player
-    assert outlook.waiver_entry(fa(), 5, ref=home_league())["running"] is True
-    theirs.join(5)
-    assert outlook.waiver_entry(fa(), 5, ref=other)["bullets"][0]["text"] == "Theirs."
-    assert outlook.waiver_entry(fa(), 5, ref=home_league())["bullets"] is None and outlook.written(5, ref=other) == {1}
-    gate.set()
-    mine.join(5)
-    assert outlook.written(5, ref=home_league()) == {1} and outlook.load(5, kind=outlook.WAIVERS, ref=other)[1]["bullets"][0]["text"] == "Theirs."
-    card_run = outlook.start_one(card(), 5, run=lambda p, **kw: (gate.clear(), gate.wait(5), [TAKE])[2], kind=outlook.ROSTER,
-                                 ref=other)
-    assert outlook.writing(ref=other) == {1} and outlook.writing(ref=home_league()) == set()
-    gate.set()
-    card_run.join(5)
-    assert outlook.roster_entry(card(), 5, ref=other)["outlook"] and outlook.load(5, ref=home_league()) == {}
-
-
-def test_start_leagues_writes_each_league_in_turn_and_keeps_each_ones_last(outlook_dir, monkeypatch):
-    other = _other()
-    monkeypatch.setattr(outlook, "LASTS", {})
-
-    def broken():
-        raise RuntimeError("espn down")
-    t = outlook.start_leagues([(home_league(), broken), (other, lambda: ([card(player_id=2)], 5))], run=lambda p, **kw: [TAKE])
-    t.join(5)
-    assert outlook.load(5, ref=home_league()) == {} and set(outlook.load(5, ref=other)) == {2}
-    assert outlook.last(ref=home_league())["error"] == "RuntimeError: espn down"
-    assert outlook.last(other)["generated"] == 1 and outlook.last(other)["error"] is None, "the next league still ran"
-    assert not outlook.running()
-    t = outlook.start_leagues([(home_league(), lambda: ([card()], 5))], run=lambda p, **kw: [TAKE])
-    t.join(5)
-    assert outlook.last(ref=home_league())["generated"] == 1 and outlook.last(ref=home_league())["error"] is None
-
 
 def test_workers_from_env(monkeypatch):
     """FFL_OUTLOOK_WORKERS sets the CLI calls in flight (the box runs 3); unset, 20. Read at import."""
@@ -549,3 +520,40 @@ def test_workers_from_env(monkeypatch):
     finally:
         monkeypatch.delenv("FFL_OUTLOOK_WORKERS", raising=False)
         importlib.reload(outlook)
+
+
+def _p(pid, pos="WR", pts=None, l3=None, **kw):
+    form = None if pts is None and l3 is None else {"rows": [{"week": 5, "pts": pts}] if pts is not None else [], "l3": l3}
+    return {"player_id": pid, "pos": pos, "name": f"P{pid}", "form": form, **kw}
+
+
+def test_wanted_takes_every_rostered_skill_player_and_no_kicker():
+    pool = {"rostered": [_p(1, "QB"), _p(2, "K"), _p(3, "D/ST"), _p(4, "TE")], "frees": {}}
+    assert [p["player_id"] for p in outlook.wanted(pool, set(), set())] == [1, 4]
+
+
+def test_wanted_takes_a_free_agent_on_up_news_points_or_watch():
+    pool = {"rostered": [], "frees": {"WR": [_p(10), _p(11, pts=10, l3=2), _p(12, pts=3, l3=8), _p(13, pts=3, l3=2)],
+                                      "RB": [_p(14, "RB")]}}
+    assert [p["player_id"] for p in outlook.wanted(pool, {10}, {14})] == [10, 11, 12, 14]
+
+
+def test_wanted_leaves_a_quiet_free_agent_out_even_with_snaps():
+    pool = {"rostered": [], "frees": {"WR": [_p(20, pts=4, l3=5, snap_pct=80)]}}
+    assert outlook.wanted(pool, set(), set()) == []
+
+
+def test_wanted_keeps_one_row_per_player():
+    pool = {"rostered": [_p(1)], "frees": {"WR": [_p(1)]}}
+    assert len(outlook.wanted(pool, set(), {1})) == 1
+
+
+def test_recent_up_reads_up_rows_only(monkeypatch):
+    seen = {}
+
+    def stories(ids, since):
+        seen["since"] = since
+        return {1: [{"players": [{"player_id": 1, "effect": "up"}]}], 2: [{"players": [{"player_id": 2, "effect": "down"}]}]}
+    monkeypatch.setattr(outlook.db, "player_stories", stories)
+    assert outlook.recent_up([1, 2], TODAY) == {1}
+    assert seen["since"] == "2026-09-25"

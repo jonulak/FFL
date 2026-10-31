@@ -35,8 +35,8 @@ def client(monkeypatch, tmp_path):
                              "reason": "starts at RB: no bench alternative", "group": "starter", "gap": None}]})
     monkeypatch.setattr(api.outlook.news, "gather", lambda cards, week: {c["player_id"]: {"depth": None, "teammates": [], "stories": []} for c in cards})
     monkeypatch.setattr(api.outlook, "OUTLOOK_DIR", tmp_path / "outlook")
-    # start()'s thread looks LASTS up by name at call time, so a fresh dict per test keeps runs apart
-    monkeypatch.setattr(api.outlook, "LASTS", {})
+    # start_all()'s thread looks LAST up by name at call time, so a fresh dict per test keeps runs apart
+    monkeypatch.setattr(api.outlook, "LAST", {**api.outlook.LAST, "errors": []})
     monkeypatch.setattr(api, "sync_all", lambda **k: {"transactions": 0})
     api.cache_for(home_league()).clear()
     c = TestClient(api.app)
@@ -278,77 +278,58 @@ def test_refresh_expires_the_injury_cache_but_keeps_the_last_good_data(client, m
     assert calls, "the expiry did force a refetch attempt"
 
 
+TAKE = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
+
+
 def test_roster_attaches_the_cached_outlook_on_every_get(client):
     r = client.get("/roster")
     assert r.status_code == 200
     body = r.json()
     assert body["cards"][0]["outlook"] is None and body["cards"][0]["outlook_stale"] is False
-    assert body["outlook_run"] == {"at": None, "generated": 0, "skipped": 0, "failed": 0,
-                                   "error": None, "last_failure": None, "pending": None, "running": False}
-    take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
-    api.outlook.save(3, {1: {"hash": "h", "card_hash": api.outlook.card_hash(body["cards"][0]), "bullets": [take], "generated_at": "t"}}, ref=home_league())
-    assert client.get("/roster").json()["cards"][0]["outlook"] == [take], "no TTL wait for new bullets"
+    assert "outlook_run" not in body and "outlook_running" not in body["cards"][0]
+    api.outlook.save(3, {1: {"hash": "h", "card_hash": api.outlook.card_hash(body["cards"][0]), "bullets": [TAKE], "generated_at": "t"}})
+    assert client.get("/roster").json()["cards"][0]["outlook"] == [TAKE], "no TTL wait for new bullets"
 
 
-def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeypatch):
-    import threading
+def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeypatch, request):
+    roster = client.get("/roster").json()
+    request.getfixturevalue("as_job")  # the hourly timer's route alone
+    monkeypatch.setattr(api.espn_season, "outlook_cards", lambda *, ref: (roster["cards"], roster["week"]))
     gate = threading.Event()
-    take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
-    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt, **kw: (gate.wait(5), [take])[1])
+    monkeypatch.setattr(api.outlook, "run_batch", lambda prompt, ids: (gate.wait(5), {i: [TAKE] for i in ids})[1])
     r = client.post("/outlook/refresh")
-    assert r.status_code == 202 and r.json() == {"started": True, "pending": None}
+    assert r.status_code == 202 and r.json() == {"started": True}
     assert client.post("/outlook/refresh").status_code == 409
-    assert client.get("/roster").json()["outlook_run"]["running"] is True
     gate.set()
     for _ in range(50):
         if not api.outlook.running():
             break
         time.sleep(0.05)
-    assert client.get("/roster").json()["cards"][0]["outlook"] == [take]
-    assert client.get("/roster").json()["outlook_run"]["generated"] == 1
+    assert client.get(f"/roster?league={HOME_KEY}").json()["cards"][0]["outlook"] == [TAKE]
+    assert api.outlook.last()["generated"] == 1
 
 
-def test_outlook_refresh_reports_a_source_failure_as_502(client, monkeypatch):
-    monkeypatch.setattr(api.espn_season, "roster_state",
-                        lambda week=None, **k: (_ for _ in ()).throw(RuntimeError("espn down")))
-    r = client.post("/outlook/refresh")
-    assert r.status_code == 502 and r.json()["detail"]["source"] == "espn"
+def test_outlook_read_serves_any_player(client):
+    api.outlook.save(3, {7: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}})
+    assert client.get("/outlook/7?week=3").json() == {"bullets": [TAKE], "at": "t", "error": None}
+    assert client.get("/outlook/8?week=3").json() == {"bullets": None, "at": None, "error": None}
+    assert client.get("/outlook/7").status_code == 422, "the page's week is required"
+    assert client.post("/outlook/7").status_code == 405, "nothing writes on a click"
 
 
-def _fa_pool(monkeypatch):
-    row = {"player_id": 7, "name": "B", "pos": "RB", "team": "MIA", "bye": False, "injury": "ACTIVE",
-           "opponent": "BUF", "kickoff": None, "return_week": None, "injury_note": None, "add": 9.0}
-    monkeypatch.setattr(api.espn_season, "free_agent_pool",
-                        lambda week=None, **k: {"week": 3, "positions": {"RB": [row], "WR": []}})
-    monkeypatch.setattr(api.outlook, "_WRITING", {})
-    api.cache_for(home_league()).clear()
-    return row
+def test_players_rows_carry_has_outlook_for_rostered_players_too(client, monkeypatch):
+    _league_pool(monkeypatch)
+    api.outlook.save(3, {20: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"},
+                         30: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}})
+    rows = {r["player_id"]: r["has_outlook"] for r in client.get("/players?pos=RB&fa=0").json()["rows"]}
+    assert rows == {20: True, 7: False, 30: True}
 
 
-def test_waiver_outlook_is_written_on_a_post_and_read_on_a_get(client, monkeypatch):
-    import threading
-    _fa_pool(monkeypatch)
-    gate = threading.Event()
-    take = {"label": "Take", "text": "A stash.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
-    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt, **kw: (gate.wait(5), [take])[1])
-    assert client.get("/players?pos=RB").json()["rows"][0]["has_outlook"] is False
-    assert client.get("/waivers/outlook/7").json() == {"bullets": None, "at": None, "stale": False, "running": False, "error": None}
-    assert client.post("/waivers/outlook/7").status_code == 202
-    assert client.post("/waivers/outlook/7").status_code == 409
-    assert client.get("/waivers/outlook/7").json()["running"] is True
-    gate.set()
-    for _ in range(50):
-        if not client.get("/waivers/outlook/7").json()["running"]:
-            break
-        time.sleep(0.05)
-    assert client.get("/waivers/outlook/7").json()["bullets"] == [take]
-    assert client.get("/players?pos=RB").json()["rows"][0]["has_outlook"] is True
-
-
-def test_waiver_outlook_for_a_player_off_the_wire_is_404(client, monkeypatch):
-    _fa_pool(monkeypatch)
-    assert client.get("/waivers/outlook/1").status_code == 404
-    assert client.post("/waivers/outlook/1").status_code == 404
+def test_team_rows_carry_outlooks(client):
+    api.outlook.save(3, {1: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}})
+    row = client.get("/team/3").json()["side"]["lineup"][0]
+    assert row["outlook"] == [TAKE] and row["outlook_at"] == "t" and row["outlook_error"] is None
+    assert "outlook_stale" not in row
 
 
 def test_live_points_from_another_week_never_overlay_the_current_page(client, monkeypatch):
@@ -441,26 +422,6 @@ def test_roster_cards_never_carry_last_weeks_live_overlay(client, monkeypatch):
     assert card["game"]["status"] == "post"
 
 
-def test_card_outlook_is_rewritten_on_a_post_and_polled_on_a_get(client, monkeypatch):
-    import threading
-    gate = threading.Event()
-    take = {"label": "Take", "text": "He starts.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test"}]}
-    monkeypatch.setattr(api.outlook, "run_claude", lambda prompt, **kw: (gate.wait(5), [take])[1])
-    monkeypatch.setattr(api.outlook, "_WRITING", {})
-    assert client.post("/outlook/1").status_code == 202
-    assert client.post("/outlook/1").status_code == 409
-    assert client.get("/outlook/1").json()["outlook_running"] is True
-    assert client.get("/roster").json()["cards"][0]["outlook_running"] is True
-    gate.set()
-    for _ in range(50):
-        if not client.get("/outlook/1").json()["outlook_running"]:
-            break
-        time.sleep(0.05)
-    assert client.get("/outlook/1").json()["outlook"] == [take]
-    assert client.get("/roster").json()["cards"][0]["outlook"] == [take]
-    assert client.post("/outlook/99").status_code == 404 and client.get("/outlook/99").status_code == 404
-
-
 PLAYER_LOG = {"name": "X", "pos": "QB", "team": "BUF", "season": 2026, "current_week": 4,
               "seasons": [{"season": 2026, "weeks": [], "totals": None}]}
 
@@ -489,7 +450,8 @@ def test_player_live_week(client, monkeypatch):
 
 
 def test_players_search_spans_every_position(client, monkeypatch):
-    rb = _fa_pool(monkeypatch)
+    rb = {"player_id": 7, "name": "B", "pos": "RB", "team": "MIA", "bye": False, "injury": "ACTIVE",
+          "opponent": "BUF", "kickoff": None, "return_week": None, "injury_note": None, "add": 9.0}
     wr = {**rb, "player_id": 8, "name": "Bo Nix", "pos": "WR", "team": "DEN", "add": 12.0}
     qb = {**rb, "player_id": 9, "name": "Cam Ward", "pos": "QB", "team": "TEN", "add": 3.0}
     monkeypatch.setattr(api.espn_season, "free_agent_pool",
@@ -1052,7 +1014,6 @@ def _league_pool(monkeypatch, positions_rb=None):
     pool = {"week": 3, "positions": {"RB": positions_rb if positions_rb is not None else [fa], "WR": []},
             "rostered": {"RB": [theirs, mine], "WR": []}}
     monkeypatch.setattr(api.espn_season, "free_agent_pool", lambda week=None, **k: pool)
-    monkeypatch.setattr(api.outlook, "_WRITING", {})
     api.cache_for(home_league()).clear()
     return pool
 
@@ -1064,7 +1025,6 @@ def test_players_free_agents_by_default_everyone_with_fa_0(client, monkeypatch):
     body = client.get("/players?pos=RB&fa=0").json()
     assert [r["player_id"] for r in body["rows"]] == [20, 7, 30], "add desc, my own (None) last"
     assert body["rows"][0]["owner"]["abbrev"] == "THM" and body["rows"][1]["owner"] is None
-    assert all(r["has_outlook"] is False for r in body["rows"] if r["owner"])
     assert client.get("/players?pos=RB&fa=maybe").status_code == 422, "yes/no/1/0 parse; anything else is a 422"
 
 
