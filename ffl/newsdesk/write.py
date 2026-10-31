@@ -48,7 +48,8 @@ For each story below, give:
   empty list.
 A story whose status is corrected or retracted must say so plainly in both the headline and the overview
 (for example "Correction: ..." or "Report withdrawn: ..."), naming the status note's source when given.
-Answer for every story id given."""
+Answer for every story id given.
+""" + claude_cli.DATA_RULE
 
 
 def _moved(s: dict) -> list[dict]:
@@ -88,10 +89,13 @@ def _sources(s: dict, sources: dict[str, dict]) -> tuple[list[str], dict[int, li
             continue
         number[i["id"]] = n
         name = (sources.get(i["source_id"]) or {}).get("name") or i["source_id"]
-        out += [f"Source {n}{' (newest)' if n == 1 else ''}: {name}, {_when(i['published_at'])}: {i['title']}", full[i["id"]]]
+        when = _when(i["published_at"])
+        out += [f"Source {n}{' (newest)' if n == 1 else ''}: {name}, {when}:",
+                claude_cli.data_block("source", f"{i['title']}\n{full[i['id']]}", outlet=name, published=when)]
     if rest:
         out.append("Earlier sources, by title only (oldest first):")
-        out += [f"- {_when(i['published_at'])}: {i['title']}" for i in reversed(rest)]
+        out += [f"- {_when(i['published_at'])}: " + claude_cli.data_block("source", i["title"], published=_when(i["published_at"]))
+                for i in reversed(rest)]
     naming = {p["player_id"]: sorted(number[i["id"]] for i in items if i["id"] in number
                                      and p["player_id"] in (i.get("player_ids") or [])) for p in _moved(s)}
     return out, naming

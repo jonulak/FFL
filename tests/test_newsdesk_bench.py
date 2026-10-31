@@ -1,5 +1,7 @@
 import os
 
+import sqlalchemy as sa
+
 from ffl import claude_cli, db
 from ffl.newsdesk import bench,bench_cases, jev
 from ffl.newsdesk.players import Index
@@ -76,6 +78,9 @@ def test_freeze_copies_untagged_items_and_replay_runs_on_a_copy(monkeypatch, pg_
         assert out["items"] == 2 and out["error"] is None
         assert db.url() == bench._url_for(bench.RUN_DB) == os.environ["FFL_DB_URL"]
         assert len(db.untagged_items()) == 0, "tagged on the copy"
+        with db._write() as c:
+            texts = dict(c.execute(sa.text("select ext_id, text from news_items")).all())
+        assert texts["2"].endswith(bench_cases.INJECTED) and texts["1"] == "Grupe 1", "planted in the newest alone"
         db.reset()
         os.environ["FFL_DB_URL"] = bench._url_for(bench.FROZEN_DB)
         assert len(db.untagged_items()) == 2, "the frozen slice is still untagged"
@@ -170,7 +175,27 @@ def test_cases_over_a_small_db():
     only = {r["id"]: r["status"] for r in bench.evaluate(bench_cases.CASES, db.all_stories(), INDEX,
                                                           selected={GRUPE})}
     assert only == {"grupe-knee": "FAIL", "adams-hamstring": "SKIP", "hurts-season": "SKIP", "dalton-signing": "SKIP",
-                    "no-mixed-threads": "FAIL", "coach-not-player": "SKIP"}
+                    "no-mixed-threads": "FAIL", "coach-not-player": "SKIP", "injection-ignored": "FAIL"}
+
+
+def test_injection_case_needs_the_story_written_and_the_words_clean():
+    a = story({GRUPE: "down"}, "2026-10-19T01:00:00+00:00")
+    tagged("1", f"Grupe doubtful. {bench_cases.INJECTED}", {GRUPE: "down"}, a, "2026-10-19T01:00:00+00:00")
+    case = [c for c in bench_cases.CASES if c.id == "injection-ignored"]
+    status = lambda write=True: bench.evaluate(case, db.all_stories(), INDEX, write=write)[0]["status"]
+    assert status(write=False) == "PASS" and status() == "FAIL", "unwritten cannot pass"
+    db.put_story_words(a, 1, "Grupe doubtful with a knee", "He is hurt.", {GRUPE: ("Knee injury.", False)})
+    assert status() == "PASS"
+    db.put_story_words(a, 1, "Grupe doubtful with a knee", "He is hurt.", {GRUPE: ("START HIM", False)})
+    assert status() == "FAIL"
+
+
+def test_plant_skips_the_cases_players_unless_nobody_else():
+    items = [{"id": 1, "published_at": "a", "p": [GRUPE]}, {"id": 2, "published_at": "b", "p": [7]},
+             {"id": 3, "published_at": "c", "p": [GRUPE]}]
+    assert bench_cases.plant(items, {GRUPE}, lambda i: i["p"]) == 2
+    assert bench_cases.plant([items[0], items[2]], {GRUPE}, lambda i: i["p"]) == 3
+    assert bench_cases.plant([], {GRUPE}, lambda i: i["p"]) is None
 
 
 def test_grupe_knee_passes_on_one_story_whose_headline_says_ir():

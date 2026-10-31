@@ -150,10 +150,12 @@ def _story_text(s: dict) -> str:
     body = " ".join(x for x in (s.get("headline"), s.get("overview") or s.get("text")) if x)
     if s.get("line"):
         body += f" For him: {s['line']}"
-    if s.get("status") == "corrected":
-        body += " (since corrected)"
+    corrected = " (since corrected)" if s.get("status") == "corrected" else ""
+    # the cites stay outside the block, unescaped: the model copies each URL into its bullet's sources
     cites = "; ".join(f"{c['site']} {_md(c.get('published'))} {c['url']}" for c in s.get("sources") or [])
-    return f"{_md(s.get('published'))} {EFFECT.get(s.get('effect'), '●')} {body} (sources: {cites})"
+    block = claude_cli.data_block("source", body, published=_md(s.get("published")),
+                                  sites="; ".join(c["site"] for c in s.get("sources") or []) or None)
+    return f"{_md(s.get('published'))} {EFFECT.get(s.get('effect'), '●')} {block}{corrected} (sources: {cites})"
 
 
 def _kickoff_text(card: dict) -> str:
@@ -180,6 +182,7 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date, free_agent: bool =
             else f"Start/bench call (background only, do not restate): {card.get('model_call', card['call'])}")
     lines = [
         f"Week {week} fact sheet — today is {today:%A} {today.month}/{today.day}/{today.year}",
+        claude_cli.DATA_RULE,
         f"Player: {card['name']}, {card['pos']}, {card['team']}; {_exp_text(card)}",
         f"Opponent: {_opponent_text(card)}; kickoff: {_kickoff_text(card)}",
         role,

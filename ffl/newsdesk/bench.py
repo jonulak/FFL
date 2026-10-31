@@ -281,6 +281,11 @@ def replay(index: Index, cache: Cache, selected: set[int] | None = None, do_writ
             c.execute(sa.text("delete from news_items where id <> all(:keep)"), {"keep": list(keep)})
             items = [i for i in items if i["id"] in keep]
         c.execute(sa.text("update news_items set tagged_at = :h"), {"h": HOLD})
+        watched = {Slice([], index).pid(p) for case in bench_cases.CASES for p in case.players}
+        planted = bench_cases.plant(items, watched, lambda i: [p["player_id"] for p in tag._players(i, index)])
+        if planted is not None:
+            c.execute(sa.text("update news_items set text = coalesce(text, '') || :x where id = :id"),
+                      {"x": "\n\n" + bench_cases.INJECTED, "id": planted})
     due = sorted((_at(i["published_at"]) + DELAY, i["id"]) for i in items)
     out = {"items": len(items), "ticks": 0, "tagged": 0, "new": 0, "attached": 0, "updated": 0, "reworded": 0,
            "failed": 0, "given_up": 0, "error": None, "written": 0, "write_missing": 0,
