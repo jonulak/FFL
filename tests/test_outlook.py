@@ -89,18 +89,18 @@ def test_card_hash_moves_with_card_facts_not_projections():
     assert outlook.card_hash(card(form={"rows": [{"week": 4, "pts": 3.0, "snap_pct": 30}]})) != base
 
 
-def test_fact_hash_moves_with_news_and_the_day():
-    base = outlook.fact_hash(card(), ctx(), TODAY)
-    assert outlook.fact_hash(card(), ctx(), date(2026, 10, 3)) != base, "rewritten at least daily"
+def test_fact_hash_moves_with_news_not_the_day():
+    base = outlook.fact_hash(card(), ctx())
+    assert outlook.pending([card()], {1: {"hash": base}}, {1: ctx()}, date(2026, 10, 3)) == [], "a new day alone rewrites nothing"
     mate = {**ctx()["teammates"][0], "note": "Goff (thumb) is doubtful."}
-    assert outlook.fact_hash(card(), ctx(teammates=[mate]), TODAY) != base, "a teammate's injury note rewrites him"
-    assert outlook.fact_hash(card(), ctx(depth={"slot": "RB", "order": 2, "rank": 2, "of": 3}), TODAY) != base
-    assert outlook.fact_hash(card(proj=30.0), ctx(), TODAY) == base
+    assert outlook.fact_hash(card(), ctx(teammates=[mate])) != base, "a teammate's injury note rewrites him"
+    assert outlook.fact_hash(card(), ctx(depth={"slot": "RB", "order": 2, "rank": 2, "of": 3})) != base
+    assert outlook.fact_hash(card(proj=30.0), ctx()) == base
     for moved in ([], [{**STORY, "rev": 2}], [{**STORY, "status": "corrected"}],
                   [{**STORY, "sources": STORY["sources"] * 2}]):
-        assert outlook.fact_hash(card(), ctx(stories=moved), TODAY) != base, moved
+        assert outlook.fact_hash(card(), ctx(stories=moved)) != base, moved
     told = {**ctx()["teammates"][0], "stories": [STORY]}
-    assert outlook.fact_hash(card(), ctx(teammates=[told]), TODAY) != base, "a hurt teammate's story rewrites him"
+    assert outlook.fact_hash(card(), ctx(teammates=[told])) != base, "a hurt teammate's story rewrites him"
 
 
 def test_fact_sheet_has_the_news_desk_and_the_cli_no_tools():
@@ -119,9 +119,9 @@ def test_fact_sheet_has_the_news_desk_and_the_cli_no_tools():
 
 def test_fact_hash_moves_with_the_prompt(monkeypatch):
     """A rewritten voice rule has to reach the cards already written under the old one."""
-    base = outlook.fact_hash(card(), ctx(), TODAY)
+    base = outlook.fact_hash(card(), ctx())
     monkeypatch.setattr(outlook, "VOICE", outlook.VOICE + " One more rule.")
-    assert outlook.fact_hash(card(), ctx(), TODAY) != base
+    assert outlook.fact_hash(card(), ctx()) != base
 
 
 def test_voice_keeps_injury_for_real_injury_news_only():
@@ -172,7 +172,7 @@ def test_pending_writes_ir_and_out_skips_played_and_quiet_byes():
     quiet = ctx(teammates=[], stories=[])
     ctxs = {1: ctx(), 2: ctx(), 3: ctx(), 4: ctx(), 5: quiet, 6: ctx()}
     assert [c["player_id"] for c in outlook.pending(cards, {}, ctxs, TODAY)] == [1, 3, 4, 6]
-    same = {1: {"hash": outlook.fact_hash(cards[0], ctxs[1], TODAY)}}
+    same = {1: {"hash": outlook.fact_hash(cards[0], ctxs[1])}}
     assert 1 not in [c["player_id"] for c in outlook.pending(cards, same, ctxs, TODAY)]
 
 
@@ -188,7 +188,7 @@ def test_generate_writes_bullets_and_keeps_the_old_entry_on_failure(outlook_dir)
                       "pending": 2}
     got = outlook.load(5, ref=home_league())
     assert got[4]["hash"] == "old"
-    assert got[5] == {"hash": outlook.fact_hash(cards[1], ctx(), TODAY), "card_hash": outlook.card_hash(cards[1]),
+    assert got[5] == {"hash": outlook.fact_hash(cards[1], ctx()), "card_hash": outlook.card_hash(cards[1]),
                       "bullets": [TAKE], "generated_at": "2026-10-02T09:30"}
     outlook.generate([card(player_id=6, name="Aware")], 5, run=run, ref=home_league())
     assert re.search(r"T\d\d:\d\d[+-]\d\d:\d\d$", outlook.load(5, ref=home_league())[6]["generated_at"])
@@ -427,7 +427,7 @@ def test_start_one_rewrites_a_card_into_the_roster_file_with_its_fact_hash(outlo
     gate.set()
     t.join(5)
     e = outlook.load(5, ref=home_league())[1]
-    assert e["bullets"] == [TAKE] and e["hash"] == outlook.fact_hash(card(), ctx(), date.today())
+    assert e["bullets"] == [TAKE] and e["hash"] == outlook.fact_hash(card(), ctx())
     assert not outlook.load(5, outlook.WAIVERS, ref=home_league()), "a card never lands in the free agents' file"
     assert outlook.FA_TAKE not in sheets[0], "a card's sheet is the call's, not a claim's"
     r = outlook.roster_entry(card(), 5, ref=home_league())

@@ -92,12 +92,11 @@ def card_hash(card: dict) -> str:
                  card.get("injury_note"), card.get("return_week"), card.get("model_call", card.get("call")), rows])
 
 
-def fact_hash(card: dict, ctx: dict, today: date) -> str:
-    """card_hash plus the news (his depth, the teammates' status and stories, his own stories), the day, so every
-    outlook is rewritten at least once a day, and the voice rule, so a changed prompt reaches the cards written
-    under the old one."""
+def fact_hash(card: dict, ctx: dict) -> str:
+    """card_hash plus the news (his depth, the teammates' status and stories, his own stories) and the voice rule,
+    so a changed prompt reaches the cards written under the old one. No date: same facts, same outlook."""
     mates = [[m.get("name"), m.get("status"), m.get("note"), _story_keys(m)] for m in ctx.get("teammates") or []]
-    return _sha([card_hash(card), ctx.get("depth"), mates, _story_keys(ctx), today.isoformat(), VOICE])
+    return _sha([card_hash(card), ctx.get("depth"), mates, _story_keys(ctx), VOICE])
 
 
 def _story_keys(holder: dict) -> list:
@@ -272,7 +271,7 @@ def pending(cards: list[dict], entries: dict[int, dict], ctxs: dict[int, dict], 
         ctx, old = ctxs[c["player_id"]], entries.get(c["player_id"])
         if c.get("game_played") or (c.get("call") == "BYE" and not news.has_news(c, ctx, today)):
             continue
-        if isinstance(old, dict) and old.get("hash") == fact_hash(c, ctx, today):
+        if isinstance(old, dict) and old.get("hash") == fact_hash(c, ctx):
             continue
         out.append(c)
     return out
@@ -296,7 +295,7 @@ def generate(cards: list[dict], week: int, run=run_claude, gather=None, now: dat
         bullets = run(fact_sheet(c, week, ctx, today))
         stamp = (now or datetime.now().astimezone()).isoformat(timespec="minutes")
         with lock:
-            entries[c["player_id"]] = {"hash": fact_hash(c, ctx, today), "card_hash": card_hash(c),
+            entries[c["player_id"]] = {"hash": fact_hash(c, ctx), "card_hash": card_hash(c),
                                        "bullets": bullets, "generated_at": stamp}
             put(week, c["player_id"], entries[c["player_id"]], ref=ref)
             counts["generated"] += 1
@@ -424,7 +423,7 @@ def start_one(row: dict, week: int, run=run_claude, gather=None, kind: str = WAI
             entry = {"card_hash": card_hash(row), "bullets": bullets,
                      "generated_at": datetime.now().astimezone().isoformat(timespec="minutes")}
             if kind == ROSTER:
-                entry["hash"] = fact_hash(row, ctx, today)
+                entry["hash"] = fact_hash(row, ctx)
         except Exception as e:  # noqa: BLE001 — the page needs the reason, not a lost traceback
             entry = {"error": f"{type(e).__name__}: {e}"[:200]}
         with _WLOCK:

@@ -407,7 +407,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   injury status, plus every hurt teammate at his own position wherever the chart puts him (ESPN's injury feed
   drops IR players) with that teammate's newest three stories, where return dates are written (ids off one
   `kona_player_info` call). Twenty calls at a time (`WORKERS`, the whole roster), each card saved as it lands, cached in
-  the `outlooks` table (kind `week`) under a hash of the facts, the stories (id, rev, status, sources) and the day (so at least daily).
+  the `outlooks` table (kind `week`) under a hash of the facts, the stories (id, rev, status, sources) and the prompt's voice rule (no date: unchanged facts are never rewritten).
   GETs never generate. `POST /outlook/refresh` starts a locked background run; `ffl-outlook.timer`
   curls it at five past every hour. One card is rewritten on a click (the card footer's Rewrite):
   `POST /outlook/{id}` → `outlook.start_one(kind=ROSTER)`, stored with the fact hash so the hourly run skips
