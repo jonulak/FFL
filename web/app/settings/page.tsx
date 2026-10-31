@@ -19,7 +19,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ l
     [config, account, espn, devices, usage] = await Promise.all([
       apiGet<NotifyConfig>("/notify/config"), apiGet<Account>("/account"),
       apiGet<EspnStatus>("/espn/status"), apiGet<{ devices: ExtensionDevice[] }>("/espn/devices"),
-      apiGet<LlmUsage>("/llm/usage?days=7").catch(() => null),  // the cost line is not worth failing Settings over
+      apiGet<LlmUsage>("/llm/usage?days=7").catch(() => null),  // operators only (403 for anyone else, no line); never worth failing Settings over
     ]);
   } catch (e) {
     return <ErrorCard {...errorFields(e)} />;

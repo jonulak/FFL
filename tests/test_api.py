@@ -2032,9 +2032,20 @@ def test_news_status(client):
     assert body["jev_usage"]["2026-10-19"]["calls"] == 3
 
 
-def test_llm_usage_totals_by_day_and_kind(client):
+def test_llm_usage_is_for_operators_only(client, monkeypatch):
+    monkeypatch.delenv("FFL_OPERATOR_EMAILS", raising=False)
+    assert client.get("/llm/usage").status_code == 403
+    monkeypatch.setenv("FFL_OPERATOR_EMAILS", "someone@else.com")
+    r = client.get("/llm/usage")
+    assert r.status_code == 403 and r.json()["detail"]["error"] == "not_operator"
+    monkeypatch.setenv("FFL_OPERATOR_EMAILS", "other@x.com, TEST@example.com")
+    assert client.get("/llm/usage").status_code == 200
+
+
+def test_llm_usage_totals_by_day_and_kind(client, monkeypatch):
     """GET /llm/usage: llm_calls summed per (UTC day, kind) over the last `days` days; older rows are left out."""
     from datetime import datetime, timedelta, timezone
+    monkeypatch.setenv("FFL_OPERATOR_EMAILS", "test@example.com")
     for kind, cost in (("outlook", 0.02), ("outlook", 0.03), ("news", 0.001)):
         db.add_llm_call(kind=kind, model="sonnet", league="espn:1", player_id=7, input=100, output=10,
                         cost_usd=cost, ok=True)

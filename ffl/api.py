@@ -2139,8 +2139,11 @@ def news_status():
 
 
 @app.get("/llm/usage")
-def llm_usage(days: int = Query(7, ge=1, le=366)):
-    """What `claude -p` cost over the last `days` UTC days (today included): one row per (day, kind) off llm_calls."""
+def llm_usage(days: int = Query(7, ge=1, le=366), user: dict = Depends(auth.current_user)):
+    """What `claude -p` cost over the last `days` UTC days (today included): one row per (day, kind) off llm_calls.
+    The app's own spend: operators only (FFL_OPERATOR_EMAILS), 403 `not_operator` for anyone else."""
+    if (user.get("email") or "").lower() not in {e.lower() for e in notify.operator_emails()}:
+        raise HTTPException(403, {"error": "not_operator", "message": "Only the app's operators see its LLM cost."})
     return {"days": days, "rows": db.llm_usage(days)}
 
 

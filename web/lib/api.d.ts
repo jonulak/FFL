@@ -1506,6 +1506,7 @@ export interface paths {
         /**
          * Llm Usage
          * @description What `claude -p` cost over the last `days` UTC days (today included): one row per (day, kind) off llm_calls.
+         *     The app's own spend: operators only (FFL_OPERATOR_EMAILS), 403 `not_operator` for anyone else.
          */
         get: operations["llm_usage_llm_usage_get"];
         put?: never;
