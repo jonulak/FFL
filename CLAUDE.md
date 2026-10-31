@@ -271,7 +271,7 @@ while it runs share its payload or its 502, as do concurrent cold reads of `sour
   is what took the old nav button past 30 s.
 - **News desk** (`ffl/newsdesk/`, beads ffl-0gv): `pipeline.run` is seed (`seed.SOURCES`) → index (`players.fetch_index`) →
   `collect.run_all` then `collect.recheck` (in that order: recheck's "still in the feed" is the poll just made) →
-  `media.run_all` (transcripts split per player) → `tag.run` (Jev: effect ▲/▼/●, kind, story) → `write.run` (Haiku through
+  `media.run_all` (transcripts split per player) → `tag.run` (Jev: effect ▲/▼/●, kind, story; `subject:<pid>` drops a player only named in passing, a roundup, recap or preview, from the story) → `write.run` (Haiku through
   `claude -p`: headline, overview, a line per player it moves ▲/▼; one it only names gets no line and no place on his news page) → notices → `health.notices`, each stage tried alone (the index's
   stages skipped without one), the stage dict in state `news_last_run`. The writer's cost is its `llm_calls` rows (no `news_haiku_usage` state since #64); Jev's day total stays in `news_jev_usage`. `POST /news/run` (202; 409 while `_NEWS` is held)
   runs it on a thread and flushes after if `_NOTIFY` is free; `ffl-news.timer` POSTs it every 10 min;

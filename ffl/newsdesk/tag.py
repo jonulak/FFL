@@ -1,7 +1,8 @@
 """Jev tags each player an item names and groups the item into a story.
 
 One call an item: per matched player, `about:<pid>` (is the text about him, not a coach or another
-player with his name; under ABOUT he is dropped before anything else), `effect:<pid>` (▲ up / ▼ down /
+player with his name; under ABOUT he is dropped before anything else), `subject:<pid>` (the text reports on him,
+not a passing mention in a list, recap, preview or roundup; under SUBJECT he is dropped too), `effect:<pid>` (▲ up / ▼ down /
 ● none for his fantasy value), `fresh:<pid>` (new information about him, not a passing mention of news
 already known; under FRESH his effect is forced to ●, so a preview naming an old injury never pushes)
 and `kind:<pid>`; with stories in the window, `story` (which one this
@@ -31,6 +32,10 @@ from .players import Index, match
 
 WINDOW = timedelta(days=3)  # a story takes new items while it was updated this recently
 ABOUT = 0.5
+# under SUBJECT he is only named in passing (a roundup, recap, preview): dropped from the story as under ABOUT. Bench
+# 2026-10-17..20 (5,626 readings): 79% under 0.3, 10% over 0.8, 0.4-0.6 the trough; Mayfield in a Bucs recap 0.05
+# (about 0.51), Freiermuth in his own calf note 0.95. It cut item rows from 4,645 to 811 and stories from 1,240 to 570
+SUBJECT = 0.5
 RETRACT = 0.5
 CHANGED = 0.5
 HEADLINE_OK = 0.5  # under it the written headline no longer sums the story up: rewritten, not pushed
@@ -87,6 +92,9 @@ def questions(item: dict, players: list[dict], candidates: list[dict]) -> dict:
         pid, who, name = p["player_id"], _who(p), p["name"]
         qs[f"about:{pid}"] = {"type": "noul", "instructions":
                               f"This text is about {who}, not someone else with that name (a coach, a different player)."}
+        qs[f"subject:{pid}"] = {"type": "noul", "instructions":
+                                f"This text is about {who} as a subject: it reports on him, his status, role or "
+                                "situation; not a passing mention in a list, recap, preview or roundup."}
         qs[f"fresh:{pid}"] = {"type": "noul", "instructions":
                               f"This text reports new information about {name} (a new injury, status, role, transaction "
                               "or return date), not a passing reference to news already known (a recap, preview or "
@@ -107,12 +115,13 @@ def questions(item: dict, players: list[dict], candidates: list[dict]) -> dict:
 
 
 def read(answers: dict, players: list[dict]) -> dict:
-    """{players: [{player_id, effect, kind, prob, confidence}], story, retract}: players under ABOUT are
-    dropped; with none left there is no story."""
+    """{players: [{player_id, effect, kind, prob, confidence}], story, retract}: players under ABOUT or SUBJECT
+    are dropped; with none left there is no story. Answers from before `subject` count as a subject."""
     kept = []
     for p in players:
         pid = p["player_id"]
-        if answers[f"about:{pid}"]["noul"] < ABOUT:
+        if (answers[f"about:{pid}"]["noul"] < ABOUT
+                or (answers.get(f"subject:{pid}") or {}).get("noul", 1.0) < SUBJECT):
             continue
         eff = answers[f"effect:{pid}"]
         # a passing mention of news already known moves nobody; answers from before `fresh` count as fresh

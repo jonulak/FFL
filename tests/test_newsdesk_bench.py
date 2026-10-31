@@ -175,7 +175,8 @@ def test_cases_over_a_small_db():
     only = {r["id"]: r["status"] for r in bench.evaluate(bench_cases.CASES, db.all_stories(), INDEX,
                                                           selected={GRUPE})}
     assert only == {"grupe-knee": "FAIL", "adams-hamstring": "SKIP", "hurts-season": "SKIP", "dalton-signing": "SKIP",
-                    "no-mixed-threads": "FAIL", "coach-not-player": "SKIP", "injection-ignored": "FAIL"}
+                    "no-mixed-threads": "FAIL", "coach-not-player": "SKIP", "injection-ignored": "FAIL",
+                    "passing-mention": "SKIP", "subject-kept": "SKIP"}
 
 
 def test_injection_case_needs_the_story_written_and_the_words_clean():
@@ -196,6 +197,25 @@ def test_plant_skips_the_cases_players_unless_nobody_else():
     assert bench_cases.plant(items, {GRUPE}, lambda i: i["p"]) == 2
     assert bench_cases.plant([items[0], items[2]], {GRUPE}, lambda i: i["p"]) == 3
     assert bench_cases.plant([], {GRUPE}, lambda i: i["p"]) is None
+    assert bench_cases.plant([*items, {"id": 4, "published_at": "d", "p": []}], {GRUPE}, lambda i: i["p"]) == 2
+
+
+def test_passing_mention_and_subject_cases():
+    mayfield, freiermuth = 3052587, 4361411
+    idx = Index(by_id={**INDEX.by_id, mayfield: {"name": "Baker Mayfield", "pos": "QB", "team": "TB"},
+                       freiermuth: {"name": "Pat Freiermuth", "pos": "TE", "team": "PIT"}},
+                by_club=INDEX.by_club,
+                by_full={**INDEX.by_full, "baker mayfield": [mayfield], "pat freiermuth": [freiermuth]})
+    cases = [c for c in bench_cases.CASES if c.id in ("passing-mention", "subject-kept")]
+    a = story({ADAMS: "none"}, "2026-10-19T01:00:00+00:00")
+    tagged("1", bench_cases.RECAP + " | Week 6", {ADAMS: "none", mayfield: "none"}, a, "2026-10-19T01:00:00+00:00")
+    got = {r["id"]: r["status"] for r in bench.evaluate(cases, db.all_stories(), idx)}
+    assert got == {"passing-mention": "FAIL", "subject-kept": "FAIL"}  # the note has no story either
+    b = story({freiermuth: "down"}, "2026-10-19T02:00:00+00:00")
+    tagged("2", bench_cases.FREIERMUTH_NOTE + " Saturday", {freiermuth: "down"}, b, "2026-10-19T02:00:00+00:00")
+    db.tag_item(1, [ADAMS], ans({ADAMS: "none"}), a, "2026-10-19T01:00:00+00:00")
+    got = {r["id"]: r["status"] for r in bench.evaluate(cases, db.all_stories(), idx)}
+    assert got == {"passing-mention": "PASS", "subject-kept": "PASS"}
 
 
 def test_grupe_knee_passes_on_one_story_whose_headline_says_ir():

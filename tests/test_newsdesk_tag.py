@@ -34,7 +34,7 @@ def story(players=(1,), effect="down", at="2026-10-19T10:00:00+00:00", first_ite
 
 
 def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="injury", story_prob=0.8, fresh=0.9,
-         headline=0.9):
+         headline=0.9, subject=None):
     """A Jev stand-in: every question answered; `story` is the choice for the story question."""
     calls = []
 
@@ -44,8 +44,9 @@ def fake(story="new", retract=0.1, changed=0.2, about=None, effect="up", kind="i
         for k, q in qs.items():
             name, _, pid = k.partition(":")
             if q["type"] == "noul":
-                v = (about or {}).get(int(pid), 0.95) if name == "about" else {"retract": retract, "changed": changed, "fresh": fresh,
-                                                                         "headline": headline}[name]
+                v = ((about or {}).get(int(pid), 0.95) if name == "about"
+                     else (subject or {}).get(int(pid), 0.9) if name == "subject" else {"retract": retract, "changed": changed, "fresh": fresh,
+                                                                         "headline": headline}[name])
                 out[k] = {"type": "noul", "noul": v}
                 continue
             opts = list(q["criteria"])
@@ -67,8 +68,10 @@ def test_questions_shape():
     it = {"title": "Kyren Williams limited", "text": "body", "club": "LAR"}
     ps = [{"player_id": 1, **INDEX.by_id[1]}, {"player_id": 2, **INDEX.by_id[2]}]
     qs = tag.questions(it, ps, [])
-    assert set(qs) == {f"{q}:{p}" for q in ("about", "fresh", "effect", "kind") for p in (1, 2)}
+    assert set(qs) == {f"{q}:{p}" for q in ("about", "subject", "fresh", "effect", "kind") for p in (1, 2)}
     assert qs["fresh:1"]["type"] == "noul" and "new information about Kyren Williams" in qs["fresh:1"]["instructions"]
+    assert qs["subject:1"]["type"] == "noul" and "Kyren Williams, the LAR RB as a subject" in qs["subject:1"]["instructions"]
+    assert "not a passing mention" in qs["subject:1"]["instructions"]
     assert list(qs["effect:1"]["criteria"]) == ["up", "down", "none"]
     assert list(qs["kind:2"]["criteria"]) == ["injury", "return", "role", "depth", "other"]
     assert qs["about:1"]["type"] == "noul" and "Kyren Williams, the LAR RB" in qs["about:1"]["instructions"]
@@ -117,6 +120,36 @@ def test_passing_mention_forced_none(fresh, effect):
     assert row["prob"] == pytest.approx(0.1 if effect == "none" else 0.8)  # the shown effect's own probability
     assert s["items"][0]["jev"]["fresh:1"]["noul"] == fresh and s["items"][0]["id"] == i
 
+
+
+def _ans(subject=None):
+    out = {}
+    for pid in (1, 2):
+        out[f"about:{pid}"] = {"type": "noul", "noul": 0.95}
+        out[f"effect:{pid}"] = {"type": "choice", "choice": "down", "probabilities": {"down": 0.8}, "confidence": 0.7}
+        out[f"kind:{pid}"] = {"type": "choice", "choice": "injury", "probabilities": {"injury": 0.9}, "confidence": 0.7}
+        if subject is not None:
+            out[f"subject:{pid}"] = {"type": "noul", "noul": subject[pid]}
+    return out
+
+
+def test_read_drops_a_passing_mention():
+    ps = [{"player_id": 1}, {"player_id": 2}]
+    got = tag.read(_ans({1: 0.9, 2: tag.SUBJECT - 0.01}), ps)
+    assert [p["player_id"] for p in got["players"]] == [1]
+    assert [p["player_id"] for p in tag.read(_ans({1: tag.SUBJECT, 2: 0.2}), ps)["players"]] == [1]
+
+
+def test_read_old_answers_without_subject_keep_him():
+    assert [p["player_id"] for p in tag.read(_ans(), [{"player_id": 1}, {"player_id": 2}])["players"]] == [1, 2]
+
+
+def test_passing_mention_left_off_the_story():
+    item("a", "Week 8 waiver roundup", text="Kyren Williams limited; Puka Nacua also on the list")
+    tag.run(INDEX, ask=fake(effect="down", subject={2: 0.2}), now=NOW)
+    [s] = db.recent_stories([1], "2026-10-01")
+    assert set(rows(s["id"])) == {1} and s["items"][0]["player_ids"] == [1]
+    assert db.recent_stories([2], "2026-10-01") == []
 
 def test_new_story_when_new():
     i = item("a", "Kyren Williams limited at practice")
