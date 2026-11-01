@@ -76,8 +76,58 @@ def test_shellcheck():
     subprocess.run(["shellcheck", "-s", "sh", str(REPO / "install.sh")], check=True)
 
 
+def test_db_not_published():
+    """Only the web port is opened on the host; Postgres stays on the compose network."""
+    compose = (REPO / "docker-compose.yml").read_text()
+    db = compose.split("\n  db:\n", 1)[1].split("\n  api:\n", 1)[0]
+    assert "ports:" not in db
+
+
 def test_no_compose_plugin_exits_2(tmp_path, stub_path):
     (tmp_path / "bin" / "docker").write_text(STUB + 'case "$*" in "compose version") exit 1;; esac\n')
     r = run(tmp_path, stub_path)
     assert r.returncode == 2 and "compose plugin" in r.stderr
     assert not (tmp_path / "ffl").exists()
+
+
+def _busy_env(tmp_path):
+    """A listening socket and a kept .env naming its port as the web port (VAPID filled, so no keys step)."""
+    import socket
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen()
+    web = sock.getsockname()[1]
+    env = (REPO / "deploy" / "env.example").read_text()
+    for key, val in (("FFL_PORT", web), ("FFL_APP_URL", f"http://localhost:{web}"),
+                     ("VAPID_PUBLIC_KEY", "pub"), ("VAPID_PRIVATE_KEY", "priv")):
+        env = re.sub(rf"^{key}=.*$", f"{key}={val}", env, flags=re.M)
+    (tmp_path / "ffl").mkdir()
+    (tmp_path / "ffl" / ".env").write_text(env)
+    return sock, web
+
+
+def _val(tmp_path, key):
+    return re.search(rf"^{key}=(.*)$", (tmp_path / "ffl" / ".env").read_text(), re.M).group(1)
+
+
+@pytest.mark.skipif(not shutil.which("nc"), reason="nc not on PATH")
+def test_busy_web_port_moves(tmp_path, stub_path):
+    sock, web = _busy_env(tmp_path)
+    r = run(tmp_path, stub_path)
+    sock.close()
+    assert r.returncode == 0, r.stderr
+    new_web = int(_val(tmp_path, "FFL_PORT"))
+    assert new_web > web
+    assert _val(tmp_path, "FFL_APP_URL") == f"http://localhost:{new_web}"
+    assert f"Open http://localhost:{new_web}" in r.stdout and "in use" in r.stderr
+
+
+@pytest.mark.skipif(not shutil.which("nc"), reason="nc not on PATH")
+def test_running_stack_keeps_port(tmp_path, stub_path):
+    """A re-run beside the stack it started sees its own port busy: it must not move."""
+    (tmp_path / "bin" / "docker").write_text(STUB + 'case "$*" in "compose ps"*) echo abc123;; esac\n')
+    sock, web = _busy_env(tmp_path)
+    r = run(tmp_path, stub_path)
+    sock.close()
+    assert r.returncode == 0, r.stderr
+    assert _val(tmp_path, "FFL_PORT") == str(web)

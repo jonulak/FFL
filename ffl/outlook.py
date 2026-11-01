@@ -13,7 +13,7 @@ import hashlib
 import json
 import math
 import os
-import shutil  # noqa: F401  (tests/test_outlook.py patches outlook.shutil / outlook.subprocess; the modules are claude_cli's too)
+import shutil  # noqa: F401  (tests/test_outlook.py patches outlook.shutil / outlook.subprocess; the modules are harness's too)
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta
 
 from . import claude_cli, db, news
 
-HOOKS_OFF = claude_cli.HOOKS_OFF  # moved to claude_cli; still importable from here
+HOOKS_OFF = claude_cli.HOOKS_OFF  # moved to harness; still importable from here
 
 OUTLOOK_DIR = claude_cli.neutral_cwd("outlook")  # only the neutral cwd for `claude -p` (the outlooks live in the DB)
 # Sonnet over Opus (2026-10-20, the whole Week 7 roster through both): the same facts read right, ~11.6 s a card

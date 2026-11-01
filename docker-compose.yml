@@ -1,4 +1,4 @@
-# The whole app: Postgres, the API, the web and the cron jobs. Settings in .env (from deploy/env.example).
+# The whole app: Postgres, the API, the agent runner, the web and the cron jobs. Settings in .env (from deploy/env.example).
 services:
   db:
     image: postgres:16
@@ -9,8 +9,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:${FFL_PG_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "ffl", "-h", "127.0.0.1"]
       interval: 5s
@@ -24,12 +22,22 @@ services:
     environment:
       FFL_DB_URL: postgresql+psycopg://ffl:${POSTGRES_PASSWORD}@db:5432/ffl
       FFL_DATA_DIR: /var/lib/ffl/data
+      FFL_RUNNER_URL: http://runner:8310
     volumes:
       - data:/var/lib/ffl/data
       - backups:/backups
     depends_on:
       db:
         condition: service_healthy
+      runner:
+        condition: service_started
+
+  # `claude -p` for outlooks and news (ffl/harness.py). No published port: only the api reaches it, with FFL_JOB_TOKEN.
+  runner:
+    image: ghcr.io/jonulak/ffl-runner:${FFL_VERSION:-latest}
+    restart: unless-stopped
+    environment:  # the shared secret alone, not .env: the runner needs no key ring or database (the api sends the token)
+      FFL_JOB_TOKEN: ${FFL_JOB_TOKEN}
 
   web:
     image: ghcr.io/jonulak/ffl-web:${FFL_VERSION:-latest}

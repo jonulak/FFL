@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 import pytest
 
-from ffl import outlook
+from ffl import claude_cli, outlook
 
 TODAY = date(2026, 10, 2)
 TAKE = {"label": "Take", "text": "Lead back.", "sources": [{"site": "Rotowire", "date": "10/1", "url": "https://x.test/1"}]}
@@ -503,7 +503,7 @@ def test_run_claude_invokes_the_cli_without_tools(monkeypatch):
     assert "--bare" not in calls["args"]
     assert calls["kw"]["input"] == "the sheet" and calls["kw"]["timeout"] == 180
     assert "CLAUDECODE" not in calls["kw"]["env"]
-    assert calls["kw"]["cwd"] == str(outlook.OUTLOOK_DIR)
+    assert calls["kw"]["cwd"] == str(claude_cli.neutral_cwd(outlook.OUTLOOK_DIR.name))
 
 
 
