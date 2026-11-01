@@ -20,6 +20,8 @@ RUN ln -s /bin/busybox /usr/local/bin/crond \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
+# glibc gives every thread its own malloc arena: the API's RSS ran ~2x its heap without this (922 MB vs ~440 MB)
+ENV MALLOC_ARENA_MAX=2
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
