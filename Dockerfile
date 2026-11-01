@@ -12,9 +12,12 @@ RUN apt-get update \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get update \
  && apt-get install -y --no-install-recommends nodejs postgresql-client-18 \
- && npm i -g @anthropic-ai/claude-code \
- && npm cache clean --force \
  && rm -rf /var/lib/apt/lists/*
+
+# Pinned, in its own layer: a release's layers keep their digests (images.yml caches them), so an upgrade downloads
+# only what changed; bump this to take a new claude.
+ARG CLAUDE_CODE_VERSION=2.1.316
+RUN npm i -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} && npm cache clean --force
 
 # Debian's busybox reads crontabs from /var/spool/cron/crontabs; point it at /etc/crontabs like Alpine's
 RUN ln -s /bin/busybox /usr/local/bin/crond \
@@ -26,7 +29,7 @@ ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-cache
 COPY ffl ffl
 COPY migrations migrations
 COPY alembic.ini ./

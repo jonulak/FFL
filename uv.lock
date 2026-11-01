@@ -596,7 +596,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "lxml" },
     { name = "pandas" },
-    { name = "playwright" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
     { name = "pywebpush" },
@@ -611,6 +610,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "httpx" },
+    { name = "playwright" },
     { name = "pytest" },
     { name = "pyyaml" },
 ]
@@ -624,7 +624,6 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "lxml", specifier = ">=6.1.3" },
     { name = "pandas", specifier = ">=3.0.5" },
-    { name = "playwright", specifier = ">=1.62.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "pywebpush", specifier = ">=2.5.0" },
@@ -639,6 +638,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "playwright", specifier = ">=1.62.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
