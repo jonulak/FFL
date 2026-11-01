@@ -108,7 +108,8 @@ Then set `FFL_APP_URL=https://ffl.example.com` in `.env` and run `docker compose
 
 ## Remote install
 
-Postgres is published on the server's `127.0.0.1:5432` only. The draft tools (`ffl.advise`, `ffl.draft_watch`, ...)
+Postgres is published on the server's `127.0.0.1:5432` only (`FFL_PG_PORT` in its `.env`; the installer picks the
+next free port if 5432 is taken, so use that one in the ssh line below). The draft tools (`ffl.advise`, `ffl.draft_watch`, ...)
 run from a checkout on your own computer; reach a remote install's database through ssh (local port 5434, so a Postgres of your own on 5432 is left alone):
 
 ```
