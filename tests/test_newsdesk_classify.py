@@ -24,6 +24,17 @@ def test_schema_for():
         "required": ["a", "b"]}
 
 
+def test_colon_keys_go_out_api_safe_and_come_back():
+    """The API rejects schema property names outside [a-zA-Z0-9_.-]; tag.py's keys are like `about:123`."""
+    qs = {"about:123": Q["a"], "effect:123": Q["b"]}
+    sch = classify.schema_for(qs)
+    assert all(re.fullmatch(r"[a-zA-Z0-9_.-]{1,64}", k) for k in sch["properties"])
+    assert sch["required"] == list(sch["properties"])
+    assert "about.123: It is about him." in classify.prompt("text", qs)
+    got = classify.parse({"about.123": 0.9, "effect.123": {"choice": "up", "probability": 0.7}}, qs)
+    assert got["about:123"]["noul"] == 0.9 and got["effect:123"]["choice"] == "up"
+
+
 def test_parse_shapes_the_answers():
     got = classify.parse({"a": 0.9, "b": {"choice": "up", "probability": 0.7}}, Q)
     assert got == {"a": {"type": "noul", "noul": 0.9},
