@@ -1,4 +1,5 @@
-# The whole app: Postgres, the API, the agent runner, the web and the cron jobs. Settings in .env (from deploy/env.example).
+# The whole app: Postgres, the API, the agent runner, the web and the cron jobs. Secrets and the port in .env (from
+# deploy/env.example); everything else is set in the app (the setup wizard, Settings › App) and kept in the database.
 services:
   db:
     image: postgres:16

@@ -10,8 +10,8 @@ ME = TEST_USER["id"]
 
 @pytest.fixture
 def c(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    db.del_secret(claude_cli.TOKEN_KEY)  # conftest stores one for every stubbed call
+    claude_cli.forget_token()
     db.set_admin(ME, True)
     return TestClient(api.app, raise_server_exceptions=False)
 
@@ -66,9 +66,9 @@ def test_a_blank_token_is_refused_without_a_ping(c, monkeypatch):
     assert r.status_code == 422 and r.json() == {"error": "no_token"} and not seen
 
 
-def test_the_environments_token(c, monkeypatch):
+def test_the_environment_is_never_read(c, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-env")
-    assert c.get("/llm/token").json() == {"set": True, "source": "env"}
+    assert c.get("/llm/token").json() == {"set": False, "source": None}
 
 
 def test_a_non_admin_is_refused(c):

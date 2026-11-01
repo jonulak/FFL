@@ -4,7 +4,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
-from ffl import api, auth, db, passwords
+from ffl import appconf, api, auth, db, passwords
 from tests.conftest import TEST_USER
 
 PW = "12345678"
@@ -13,7 +13,7 @@ ME = TEST_USER["id"]
 
 @pytest.fixture
 def c(monkeypatch):
-    monkeypatch.setenv("FFL_APP_URL", "http://ffl.example/")
+    appconf.put(appconf.APP_URL, "http://ffl.example/")
     db.set_admin(ME, True)
     return TestClient(api.app, raise_server_exceptions=False, follow_redirects=False)
 

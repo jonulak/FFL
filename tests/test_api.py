@@ -9,7 +9,7 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from ffl import api, db, leagues
+from ffl import appconf, api, db, leagues
 from tests.home import HOME_KEY, home_league
 
 
@@ -1378,7 +1378,7 @@ def test_sit_refuses_a_player_off_the_roster_and_a_running_move(sit_env):
 
 
 def test_notify_routes(client, monkeypatch):
-    monkeypatch.setenv("VAPID_PUBLIC_KEY", "PUB")
+    appconf.put(appconf.VAPID_PUBLIC, "PUB")
     cfg = client.get("/notify/config").json()
     assert cfg["public_key"] == "PUB" and cfg["prefs"]["move"] is True and cfg["enabled"] is False
     sub = {"endpoint": "https://push/x", "keys": {"p256dh": "k", "auth": "a"}, "ua": "iPhone"}

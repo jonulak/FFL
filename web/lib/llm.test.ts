@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { tokenError, wizardStart } from "./llm";
 
+const NONE = { app_url: "https://ffl.example", push_contact: null, youtube_key_set: false };
+
 describe("wizardStart", () => {
   it("opens on Claude for an admin with no token", () => {
-    expect(wizardStart({ set: false, source: null }, false)).toBe("claude");
-    expect(wizardStart({ set: false, source: null }, true)).toBe("claude");
+    expect(wizardStart({ set: false, source: null }, NONE, false)).toBe("claude");
+    expect(wizardStart({ set: false, source: null }, NONE, true)).toBe("claude");
   });
-  it("skips Claude when a token is set, or for a non-admin (no status)", () => {
-    expect(wizardStart({ set: true, source: "env" }, false)).toBe("connect");
-    expect(wizardStart({ set: true, source: "db" }, true)).toBe("leagues");
-    expect(wizardStart(null, false)).toBe("connect");
-    expect(wizardStart(null, true)).toBe("leagues");
+  it("then Services while none of them is set", () => {
+    expect(wizardStart({ set: true, source: "db" }, NONE, false)).toBe("services");
+    expect(wizardStart({ set: true, source: "db" }, { ...NONE, youtube_key_set: true }, false)).toBe("connect");
+    expect(wizardStart({ set: true, source: "db" }, { ...NONE, push_contact: "me@example.com" }, true)).toBe("leagues");
+  });
+  it("skips both for a non-admin (no statuses)", () => {
+    expect(wizardStart(null, null, false)).toBe("connect");
+    expect(wizardStart(null, null, true)).toBe("leagues");
   });
 });
 

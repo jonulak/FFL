@@ -1,7 +1,7 @@
 """The flush: quiet hours, grouping, prefs, delivery. Senders are fakes; nothing reaches a push service."""
 from datetime import datetime, timedelta
 
-from ffl import db, notify
+from ffl import appconf, db, notify
 from tests.home import HOME_KEY, home_league
 
 T = datetime.fromisoformat("2026-10-09T10:00:00-04:00")
@@ -137,7 +137,7 @@ def test_webpush_sender_passes_a_timeout(monkeypatch):
     import pywebpush
     seen = {}
     monkeypatch.setattr(pywebpush, "webpush", lambda **kw: seen.update(kw))
-    monkeypatch.setenv("VAPID_PRIVATE_KEY", notify.vapid_keys()[1])
+    appconf.put(appconf.VAPID_PRIVATE, notify.vapid_keys()[1])
     notify.webpush_sender({"endpoint": "https://push/a", "keys": {"p256dh": "k", "auth": "a"}}, {"title": "x"})
     assert seen["timeout"] == 10
 

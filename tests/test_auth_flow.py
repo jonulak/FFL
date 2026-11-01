@@ -4,7 +4,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
-from ffl import api, auth, db, espn_connect, leagues, passwords
+from ffl import appconf, api, auth, db, espn_connect, leagues, passwords
 from tests.conftest import TEST_USER
 
 pytestmark = pytest.mark.real_auth
@@ -14,7 +14,7 @@ PW = "12345678"
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
-    monkeypatch.delenv("FFL_APP_URL", raising=False)
+    appconf.put(appconf.APP_URL, None)
     monkeypatch.setattr(auth, "SIGNIN_WINDOW", espn_connect.Window(10, 900))  # each test its own window
 
 
@@ -153,9 +153,9 @@ def test_change_password_needs_a_session():
 def test_cookie_secure_follows_app_url(monkeypatch):
     _user("jon")
     body = {"username": "jon", "password": PW}
-    monkeypatch.setenv("FFL_APP_URL", "https://ffl.test")
+    appconf.put(appconf.APP_URL, "https://ffl.test")
     assert "secure" in _cookie_header(_client().post("/auth/signin", json=body)).lower().split("; ")
-    monkeypatch.setenv("FFL_APP_URL", "http://ffl.test")
+    appconf.put(appconf.APP_URL, "http://ffl.test")
     assert "secure" not in _cookie_header(_client().post("/auth/signin", json=body)).lower().split("; ")
 
 
@@ -236,7 +236,7 @@ def _signed_in_client() -> tuple[TestClient, str]:
 
 
 def test_session_cookie_slides_with_the_session(monkeypatch):
-    monkeypatch.setenv("FFL_APP_URL", "https://ffl.test")
+    appconf.put(appconf.APP_URL, "https://ffl.test")
     c, token = _signed_in_client()
     r = c.get("/auth/me")  # seen just now: no slide, no cookie
     assert r.status_code == 200 and not r.headers.get_list("set-cookie")
