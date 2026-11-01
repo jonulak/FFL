@@ -9,7 +9,6 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 STUB = """#!/bin/sh
 echo "$*" >> "$DOCKER_LOG"
-case "$*" in *"ffl.notify keys"*) echo VAPID_PUBLIC_KEY=pubkey; echo VAPID_PRIVATE_KEY=privkey;; esac
 """
 
 
@@ -35,8 +34,9 @@ def test_install_fills_env_and_starts(tmp_path, stub_path):
     assert re.search(r"^FFL_SECRET_KEYS=k1:[A-Za-z0-9+/]{43}=$", env, re.M)
     for key in ("FFL_JOB_TOKEN", "POSTGRES_PASSWORD"):
         assert re.search(rf"^{key}=[0-9a-f]{{64}}$", env, re.M), key
-    for line in ("VAPID_PUBLIC_KEY=pubkey", "VAPID_PRIVATE_KEY=privkey", "VAPID_SUBJECT=mailto:admin@localhost"):
-        assert re.search(rf"^{line}$", env, re.M), line
+    # everything else is set in the app and kept in the database: .env holds the bootstrap secrets and the port only
+    assert sorted(re.findall(r"^([A-Z_]+)=", env, re.M)) == [
+        "FFL_JOB_TOKEN", "FFL_PORT", "FFL_SECRET_KEYS", "FFL_VERSION", "POSTGRES_PASSWORD", "TZ"]
     assert (tmp_path / "ffl" / ".env").stat().st_mode & 0o777 == 0o600
     assert (tmp_path / "ffl" / "docker-compose.yml").read_bytes() == (REPO / "docker-compose.yml").read_bytes()
     log = (tmp_path / "docker.log").read_text().splitlines()
@@ -57,13 +57,6 @@ def test_no_openssl_exits_2_and_writes_nothing(tmp_path, stub_path):
     r = run(tmp_path, stub_path.split(":")[0])  # the stub docker alone
     assert r.returncode == 2 and "openssl" in r.stderr
     assert not (tmp_path / "ffl").exists()
-
-
-def test_keys_missing_fails(tmp_path, stub_path):
-    (tmp_path / "bin" / "docker").write_text(STUB.replace("ffl.notify keys", "no-match"))
-    r = run(tmp_path, stub_path)
-    assert r.returncode == 1 and "VAPID" in r.stderr
-    assert re.search(r"^VAPID_PUBLIC_KEY=$", (tmp_path / "ffl" / ".env").read_text(), re.M)
 
 
 def test_runs_from_main():
@@ -91,16 +84,14 @@ def test_no_compose_plugin_exits_2(tmp_path, stub_path):
 
 
 def _busy_env(tmp_path):
-    """A listening socket and a kept .env naming its port as the web port (VAPID filled, so no keys step)."""
+    """A listening socket and a kept .env naming its port as the web port."""
     import socket
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     sock.listen()
     web = sock.getsockname()[1]
     env = (REPO / "deploy" / "env.example").read_text()
-    for key, val in (("FFL_PORT", web), ("FFL_APP_URL", f"http://localhost:{web}"),
-                     ("VAPID_PUBLIC_KEY", "pub"), ("VAPID_PRIVATE_KEY", "priv")):
-        env = re.sub(rf"^{key}=.*$", f"{key}={val}", env, flags=re.M)
+    env = re.sub(r"^FFL_PORT=.*$", f"FFL_PORT={web}", env, flags=re.M)
     (tmp_path / "ffl").mkdir()
     (tmp_path / "ffl" / ".env").write_text(env)
     return sock, web
@@ -118,7 +109,6 @@ def test_busy_web_port_moves(tmp_path, stub_path):
     assert r.returncode == 0, r.stderr
     new_web = int(_val(tmp_path, "FFL_PORT"))
     assert new_web > web
-    assert _val(tmp_path, "FFL_APP_URL") == f"http://localhost:{new_web}"
     assert f"Open http://localhost:{new_web}" in r.stdout and "in use" in r.stderr
 
 

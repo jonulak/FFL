@@ -9,14 +9,34 @@ import { Input } from "@/components/ui/input";
 import type { LlmToken } from "@/lib/api";
 import { tokenError } from "@/lib/llm";
 import { PHONE_ACTION } from "./claims-submit";
+import { Code, CredentialSteps, Out, Ui } from "./credential-steps";
 import { Spinner } from "./motion";
+
+function ClaudeTokenSteps() {
+  return (
+    <CredentialSteps label="How to get a token" title="Get a Claude token"
+                     description="With a Claude Pro or Max plan, or an Anthropic API account. A few minutes."
+                     footnote="FFL tests the token with one short call before it saves it, and keeps it encrypted.">
+      <li>
+        On a computer, install <Out href="https://code.claude.com/docs/en/setup">Claude Code</Out>.
+      </li>
+      <li>In a terminal, run <Code>claude setup-token</Code> and sign in to Claude in the browser window it opens.</li>
+      <li>Copy the token it prints. It starts with <Code>sk-ant-oat01-</Code>.</li>
+      <li>
+        No Claude plan? Create a key under <Ui>API keys</Ui> on the{" "}
+        <Out href="https://platform.claude.com/settings/keys">Claude Developer Platform</Out> instead; it&apos;s billed per use.
+      </li>
+      <li>Back here, paste it into <Ui>Claude token</Ui> and choose <Ui>Save</Ui>.</li>
+    </CredentialSteps>
+  );
+}
 
 // The server's ping runs `claude -p` for up to 60 s before it answers.
 const SAVE_TIMEOUT_MS = 75_000;
 
 // The Claude login the outlooks and the news desk run under (admins: GET/POST /llm/token, /llm/token/delete).
-// Save tests the token with one call and stores it only when that works; Remove drops the stored one (a token from the
-// server's environment is not ours to remove). On Settings, and as the wizard's first step on a fresh server.
+// Save tests the token with one call and stores it only when that works; Remove drops it. On Settings › App, and as
+// the wizard's first step on a fresh server.
 export function LlmSettings({ initial, onSaved }: { initial: LlmToken; onSaved?: () => void }) {
   const [status, setStatus] = useState(initial);
   const [token, setToken] = useState("");
@@ -42,7 +62,7 @@ export function LlmSettings({ initial, onSaved }: { initial: LlmToken; onSaved?:
     setBusy("remove"); setMsg(null);
     try {
       await clientPost("/llm/token/delete");
-      setStatus(await clientGet<LlmToken>("/llm/token"));  // the environment's token, if any, is back in force
+      setStatus(await clientGet<LlmToken>("/llm/token"));
       setMsg({ ok: true, text: "Removed." });
     } catch (err) {
       setMsg({ ok: false, text: `Not removed: ${err instanceof Error ? err.message : String(err)}` });
@@ -57,18 +77,15 @@ export function LlmSettings({ initial, onSaved }: { initial: LlmToken; onSaved?:
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
           {status.source === "db" ? "Connected: outlooks and the news desk run on the token saved here."
-            : status.source === "env" ? "Connected through the server's environment. A token saved here takes its place."
             : "Not connected: outlooks and the news desk wait until a token is saved."}
         </p>
+        <ClaudeTokenSteps />
         <form onSubmit={save} className="space-y-3">
           <Field data-invalid={invalid}>
             <FieldLabel htmlFor="llm-token">{status.source === "db" ? "Replace the token" : "Claude token"}</FieldLabel>
             <Input id="llm-token" type="password" autoComplete="off" spellCheck={false} required value={token}
                    onChange={(e) => setToken(e.target.value)} aria-invalid={invalid} className="font-mono max-lg:h-12 max-lg:text-base" />
-            <FieldDescription>
-              Run <code className="font-mono text-foreground">claude setup-token</code> on a computer where you&apos;re signed in to
-              Claude, and paste the token here. An Anthropic API key works too.
-            </FieldDescription>
+            <FieldDescription>A token from <code className="font-mono text-foreground">claude setup-token</code>, or an Anthropic API key.</FieldDescription>
           </Field>
           {msg && (msg.ok ? <p role="status">{msg.text}</p> : <FieldError>{msg.text}</FieldError>)}
           <div className="flex flex-wrap gap-2">

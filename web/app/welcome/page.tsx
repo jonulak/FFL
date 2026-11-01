@@ -4,7 +4,7 @@ import { AccountSettings, DeleteAccount } from "@/components/account-settings";
 import { ConnectWizard, type InstallLinks } from "@/components/connect-wizard";
 import { SignOutButton } from "@/components/sign-out-button";
 import { Toaster } from "@/components/ui/sonner";
-import { apiGet, type Account, type LeagueEntry, type LlmToken } from "@/lib/api";
+import { apiGet, type Account, type AppSettings, type LeagueEntry, type LlmToken } from "@/lib/api";
 import { platformOf, type EspnStatus } from "@/lib/espn";
 
 export const dynamic = "force-dynamic";
@@ -28,9 +28,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ a
   // has leagues already
   const adding = add === "1" || (from === "extension" && leagues.length > 0);
   if (leagues.length && !adding) redirect("/");
-  // an admin is asked for the server's Claude token first while it has none (a first run only; Settings › LLM after);
-  // a failed read asks nothing
-  const claude = account?.is_admin && !adding ? await apiGet<LlmToken>("/llm/token").catch(() => null) : null;
+  // an admin is asked for the server's Claude token first while it has none, then for the optional services (a first
+  // run only; Settings › App after); a failed read asks nothing
+  const admin = account?.is_admin && !adding;
+  const [claude, services] = admin
+    ? await Promise.all([apiGet<LlmToken>("/llm/token").catch(() => null), apiGet<AppSettings>("/app/settings").catch(() => null)])
+    : [null, null];
   // the store listings, once they exist (#136): none, and the step names the install with no button
   const links: InstallLinks = {
     testflight: process.env.FFL_TESTFLIGHT_URL || null,
@@ -46,7 +49,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ a
           : account && <a href="#account" className="text-sm text-muted-foreground hover:text-foreground">Account</a>}
       </header>
       <ConnectWizard platform={platformOf(h.get("user-agent") ?? "")} links={links} initial={status} add={adding}
-                     hasLeagues={leagues.length > 0} startPaste={paste === "1"} claude={claude} />
+                     hasLeagues={leagues.length > 0} startPaste={paste === "1"} claude={claude} services={services} />
       {!adding && account && (
         <section id="account" className="mt-10 space-y-5 border-t border-foreground/10 pt-6">
           <AccountSettings account={account} />

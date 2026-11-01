@@ -157,7 +157,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):  # the caller left (an api restarted mid-call): nobody to answer
+            pass
 
     def do_GET(self):  # noqa: N802
         self._send(200, {"ok": True}) if self.path == "/health" else self._send(404, {"error": "not_found"})

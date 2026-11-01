@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection, Request
 from starlette.responses import JSONResponse, Response
 
-from . import db, espn_connect, passwords
+from . import appconf, db, espn_connect, passwords
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def job_ok(header_value: str | None) -> bool:
 
 def cookie_secure() -> bool:
     """Secure exactly when the app's URL is https (tailnet http test servers must still hold the cookie)."""
-    return os.environ.get("FFL_APP_URL", "").startswith("https://")
+    return appconf.app_url().startswith("https://")
 
 
 def public(method: str, path: str) -> bool:
@@ -223,6 +223,9 @@ def setup(body: SignInIn, request: Request):
         return _error(409, "username_taken")
     if uid is None:  # another claim won the race
         raise HTTPException(404, "Not Found")
+    origin = request.headers.get("origin") or ""
+    if origin.startswith(("http://", "https://")) and not appconf.get(appconf.APP_URL):
+        appconf.put(appconf.APP_URL, origin)  # where the first admin opened the app; Settings › App edits it
     return _set_session(JSONResponse({"ok": True}), uid, request)
 
 
@@ -347,9 +350,8 @@ def require_admin(request: Request) -> dict:
 
 
 def _setup_link(user_id: int) -> dict:
-    """A fresh setup link for the user (it replaces any earlier one): FFL_APP_URL's /setup/<token>."""
-    base = (os.environ.get("FFL_APP_URL") or "http://localhost:3300").rstrip("/")
-    return {"id": user_id, "link": f"{base}/setup/{db.issue_setup_token(user_id)}"}
+    """A fresh setup link for the user (it replaces any earlier one): the app URL's /setup/<token>."""
+    return {"id": user_id, "link": f"{appconf.app_url()}/setup/{db.issue_setup_token(user_id)}"}
 
 
 def _known(user_id: int) -> dict:

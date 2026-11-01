@@ -91,6 +91,17 @@ def test_server_needs_the_shared_secret_and_round_trips(runner, monkeypatch):
     assert httpx.get(runner + "/health").json() == {"ok": True}
 
 
+def test_a_caller_gone_before_the_reply_is_no_traceback():
+    """The api restarted mid-call: the reply's write hits a closed socket and is dropped, not raised."""
+    class Closed:
+        def write(self, data):
+            raise BrokenPipeError(32, "Broken pipe")
+    h = harness.Handler.__new__(harness.Handler)
+    h.wfile = Closed()
+    h.send_response = h.send_header = h.end_headers = lambda *a: None
+    h._send(200, {"ok": True})
+
+
 def test_server_will_not_start_without_a_secret():
     with pytest.raises(SystemExit):
         harness.serve("", port=0)
@@ -100,7 +111,7 @@ def test_server_will_not_start_without_a_secret():
 
 @pytest.fixture
 def api_env(monkeypatch):
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-env")
+    db.put_secret("claude_token", "sk-ant-oat01-env")
     monkeypatch.setenv("FFL_JOB_TOKEN", "job-secret")
     claude_cli.forget_token()
     monkeypatch.setattr(harness.subprocess, "run", lambda *a, **k: pytest.fail("the API ran a subprocess"))

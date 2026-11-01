@@ -180,13 +180,13 @@ def _signed_in(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _claude_token(monkeypatch):
-    """Every stubbed `claude -p` call has a token (the environment's), and no test inherits another's cached row."""
-    from ffl import claude_cli
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
-    claude_cli.forget_token()
+def _claude_token(_db_in_tmp):
+    """Every stubbed `claude -p` call has a token (a stored one), and no test inherits another's cached settings."""
+    from ffl import appconf, db
+    db.put_secret(appconf.CLAUDE_TOKEN, "sk-ant-api-test")
+    appconf.forget()
     yield
-    claude_cli.forget_token()
+    appconf.forget()
 
 
 @pytest.fixture(autouse=True)

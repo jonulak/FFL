@@ -23,6 +23,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import threading
 import subprocess
 import time
@@ -41,7 +42,7 @@ from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import auth, claude_cli, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
+from . import appconf, auth, claude_cli, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -1838,7 +1839,7 @@ class EndpointIn(BaseModel):
 @app.get("/notify/config")
 def notify_config(ref: LeagueRef = Depends(open_league)):
     """The member's devices and quiet hours (every league's) and their switches in the open league."""
-    return {"public_key": os.environ.get("VAPID_PUBLIC_KEY"), "enabled": notify.sender() is not None,
+    return {"public_key": appconf.get(appconf.VAPID_PUBLIC), "enabled": notify.sender() is not None,
             "prefs": notify.prefs(ref=ref), "devices": len(db.subscriptions(user_id=ref.user_id))}
 
 
@@ -1866,7 +1867,7 @@ def notify_prefs(body: dict, ref: LeagueRef = Depends(open_league)):
 def notify_test(user: dict = Depends(auth.current_user)):
     out = notify.send_test(user["id"])
     if out.get("disabled"):
-        raise HTTPException(status_code=503, detail="notifications are off on this API (FFL_NOTIFY=0 or no VAPID key)")
+        raise HTTPException(status_code=503, detail="notifications are off on this API (FFL_NOTIFY=0 or no push keys)")
     return out
 
 
@@ -2086,18 +2087,16 @@ def ping(token: str) -> None:
 
 @app.get("/llm/token")
 def llm_token(user: dict = Depends(auth.require_admin)):
-    """Whether the CLI has a login, and where from (the stored row or the environment); never the value."""
-    if claude_cli._stored_token():
-        return {"set": True, "source": "db"}
-    env = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
-    return {"set": bool(env), "source": "env" if env else None}
+    """Whether the CLI has a login (Settings › Claude); never the value."""
+    stored = bool(claude_cli._stored_token())
+    return {"set": stored, "source": "db" if stored else None}
 
 
 @app.post("/llm/token")
 def llm_token_set(body: TokenIn, user: dict = Depends(auth.require_admin)):
     """Test the token with one ping, then store it sealed; a failed ping stores nothing (502 with the CLI's reason)."""
     token = body.token.strip()
-    if not token:  # blank would fall through to the stored/env token in the ping, and store ""
+    if not token:  # blank would fall through to the stored token in the ping, and store ""
         return JSONResponse({"error": "no_token"}, status_code=422)
     try:
         ping(token)
@@ -2113,6 +2112,38 @@ def llm_token_delete(user: dict = Depends(auth.require_admin)):
     db.del_secret(claude_cli.TOKEN_KEY)
     claude_cli.forget_token()
     return {"set": False}
+
+
+class AppSettingsIn(BaseModel):
+    """Settings › App: a field left out is unchanged; an empty string clears it."""
+    app_url: str | None = None
+    push_contact: str | None = None
+    youtube_key: str | None = None
+
+
+def _app_settings() -> dict:
+    """The install's settings (never a key's value: only whether it is set)."""
+    return {"app_url": appconf.get(appconf.APP_URL), "push_contact": appconf.get(appconf.PUSH_CONTACT),
+            "youtube_key_set": bool(appconf.get(appconf.YOUTUBE_KEY))}
+
+
+@app.get("/app/settings")
+def app_settings(user: dict = Depends(auth.require_admin)):
+    return _app_settings()
+
+
+@app.post("/app/settings")
+def app_settings_set(body: AppSettingsIn, user: dict = Depends(auth.require_admin)):
+    url, contact, key = (None if v is None else v.strip() for v in (body.app_url, body.push_contact, body.youtube_key))
+    if url and not re.fullmatch(r"https?://[^\s/?#]+(/[^\s?#]*)?", url):
+        return JSONResponse({"error": "bad_url", "message": "The app URL starts with https:// (or http://)."}, status_code=422)
+    if contact and not re.fullmatch(r"[^\s@:]+@[^\s@]+\.[^\s@]+", contact.removeprefix("mailto:")):
+        return JSONResponse({"error": "bad_contact", "message": "That isn't an email address."}, status_code=422)
+    for k, v in ((appconf.APP_URL, url and url.rstrip("/")), (appconf.PUSH_CONTACT, contact and contact.removeprefix("mailto:")),
+                 (appconf.YOUTUBE_KEY, key)):
+        if v is not None:
+            appconf.put(k, v)
+    return _app_settings()
 
 
 def correction_pass(*, ref: LeagueRef) -> dict:

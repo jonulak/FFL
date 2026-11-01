@@ -29,19 +29,24 @@ curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh
 It makes `~/ffl` (or `$FFL_HOME`), downloads `docker-compose.yml`, writes `.env` with generated secrets, starts the
 stack and prints the address: `http://localhost:3300`. Re-running it keeps your `.env`.
 
-Keep a copy of `.env`. `FFL_SECRET_KEYS` seals the stored ESPN logins and push keys; a new one opens none of them.
+Keep a copy of `.env`. `FFL_SECRET_KEYS` seals the stored ESPN logins and the app's settings (the Claude token, push
+keys, the YouTube key); a new one opens none of them.
 
 ## First run
 
 Open the address. The setup wizard asks for:
 
-1. **Your account**: a username and password. The first account is the admin.
-2. **A Claude token**: run `claude setup-token` and paste the result (an Anthropic API key works too). Settings ›
-   Claude changes it later.
-3. **ESPN**: connect your ESPN login, with the browser extension or by pasting the `espn_s2` and `SWID` cookies.
-4. **Leagues**: pick the leagues to follow.
+1. **Your account**: a username and password. The first account is the admin, and the address you opened becomes
+   the app's address (Settings › App changes it).
+2. **A Claude token**: run `claude setup-token` and paste the result (an Anthropic API key works too).
+3. **Optional services**: an email push services can reach you at, and a YouTube API key for faster press
+   conferences in the news. Skip either; the card in Settings › App walks you through it later.
+4. **ESPN**: connect your ESPN login, with the browser extension or by pasting the `espn_s2` and `SWID` cookies.
+5. **Leagues**: pick the leagues to follow.
 
-Add other people in Settings › Users: each invite is a one-time link (7 days) they open to set a username and
+Every step but the account can be skipped, and every setting it asks for stays in Settings › App.
+
+Add other people in Settings › App › Users: each invite is a one-time link (7 days) they open to set a username and
 password.
 
 ## Upgrade
@@ -50,9 +55,8 @@ password.
 cd ~/ffl && docker compose pull && docker compose up -d
 ```
 
-**Upgrading to the release with the runner service** (`ffl-runner`, which runs `claude -p` for the API): re-run
-`install.sh` once (or fetch the new `docker-compose.yml`), then `pull` and `up -d`. Your `.env` and the token saved
-in Settings › Claude are kept. With the old compose file, outlooks and news fail with `claude CLI not on PATH`.
+An upgrade replaces the containers, never the volumes: your settings, logins and history live in the database (the
+`pgdata` volume) and stay put. Never run `docker compose down -v`, which deletes the volumes and everything in them.
 
 The API migrates the database on start; a failed migration shows only in `docker compose logs api` (the api restarts
 until it succeeds). `FFL_VERSION` in `.env` pins an image tag instead of `latest`. `install.sh` re-fetches
@@ -60,27 +64,34 @@ until it succeeds). `FFL_VERSION` in `.env` pins an image tag instead of `latest
 
 ## Configuration
 
-Everything lives in `~/ffl/.env`; run `docker compose up -d` after a change. `install.sh` fills the secrets.
+An admin sets the app in **Settings › App**: the app's address, the push contact email, the Claude token and the
+YouTube API key. They're stored (sealed) in the database. Push keys are made there too, the first time the API starts.
+
+`~/ffl/.env` holds only what the stack needs before it reaches the database; run `docker compose up -d` after a
+change. `install.sh` fills the secrets.
 
 | Setting | What it does |
 |---|---|
-| `FFL_APP_URL` | The address people open the app at. Push links and invite links are built from it. Change it with `FFL_PORT`, and to `https://…` behind a proxy. |
 | `FFL_PORT` | The host port the web app listens on (3300). |
 | `TZ` | The timezone for the jobs' schedule and quiet hours. |
-| `VAPID_SUBJECT` | A `mailto:` contact for push services. Set your own address. |
-| `FFL_SOURCES_OFF` | Projection or news sources to skip, comma separated (some refuse cloud hosts: `sharks,youtube_captions`). |
-| `YOUTUBE_API_KEY` | Optional. Without it the news desk reads channels' RSS. |
-| `FFL_OUTLOOK_WORKERS` | Optional. Outlooks written at once (20). Use 3 on a 2 GB machine. |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Optional. A Claude token from the environment; a token saved in Settings › Claude wins. |
 | `FFL_VERSION` | The image tag to run (`latest`). |
-| `FFL_SECRET_KEYS`, `FFL_JOB_TOKEN`, `POSTGRES_PASSWORD`, `VAPID_*_KEY` | Generated secrets. Do not change them on a running install. |
+| `FFL_SECRET_KEYS`, `FFL_JOB_TOKEN`, `POSTGRES_PASSWORD` | Generated secrets. Do not change them on a running install. |
+
+Advanced, unset by default (add a line to `.env` to use one):
+
+| Setting | What it does |
+|---|---|
+| `FFL_SOURCES_OFF` | Projection or news sources to skip, comma separated. Some refuse cloud hosts: on a VPS, `sharks,youtube_captions`. |
+| `FFL_OUTLOOK_WORKERS` | Outlooks written at once (20). Use 3 on a 2 GB machine. |
 
 ## Troubleshooting
 
 - **The page does not load:** `docker compose ps` shows which container is down, and `docker compose logs api` shows why. A failed database migration appears there.
-- **No outlooks or news write-ups:** Settings › Claude says whether a token is stored. Without one, `docker compose logs api` shows `no Claude token`. `runner unreachable` means the `runner` container is down (`docker compose logs runner`).
+- **No outlooks or news write-ups:** Settings › App › Claude says whether a token is stored. Without one, `docker compose logs api` shows `no Claude token`. `runner unreachable` means the `runner` container is down (`docker compose logs runner`).
 - **Leagues stop updating:** your ESPN login expired. Sign in to ESPN again with the extension installed, or paste fresh cookies in Settings › ESPN connection.
-- **No push notifications:** push needs https (see HTTPS) and a device turned on in Settings.
+- **No push notifications:** push needs https (see HTTPS), the app's address in Settings › App set to that https
+  address, and a device turned on in Settings. `docker compose logs api` shows each failed push with the push
+  service's reason.
 - **Jobs not running:** `docker compose logs jobs` shows each scheduled run and its answer.
 
 ## Backups
@@ -108,7 +119,8 @@ ffl.example.com {
 }
 ```
 
-Then set `FFL_APP_URL=https://ffl.example.com` in `.env` and run `docker compose up -d`.
+Then open `https://ffl.example.com` and set it as the app's address in Settings › App. (Sign up there the first
+time and it's set for you.)
 
 ## Remote install
 
@@ -171,12 +183,11 @@ From another FFL database (such as the old hosted one) to a new stack:
    docker compose run --rm --no-deps -v "$PWD/ffl.dump:/tmp/ffl.dump:ro" api sh -c 'uv run --no-sync python -m ffl.db restore /tmp/ffl.dump --url "$FFL_DB_URL" --yes'
    ```
 
-3. Copy the old `FFL_SECRET_KEYS`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` into the new `.env`,
-   so stored ESPN logins and push subscriptions keep working.
+3. Copy the old `FFL_SECRET_KEYS` into the new `.env`, so the stored ESPN logins and app settings open.
 4. `docker compose up -d` (the API migrates the restored database), then open `/setup` right away: with existing
    users and no passwords, it makes the lowest user id the admin. Give the others set-password links from
-   Settings › Users (New link).
-5. Point DNS and the reverse proxy at the new machine and set `FFL_APP_URL` (see HTTPS).
+   Settings › App › Users (New link).
+5. Point DNS and the reverse proxy at the new machine and check the app's address in Settings › App (see HTTPS).
 
 The old `TYPESAFE_API_KEY` and the Google and Apple sign-in secrets are no longer used and can be deleted.
 

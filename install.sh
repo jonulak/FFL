@@ -52,28 +52,14 @@ main() {
     set_env .env.new FFL_SECRET_KEYS "k1:$ring"
     set_env .env.new FFL_JOB_TOKEN "$job"
     set_env .env.new POSTGRES_PASSWORD "$pg"
-    set_env .env.new VAPID_SUBJECT mailto:admin@localhost
     mv .env.new .env
   fi
 
   docker compose pull
 
-  # Apart from the block above so a run that stopped before the keys fills them on the next.
-  if grep -q '^VAPID_PUBLIC_KEY=$' .env; then
-    keys=$(docker compose run --rm -T --no-deps api uv run --no-sync python -m ffl.notify keys)
-    pub=$(printf '%s\n' "$keys" | sed -n 's/^VAPID_PUBLIC_KEY=//p')
-    priv=$(printf '%s\n' "$keys" | sed -n 's/^VAPID_PRIVATE_KEY=//p')
-    [ -n "$pub" ] && [ -n "$priv" ] || { echo "ffl.notify keys printed no VAPID keys; re-run to try again" >&2; exit 1; }
-    set_env .env VAPID_PUBLIC_KEY "$pub"
-    set_env .env VAPID_PRIVATE_KEY "$priv"
-  fi
-
   # Our own running stack holds its port: only probe before the first start (or after one that failed to bind).
   if [ -z "$(docker compose ps -q --status running)" ]; then
-    web=$(sed -n 's/^FFL_PORT=//p' .env)
     free_port FFL_PORT
-    # The default app URL names the web port, so it moves with it; a URL of the user's own is left alone.
-    grep -q "^FFL_APP_URL=http://localhost:$web\$" .env && set_env .env FFL_APP_URL "http://localhost:$(sed -n 's/^FFL_PORT=//p' .env)"
   fi
   docker compose up -d
 

@@ -34,7 +34,7 @@ const manifest = {
   manifest_version: 3,
   name: "FFL",
   version,
-  description: "Connects your ESPN fantasy leagues to FFL: sends this browser's ESPN login to your FFL account, and nothing else.",
+  description: "Connects your ESPN fantasy leagues to FFL: sends this browser's ESPN login to your FFL account, nothing else.",
   icons,
   // activeTab: the popup may read the open tab's FFL (/health, /auth/me) when the user clicks the icon
   permissions: ["cookies", "storage", "activeTab"],
