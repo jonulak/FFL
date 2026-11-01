@@ -50,6 +50,10 @@ password.
 cd ~/ffl && docker compose pull && docker compose up -d
 ```
 
+**Upgrading to the release with the runner service** (`ffl-runner`, which runs `claude -p` for the API): re-run
+`install.sh` once (or fetch the new `docker-compose.yml`), then `pull` and `up -d`. Your `.env` and the token saved
+in Settings › Claude are kept. With the old compose file, outlooks and news fail with `claude CLI not on PATH`.
+
 The API migrates the database on start; a failed migration shows only in `docker compose logs api` (the api restarts
 until it succeeds). `FFL_VERSION` in `.env` pins an image tag instead of `latest`. `install.sh` re-fetches
 `docker-compose.yml`, so put local changes in a `docker-compose.override.yml` beside it.
@@ -74,7 +78,7 @@ Everything lives in `~/ffl/.env`; run `docker compose up -d` after a change. `in
 ## Troubleshooting
 
 - **The page does not load:** `docker compose ps` shows which container is down, and `docker compose logs api` shows why. A failed database migration appears there.
-- **No outlooks or news write-ups:** Settings › Claude says whether a token is stored. Without one, `docker compose logs api` shows `no Claude token`.
+- **No outlooks or news write-ups:** Settings › Claude says whether a token is stored. Without one, `docker compose logs api` shows `no Claude token`. `runner unreachable` means the `runner` container is down (`docker compose logs runner`).
 - **Leagues stop updating:** your ESPN login expired. Sign in to ESPN again with the extension installed, or paste fresh cookies in Settings › ESPN connection.
 - **No push notifications:** push needs https (see HTTPS) and a device turned on in Settings.
 - **Jobs not running:** `docker compose logs jobs` shows each scheduled run and its answer.
