@@ -61,7 +61,7 @@ Draft pipeline: settings -> players -> adp -> browser + draft_watch. Every draft
 
 ## Config
 **Stack.** Production is the Docker Compose stack (`docker-compose.yml`, installed by `install.sh` into `~/ffl`):
-`db` (postgres:16, bound to 127.0.0.1), `api` (`ghcr.io/jonulak/ffl-api`, the root `Dockerfile`; `deploy/entrypoint.sh`
+`db` (postgres:16, not published on the host; a `docker-compose.override.yml` opens it for the draft tools), `api` (`ghcr.io/jonulak/ffl-api`, the root `Dockerfile`; `deploy/entrypoint.sh`
 migrates then starts uvicorn on :8300), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
 and `jobs` (the api image under busybox crond, `deploy/crontab`: the tick every 15 min, news every 10, outlooks at :05,
 transactions at :35, calibration Wednesdays, a nightly backup). HTTPS is a reverse proxy in front of the web port, with

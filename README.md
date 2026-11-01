@@ -108,9 +108,19 @@ Then set `FFL_APP_URL=https://ffl.example.com` in `.env` and run `docker compose
 
 ## Remote install
 
-Postgres is published on the server's `127.0.0.1:5432` only (`FFL_PG_PORT` in its `.env`; the installer picks the
-next free port if 5432 is taken, so use that one in the ssh line below). The draft tools (`ffl.advise`, `ffl.draft_watch`, ...)
-run from a checkout on your own computer; reach a remote install's database through ssh (local port 5434, so a Postgres of your own on 5432 is left alone):
+Postgres is not published on the host: only the web port is. The draft tools (`ffl.advise`, `ffl.draft_watch`, ...)
+run from a checkout on your own computer and need the database, so publish it on the server's loopback with a
+`docker-compose.override.yml` beside the compose file (Compose merges it; the installer never touches it), then
+`docker compose up -d`:
+
+```
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
+```
+
+Reach it through ssh (local port 5434, so a Postgres of your own on 5432 is left alone):
 
 ```
 ssh -N -L 5434:127.0.0.1:5432 you@your-server

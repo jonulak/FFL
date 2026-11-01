@@ -68,9 +68,8 @@ main() {
     set_env .env VAPID_PRIVATE_KEY "$priv"
   fi
 
-  # Our own running stack holds its ports: only probe before the first start (or after one that failed to bind).
+  # Our own running stack holds its port: only probe before the first start (or after one that failed to bind).
   if [ -z "$(docker compose ps -q --status running)" ]; then
-    free_port FFL_PG_PORT
     web=$(sed -n 's/^FFL_PORT=//p' .env)
     free_port FFL_PORT
     # The default app URL names the web port, so it moves with it; a URL of the user's own is left alone.
