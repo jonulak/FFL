@@ -37,21 +37,26 @@ class Answers(dict):
     usage: dict = {}
 
 
+def _wire(key: str) -> str:
+    """The key as sent: the API allows only [a-zA-Z0-9_.-] in a schema's property names, and tag.py's keys hold ':'."""
+    return key.replace(":", ".")
+
+
 def schema_for(questions: dict) -> dict:
-    props = {k: UNIT if q["type"] == "noul" else
+    props = {_wire(k): UNIT if q["type"] == "noul" else
              {"type": "object", "properties": {"choice": {"type": "string", "enum": list(q["criteria"])},
                                                "probability": UNIT},
               "required": ["choice", "probability"]}
              for k, q in questions.items()}
-    return {"type": "object", "properties": props, "required": list(questions)}
+    return {"type": "object", "properties": props, "required": [_wire(k) for k in questions]}
 
 
 def _line(key: str, q: dict) -> str:
     ins = q["instructions"]
     if isinstance(ins, dict):  # tag.weigh's: the question, and the story's facts (other sources' text) fenced
-        line = f"{key}: {ins['question']}\n" + claude_cli.data_block("source", json.dumps(ins["story"]), role="story")
+        line = f"{_wire(key)}: {ins['question']}\n" + claude_cli.data_block("source", json.dumps(ins["story"]), role="story")
     else:
-        line = f"{key}: {ins}"
+        line = f"{_wire(key)}: {ins}"
     if q["type"] == "choice":
         line += "\n" + "\n".join(f"  - {c}: {d}" for c, d in q["criteria"].items())
     return line
@@ -79,12 +84,12 @@ def _unit(x) -> float:
 def parse(out: dict, questions: dict) -> Answers:
     """The answer shapes out of the schema'd object; a missing answer or a choice outside the criteria raises
     ClassifyError(status=422)."""
-    missing = set(questions) - set(out)
+    missing = {k for k in questions if _wire(k) not in out}
     if missing:
         raise ClassifyError(f"classify: no answer to {sorted(missing)[:5]}", 422)
     got = Answers()
     for k, q in questions.items():
-        a = out[k]
+        a = out[_wire(k)]
         if q["type"] == "noul":
             got[k] = {"type": "noul", "noul": _unit(a)}
             continue
