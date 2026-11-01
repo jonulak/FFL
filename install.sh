@@ -14,6 +14,19 @@ set_env() {  # set_env FILE KEY VALUE: KEY=VALUE in FILE (values carry no '|')
   sed "s|^$2=.*|$2=$3|" "$1" > "$1.tmp" && mv "$1.tmp" "$1"
 }
 
+free_port() {  # free_port KEY: move the port KEY names in .env up past anything listening on it
+  # shortcut: no nc on the host means no probe (compose fails as before); add another probe if that bites.
+  command -v nc >/dev/null 2>&1 || return 0
+  old=$(sed -n "s/^$1=//p" .env)
+  port=$old
+  tries=0
+  while nc -z 127.0.0.1 "$port" >/dev/null 2>&1 && [ $tries -lt 50 ]; do port=$((port + 1)); tries=$((tries + 1)); done
+  if [ "$port" != "$old" ]; then
+    set_env .env "$1" "$port"
+    echo "port $old ($1) is in use; using $port" >&2
+  fi
+}
+
 # Everything runs from main, called on the last line: a download cut short runs nothing.
 main() {
   { command -v docker && docker compose version; } >/dev/null 2>&1 || {
@@ -55,6 +68,13 @@ main() {
     set_env .env VAPID_PRIVATE_KEY "$priv"
   fi
 
+  # Our own running stack holds its port: only probe before the first start (or after one that failed to bind).
+  if [ -z "$(docker compose ps -q --status running)" ]; then
+    web=$(sed -n 's/^FFL_PORT=//p' .env)
+    free_port FFL_PORT
+    # The default app URL names the web port, so it moves with it; a URL of the user's own is left alone.
+    grep -q "^FFL_APP_URL=http://localhost:$web\$" .env && set_env .env FFL_APP_URL "http://localhost:$(sed -n 's/^FFL_PORT=//p' .env)"
+  fi
   docker compose up -d
 
   FFL_PORT=$(sed -n 's/^FFL_PORT=//p' .env)
