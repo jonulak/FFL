@@ -102,7 +102,7 @@ def wanted(pool: dict, up: set[int], watched: set[int]) -> list[dict]:
 
 # calls in flight at once: a full rewrite is ~15 cards of ~15 s each, so the whole roster goes at once. Lower it if
 # the Claude plan starts refusing calls (they show as failures with the CLI's message in last_failure).
-# FFL_OUTLOOK_WORKERS overrides it (the box, with 2 GB, runs 3); read at import, so set it before the API starts.
+# FFL_OUTLOOK_WORKERS overrides it (a 2 GB host runs 3); read at import, so set it before the API starts.
 WORKERS = int(os.environ.get("FFL_OUTLOOK_WORKERS") or 20)  # an empty line in the env file counts as unset
 
 

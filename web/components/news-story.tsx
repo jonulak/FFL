@@ -48,7 +48,7 @@ function Face({ r, dim }: { r: NewsRow; dim: boolean }) {
   );
 }
 
-// Haiku wrote the line but doubts Jev's arrow: a mark beside the name, said in words in the line itself.
+// Haiku wrote the line but doubts the tagger's arrow: a mark beside the name, said in words in the line itself.
 function Doubt({ className = "" }: { className?: string }) {
   return <MessageCircleQuestion aria-label="Haiku doubts this arrow" className={`size-3.5 shrink-0 text-foreground/55 ${className}`} />;
 }

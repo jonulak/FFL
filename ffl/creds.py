@@ -5,8 +5,8 @@ argv, and are never printed:
     uv run python -m ffl.creds status [--user <email>]
     uv run python -m ffl.creds clear --user <email>
 
-`--user` defaults to FFL_USER. Other KEY=VALUE lines on stdin are ignored, so the box's one-off can pipe the two lines
-of an env file straight in: `grep -E '^(ESPN_S2|SWID)=' /etc/ffl/env | ... ffl.creds set --user <email>`.
+`--user` defaults to FFL_USER. Other KEY=VALUE lines on stdin are ignored, so a one-off can pipe the two lines
+of an env file straight in: `grep -E '^(ESPN_S2|SWID)=' .env | ... ffl.creds set --user <email>`.
 """
 from __future__ import annotations
 
@@ -41,18 +41,18 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="python -m ffl.creds")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("set", "status", "clear"):
-        sub.add_parser(name).add_argument("--user", help="the user's sign-in email (default: FFL_USER)")
+        sub.add_parser(name).add_argument("--user", help="the user's username or email (default: FFL_USER)")
     args = ap.parse_args(argv)
     if args.cmd == "set":
         user = _user(args.user)
         espn_s2, swid = _read()
         espn_auth.connect(user["id"], espn_s2, swid)
-        print(f"ESPN cookies stored for {user['email']} (sealed)")
+        print(f"ESPN cookies stored for {user['email'] or user['username']} (sealed)")
         return 0
     if args.cmd == "clear":
         user = _user(args.user)
         espn_auth.disconnect(user["id"])
-        print(f"ESPN cookies cleared for {user['email']}")
+        print(f"ESPN cookies cleared for {user['email'] or user['username']}")
         return 0
     rows = db.credential_statuses()
     if args.user:

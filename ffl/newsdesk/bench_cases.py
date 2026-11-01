@@ -61,8 +61,8 @@ def hurts_season(s: Slice) -> tuple[bool, str]:
 
 
 def no_mixed_threads(s: Slice) -> tuple[bool, str]:
-    """The grouping work's rule (joins.py): an item a story took by thread (neither its founder nor Jev's own pick)
-    must be its lead's news: its surest ▲/▼ player is the story's lead. A Jev pick that adds a roundup's other
+    """The grouping work's rule (joins.py): an item a story took by thread (neither its founder nor the tagger's own pick)
+    must be its lead's news: its surest ▲/▼ player is the story's lead. A tagger pick that adds a roundup's other
     movers is not a thread."""
     mixed = []
     for st in s.stories:

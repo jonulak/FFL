@@ -87,17 +87,26 @@ def test_acting_reads_the_env_at_call_time(monkeypatch):
 
 def test_acting_needs_ffl_user_and_their_membership(monkeypatch):
     monkeypatch.delenv("FFL_USER")
-    with pytest.raises(SystemExit, match=r"FFL_USER is not set: add `FFL_USER=<your sign-in email>` to .env"):
+    with pytest.raises(SystemExit, match=r"FFL_USER is not set: add `FFL_USER=<your username or email>` to .env"):
         leagues.acting()
     monkeypatch.setenv("FFL_USER", "nobody@example.com")
     with pytest.raises(SystemExit, match=r"no user 'nobody@example.com'.*ffl\.leagues user add nobody@example.com"):
         leagues.acting()
-    db.ensure_user("b@example.com", None)
+    db.create_user("b@example.com", None)
     monkeypatch.setenv("FFL_USER", "b@example.com")
     with pytest.raises(SystemExit, match="b@example.com has no league"):
         leagues.acting()
     with pytest.raises(SystemExit, match=r"b@example.com is not a member of 'espn:100000001'; theirs: none"):
         leagues.acting("espn:100000001")
+
+
+def test_acting_finds_a_user_by_username(monkeypatch):
+    uid = db.create_user(None, None)  # a /setup admin: a username, no email
+    db.set_username(uid, "admin")
+    monkeypatch.setenv("FFL_USER", "Admin")
+    assert leagues.acting_user()["id"] == uid
+    with pytest.raises(SystemExit, match="admin has no league"):
+        leagues.acting()
 
 
 def test_user_add_from_the_command_line(capsys):

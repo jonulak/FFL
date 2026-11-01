@@ -1,27 +1,20 @@
-"""Settings' Account section (ffl-soc.6.2.4): sessions listed and revoked, sign out everywhere else, a second sign-in
-linked, the account deleted with every personal row. Through the real middleware (`real_auth`): a revoked session
+"""Settings' Account section (ffl-soc.6.2.4): sessions listed and revoked, sign out everywhere else, the account
+deleted with every personal row. Through the real middleware (`real_auth`): a revoked session
 must 401 there."""
 import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
-from starlette.responses import RedirectResponse
 
 from ffl import api, auth, db, leagues, notify
 from tests import two_users
 from tests.home import HOME_KEY
-from tests.test_auth_flow import CID, CSECRET
 
 pytestmark = pytest.mark.real_auth
 
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
-    monkeypatch.setenv("FFL_GOOGLE_CLIENT_ID", CID)
-    monkeypatch.setenv("FFL_GOOGLE_CLIENT_SECRET", CSECRET)
-    monkeypatch.setenv("FFL_AUTH_SECRET", "auth-secret-for-tests")
-    monkeypatch.setenv("FFL_APP_URL", "http://ffl.test")
     monkeypatch.setenv("FFL_JOB_TOKEN", "job-token-for-tests")
-    monkeypatch.delenv("FFL_SIGNUP_EMAILS", raising=False)
 
 
 def _signed_in(user_id: int, ua: str = "pytest") -> TestClient:
@@ -32,11 +25,14 @@ def _signed_in(user_id: int, ua: str = "pytest") -> TestClient:
 
 def test_account_lists_sessions_and_marks_this_one():
     uid = db.create_user("me@example.com", "Me")
+    db.set_username(uid, "me")
     other = db.create_session(uid, "iPhone Safari")
     c = _signed_in(uid, "Mac Chrome")
     db.create_session(db.create_user("else@example.com", None), "theirs")  # someone else's never shows
     body = c.get("/account").json()
-    assert body["email"] == "me@example.com"
+    assert {k: body[k] for k in ("username", "email", "name", "is_admin")} == {
+        "username": "me", "email": "me@example.com", "name": "Me", "is_admin": False}
+    assert set(body) == {"username", "email", "name", "is_admin", "sessions"}
     assert sorted((s["ua"], s["current"]) for s in body["sessions"]) == [("Mac Chrome", True), ("iPhone Safari", False)]
     assert all(len(s["id"]) == 64 for s in body["sessions"])
     assert db.session_user(other) is not None
@@ -85,8 +81,8 @@ def test_account_routes_refuse_the_job_token():
     c = TestClient(api.app, raise_server_exceptions=False)
     h = {auth.JOB_HEADER: "job-token-for-tests"}
     for m, path in (("GET", "/account"), ("POST", "/auth/delete"), ("POST", "/auth/signout-others"),
-                    ("POST", "/auth/sessions/x/revoke"), ("GET", "/auth/google/link")):
-        assert c.request(m, path, headers=h, json={"email": "x"}).status_code == 401, path
+                    ("POST", "/auth/sessions/x/revoke"), ("POST", "/auth/password")):
+        assert c.request(m, path, headers=h, json={"username": "x"}).status_code == 401, path
 
 
 # --- deleting the account ---
@@ -145,14 +141,14 @@ def test_delete_leaves_no_personal_row_and_shared_team_rows_stay(monkeypatch):
     two = two_users.make()
     _fill(two.a)
     _fill(two.b)
-    db.sign_in_user("google", "g-a", "a@example.com", "A")  # an identity for someone else's email: untouched
     before_b = _owned(two.b_id)
     assert _owned(two.a_id)
+    db.set_username(two.a_id, "amy")
     c = _signed_in(two.a_id)
-    assert c.post("/auth/delete", json={"email": "nope@example.com"}).status_code == 422
+    r = c.post("/auth/delete", json={"username": "nope"})
+    assert r.status_code == 422 and r.json() == {"error": "username_mismatch"}
     assert _owned(two.a_id)
-    email = db.user_row(two.a_id)["email"]
-    r = c.post("/auth/delete", json={"email": email.upper()})
+    r = c.post("/auth/delete", json={"username": " AMY "})
     assert r.status_code == 200
     assert _owned(two.a_id) == {}
     assert _owned(two.b_id) == before_b
@@ -161,12 +157,27 @@ def test_delete_leaves_no_personal_row_and_shared_team_rows_stay(monkeypatch):
     assert c.get("/account").status_code == 401
 
 
+def test_the_last_admin_cannot_delete_themselves_while_others_remain():
+    admin = db.create_user("a@example.com", None)
+    db.set_username(admin, "amy")
+    db.set_admin(admin, True)
+    db.create_user("b@example.com", None)
+    c = _signed_in(admin)
+    r = c.post("/auth/delete", json={"username": "amy"})
+    assert r.status_code == 409 and r.json() == {"error": "last_admin"}
+    for u in db.list_users():  # alone (the seeded test user too gone): deletable, an empty table reopens /setup
+        if u["id"] != admin:
+            db.delete_user(u["id"])
+    assert c.post("/auth/delete", json={"username": "amy"}).status_code == 200
+
+
 def test_delete_takes_a_teams_rows_when_nobody_else_is_on_it():
     two = two_users.make()
     _fill(two.b)
     _fill(two.b_only)
+    db.set_username(two.b_id, "bob")
     c = _signed_in(two.b_id)
-    assert c.post("/auth/delete", json={"email": "b@example.com"}).status_code == 200
+    assert c.post("/auth/delete", json={"username": "bob"}).status_code == 200
     assert _owned(two.b_id) == {}
     assert _team_rows(HOME_KEY, 3) == 0 and _team_rows("espn:999", 4) == 0
     assert leagues.members("espn:999") == []  # the league stays, memberless
@@ -177,7 +188,8 @@ def test_delete_drops_the_users_in_memory_caches():
     two = two_users.make()
     api.cache_for(two.b)
     api.cache_for(two.a)
-    _signed_in(two.b_id).post("/auth/delete", json={"email": "b@example.com"})
+    db.set_username(two.b_id, "bob")
+    assert _signed_in(two.b_id).post("/auth/delete", json={"username": "bob"}).status_code == 200
     assert (two.b_id, HOME_KEY) not in api.caches and (two.a_id, HOME_KEY) in api.caches
 
 
@@ -192,55 +204,3 @@ def test_the_jobs_skip_a_league_nobody_is_in(monkeypatch):
     monkeypatch.setattr(notify, "check_sources", lambda *a, **k: [])
     notify.tick()
     assert ran == [HOME_KEY]
-
-
-# --- linking a second sign-in ---
-
-def _google(monkeypatch, info: dict):
-    g = auth._google(CID, CSECRET)
-
-    async def redirect(request, redirect_uri=None, **kw):
-        return RedirectResponse("https://accounts.google.test/o/oauth2/auth", status_code=302)
-
-    async def token(request, **kw):
-        return {"userinfo": info}
-    monkeypatch.setattr(g, "authorize_redirect", redirect)
-    monkeypatch.setattr(g, "authorize_access_token", token)
-
-
-def _link(c: TestClient):
-    r = c.get("/auth/google/link")
-    assert r.status_code == 302 and r.headers["location"].startswith("https://accounts.google.test/")
-    return c.get("/auth/google/callback", params={"code": "c", "state": "s"})
-
-
-def test_link_adds_an_identity_to_the_signed_in_user(monkeypatch):
-    uid = db.create_user("me@example.com", "Me")
-    _google(monkeypatch, {"sub": "g-2", "email": "other@gmail.com", "email_verified": True})
-    c = _signed_in(uid)
-    r = _link(c)
-    assert r.status_code == 302 and r.headers["location"] == "/settings?link=linked"
-    assert db.identity_user("google", "g-2") == uid  # not on FFL_SIGNUP_EMAILS: linking needs no sign-up
-    assert [i["email"] for i in c.get("/account").json()["identities"]] == ["other@gmail.com"]
-    assert c.get("/account").json()["linkable"] == []
-
-
-def test_link_never_moves_another_users_identity(monkeypatch):
-    theirs = db.sign_in_user("google", "g-9", "them@example.com", None)
-    _google(monkeypatch, {"sub": "g-9", "email": "them@example.com", "email_verified": True})
-    c = _signed_in(db.create_user("me@example.com", "Me"))
-    assert _link(c).headers["location"] == "/settings?link=taken"
-    assert db.identity_user("google", "g-9") == theirs
-
-
-def test_a_sign_in_after_an_abandoned_link_is_not_a_link(monkeypatch):
-    """Link started, never finished at Google, then a plain sign-in: it signs in, it links nothing."""
-    monkeypatch.setenv("FFL_SIGNUP_EMAILS", "new@example.com")
-    _google(monkeypatch, {"sub": "g-5", "email": "new@example.com", "email_verified": True, "name": "N"})
-    me = db.create_user("me@example.com", "Me")
-    c = _signed_in(me)
-    assert c.get("/auth/google/link").status_code == 302
-    c.get("/auth/google/start")
-    r = c.get("/auth/google/callback", params={"code": "c", "state": "s"})
-    assert r.headers["location"] == "/"
-    assert db.identity_user("google", "g-5") not in (None, me)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { needsSignIn, safeNext, SESSION_COOKIE, sessionCookie, signedOutRedirect, signInHref } from "./auth";
+import { checksSetup, errorCode, isSetupPath, needsSignIn, safeNext, SESSION_COOKIE, sessionCookie, signedOutRedirect, signInHref } from "./auth";
 
 const PUB = "espn:950458410";
 
@@ -32,6 +32,46 @@ describe("needsSignIn", () => {
   });
   it("is not fooled by a page that only starts with signin", () => {
     expect(needsSignIn("/signinx", false)).toBe(true);
+  });
+  it("lets first-run setup and a setup link through signed out", () => {
+    expect(needsSignIn("/setup", false)).toBe(false);
+    expect(needsSignIn("/setup/abc", false)).toBe(false);
+    expect(needsSignIn("/setupx", false)).toBe(true);
+  });
+});
+
+describe("checksSetup", () => {
+  it("checks on /signin even with a (stale) session cookie", () => {
+    expect(checksSetup("/signin", true)).toBe(true);
+    expect(checksSetup("/signin", false)).toBe(true);
+  });
+  it("checks a signed-out page, never a signed-in one, setup or the privacy policy", () => {
+    expect(checksSetup("/roster", false)).toBe(true);
+    expect(checksSetup("/roster", true)).toBe(false);
+    expect(checksSetup("/setup", false)).toBe(false);
+    expect(checksSetup("/setup/abc", true)).toBe(false);
+    expect(checksSetup("/privacy", false)).toBe(false);
+  });
+});
+
+describe("isSetupPath", () => {
+  it("is /setup and the pages under it only", () => {
+    expect(isSetupPath("/setup")).toBe(true);
+    expect(isSetupPath("/setup/tok")).toBe(true);
+    expect(isSetupPath("/setupx")).toBe(false);
+    expect(isSetupPath("/signin")).toBe(false);
+  });
+});
+
+describe("errorCode", () => {
+  it("reads the API's code at the top level or under detail", () => {
+    expect(errorCode({ error: "bad_login" })).toBe("bad_login");
+    expect(errorCode({ detail: { error: "not_admin", message: "x" } })).toBe("not_admin");
+  });
+  it("is null for anything else", () => {
+    for (const b of [null, undefined, "x", {}, { detail: "Not Found" }, { error: 3 }, { detail: [{ msg: "x" }] }]) {
+      expect(errorCode(b)).toBeNull();
+    }
   });
 });
 

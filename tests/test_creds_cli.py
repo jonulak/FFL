@@ -52,11 +52,13 @@ def test_rotate_seals_everything_with_the_new_first_key(monkeypatch):
     import os
     espn_auth.connect(0, S2, SWID)
     db.put_subscription("https://push/x", {"p256dh": "k", "auth": "a"}, user_id=0)
+    db.put_secret("claude_token", "sk-ant-oat01-x")
     old = os.environ["FFL_SECRET_KEYS"]
     new = vault.keygen()
     monkeypatch.setenv("FFL_SECRET_KEYS", f"{new},{old}")
-    assert db.reseal_all() == 2
+    assert db.reseal_all() == 3
     monkeypatch.setenv("FFL_SECRET_KEYS", new)   # the old key dropped: everything still opens
     assert espn_auth.own(0).swid == SWID
     assert db.subscriptions(user_id=0)[0]["keys"] == {"p256dh": "k", "auth": "a"}
+    assert db.get_secret("claude_token") == "sk-ant-oat01-x"
     assert db.reseal_all() == 0

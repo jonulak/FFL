@@ -11,7 +11,7 @@ INDEX = Index(by_id={1: {"name": "Kyren Williams", "pos": "RB", "team": "LAR"},
 AT = "2026-10-19T12:00:00+00:00"
 
 
-def make(players=((1, "up"), (2, "none")), n_items=2, jev=None):
+def make(players=((1, "up"), (2, "none")), n_items=2, answers=None):
     sid = db.add_story({"first_item_id": None, "first_at": AT, "updated_at": AT, "kind": "injury",
                         "headline": "", "overview": ""})
     db.put_story_players(sid, [{"player_id": p, "effect": e, "kind": "injury", "prob": 0.7, "confidence": 0.5}
@@ -20,7 +20,7 @@ def make(players=((1, "up"), (2, "none")), n_items=2, jev=None):
                               "fetched_at": AT, "title": f"Title {sid}-{k}", "text": f"Body text {sid}-{k}", "club": "LAR",
                               "hash": f"h{sid}{k}"} for k in range(n_items)])
     for i in ids:
-        db.tag_item(i, [p for p, _ in players], jev, sid, AT)
+        db.tag_item(i, [p for p, _ in players], answers, sid, AT)
     return sid
 
 
@@ -30,7 +30,7 @@ def answer(sid, disagree=False):
                                      {"player_id": 2, "reason": "Only named.", "disagree": False}]}]}
 
 
-def test_prompt_carries_jev_effects():
+def test_prompt_carries_the_tagged_effects():
     sid = make()
     text = write.prompt(db.unwritten_stories(10), INDEX)
     assert "Kyren Williams" in text and "up (▲)" in text
@@ -93,7 +93,7 @@ def test_prompt_caps_story_chars_older_by_title():
 
 
 def test_prompt_gives_a_moved_player_the_source_naming_him_past_the_budget():
-    """Story 148: a podcast segment, the eighth source back, was the only one naming two players Jev moved; by title
+    """Story 148: a podcast segment, the eighth source back, was the only one naming two players the tagger moved; by title
     only, Haiku wrote that no source mentions them and doubted both arrows. The newest source naming a moved player
     goes in full, in its place in time, and his line says which sources name him."""
     sid = steps([f"[{k}]" + "x" * 7000 for k in range(6)])
@@ -152,7 +152,7 @@ def test_usage_recorded():
 
 
 def test_reword_writes_without_a_written_id():
-    """A headline refresh (Jev found the headline stale) is rewritten at the same rev and not reported in written_ids,
+    """A headline refresh (the tagger found the headline stale) is rewritten at the same rev and not reported in written_ids,
     which is what the pushes are queued from."""
     sid = make()
     write.run(INDEX, run_cli=lambda prompt, **kw: answer(sid))

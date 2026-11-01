@@ -134,25 +134,20 @@ def check_espn() -> int:
     return n
 
 
-def operator_emails() -> list[str]:
-    """FFL_OPERATOR_EMAILS (comma-separated, read now): who hears about the app itself."""
-    return [e.strip() for e in (os.environ.get("FFL_OPERATOR_EMAILS") or "").split(",") if e.strip()]
-
-
 def app_notices(rows: list[dict]) -> int:
-    """Queue notices about the app itself (a source failing, fitted weights) for each operator (FFL_OPERATOR_EMAILS),
-    once, under their default league; nobody else hears of them. An operator with no account or no league, or no
-    operator at all, gets nothing (logged)."""
+    """Queue notices about the app itself (a source failing, fitted weights) for each admin, once, under their default
+    league; nobody else hears of them. An admin with no league, or no admin at all, gets nothing (logged)."""
     from . import leagues
     if not rows:
         return 0
+    admins = [u for u in db.list_users() if u["is_admin"]]
+    if not admins:
+        log.warning("notify: app notice not queued: no admin")
     n = 0
-    for email in operator_emails() or [None]:
-        user = db.user_by_email(email) if email else None
-        ref = leagues.default_for(user["id"]) if user else None
+    for user in admins:
+        ref = leagues.default_for(user["id"])
         if ref is None:
-            log.warning("notify: app notice not queued for %s: %s", email or "nobody (FFL_OPERATOR_EMAILS unset)",
-                        "no league" if user else "no such user")
+            log.warning("notify: app notice not queued for user %s: no league", user["id"])
             continue
         n += db.add_notices(rows, ref=ref)
     return n
@@ -287,7 +282,7 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
 
 
 # Where a notification opens: Declarative Web Push wants the absolute URL (production; setup.sh sets it).
-APP_URL = os.environ.get("FFL_APP_URL", "https://ffl.whitebridgelabs.com")
+APP_URL = os.environ.get("FFL_APP_URL", "http://localhost:3300")
 
 
 def payload_for(push: dict, app_url: str = APP_URL) -> dict:
@@ -595,6 +590,6 @@ if __name__ == "__main__":
     import sys
     if sys.argv[1:] == ["keys"]:
         pub, priv = vapid_keys()
-        print(f"VAPID_PUBLIC_KEY={pub}\nVAPID_PRIVATE_KEY={priv}\nVAPID_SUBJECT=mailto:admin@example.com")
+        print(f"VAPID_PUBLIC_KEY={pub}\nVAPID_PRIVATE_KEY={priv}")
     else:
         print("usage: python -m ffl.notify keys")

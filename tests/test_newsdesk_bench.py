@@ -3,7 +3,7 @@ import os
 import sqlalchemy as sa
 
 from ffl import claude_cli, db
-from ffl.newsdesk import bench,bench_cases, jev
+from ffl.newsdesk import bench, bench_cases, classify
 from ffl.newsdesk.players import Index
 
 GRUPE, HURTS, ADAMS, ROSCHON, SILLS = 4259619, 4040715, 16800, 4430500, 3120000
@@ -16,12 +16,12 @@ INDEX = Index(by_id={GRUPE: {"name": "Blake Grupe", "pos": "K", "team": "LAR"},
                        "roschon johnson": [ROSCHON], "david sills": [SILLS]})
 
 
-def test_jev_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
+def test_tag_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
     calls = []
 
     def ask(state, qs):
         calls.append(qs)
-        got = jev.Answers({k: {"type": "noul", "noul": 0.9} for k in qs})
+        got = classify.Answers({k: {"type": "noul", "noul": 0.9} for k in qs})
         got.usage = {"input_tokens": 120, "output_tokens": 4}
         return got
 
@@ -34,7 +34,7 @@ def test_jev_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
     assert first.usage == {"input_tokens": 120, "output_tokens": 4} and again.usage == {}  # a hit costs nothing
     cache.ask({"title": "t"}, {"about:1": {"type": "noul", "instructions": "about him, reworded"}})
     assert len(calls) == 2
-    assert cache.stats["jev"] == {"hits": 1, "misses": 2}
+    assert cache.stats["tag"] == {"hits": 1, "misses": 2}
     bench.Cache(path, ask=ask).ask({"title": "t"}, q)  # saved on disk, not in memory
     assert len(calls) == 2
     bench.Cache(path, refresh=True, ask=ask).ask({"title": "t"}, q)
@@ -52,10 +52,10 @@ def test_index_lives_in_the_frozen_db(empty_db):
 
 
 class _Asks:
-    """A bench cache stand-in: Jev answers "no" to every question."""
+    """A bench cache stand-in: the tagger answers "no" to every question."""
 
     def ask(self, state, qs):
-        return jev.Answers({k: {"type": "noul", "noul": 0.0} for k in qs})
+        return classify.Answers({k: {"type": "noul", "noul": 0.0} for k in qs})
 
 
 def test_freeze_copies_untagged_items_and_replay_runs_on_a_copy(monkeypatch, pg_server):
@@ -122,7 +122,7 @@ def test_haiku_cache_keys_on_model_prompt_and_schema(tmp_path):
 
 
 def ans(movers: dict, story="new", prob=0.9, fresh=0.9, kind="injury"):
-    """Stored Jev answers for an item naming `movers` ({pid: effect})."""
+    """Stored tagger answers for an item naming `movers` ({pid: effect})."""
     out = {}
     for pid, effect in movers.items():
         out[f"about:{pid}"] = {"type": "noul", "noul": 0.95}
@@ -157,7 +157,7 @@ def test_cases_over_a_small_db():
     c = story({ADAMS: "down", HURTS: "down"}, "2026-10-19T03:00:00+00:00")
     tagged("3", "Adams hamstring", {ADAMS: "down"}, c, "2026-10-19T03:00:00+00:00")
     tagged("4", "Hurts calf", {HURTS: "down"}, c, "2026-10-19T04:00:00+00:00")
-    # a Jev pick that adds a roundup's other mover is not a thread
+    # a tagger pick that adds a roundup's other mover is not a thread
     tagged("5", "Rams roundup", {ADAMS: "down", GRUPE: "down"}, c, "2026-10-19T05:00:00+00:00", story=f"s{c}")
     # the Bears' coach, read as their running back; and a Hurts ▼ story made only of passing mentions
     d = story({ROSCHON: "down", HURTS: "down"}, "2026-10-19T06:00:00+00:00")

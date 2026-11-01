@@ -2,7 +2,7 @@
 
 `poll` reads one source's feed; `run_all` stores what is new and marks each source's health; `recheck`
 looks again at the last 48 h for edits and deletions. Only items published in the last three days are
-collected: older ones are past the recheck window and would cost a Jev call each to tag.
+collected: older ones are past the recheck window and would cost a tagger call each to tag.
 
 Edits: pft, Bluesky and Rotowire carry their whole text in the feed, so a re-poll compares its hash with
 the stored one. A team-site or ESPN item stores the article body, which the feed does not carry, so a

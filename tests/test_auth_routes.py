@@ -62,7 +62,7 @@ def test_every_route_needs_a_session():
             continue
         path = re.sub(r"{[^}]*}", "1", r.path)
         for m in sorted(r.methods):
-            if (m, r.path) in auth.PUBLIC:
+            if auth.public(m, path):
                 continue
             resp = c.request(m, path)
             # job routes too: no session and no token is signed out (401), the same as any page
@@ -161,32 +161,28 @@ def test_live_stream_passes_with_session():
     assert sent[-1]["body"].decode().startswith("retry: 3000\ndata: ")
 
 
-def test_public_routes_need_nothing(monkeypatch):
-    for k in ("FFL_AUTH_SECRET", "FFL_GOOGLE_CLIENT_ID", "FFL_GOOGLE_CLIENT_SECRET", "FFL_DEV_SIGNIN"):
-        monkeypatch.delenv(k, raising=False)
+def test_public_routes_need_nothing():
     c = TestClient(api.app, raise_server_exceptions=False, follow_redirects=False)
-    assert c.get("/health").json() == {"ok": True}
-    assert c.get("/auth/providers").json() == {"google": False, "apple": False, "dev": False}
-    assert c.get("/auth/google/start").status_code == 503  # unconfigured, and nothing reaches Google
-    assert c.get("/auth/google/callback").status_code == 503
-    assert c.get("/auth/apple/start").status_code == 503
-    assert c.get("/auth/apple/callback").status_code == 503
-    r = c.post("/auth/dev", json={"email": "me@example.com"})
-    assert r.status_code == 404 and r.json() == {"detail": "Not Found"}  # off: as if no such route
+    assert c.get("/health").json() == {"ok": True, "app": "ffl"}
+    assert c.get("/setup/status").json() == {"needs_setup": True}
     for m, path in auth.PUBLIC:
         r = c.request(m, path)
         if path in ("/espn/pair/poll", "/espn/cookies"):  # past the middleware, each checks its own secret
             assert r.json() != auth.SIGNED_OUT and r.status_code in (400, 401), (m, path)
             continue
         assert r.status_code not in (401, 403), (m, path)
+    # an invite's setup link, matched by prefix: past the middleware (404 until its route exists, never 401)
+    assert c.post("/auth/setup/some-token", json={}).json() != auth.SIGNED_OUT
+    assert auth.decide("POST", "/auth/setup/some-token", None, None) == (0, None)
+    assert auth.decide("GET", "/auth/setup/some-token", None, None) == (401, None)
+    assert auth.decide("POST", "/auth/setup", None, None) == (401, None)
 
 
 def test_the_tables_are_the_briefs():
-    assert auth.PUBLIC == {("GET", "/health"), ("HEAD", "/health"), ("GET", "/auth/providers"),
-                           ("GET", "/auth/google/start"), ("GET", "/auth/google/callback"),
-                           ("GET", "/auth/apple/start"), ("GET", "/auth/apple/callback"),
-                           ("POST", "/auth/apple/callback"), ("POST", "/auth/dev"),
+    assert auth.PUBLIC == {("GET", "/health"), ("HEAD", "/health"), ("GET", "/setup/status"), ("POST", "/setup"),
+                           ("POST", "/auth/signin"),
                            ("POST", "/espn/pair/start"), ("POST", "/espn/pair/poll"), ("POST", "/espn/cookies")}
+    assert auth.PUBLIC_PREFIXES == (("POST", "/auth/setup/"),)
     assert auth.JOB_ONLY == {("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"),
                              ("POST", "/refresh"), ("POST", "/outlook/refresh")}
 
@@ -203,7 +199,7 @@ def test_public_routes_skip_the_threadpool(monkeypatch):
         raise AssertionError("decide called")
     monkeypatch.setattr(auth, "decide", boom)
     c = _client()
-    assert c.get("/health").json() == {"ok": True}
+    assert c.get("/health").json() == {"ok": True, "app": "ffl"}
     assert c.head("/health").status_code == 200
 
 

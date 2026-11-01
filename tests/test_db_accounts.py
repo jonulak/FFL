@@ -1,6 +1,7 @@
 import hashlib
 from datetime import datetime, timedelta, timezone
 
+import pytest
 import sqlalchemy as sa
 
 from ffl import db
@@ -68,15 +69,6 @@ def test_delete_session():
     assert db.session_user(token) is None
 
 
-def test_identity_link_and_lookup():
-    uid = db.create_user("a@example.com", None)
-    assert db.identity_user("google", "123") is None
-    db.link_identity(uid, "google", "123", "a@example.com")
-    db.link_identity(uid, "google", "123", "a@example.com")  # a repeat is a no-op
-    assert db.identity_user("google", "123") == uid
-    assert db.identity_user("google", "456") is None
-
-
 def test_user_by_email_ignores_case():
     uid = db.create_user("Mixed@Example.com", None)
     assert db.user_by_email("mixed@example.COM")["id"] == uid
@@ -86,11 +78,9 @@ def test_user_by_email_ignores_case():
 
 def test_user_cascade():
     uid = db.create_user("a@example.com", None)
-    db.link_identity(uid, "google", "123", "a@example.com")
     token = db.create_session(uid, "")
     with db._write() as c:
         c.execute(sa.delete(db.users).where(db.users.c.id == uid))
-    assert db.identity_user("google", "123") is None
     assert db.session_user(token) is None
     with db._read() as c:
         assert c.execute(sa.select(sa.func.count()).select_from(db.sessions)).scalar() == 0
@@ -114,3 +104,83 @@ def test_session_lookup_reads_without_a_write_transaction(monkeypatch):
     writes.clear()
     assert db.session_lookup(token)[1] is True  # over the hour: the one write, the slide
     assert writes == [1]
+
+
+def test_user_by_username_ignores_case():
+    uid = db.create_user(None, None)
+    assert db.user_by_username("ann") is None
+    db.set_username(uid, "Ann")
+    assert db.user_by_username("aNN")["id"] == uid
+
+
+def test_set_username_taken_in_any_case():
+    a, b = db.create_user(None, None), db.create_user(None, None)
+    db.set_username(a, "ann")
+    with pytest.raises(db.Taken):
+        db.set_username(b, "ANN")
+    assert db.user_row(b)["username"] is None
+
+
+def test_set_password_ends_setup():
+    uid = db.create_user(None, None)
+    assert db.needs_setup()
+    db.set_password(uid, "hash")
+    assert db.user_row(uid)["password_hash"] == "hash"
+    assert not db.needs_setup()
+
+
+def test_claim_first_user_claims_the_oldest_once():
+    with db._write() as c:
+        c.execute(sa.delete(db.users))
+    first, second = db.create_user("a@example.com", None), db.create_user("b@example.com", None)
+    assert db.claim_first_user("ann", "h1") == first
+    row = db.user_row(first)
+    assert (row["username"], row["password_hash"], row["is_admin"]) == ("ann", "h1", True)
+    assert db.claim_first_user("bob", "h2") is None
+    assert db.user_row(second)["username"] is None
+
+
+def test_claim_first_user_inserts_when_there_are_none():
+    with db._write() as c:
+        c.execute(sa.delete(db.users))
+    uid = db.claim_first_user("ann", "h1")
+    assert db.user_row(uid)["is_admin"] and db.list_users()[0]["username"] == "ann"
+    assert db.claim_first_user("bob", "h2") is None
+
+
+def test_setup_token_round_trip():
+    uid = db.create_user(None, None)
+    raw = db.issue_setup_token(uid)
+    assert raw not in db.user_row(uid).values()
+    assert db.user_by_setup_token(raw)["id"] == uid
+    assert db.user_by_setup_token(raw + "x") is None
+    with db._write() as c:  # expired
+        c.execute(sa.update(db.users).where(db.users.c.id == uid).values(
+            setup_expires=_iso(datetime.now(timezone.utc) - timedelta(seconds=1))))
+    assert db.user_by_setup_token(raw) is None
+    raw = db.issue_setup_token(uid)
+    db.clear_setup_token(uid)
+    assert db.user_by_setup_token(raw) is None
+
+
+def test_create_invite_and_duplicate_email():
+    uid = db.create_invite("Inv@example.com", "Inv")
+    row = db.user_row(uid)
+    assert (row["username"], row["password_hash"], row["name"]) == (None, None, "Inv")
+    with pytest.raises(db.Taken):
+        db.create_invite("inv@EXAMPLE.com", None)
+    assert db.create_invite(None, None) != db.create_invite(None, None)  # no email: never a collision
+
+
+def test_admins_and_list_users():
+    with db._write() as c:
+        c.execute(sa.delete(db.users))
+    a, b = db.create_user(None, "A"), db.create_user("b@example.com", None)
+    assert db.admin_count() == 0
+    db.set_admin(a, True)
+    db.set_password(b, "h")
+    assert db.admin_count() == 1
+    assert [(u["id"], u["is_admin"], u["has_password"]) for u in db.list_users()] == [(a, True, False), (b, False, True)]
+    assert set(db.list_users()[0]) == {"id", "username", "email", "name", "is_admin", "has_password", "created_at"}
+    db.set_admin(a, False)
+    assert db.admin_count() == 0

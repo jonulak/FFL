@@ -1,5 +1,5 @@
-"""What the models read and wrote: each run's stage dict carries its own `usage`; the tagger's (Jev) day's running total
-is kept in state `news_jev_usage` as {UTC date: {input, output, calls}}, the last DAYS days of it, which
+"""What the models read and wrote: each run's stage dict carries its own `usage`; the tagger's day's running total
+is kept in state `news_tag_usage` as {UTC date: {input, output, calls}}, the last DAYS days of it, which
 `GET /news/status` shows. The writer's `claude -p` calls are rows in llm_calls (`GET /llm/usage`)."""
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import datetime
 
 from .. import db
 
-JEV = "news_jev_usage"
+TAG = "news_tag_usage"
 DAYS = 30
 
 

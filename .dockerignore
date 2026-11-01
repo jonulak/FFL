@@ -1,0 +1,13 @@
+.git
+.env*
+.venv
+**/__pycache__
+data
+web
+extension
+terraform
+journal
+tests
+.claude
+.superpowers
+.impeccable

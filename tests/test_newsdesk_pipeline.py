@@ -313,7 +313,7 @@ def test_muted_player_never_pushes(stages):
 
 
 def test_stale_headline_rewrites_without_push(stages):
-    """Jev found the headline stale (no material change): Haiku writes it again at the same rev, and the pipeline gets
+    """The tagger found the headline stale (no material change): Haiku writes it again at the same rev, and the pipeline gets
     no revision to push, so nothing is queued and a push still waiting is not superseded."""
     _, written = stages
     sent, waiting = make([(1, "down", "injury")]), make([(3, "up", "role")], headline="Bigsby up")

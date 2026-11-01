@@ -237,14 +237,14 @@ def test_each_member_gets_their_own_watch_pass(two, monkeypatch):
     assert set(out) == {str(two.a_id), str(two.b_id), str(two.c.user_id)}
 
 
-def test_app_notices_go_to_the_operators_alone(two, monkeypatch):
-    """Notices about the app itself (a source failing) reach the users FFL_OPERATOR_EMAILS names, under their default
-    league; nobody else, and nobody when it is unset."""
+def test_app_notices_go_to_the_admins_alone(two, monkeypatch):
+    """Notices about the app itself (a source failing) reach the admins, under their default league; nobody else,
+    nobody when there is no admin, and not an admin with no league."""
     row = {"key": "source:cbs:2026-10-27", "kind": "source", "title": A_MARK, "body": "b", "url": "/players",
            "created_at": notify.now()}
-    monkeypatch.delenv("FFL_OPERATOR_EMAILS", raising=False)
     assert notify.app_notices([row]) == 0
-    monkeypatch.setenv("FFL_OPERATOR_EMAILS", "TEST@example.com, nobody@example.com")
+    db.set_admin(two.a_id, True)
+    db.set_admin(db.create_user("leagueless@example.com", None), True)
     assert notify.app_notices([row]) == 1
     titles = lambda ref: [n["title"] for n in db.unsent_notices(ref=ref)]
     assert titles(two.a) == [A_MARK] and titles(two.b) == titles(two.b_only) == titles(two.c) == []

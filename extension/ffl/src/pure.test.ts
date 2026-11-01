@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ago, ChangeWatch, distinctLogins, fromCookieString, pairHash, pickStore, sendOutcome, signedIn, swidKey, viewOf } from "./pure";
+import { ago, ChangeWatch, connectState, distinctLogins, fromCookieString, originPattern, pairHash, pickStore, sendOutcome, serverOf, signedIn, swidKey,
+         tabView, typedServer, viewOf } from "./pure";
 
 const SWID = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
 const OTHER = "{11111111-2222-3333-4444-555555555555}";
@@ -102,7 +103,9 @@ describe("viewOf", () => {
       .toEqual({ kind: "code", code: "ABCD-EFGH", minutesLeft: 10 });
     expect(viewOf({ pairing: { code: "ABCD-EFGH", poll_secret: "s", expires_at: now - 1 } }, now)).toEqual({ kind: "disclose" });
     const last = { at: now, ok: true, message: "m" };
-    expect(viewOf({ token: "t", last }, now)).toEqual({ kind: "paired", last, pairing: false });
+    expect(viewOf({ token: "t", last }, now)).toEqual({ kind: "paired", last, pairing: false, server: null });
+    expect(viewOf({ token: "t", server: "https://ffl.example.com" }, now)).toEqual(
+      { kind: "paired", last: null, pairing: false, server: "https://ffl.example.com" });
     // pairing again while paired shows the new code
     expect(viewOf({ token: "t", pairing: { code: "WXYZ-2345", poll_secret: "s", expires_at: now + 60_000 } }, now).kind).toBe("code");
   });
@@ -111,5 +114,59 @@ describe("viewOf", () => {
     expect(ago(now, now + 4 * 60_000)).toBe("4 min ago");
     expect(ago(now, now + 3 * 3_600_000)).toBe("3 h ago");
     expect(ago(now, now + 49 * 3_600_000)).toBe("2 days ago");
+  });
+});
+
+describe("serverOf", () => {
+  it("is the origin of an http(s) URL", () => {
+    expect(serverOf("https://ffl.example.com/roster?league=x")).toBe("https://ffl.example.com");
+    expect(serverOf("http://127.0.0.1:3301/")).toBe("http://127.0.0.1:3301");
+  });
+  it("is null for any other URL", () => {
+    expect(serverOf("chrome://extensions")).toBeNull();
+    expect(serverOf("not a url")).toBeNull();
+  });
+});
+
+describe("typedServer and originPattern", () => {
+  it("takes a bare host as https, keeps a given scheme, drops the path", () => {
+    expect(typedServer(" ffl.example.com ")).toBe("https://ffl.example.com");
+    expect(typedServer("http://127.0.0.1:3301/welcome")).toBe("http://127.0.0.1:3301");
+    expect(typedServer("")).toBeNull();
+    expect(typedServer("chrome://extensions")).toBeNull();
+  });
+  it("asks for the host on any port", () => {
+    expect(originPattern("https://ffl.example.com")).toBe("https://ffl.example.com/*");
+    expect(originPattern("http://127.0.0.1:3301")).toBe("http://127.0.0.1/*");
+  });
+});
+
+describe("tabView", () => {
+  const ffl = { ok: true, app: "ffl" };
+  it("is not-ffl for a tab with no http(s) origin", () => {
+    expect(tabView(null, true, ffl, { username: "jon" })).toEqual({ kind: "not-ffl" });
+  });
+  it("asks before the origin is granted, whatever was read", () => {
+    expect(tabView("https://ffl.example.com", false, null, null)).toEqual({ kind: "ask" });
+  });
+  it("once granted, what /health and /me say", () => {
+    expect(tabView("https://ffl.example.com", true, ffl, { username: "jon" })).toEqual({ kind: "ok", username: "jon" });
+    expect(tabView("https://ffl.example.com", true, ffl, { error: "signed_out" })).toEqual({ kind: "signed-out" });
+    expect(tabView("https://espn.com", true, null, null)).toEqual({ kind: "not-ffl" });
+  });
+});
+
+describe("connectState", () => {
+  it("is not-ffl unless /health names the app", () => {
+    expect(connectState({ ok: true }, null)).toEqual({ kind: "not-ffl" });
+    expect(connectState(null, { username: "jon" })).toEqual({ kind: "not-ffl" });
+  });
+  it("is signed-out without a user", () => {
+    expect(connectState({ ok: true, app: "ffl" }, { error: "signed_out" })).toEqual({ kind: "signed-out" });
+    expect(connectState({ ok: true, app: "ffl" }, null)).toEqual({ kind: "signed-out" });
+  });
+  it("is ok with the username, else the email", () => {
+    expect(connectState({ ok: true, app: "ffl" }, { username: "jon" })).toEqual({ kind: "ok", username: "jon" });
+    expect(connectState({ ok: true, app: "ffl" }, { email: "j@x.com" })).toEqual({ kind: "ok", username: "j@x.com" });
   });
 });

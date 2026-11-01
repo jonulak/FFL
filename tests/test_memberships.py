@@ -247,12 +247,6 @@ def test_migration_without_a_user_files_nothing(empty_db, monkeypatch):
     assert _q(url, "SELECT user_id FROM page_cache") == [(0,)]  # no user's: served as before
 
 
-def test_sign_in_never_makes_a_membership(monkeypatch):
-    monkeypatch.setenv("FFL_SIGNUP_EMAILS", "new@example.com")
-    uid = auth.sign_in("google", "g9", "new@example.com", True, None)
-    assert leagues.for_user(uid) == []
-
-
 def test_join_from_the_command_line(other, capsys):
     uid = db.create_user("b@example.com", None)
     assert leagues.main(["join", "espn:999", "--user", "b@example.com", "--team", "5", "--default"]) == 0
@@ -288,7 +282,8 @@ GLOBAL_ROUTES = {
     "/health", "/leagues", "/live", "/live/status", "/sources/status", "/decisions/presets", "/outlook/refresh",
     "/outlook/{player_id:int}", "/refresh",
     "/transactions/sync", "/notify/subscribe", "/notify/unsubscribe", "/notify/test", "/trace",
-    "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status", "/llm/usage",
+    "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status", "/llm/usage", "/llm/token",
+    "/llm/token/delete",
 }
 
 

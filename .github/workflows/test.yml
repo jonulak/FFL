@@ -1,30 +1,22 @@
 name: Test
 
-# The merge gate: the Python suite, the web build, typecheck, Vitest and ESLint. A deploy (deploy.yml) runs it
-# on the commit first, so a PR that would fail a deploy fails here first. The job's
+# The merge gate: the Python suite, the web build, typecheck, Vitest and ESLint. The job's
 # name, `test`, is the required status check on develop and main.
 #
-# deploy.yml calls this workflow (workflow_call, `ref`: the commit it then deploys) on every push to main, so
-# main is not in the push list below: the suite would otherwise run twice per promotion. On a PR or a push
-# `inputs.ref` is empty and checkout takes the event's commit, as before.
+# main is not in the push list below: it only takes merge-commit PRs from develop, which ran this already.
+# images.yml builds the Docker images beside it.
 #
 # NO paths: FILTER, deliberately. A required check that a path filter skips never reports, and a
 # PR waiting on a check that never runs is blocked, not passed. It runs on every PR unconditionally.
 #
 # The suite needs neither data/ nor .env: it runs on its own databases on the postgres:16 service below
-# (production's RDS is PG 16), made and dropped by tests/conftest.py through FFL_TEST_PG.
+# (the stack runs postgres:16), made and dropped by tests/conftest.py through FFL_TEST_PG.
 
 on:
   pull_request:
     branches: [develop, main]
   push:
     branches: [develop]
-  workflow_call:
-    inputs:
-      ref:
-        description: The commit to test (deploy.yml passes the one it deploys)
-        type: string
-        required: true
 
 jobs:
   test:
@@ -45,8 +37,6 @@ jobs:
           --health-retries 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ inputs.ref }}
 
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
 

@@ -115,15 +115,9 @@ def _advance_sequences(dest: sa.Connection) -> None:
                 dest.execute(sa.select(sa.func.setval(seq, top + 1, False)))
 
 
-def copy(sqlite_path: Path, *, dest_url: str | None = None, to_rds: bool = False) -> dict[str, tuple[int, int]]:
+def copy(sqlite_path: Path, *, dest_url: str | None = None) -> dict[str, tuple[int, int]]:
     """The file's rows into the destination, which is emptied first. Returns {table: (source rows, dest rows)};
-    raises CopyError (and copies nothing) on a wrong schema at either end or any count that differs, or on a
-    destination that is not a local server (an RDS, even through the loopback tunnel) without to_rds."""
-    from ffl import db_backup
-    target = db._check_url(dest_url or db.url(), "the destination URL")
-    if not to_rds and not db_backup.is_local(target):
-        raise CopyError(f"the destination {db.display_url(target)} is not a local server (or is an RDS through a "
-                        "tunnel): pgcopy empties it first; pass --to-rds to copy there")
+    raises CopyError (and copies nothing) on a wrong schema at either end or any count that differs."""
     src_eng, dest_eng = _source_engine(Path(sqlite_path)), None
     try:
         with src_eng.connect() as src:
@@ -153,16 +147,12 @@ def copy(sqlite_path: Path, *, dest_url: str | None = None, to_rds: bool = False
 
 def main(argv: list[str]) -> int:
     args = list(argv)
-    to_rds = "--to-rds" in args
-    if to_rds:
-        args.remove("--to-rds")
     if len(args) != 1:
-        print("usage: python -m ffl.db pgcopy <sqlite file> [--to-rds]   (into FFL_DB_URL, which must be at head; "
-              "a non-local or RDS destination needs --to-rds)")
+        print("usage: python -m ffl.db pgcopy <sqlite file>   (into FFL_DB_URL, which must be at head; it is emptied first)")
         return 2
     start = time.monotonic()
     try:
-        counts = copy(Path(args[0]).expanduser(), to_rds=to_rds)
+        counts = copy(Path(args[0]).expanduser())
     except (CopyError, db.SchemaError, SystemExit) as e:
         print(f"pgcopy: {e}")
         return 1

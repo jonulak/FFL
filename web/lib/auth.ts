@@ -1,4 +1,4 @@
-// Signing in (ffl-soc.6.2.1). The API owns the session (cookie ffl_session, HttpOnly, set through the /api rewrite) and
+// Signing in (ffl-soc.6.2.1; a username and password since the self-hosted pivot). The API owns the session (cookie ffl_session, HttpOnly, set through the /api rewrite) and
 // answers 401 {"error": "signed_out"} without one; the web only routes the visitor: web/proxy.ts sends a page load with
 // no cookie to /signin, lib/api.ts and app/api-client.ts send a call the API refused there. Pure: tested in auth.test.ts.
 export const SESSION_COOKIE = "ffl_session";
@@ -9,15 +9,31 @@ export function sessionCookie(env: Record<string, string | undefined> = process.
   return env.FFL_SESSION_COOKIE || SESSION_COOKIE;
 }
 export const SIGNIN_PATH = "/signin";
+// First-run setup (the first admin's login) and, under it, an invite's or a reset's /setup/<token>: both signed out.
+export const SETUP_PATH = "/setup";
+export const isSetupPath = (pathname: string) => pathname === SETUP_PATH || pathname.startsWith(`${SETUP_PATH}/`);
 // The privacy policy (#135): public, since the extension stores link to it and a visitor reads it before signing up.
 export const PRIVACY_PATH = "/privacy";
 // The page a server render is for (path + query), set by web/proxy.ts so lib/api.ts can send a refused call back to it.
 export const PATH_HEADER = "x-ffl-path";
 
-// A page request that must sign in first: no session cookie (its presence only; the API checks it), and never /signin
-// or the privacy policy.
+// A page request that must sign in first: no session cookie (its presence only; the API checks it), and never /signin,
+// setup or the privacy policy.
 export function needsSignIn(pathname: string, hasSession: boolean): boolean {
-  return !hasSession && pathname !== SIGNIN_PATH && pathname !== PRIVACY_PATH;
+  return !hasSession && pathname !== SIGNIN_PATH && pathname !== PRIVACY_PATH && !isSetupPath(pathname);
+}
+
+// A page request that asks the API whether the server still needs first-run setup: /signin whatever the cookie (a
+// stale session on a wiped server lands there on every refused call), and any page a signed-out visitor must sign in for.
+export function checksSetup(pathname: string, hasSession: boolean): boolean {
+  return pathname === SIGNIN_PATH || needsSignIn(pathname, hasSession);
+}
+
+// The API's error code, which ffl/auth.py answers as {"error": code} or, through an HTTPException, {"detail": {"error": code}}.
+export function errorCode(body: unknown): string | null {
+  const o = body as { error?: unknown; detail?: { error?: unknown } } | null | undefined;
+  const code = typeof o === "object" && o !== null ? (o.error ?? (typeof o.detail === "object" ? o.detail?.error : undefined)) : undefined;
+  return typeof code === "string" ? code : null;
 }
 
 // Where to land after signing in: a path on this site only, the API's safe_next (ffl/auth.py) in the browser's terms:

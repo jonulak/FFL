@@ -1,0 +1,9 @@
+# busybox crond, in the jobs container (the API image); PID 1's environment carries FFL_JOB_TOKEN
+# --retry also re-POSTs on a 5xx: safe, since each route is guarded (/notify/tick one at a time, 409; /news/run 202/409;
+# /outlook/refresh locked; /transactions/sync dedupes on (season, id)).
+*/15 * * * * curl -sSf --retry 5 --retry-connrefused --retry-delay 3 --max-time 600 -H "x-ffl-job: $FFL_JOB_TOKEN" -X POST http://api:8300/notify/tick >> /proc/1/fd/1 2>&1
+*/10 * * * * curl -sSf --retry 5 --retry-connrefused --retry-delay 3 --max-time 600 -H "x-ffl-job: $FFL_JOB_TOKEN" -X POST http://api:8300/news/run >> /proc/1/fd/1 2>&1
+5 * * * * curl -sSf --retry 5 --retry-connrefused --retry-delay 3 --max-time 600 -H "x-ffl-job: $FFL_JOB_TOKEN" -X POST http://api:8300/outlook/refresh >> /proc/1/fd/1 2>&1
+35 * * * * curl -sSf --retry 5 --retry-connrefused --retry-delay 3 --max-time 600 -H "x-ffl-job: $FFL_JOB_TOKEN" -X POST http://api:8300/transactions/sync >> /proc/1/fd/1 2>&1
+0 7 * * 3 cd /app && uv run --no-sync python -m ffl.calibrate wednesday >> /proc/1/fd/1 2>&1
+30 3 * * * cd /app && uv run --no-sync python -m ffl.db backup /backups >> /proc/1/fd/1 2>&1

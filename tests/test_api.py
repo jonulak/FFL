@@ -219,7 +219,7 @@ def test_players_requires_known_pos(client):
 
 
 def test_health(client):
-    assert client.get("/health").json() == {"ok": True}
+    assert client.get("/health").json() == {"ok": True, "app": "ffl"}
 
 
 def test_transactions_are_served_through_the_cache(client, monkeypatch):
@@ -1986,26 +1986,23 @@ def test_news_status(client):
     assert [s["id"] for s in body["sources"]] == ["pft", "site:DAL"]
     assert set(body["sources"][0]) == {"id", "name", "kind", "active", "ok_at", "error", "failing_since"}
     assert body["last_run"]["stages"] == {"seed": 2}
-    assert "haiku_usage" not in body and body["jev_usage"] == {}   # the writer's cost is /llm/usage
-    db.put_state("news_jev_usage", {"2026-10-19": {"input": 9, "output": 2, "calls": 3}})
+    assert "haiku_usage" not in body and body["tag_usage"] == {}   # the writer's cost is /llm/usage
+    db.put_state("news_tag_usage", {"2026-10-19": {"input": 9, "output": 2, "calls": 3}})
     body = client.get("/news/status").json()
-    assert body["jev_usage"]["2026-10-19"]["calls"] == 3
+    assert body["tag_usage"]["2026-10-19"]["calls"] == 3
 
 
-def test_llm_usage_is_for_operators_only(client, monkeypatch):
-    monkeypatch.delenv("FFL_OPERATOR_EMAILS", raising=False)
-    assert client.get("/llm/usage").status_code == 403
-    monkeypatch.setenv("FFL_OPERATOR_EMAILS", "someone@else.com")
+def test_llm_usage_is_for_admins_only(client):
     r = client.get("/llm/usage")
-    assert r.status_code == 403 and r.json()["detail"]["error"] == "not_operator"
-    monkeypatch.setenv("FFL_OPERATOR_EMAILS", "other@x.com, TEST@example.com")
+    assert r.status_code == 403 and r.json()["detail"]["error"] == "not_admin"
+    db.set_admin(0, True)
     assert client.get("/llm/usage").status_code == 200
 
 
 def test_llm_usage_totals_by_day_and_kind(client, monkeypatch):
     """GET /llm/usage: llm_calls summed per (UTC day, kind) over the last `days` days; older rows are left out."""
     from datetime import datetime, timedelta, timezone
-    monkeypatch.setenv("FFL_OPERATOR_EMAILS", "test@example.com")
+    db.set_admin(0, True)
     for kind, cost in (("outlook", 0.02), ("outlook", 0.03), ("news", 0.001)):
         db.add_llm_call(kind=kind, model="sonnet", league="espn:1", player_id=7, input=100, output=10,
                         cost_usd=cost, ok=True)

@@ -6,8 +6,8 @@ Writes are one short transaction each.
 
     uv run alembic upgrade head          # create / migrate the schema
     uv run python -m ffl.db import       # one-time: the old journal/ and data/ files in (idempotent)
-    uv run python -m ffl.db backup       # a checked snapshot into the backup dir (launchd nightly)
-    uv run python -m ffl.db restore S --url U   # a dump (file, dir or s3:// prefix: the newest) back in (local only without --to-rds)
+    uv run python -m ffl.db backup DIR   # a checked snapshot into DIR (else FFL_BACKUP_DEST; the stack's cron nightly)
+    uv run python -m ffl.db restore S --url U --yes   # a dump (file, or dir: the newest) back in; without --yes it names the target and stops
     uv run python -m ffl.db pgcopy F     # the SQLite file F (schema 0024, read-only) into FFL_DB_URL, checked
     uv run python -m ffl.db counts A [B] # rows per table, two databases side by side (`env`: FFL_DB_URL), read-only
 """
@@ -36,6 +36,10 @@ class SchemaError(RuntimeError):
 
 DBError = sa.exc.SQLAlchemyError  # callers outside db.py catch DB errors through this
 IntegrityError = sa.exc.IntegrityError  # a unique key taken (a DBError too)
+
+
+class Taken(DBError):
+    """A username or email another user already has."""
 
 
 def _season():
@@ -69,27 +73,24 @@ leagues_table = sa.Table(
     sa.Column("added_at", sa.String, nullable=False),
 )
 
-# Accounts (ffl-soc.6.2.1): a user, the identities that sign in as them, and their sessions. Times are UTC ISO strings.
+# Accounts: a user (username + password; 0036) and their sessions. Times are UTC ISO strings.
 users = sa.Table(
     "users", metadata,
     sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-    sa.Column("email", sa.String, nullable=False),
+    sa.Column("email", sa.String),
     sa.Column("name", sa.String),
     sa.Column("created_at", sa.String, nullable=False),
     sa.Column("plan", sa.String, nullable=False, server_default="free"),
     sa.Column("plan_until", sa.String),
+    sa.Column("username", sa.String),                    # NULL for an invite not yet set up
+    sa.Column("password_hash", sa.String),
+    sa.Column("is_admin", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column("setup_token_hash", sa.String),            # sha256 hex of a setup link's token
+    sa.Column("setup_expires", sa.String),
 )
-# One user per email whatever its case (ffl-soc.6.2.6): sign-in's upsert conflicts on it.
+# One user per email, and per username, whatever its case (NULLs never collide).
 sa.Index("uq_users_email_lower", sa.func.lower(users.c.email), unique=True)
-identities = sa.Table(
-    "identities", metadata,
-    sa.Column("provider", sa.String, nullable=False),    # "google"
-    sa.Column("subject", sa.String, nullable=False),     # the provider's stable id for the person
-    sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("email", sa.String, nullable=False),
-    sa.Column("created_at", sa.String, nullable=False),
-    sa.PrimaryKeyConstraint("provider", "subject"),
-)
+sa.Index("uq_users_username_lower", sa.func.lower(users.c.username), unique=True)
 sessions = sa.Table(
     "sessions", metadata,
     sa.Column("token_hash", sa.String, primary_key=True),  # sha256 hex of the cookie's token; the token is never stored
@@ -288,6 +289,14 @@ llm_calls = sa.Table(
 )
 sa.Index("ix_llm_calls_at", llm_calls.c.at)
 sa.Index("ix_llm_calls_kind", llm_calls.c.kind)
+
+# The app's own secrets (`claude_token`), each value sealed by ffl/vault.py with its key as associated data.
+app_secrets = sa.Table(
+    "app_secrets", metadata,
+    sa.Column("key", sa.Text, primary_key=True),
+    sa.Column("value", sa.Text, nullable=False),
+    sa.Column("updated_at", sa.Text, nullable=False),
+)
 
 # The props trial (ffl/props.py, weeks 4-6): each pull's snapshot, and The Odds API's raw answers per event.
 props_snapshots = sa.Table(
@@ -772,11 +781,11 @@ news_stories = sa.Table(
     _season(),
     sa.Column("first_item_id", sa.Integer),
     sa.Column("first_at", sa.String, nullable=False),
-    sa.Column("updated_at", sa.String, nullable=False),  # when the app last moved it (a rev, a status): Jev's window
+    sa.Column("updated_at", sa.String, nullable=False),  # when the app last moved it (a rev, a status): the tagger's window
     sa.Column("latest_at", sa.String, nullable=False),   # its newest live source's published_at: the feed's order
     sa.Column("rev", sa.Integer, nullable=False, default=1),
     sa.Column("written_rev", sa.Integer, nullable=False, default=0),   # < rev = the words are stale or not yet written
-    # headline refreshes asked since the words were written (Jev: the headline no longer sums the story up). A refresh
+    # headline refreshes asked since the words were written (the tagger: the headline no longer sums the story up). A refresh
     # is rewritten but never bumps rev, so it never pushes
     sa.Column("reword", sa.Integer, nullable=False, default=0, server_default=sa.text("0")),
     sa.Column("headline", sa.String, nullable=False, default=""),
@@ -1534,6 +1543,26 @@ def add_llm_call(*, kind: str, model: str, league: str | None, player_id: int | 
             player_id=player_id, input=input, output=output, cost_usd=cost_usd, ok=ok))
 
 
+def get_secret(key: str) -> str | None:
+    """The opened value, None with no row; a row this ring cannot open raises vault.VaultError."""
+    from . import vault
+    with _read() as c:
+        v = c.execute(sa.select(app_secrets.c.value).where(app_secrets.c.key == key)).scalar()
+    return None if v is None else vault.open_(v, aad=key)
+
+
+def put_secret(key: str, plain: str) -> None:
+    from . import vault
+    row = {"key": key, "value": vault.seal(plain, aad=key), "updated_at": _iso(_utc_now())}
+    with _write() as c:
+        c.execute(_upsert(app_secrets, [row], ["key"], ["value", "updated_at"]))
+
+
+def del_secret(key: str) -> None:
+    with _write() as c:
+        c.execute(sa.delete(app_secrets).where(app_secrets.c.key == key))
+
+
 def llm_usage(days: int) -> list[dict]:
     """The last `days` UTC days of llm_calls (today included), one row per (day, kind): calls, input, output, cost_usd."""
     from datetime import datetime, timedelta, timezone
@@ -2220,7 +2249,7 @@ def set_story_status(story_id: int, status: str, at: str, note: str | None, seas
 
 
 def untagged_items(season: int = SEASON) -> list[dict]:
-    """Newest first: in a backlog (a first run, Jev down a while) today's news is tagged before last week's."""
+    """Newest first: in a backlog (a first run, the tagger down a while) today's news is tagged before last week's."""
     t = news_items_table
     q = (sa.select(t).where(t.c.season == season, t.c.tagged_at.is_(None), t.c.withdrawn_at.is_(None))
          .order_by(t.c.published_at.desc(), t.c.id.desc()))
@@ -2228,12 +2257,12 @@ def untagged_items(season: int = SEASON) -> list[dict]:
         return [_item_out(r) for r in c.execute(q)]
 
 
-def tag_item(item_id: int, player_ids: list[int], jev: dict | None, story_id: int | None, at: str,
+def tag_item(item_id: int, player_ids: list[int], answers: dict | None, story_id: int | None, at: str,
              season: int = SEASON) -> None:
     t = news_items_table
     with _write() as c:
         c.execute(sa.update(t).where(t.c.season == season, t.c.id == item_id)
-                  .values(player_ids=player_ids, jev=jev, story_id=story_id, tagged_at=at))
+                  .values(player_ids=player_ids, jev=answers, story_id=story_id, tagged_at=at))
         if story_id is not None:
             _relatest(c, story_id, season)
 
@@ -2333,14 +2362,14 @@ def put_story_players(story_id: int, rows: list[dict], season: int = SEASON) -> 
 
 
 def ask_reword(story_id: int, season: int = SEASON) -> None:
-    """Jev found the written headline stale: the story is written again, at the same rev (so it does not push)."""
+    """The tagger found the written headline stale: the story is written again, at the same rev (so it does not push)."""
     t = news_stories
     with _write() as c:
         c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id).values(reword=t.c.reword + 1))
 
 
 def unwritten_stories(limit: int | None = None, season: int = SEASON) -> list[dict]:
-    """Stories whose rev moved past their words, or whose headline Jev found stale; the newest news first, so the
+    """Stories whose rev moved past their words, or whose headline the tagger found stale; the newest news first, so the
     freshest is written (and can push) before a backlog's."""
     t = news_stories
     q = (sa.select(t).where(t.c.season == season, sa.or_(t.c.written_rev < t.c.rev, t.c.reword > 0))
@@ -2504,39 +2533,108 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def create_user(email: str, name: str | None) -> int:
+def create_user(email: str | None, name: str | None) -> int:
     with _write() as c:
         return c.execute(sa.insert(users).values(email=email, name=name, created_at=_iso(_utc_now()))
                          .returning(users.c.id)).scalar_one()
 
 
-def _user_for_email(c, email: str, name: str | None) -> int:
-    """Inside a write: the user with this email in any case, created when absent. A concurrent creator waits on the
-    unique index and then finds the other's row, so one person is never two users."""
-    c.execute(pg_insert(users).values(email=email, name=name, created_at=_iso(_utc_now()))
-              .on_conflict_do_nothing(index_elements=[sa.func.lower(users.c.email)]))
-    return c.execute(sa.select(users.c.id).where(sa.func.lower(users.c.email) == email.lower())).scalar_one()
+@contextmanager
+def _taken():
+    """A unique key (username or email, any case) already held is `Taken`."""
+    try:
+        yield
+    except IntegrityError as e:
+        raise Taken(str(e.orig)) from e
 
 
-def ensure_user(email: str, name: str | None) -> int:
-    """The user with this email (any case), created when absent."""
+def create_invite(email: str | None, name: str | None) -> int:
+    """A user with no username or password yet: they set both through a setup link."""
+    with _taken():
+        return create_user(email, name)
+
+
+def user_by_username(username: str) -> dict | None:
+    with _read() as c:
+        r = c.execute(sa.select(users).where(sa.func.lower(users.c.username) == username.lower())).first()
+    return dict(r._mapping) if r else None
+
+
+def set_password(user_id: int, password_hash: str) -> None:
     with _write() as c:
-        return _user_for_email(c, email, name)
+        c.execute(sa.update(users).where(users.c.id == user_id).values(password_hash=password_hash))
 
 
-def sign_in_user(provider: str, subject: str, email: str, name: str | None) -> int:
-    """The user (provider, subject) signs in as, in one transaction: a known identity keeps its user (never moved);
-    else the user with this email (any case, created when absent) gains the identity. Racing first sign-ins of one
-    person all answer the same user, and a user never commits without the identity that made them."""
-    known = sa.select(identities.c.user_id).where(identities.c.provider == provider, identities.c.subject == subject)
+def set_username(user_id: int, username: str) -> None:
+    with _taken(), _write() as c:
+        c.execute(sa.update(users).where(users.c.id == user_id).values(username=username))
+
+
+def needs_setup() -> bool:
+    """No user can sign in yet: nobody has a password."""
+    with _read() as c:
+        return not c.execute(sa.select(sa.exists().where(users.c.password_hash.isnot(None)))).scalar_one()
+
+
+def claim_first_user(username: str, password_hash: str) -> int | None:
+    """The first sign-up, in one write: the oldest user (made when there is none) gets the username, password and
+    admin flag, only while nobody has a password; None once someone has. The advisory lock serialises racing claims."""
+    with _taken(), _write() as c:
+        c.execute(sa.text("SELECT pg_advisory_xact_lock(7351)"))
+        uid = c.execute(sa.text(
+            "UPDATE users SET username = :u, password_hash = :h, is_admin = true "
+            "WHERE id = (SELECT min(id) FROM users) "
+            "AND NOT EXISTS (SELECT 1 FROM users WHERE password_hash IS NOT NULL) RETURNING id"),
+            {"u": username, "h": password_hash}).scalar()
+        if uid is None and not c.execute(sa.select(sa.func.count()).select_from(users)).scalar_one():
+            uid = c.execute(sa.insert(users).values(username=username, password_hash=password_hash, is_admin=True,
+                                                    created_at=_iso(_utc_now())).returning(users.c.id)).scalar_one()
+        return uid
+
+
+SETUP_DAYS = 7
+
+
+def issue_setup_token(user_id: int) -> str:
+    """A setup link's raw token, live for 7 days; only its hash is stored, and a new one replaces the old."""
+    import secrets
+    from datetime import timedelta
+    token = secrets.token_urlsafe(32)
     with _write() as c:
-        if (uid := c.execute(known).scalar()) is not None:
-            return uid
-        uid = _user_for_email(c, email, name)
-        c.execute(pg_insert(identities).values(provider=provider, subject=subject, user_id=uid, email=email,
-                                               created_at=_iso(_utc_now()))
-                  .on_conflict_do_nothing(index_elements=["provider", "subject"]))
-        return c.execute(known).scalar_one()
+        c.execute(sa.update(users).where(users.c.id == user_id).values(
+            setup_token_hash=_token_hash(token), setup_expires=_iso(_utc_now() + timedelta(days=SETUP_DAYS))))
+    return token
+
+
+def user_by_setup_token(raw: str) -> dict | None:
+    """The user a live setup token belongs to; None when unknown or expired."""
+    with _read() as c:
+        r = c.execute(sa.select(users).where(users.c.setup_token_hash == _token_hash(raw),
+                                             users.c.setup_expires > _iso(_utc_now()))).first()
+    return dict(r._mapping) if r else None
+
+
+def clear_setup_token(user_id: int) -> None:
+    with _write() as c:
+        c.execute(sa.update(users).where(users.c.id == user_id).values(setup_token_hash=None, setup_expires=None))
+
+
+def set_admin(user_id: int, flag: bool) -> None:
+    with _write() as c:
+        c.execute(sa.update(users).where(users.c.id == user_id).values(is_admin=flag))
+
+
+def admin_count() -> int:
+    with _read() as c:
+        return c.execute(sa.select(sa.func.count()).select_from(users).where(users.c.is_admin)).scalar_one()
+
+
+def list_users() -> list[dict]:
+    with _read() as c:
+        rows = c.execute(sa.select(users.c.id, users.c.username, users.c.email, users.c.name, users.c.is_admin,
+                                   users.c.password_hash.isnot(None).label("has_password"), users.c.created_at)
+                         .order_by(users.c.id)).all()
+    return [dict(r._mapping) for r in rows]
 
 
 def user_by_email(email: str) -> dict | None:
@@ -2549,20 +2647,6 @@ def user_row(user_id: int) -> dict | None:
     with _read() as c:
         r = c.execute(sa.select(users).where(users.c.id == user_id)).first()
     return dict(r._mapping) if r else None
-
-
-def identity_user(provider: str, subject: str) -> int | None:
-    with _read() as c:
-        return c.execute(sa.select(identities.c.user_id).where(
-            identities.c.provider == provider, identities.c.subject == subject)).scalar()
-
-
-def link_identity(user_id: int, provider: str, subject: str, email: str) -> None:
-    """Map (provider, subject) to the user; a repeat is a no-op (an existing mapping is never moved)."""
-    row = {"provider": provider, "subject": subject, "user_id": user_id, "email": email,
-           "created_at": _iso(_utc_now())}
-    with _write() as c:
-        c.execute(_upsert(identities, [row], ["provider", "subject"], None))
 
 
 def create_session(user_id: int, ua: str) -> str:
@@ -2644,14 +2728,6 @@ def revoke_sessions(user_id: int, keep: str | None = None) -> int:
         q = q.where(sessions.c.token_hash != _token_hash(keep))
     with _write() as c:
         return c.execute(q).rowcount
-
-
-def user_identities(user_id: int) -> list[dict]:
-    """The sign-ins mapped to the user, oldest first: provider, the provider's email, when linked."""
-    with _read() as c:
-        rows = c.execute(sa.select(identities.c.provider, identities.c.email, identities.c.created_at)
-                         .where(identities.c.user_id == user_id).order_by(identities.c.created_at)).all()
-    return [dict(r._mapping) for r in rows]
 
 
 def _cred_aad(user_id: int) -> str:
@@ -2779,6 +2855,11 @@ def reseal_all() -> int:
                 c.execute(sa.update(t).where(t.c.endpoint == endpoint)
                           .values(keys=vault.seal(plain, aad=_push_aad(endpoint))))
                 n += 1
+        for key, value in c.execute(sa.select(app_secrets.c.key, app_secrets.c.value)).all():
+            if vault.stale(value):
+                c.execute(sa.update(app_secrets).where(app_secrets.c.key == key)
+                          .values(value=vault.seal(vault.open_(value, aad=key), aad=key)))
+                n += 1
     return n
 
 
@@ -2874,7 +2955,7 @@ def revoke_devices(user_id: int) -> int:
 
 def delete_user(user_id: int) -> None:
     """The account and every personal row, in one transaction (ffl-soc.6.2.4). The users row's CASCADEs take the
-    identities, sessions, memberships (and with them member_state, member_caps) and every `_user()` table; page_cache
+    sessions, memberships (and with them member_state, member_caps) and every `_user()` table; page_cache
     has no FK, so its rows go by hand. A team's rows (claim plans, seats, team_state) are shared with its co-managers:
     they go only for a team nobody else is on. The leagues themselves stay, memberless or not."""
     team_tables = (claim_plans, seats, team_state)
@@ -2910,7 +2991,7 @@ def main(argv: list[str]) -> int:
     if cmd == "counts":
         from . import db_copy
         return db_copy.counts_main(argv[1:])
-    print("usage: python -m ffl.db import | backup [dest] | restore <src> (--url URL | --url-from-env) [--to-rds] "
+    print("usage: python -m ffl.db import | backup [dest] | restore <src> --url URL [--yes] "
           "| pgcopy <sqlite file> | counts A [B]")
     return 2
 

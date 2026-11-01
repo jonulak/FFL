@@ -327,14 +327,6 @@ def youtube_transcript() -> str:
     raise RuntimeError(f"no captions on {tried} (none refused)")
 
 
-def jev() -> str:
-    from ffl.newsdesk import jev
-    a = jev.ask({"title": "Starter returns to practice", "text": "The running back was a full participant Wednesday.",
-                 "club": None},
-                {"about": {"type": "noul", "instructions": "This text is about a football player's practice status."}})
-    return f"answered ({len(a)}), usage {a.usage or {}}"
-
-
 def claude_p() -> str:
     from ffl import claude_cli
     out = claude_cli.run("Reply with exactly: ok", model="haiku",
@@ -380,7 +372,7 @@ def checks() -> list[Check]:
 
 # run after the rest: they read what the feeds above left in _MEMO, or are slow
 LATE: list[Check] = [("youtube-data-api", youtube_api), ("youtube-transcript", youtube_transcript),
-                     ("jev", jev), ("claude-p", claude_p)]
+                     ("claude-p", claude_p)]
 
 
 def main(argv: list[str] | None = None) -> int:

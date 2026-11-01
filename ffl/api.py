@@ -23,8 +23,8 @@ import itertools
 import json
 import logging
 import os
-import secrets
 import threading
+import subprocess
 import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -36,13 +36,12 @@ from typing import Callable, Literal
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import auth, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
+from . import auth, claude_cli, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -557,13 +556,6 @@ def warm(ref: LeagueRef) -> None:
 
 
 app = FastAPI(title="FFL season API", lifespan=lifespan)
-# A provider's round trip (authlib's state, the saved `next`) in a signed cookie. Added first, so it sits inside
-# AuthMiddleware, which decides before anything else. Unset FFL_AUTH_SECRET: a per-process random key keeps the app
-# starting (dev, tests) while /auth/<provider>/* answer 503 (auth.enabled reads the env per request). Lax:
-# Apple's form POST never carries it, so auth.apple_callback_post hands on to the GET callback, which does.
-app.add_middleware(SessionMiddleware, secret_key=auth.oidc_secret() or secrets.token_urlsafe(32),
-                   session_cookie=auth.OIDC_COOKIE, max_age=auth.OIDC_MAX_AGE, same_site="lax",
-                   https_only=auth.cookie_secure())
 app.add_middleware(auth.AuthMiddleware)  # every route needs a session or the job token (auth.decide)
 # The browser extension (ffl-soc.6.3.2) calls its three public routes from its own origin with a bearer, never a
 # cookie. Outermost, so a preflight is answered before AuthMiddleware: extension origins only, no credentials, so no
@@ -583,7 +575,7 @@ def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: L
 
 @app.api_route("/health", methods=["GET", "HEAD"])  # HEAD for uptime checks
 def health():
-    return {"ok": True}
+    return {"ok": True, "app": "ffl"}
 
 
 @app.get("/leagues")
@@ -1775,7 +1767,7 @@ def card_outlook(player_id: int, week: int = Query(...), user: dict = Depends(au
 
 @app.post("/outlook/refresh", status_code=202)
 def outlook_refresh():
-    """The hourly run (ffl-outlook.timer, the job token only: auth.JOB_ONLY): every joined league's players in one run, each league's read when the
+    """The hourly run (the jobs container's cron, deploy/crontab; the job token only: auth.JOB_ONLY): every joined league's players in one run, each league's read when the
     run reaches it (a failure is that league's line in last()["errors"]). The only outlook write."""
     jobs = [lambda r=r: espn_season.outlook_cards(ref=r) for r in leagues.joined()]
     try:
@@ -2071,16 +2063,56 @@ def news_status():
     return {"sources": [{k: s[k] for k in cols} for s in db.news_sources(active_only=False)],
             "last_run": db.get_state("news_last_run"),
             # {UTC date: {input, output, calls}}, the last 30 days (ffl/newsdesk/usage.py); the writer's is /llm/usage
-            "jev_usage": db.get_state(news_usage.JEV, {}) or {}}
+            "tag_usage": db.get_state(news_usage.TAG, {}) or {}}
 
 
 @app.get("/llm/usage")
-def llm_usage(days: int = Query(7, ge=1, le=366), user: dict = Depends(auth.current_user)):
+def llm_usage(days: int = Query(7, ge=1, le=366), user: dict = Depends(auth.require_admin)):
     """What `claude -p` cost over the last `days` UTC days (today included): one row per (day, kind) off llm_calls.
-    The app's own spend: operators only (FFL_OPERATOR_EMAILS), 403 `not_operator` for anyone else."""
-    if (user.get("email") or "").lower() not in {e.lower() for e in notify.operator_emails()}:
-        raise HTTPException(403, {"error": "not_operator", "message": "Only the app's operators see its LLM cost."})
+    The app's own spend: admins only, 403 `not_admin` for anyone else."""
     return {"days": days, "rows": db.llm_usage(days)}
+
+
+class TokenIn(BaseModel):
+    token: str
+
+
+def ping(token: str) -> None:
+    """One `claude -p` call under `token` alone; its failure (RuntimeError) says why the token does not work."""
+    claude_cli.run("Reply with ok.", model="haiku",
+                   schema={"type": "object", "properties": {"ok": {"type": "string"}}, "required": ["ok"]},
+                   tools="", cwd=claude_cli.neutral_cwd("ping"), timeout=60, kind="ping", token=token)
+
+
+@app.get("/llm/token")
+def llm_token(user: dict = Depends(auth.require_admin)):
+    """Whether the CLI has a login, and where from (the stored row or the environment); never the value."""
+    if claude_cli._stored_token():
+        return {"set": True, "source": "db"}
+    env = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
+    return {"set": bool(env), "source": "env" if env else None}
+
+
+@app.post("/llm/token")
+def llm_token_set(body: TokenIn, user: dict = Depends(auth.require_admin)):
+    """Test the token with one ping, then store it sealed; a failed ping stores nothing (502 with the CLI's reason)."""
+    token = body.token.strip()
+    if not token:  # blank would fall through to the stored/env token in the ping, and store ""
+        return JSONResponse({"error": "no_token"}, status_code=422)
+    try:
+        ping(token)
+    except (RuntimeError, subprocess.TimeoutExpired, OSError) as e:  # timeout and exec failure are not RuntimeErrors
+        return JSONResponse({"error": "claude_failed", "message": str(e).replace(token, "…")}, status_code=502)
+    db.put_secret(claude_cli.TOKEN_KEY, token)
+    claude_cli.forget_token()
+    return {"set": True}
+
+
+@app.post("/llm/token/delete")
+def llm_token_delete(user: dict = Depends(auth.require_admin)):
+    db.del_secret(claude_cli.TOKEN_KEY)
+    claude_cli.forget_token()
+    return {"set": False}
 
 
 def correction_pass(*, ref: LeagueRef) -> dict:

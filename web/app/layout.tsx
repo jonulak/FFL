@@ -13,7 +13,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { WatchProvider } from "@/components/watch-context";
 import { headers } from "next/headers";
 import { apiGet, type DecisionPrefs, type LeagueEntry, type WatchIds } from "@/lib/api";
-import { PATH_HEADER, PRIVACY_PATH, SIGNIN_PATH } from "@/lib/auth";
+import { isSetupPath, PATH_HEADER, PRIVACY_PATH, SIGNIN_PATH } from "@/lib/auth";
 import { LEAGUE_ARRIVE, LEAGUE_HEADER, WELCOME_PATH } from "@/lib/league";
 import { DEFAULT_DECISION_PREFS } from "@/lib/decisions";
 import type { EspnStatus } from "@/lib/espn";
@@ -39,9 +39,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // The sign-in page (ffl-soc.6.2.1) stands outside the app: no nav, no providers, none of the calls below, which a
   // signed-out visitor's session would only have refused. One check here rather than a route group moving every page.
   // So does the welcome page of a user with no league (ffl-soc.6.2.2): a nav with no league has nothing to open, and
-  // the privacy policy, which anyone may read signed out.
+  // the privacy policy, which anyone may read signed out, and first-run setup and the setup links.
   const bare = (h.get(PATH_HEADER) ?? "").split("?", 1)[0];
-  if (bare === SIGNIN_PATH || bare === WELCOME_PATH || bare === PRIVACY_PATH) {
+  if (bare === SIGNIN_PATH || bare === WELCOME_PATH || bare === PRIVACY_PATH || isSetupPath(bare)) {
     return (
       <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${barlow.variable}`} suppressHydrationWarning>
         <body className="min-h-dvh bg-background text-foreground antialiased">{children}</body>

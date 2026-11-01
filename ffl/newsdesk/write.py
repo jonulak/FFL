@@ -1,11 +1,11 @@
-"""Haiku writes each story's headline, overview and a line per player it moves (▲/▼) explaining Jev's arrow;
+"""Haiku writes each story's headline, overview and a line per player it moves (▲/▼) explaining the tagger's arrow;
 a player it only names (●) gets no line.
 
-Jev decides the effect (▲ up / ▼ down / ● none); Haiku only words it, from the sources, and says when
+The tagger decides the effect (▲ up / ▼ down / ● none); Haiku only words it, from the sources, and says when
 the sources do not support the arrow (`disagree`, stored as the player's flag). A story is a situation that
 develops (limps off, doubtful, out, on IR), so Haiku reads every source in full, newest first, and the headline
 says where it stands now. The story is written from the rev it was read at: one that moved on meanwhile is
-dropped at the write and read again next run. A headline refresh (Jev found the written headline stale, the rev
+dropped at the write and read again next run. A headline refresh (the tagger found the written headline stale, the rev
 unmoved) is written the same way but kept out of `written_ids`, which the pushes are queued from.
 A raised batch stops the run: the subscription's limit is the likely cause, and the rest would fail too.
 """
@@ -140,7 +140,7 @@ def _put(s: dict, w: dict | None) -> bool:
 
 def run(index: Index, run_cli=claude_cli.run) -> dict:
     """`written_ids`: the (story, rev) written for a new rev, which may push; `refreshed`: the stories written again at
-    the same rev only because Jev found the headline stale, which never do. `usage` is what Haiku read and wrote this run (each
+    the same rev only because the tagger found the headline stale, which never do. `usage` is what Haiku read and wrote this run (each
     call's cost is its llm_calls row)."""
     out = {"written": 0, "written_ids": [], "refreshed": 0, "missing": 0, "failed": False, "error": None,
            "usage": usage.zero()}

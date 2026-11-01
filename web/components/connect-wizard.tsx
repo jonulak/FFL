@@ -1,26 +1,27 @@
 "use client";
 
 import { Check, Copy, ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Label } from "@/components/ui/label";
+import type { LlmToken } from "@/lib/api";
+import { wizardStart } from "@/lib/llm";
 import { arrivedAccount, canPaste, newRefusal, pickable, resentAccount, type EspnStatus, type LeagueChoice, type LeagueChoices, type PickResult,
          type Platform } from "@/lib/espn";
 import { PHONE_ACTION } from "./claims-submit";
-import { findExtension, homeScreenApp, linkExtension } from "@/lib/extension";
-import { ClientError } from "@/app/api-client";
 import { espnGet, espnPost, TeamMark, why } from "./espn-api";
 import { LeagueProblemMark } from "./league-problem";
+import { LlmSettings } from "./llm-settings";
 import { Spinner } from "./motion";
 
 // Where each platform installs the extension, when the store listing exists (the box's env; none: no button).
 export type InstallLinks = { testflight: string | null; chrome: string | null; mac: string | null };
 
-type Step = "connect" | "leagues" | "setup";
+type Step = "claude" | "connect" | "leagues" | "setup";
 const STEPS: [Step, string][] = [["connect", "Connect"], ["leagues", "Leagues"], ["setup", "Set up"]];
 const POLL_MS = 2000;
 
@@ -28,26 +29,30 @@ const POLL_MS = 2000;
 // computer), pick the leagues that login is in, set them up one at a time, then open one. A first run (no league yet)
 // skips Connect when a working login is already stored; Add an ESPN login (`add`, from Settings) waits for a login
 // that wasn't there when it opened. One login at a time: Settings manages the leagues of the others.
-export function ConnectWizard({ platform, links, initial, add, hasLeagues, startPaste }: {
+// An admin on a server with no Claude token (`claude`, fetched for admins only) is asked for one first, and can skip it.
+export function ConnectWizard({ platform, links, initial, add, hasLeagues, startPaste, claude }: {
   platform: Platform; links: InstallLinks; initial: EspnStatus; add: boolean; hasLeagues: boolean; startPaste: boolean;
+  claude: LlmToken | null;
 }) {
   const firstRun = !add;
   const ready = firstRun ? arrivedAccount(initial, [], true) : null;
-  const [step, setStep] = useState<Step>(ready ? "leagues" : "connect");
+  const [step, setStep] = useState<Step>(wizardStart(claude, ready !== null));
+  const steps: [Step, string][] = claude && !claude.set ? [["claude", "Claude"], ...STEPS] : STEPS;
   const [account, setAccount] = useState<number | null>(ready?.id ?? null);
   const [picked, setPicked] = useState<{ leagues: LeagueChoice[]; def: string | null } | null>(null);
 
   return (
     <div className="flex flex-col gap-6">
       <nav aria-label="Setup steps" className="flex border-b border-foreground/12">
-        {STEPS.map(([s, label], i) => (
+        {steps.map(([s, label], i) => (
           <span key={s} aria-current={s === step ? "step" : undefined}
-                className={`font-display px-3 pb-2.5 text-[0.8125rem] font-semibold uppercase tracking-[0.12em] first:pl-0 ${
+                className={`font-display px-3 max-sm:px-2.5 pb-2.5 text-[0.8125rem] font-semibold uppercase tracking-[0.12em] first:pl-0 ${
                   s === step ? "text-foreground shadow-[inset_0_-2px_0_var(--foreground)]" : "text-foreground/45"}`}>
             {i + 1} {label}
           </span>
         ))}
       </nav>
+      {step === "claude" && claude && <ClaudeStep initial={claude} onDone={() => setStep(ready ? "leagues" : "connect")} />}
       {step === "connect" && (
         <ConnectStep platform={platform} links={links} initial={initial} firstRun={firstRun} startPaste={startPaste}
                      onArrived={(id) => { setAccount(id); setStep("leagues"); }} />
@@ -95,39 +100,56 @@ function InstallButton({ href, children }: { href: string | null; children: stri
   );
 }
 
-// Installing and turning the extension on, per browser: the last step is coming back here, where the page finds it.
+// Installing the extension, per browser, then connecting from its icon on this page: the extension reads which FFL
+// this tab is and who is signed in, and asks the browser to allow this site when Connect is clicked.
 function stepsFor(platform: Platform, links: InstallLinks, homeScreen: boolean): React.ReactNode[] {
   if (platform === "ios") {
     return [
       <>Install the FFL app<InstallButton href={links.testflight}>Open TestFlight</InstallButton></>,
       <>Open it and turn the extension on <span className="font-normal text-muted-foreground">(it walks you through Settings)</span></>,
       ...(homeScreen ? ["Open this page in Safari"] : []),
-      // Safari grants an extension no site at install: each is allowed by hand, and until this one is the extension
-      // can't answer this page
-      <>Let it on this site: tap the page menu left of the address bar, then <b>FFL</b> › <b>Always Allow on This Website</b></>,
-      "Reload this page",
+      <>On this page, tap the page menu left of the address bar, then <b>FFL</b>, then <b>Connect</b></>,
     ];
   }
   if (platform === "mac-safari") {
     return [
       <>Install the FFL app for Mac<InstallButton href={links.mac}>Get the Mac app</InstallButton></>,
       "Open it and turn the extension on in Safari Settings › Extensions",
-      <>Let it on this site: click the FFL icon in Safari&apos;s toolbar, then <b>Always Allow on This Website</b></>,
-      "Reload this page",
+      <>On this page, click the FFL icon in Safari&apos;s toolbar, then <b>Connect</b></>,
     ];
   }
   return [
     <>Add FFL to Chrome<InstallButton href={links.chrome}>Chrome Web Store</InstallButton></>,
-    "Reload this page",
+    <>On this page, click the FFL icon in Chrome&apos;s toolbar <span className="font-normal text-muted-foreground">(under the puzzle piece until it&apos;s pinned)</span>, then <b>Connect</b></>,
   ];
+}
+
+const noSubscribe = () => () => {};
+
+// FFL opened from the Home Screen: Safari's extensions don't run here, and its cookies are its own.
+function homeScreenApp(): boolean {
+  return window.matchMedia?.("(display-mode: standalone)").matches
+    || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
+// --- 0 Claude (an admin, on a server with no token) ---
+
+function ClaudeStep({ initial, onDone }: { initial: LlmToken; onDone: () => void }) {
+  return (
+    <section className="space-y-5">
+      <Heading title="Connect Claude">
+        FFL writes the Roster outlooks and the news write-ups with Claude. Without a token they don&apos;t run; everything
+        else does. You can add it later in Settings.
+      </Heading>
+      <LlmSettings initial={initial} onSaved={() => window.setTimeout(onDone, 700)} />
+      <Button variant="ghost" onClick={onDone} className={PHONE_ACTION}>Skip for now</Button>
+    </section>
+  );
 }
 
 const ESPN_FANTASY = "https://fantasy.espn.com/football/";
 
 // --- 1 Connect ---
-
-// The extension in this browser: still asking, not answering (not installed, off, or this site not allowed), or on.
-type Ext = "checking" | "absent" | "present";
 
 function ConnectStep({ platform, links, initial, firstRun, startPaste, onArrived }: {
   platform: Platform; links: InstallLinks; initial: EspnStatus; firstRun: boolean; startPaste: boolean;
@@ -136,9 +158,9 @@ function ConnectStep({ platform, links, initial, firstRun, startPaste, onArrived
   const before = useRef(initial.accounts.map((a) => a.id));
   const stamps = useRef(initial.accounts.map(({ id, updated_at }) => ({ id, updated_at })));
   const [resent, setResent] = useState(false);   // adding: the login that arrived was one already connected
-  const [ext, setExt] = useState<Ext>("checking");
-  const [homeScreen, setHomeScreen] = useState(false);
-  const [linked, setLinked] = useState(false);   // this browser linked from this page (or by a typed code)
+  // false on the server, the real answer after hydration (no window there)
+  const homeScreen = useSyncExternalStore(noSubscribe, homeScreenApp, () => false);
+  const [linked, setLinked] = useState(false);   // this browser linked by a typed code
   const [useCode, setUseCode] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -154,19 +176,6 @@ function ConnectStep({ platform, links, initial, firstRun, startPaste, onArrived
     setArrived(true);
     window.setTimeout(() => onArrived(id), 700);   // the tick shows before the page moves on
   }, [onArrived]);
-
-  // Is the extension on here, with this site allowed? Its content script answers within a moment; the Home Screen
-  // app never runs it (Safari's extensions stay in Safari).
-  useEffect(() => {
-    let alive = true;
-    const home = homeScreenApp();
-    void findExtension().then((found) => {
-      if (!alive) return;
-      setHomeScreen(home);
-      setExt(found ? "present" : "absent");
-    });
-    return () => { alive = false; };
-  }, []);
 
   // A linked extension sends the login on its own (just now, or linked before signing in to another login): watch the
   // connection while the page is in view.
@@ -187,19 +196,6 @@ function ConnectStep({ platform, links, initial, firstRun, startPaste, onArrived
   }, [firstRun, land, initial]);
 
   const pair = async (c: string) => { await espnPost<{ ok: true; label: string }>("/espn/pair/confirm", { code: c }); };
-
-  async function linkHere() {
-    if (busy) return;
-    setBusy(true); setError(null);
-    try {
-      await linkExtension(pair);
-      setLinked(true);
-    } catch (err) {
-      setError(err instanceof Error && !(err instanceof ClientError) ? err.message : why(err));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function confirm(e: React.FormEvent) {
     e.preventDefault();
@@ -229,7 +225,7 @@ function ConnectStep({ platform, links, initial, firstRun, startPaste, onArrived
         <Spinner on={busy} />Connect
       </Button>
       <p role="status" className={`text-center text-xs leading-4 ${error ? "text-destructive" : "text-muted-foreground"}`}>
-        {error ?? <>In the extension: <b className="font-medium">Connect to FFL</b>, then copy its code here. Codes last 10 minutes.</>}
+        {error ?? <>In the extension: <b className="font-medium">Pair with a code instead</b>, then copy its code here. Codes last 10 minutes.</>}
       </p>
     </form>
   );
@@ -262,20 +258,6 @@ function ConnectStep({ platform, links, initial, firstRun, startPaste, onArrived
     );
   } else if (useCode) {
     card = codeForm;
-  } else if (ext === "checking") {
-    card = <p className="flex items-center gap-2.5 text-sm text-muted-foreground"><Spinner on gap="" />Looking for the FFL extension…</p>;
-  } else if (ext === "present") {
-    card = (
-      <div className="space-y-3">
-        <Line done>The FFL extension is on in this browser</Line>
-        <Button onClick={linkHere} disabled={busy} className={`w-full ${PHONE_ACTION}`}>
-          <Spinner on={busy} />Connect this browser
-        </Button>
-        <p role="status" className={`text-center text-xs leading-4 ${error ? "text-destructive" : "text-muted-foreground"}`}>
-          {error ?? "Links it to the FFL account you're signed in to here."}
-        </p>
-      </div>
-    );
   } else if (homeScreen) {
     card = (
       <div className="space-y-3 text-sm">
@@ -289,13 +271,18 @@ function ConnectStep({ platform, links, initial, firstRun, startPaste, onArrived
       </div>
     );
   } else {
+    // the extension pairs from its own popup on this page; the poll above moves on when the login arrives
     card = (
       <div className="space-y-3 text-sm">
-        <p className="font-medium">The FFL extension isn&apos;t on in this browser yet</p>
+        <ul aria-live="polite"><Line done={false}>Waiting for the extension…</Line></ul>
         <p className="leading-relaxed text-muted-foreground">
-          Once it&apos;s installed and on, with this site allowed, reload this page to connect with one tap.
+          Click the FFL icon in your browser&apos;s toolbar while this page is open, then <b className="font-medium text-foreground">Connect</b>.
+          Then sign in to ESPN in this browser: this page moves on when your login arrives.
         </p>
-        <Button variant="outline" onClick={() => window.location.reload()} className={`w-full ${PHONE_ACTION}`}>Reload</Button>
+        <Button variant="outline" className={`w-full ${PHONE_ACTION}`} render={<a href={ESPN_FANTASY} target="_blank" rel="noreferrer" />}
+                nativeButton={false}>
+          Open ESPN Fantasy<ExternalLink aria-hidden />
+        </Button>
         {codeLink("Use a code instead")}
       </div>
     );
@@ -310,13 +297,13 @@ function ConnectStep({ platform, links, initial, firstRun, startPaste, onArrived
           {other
             ? "FFL reads your leagues with your ESPN login. The FFL extension sends it here: it runs in Safari on iPhone, iPad and Mac, and in Chrome on a computer. Open this page there."
             : firstRun
-              ? "FFL reads your leagues with your ESPN login. Connect the FFL extension to this browser, then sign in to ESPN: the extension sends your login here."
+              ? "FFL reads your leagues with your ESPN login. Connect the FFL extension from its icon on this page, then sign in to ESPN: the extension sends your login here."
               : initial.devices > 0
                 ? "Sign in to ESPN with the other login where your FFL extension is on: it sends the new login here by itself."
-                : "Connect the FFL extension to this browser, then sign in to ESPN with the other login."}
+                : "Connect the FFL extension from its icon on this page, then sign in to ESPN with the other login."}
         </Heading>
 
-        {ext === "absent" && !linked && !other && <StepList steps={stepsFor(platform, links, homeScreen)} />}
+        {!linked && !other && <StepList steps={stepsFor(platform, links, homeScreen)} />}
       </div>
 
       {!other && (

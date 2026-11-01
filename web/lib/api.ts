@@ -14,15 +14,18 @@ export const API_TIMEOUT_MS = 20_000;
 
 // ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
 export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; espn: boolean; quiet: [string, string] };
+// GET /llm/token (admins): whether the CLI has a login and where from (the stored row or the server's environment); never the value.
+export type LlmToken = { set: boolean; source: "db" | "env" | null };
 // GET /llm/usage: what `claude -p` cost, one row per (UTC day, kind) over the last `days` days.
 export type LlmUsage = { days: number; rows: { day: string; kind: string; calls: number; input: number; output: number; cost_usd: number }[] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
 
 // ffl/auth.py GET /account: Settings' Account section (ffl-soc.6.2.4)
 export type AccountSession = { id: string; created_at: string; last_seen: string; ua: string; current: boolean };
-export type Account = {
-  email: string; name: string | null; sessions: AccountSession[];
-  identities: { provider: string; email: string; created_at: string }[]; linkable: string[];
+export type Account = { username: string | null; email: string | null; name: string | null; is_admin: boolean; sessions: AccountSession[] };
+// GET /admin/users (admins only): Settings › Users. has_password false: invited, the setup link not used yet.
+export type AdminUser = {
+  id: number; username: string | null; email: string | null; name: string | null; is_admin: boolean; has_password: boolean; created_at: string;
 };
 
 export class ApiError extends Error {
@@ -322,7 +325,7 @@ export type PlayerTx = {
   round?: number; pick?: number; overall?: number;
 };
 
-// The news desk's feed (GET /news, ffl/newsdesk/feed.py). A row is one player a story moves: Jev's effect and kind,
+// The news desk's feed (GET /news, ffl/newsdesk/feed.py). A row is one player a story moves: the tagger's effect and kind,
 // Haiku's line (`reason`, null until written) and `flag` when Haiku doubts the arrow; `owner` is who holds him now
 // (read at request time, null for a free agent and when the owners read failed). Rows come ▲/▼ first, then ●.
 export type NewsEffect = "up" | "down" | "none";

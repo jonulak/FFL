@@ -1,15 +1,38 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { needsSignIn, PATH_HEADER, sessionCookie, signInHref } from "@/lib/auth";
+import { API_BASE } from "@/lib/api";
+import { checksSetup, needsSignIn, PATH_HEADER, sessionCookie, SETUP_PATH, signInHref } from "@/lib/auth";
 import { decide, LEAGUE_COOKIE, LEAGUE_HEADER, leagueOf } from "@/lib/league";
+
+// Whether the server still has no login (GET /setup/status), asked at most every 10 s rather than on every page request.
+// Only "set up" is cached: a cached "needed" would outlive the setup and bounce /setup (now "/") and "/" into each
+// other for up to 10 s. Unreachable or refused: no (the sign-in page then shows the error), not cached.
+let setUpAt = 0;
+async function setupNeeded(): Promise<boolean> {
+  if (Date.now() - setUpAt < 10_000) return false;
+  try {
+    const r = await fetch(`${API_BASE}/setup/status`, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+    if (!r.ok) return false;
+    if ((await r.json()).needs_setup === true) return true;
+    setUpAt = Date.now();
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 // The open league (ffl-soc.4.13, lib/league.ts): every page request, the soft navigations' RSC requests included,
 // carries ?league= into the x-ffl-league request header that lib/api.ts's server calls read; the start page opens
 // the last league used, and a league page remembers its league in a cookie (a year: the Home Screen app's memory).
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  const signedIn = request.cookies.has(sessionCookie());
+  // A server nobody has set up yet: a signed-out visitor, or /signin with a stale cookie, goes to first-run setup.
+  if (checksSetup(pathname, signedIn) && await setupNeeded()) {
+    return NextResponse.redirect(new URL(SETUP_PATH, request.url));
+  }
   // Signed out first (ffl-soc.6.2.1, lib/auth.ts): any page request without the session cookie, a soft navigation's
   // too, goes to sign in and comes back here after; the league cookie is left as it was. Presence only: the API checks it.
-  if (needsSignIn(pathname, request.cookies.has(sessionCookie()))) {
+  if (needsSignIn(pathname, signedIn)) {
     return NextResponse.redirect(new URL(signInHref(pathname, search), request.url));
   }
   // a full page load: the browser says so (Sec-Fetch-Dest); one that does not, by asking for HTML. A soft navigation
