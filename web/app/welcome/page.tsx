@@ -4,7 +4,7 @@ import { AccountSettings, DeleteAccount } from "@/components/account-settings";
 import { ConnectWizard, type InstallLinks } from "@/components/connect-wizard";
 import { SignOutButton } from "@/components/sign-out-button";
 import { Toaster } from "@/components/ui/sonner";
-import { apiGet, type Account, type LeagueEntry } from "@/lib/api";
+import { apiGet, type Account, type LeagueEntry, type LlmToken } from "@/lib/api";
 import { platformOf, type EspnStatus } from "@/lib/espn";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +24,13 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ a
     apiGet<EspnStatus>("/espn/status").catch(() => NO_STATUS),
     headers(),
   ]);
-  // the extension's popup opens ?from=extension: connecting this browser, a first run or another login for a user who
+  // the Safari app's Open FFL button opens ?from=extension: connecting this browser, a first run or another login for a user who
   // has leagues already
   const adding = add === "1" || (from === "extension" && leagues.length > 0);
   if (leagues.length && !adding) redirect("/");
+  // an admin is asked for the server's Claude token first while it has none (a first run only; Settings › LLM after);
+  // a failed read asks nothing
+  const claude = account?.is_admin && !adding ? await apiGet<LlmToken>("/llm/token").catch(() => null) : null;
   // the store listings, once they exist (#136): none, and the step names the install with no button
   const links: InstallLinks = {
     testflight: process.env.FFL_TESTFLIGHT_URL || null,
@@ -43,12 +46,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ a
           : account && <a href="#account" className="text-sm text-muted-foreground hover:text-foreground">Account</a>}
       </header>
       <ConnectWizard platform={platformOf(h.get("user-agent") ?? "")} links={links} initial={status} add={adding}
-                     hasLeagues={leagues.length > 0} startPaste={paste === "1"} />
+                     hasLeagues={leagues.length > 0} startPaste={paste === "1"} claude={claude} />
       {!adding && account && (
         <section id="account" className="mt-10 space-y-5 border-t border-foreground/10 pt-6">
           <AccountSettings account={account} />
           <SignOutButton />
-          <div className="border-t border-foreground/10 pt-5"><DeleteAccount email={account.email} /></div>
+          <div className="border-t border-foreground/10 pt-5"><DeleteAccount username={account.username ?? ""} /></div>
         </section>
       )}
       <Toaster position="bottom-center" />

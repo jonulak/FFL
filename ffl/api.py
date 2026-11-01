@@ -5,8 +5,8 @@
 Loopback only; Next.js on :3300 proxies /api/* here. Stale payloads are kept past the TTL and
 served, flagged, when a source is down — never a blank page on Sunday.
 
-Only these endpoints write anything: POST /refresh runs the journal sync, POST /outlook/refresh starts a background run that writes
-the week's outlooks to the DB, POST /waivers/outlook/{id} writes one free agent's the same way (kind waivers-week),
+Only these endpoints write anything: POST /refresh runs the journal sync, POST /outlook/refresh starts the background run that writes
+the week's outlooks to the DB for every league's players (the only outlook write),
 POST /claims saves the week's claim plan to the DB (never touches ESPN), and POST /claims/submit is
 the one route that writes to ESPN (instant free-agent adds + waiver claims, through ffl/espn_write.py) and journals it;
 POST /lineup writes to ESPN too (moves players between lineup slots, one transaction) and journals it.
@@ -23,8 +23,8 @@ import itertools
 import json
 import logging
 import os
-import secrets
 import threading
+import subprocess
 import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -36,13 +36,12 @@ from typing import Callable, Literal
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import auth, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
+from . import auth, claude_cli, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -440,7 +439,29 @@ def on_new_rows(rows: list[dict], *, ref: LeagueRef) -> None:
     /live's moves, so an open page refetches."""
     espn_season.forget_current_boxes(ref=ref)
     for c in caches_for_league(ref):  # every member's pages show the move
-        _start_rewarm(c, c.drop_prefixes(MOVE_KEYS))
+        _start_rewarm(c, c.drop_prefixes(move_keys(rows, c._ref.team_id)))
+
+
+def move_keys(rows: list[dict], team_id: int | None) -> tuple[str, ...]:
+    """The page keys the move `rows` make stale in the cache of a member on `team_id`: the league-wide pages (the
+    week's boards and tiles read the boxes again, one fetch for the league), but a roster and a player's card only
+    for the teams and players in it. No rows (a rollover) or a row naming no team or player is every MOVE_KEYS page."""
+    teams = {_tx_team(r.get("id", "")) for r in rows}
+    players = {r.get("player_id") for r in rows}
+    if not rows or None in teams or None in players:
+        return MOVE_KEYS
+    mine = ("roster",) if team_id in teams else ()
+    return ("transactions", "waivers", "week", "league", "starters", *mine,
+            *(f"team:{t}" for t in sorted(teams)), *(f"player:{p}" for p in sorted(players)))
+
+
+def _tx_team(tx_id: str) -> int | None:
+    """The team of a transaction row id (journal.sync_transactions: date-team-action-player)."""
+    parts = tx_id.split("-", 3)
+    try:
+        return int(parts[1]) if len(parts) == 4 else None
+    except ValueError:
+        return None
 
 
 _REWARMS = itertools.count()
@@ -535,13 +556,6 @@ def warm(ref: LeagueRef) -> None:
 
 
 app = FastAPI(title="FFL season API", lifespan=lifespan)
-# A provider's round trip (authlib's state, the saved `next`) in a signed cookie. Added first, so it sits inside
-# AuthMiddleware, which decides before anything else. Unset FFL_AUTH_SECRET: a per-process random key keeps the app
-# starting (dev, tests) while /auth/<provider>/* answer 503 (auth.enabled reads the env per request). Lax:
-# Apple's form POST never carries it, so auth.apple_callback_post hands on to the GET callback, which does.
-app.add_middleware(SessionMiddleware, secret_key=auth.oidc_secret() or secrets.token_urlsafe(32),
-                   session_cookie=auth.OIDC_COOKIE, max_age=auth.OIDC_MAX_AGE, same_site="lax",
-                   https_only=auth.cookie_secure())
 app.add_middleware(auth.AuthMiddleware)  # every route needs a session or the job token (auth.decide)
 # The browser extension (ffl-soc.6.3.2) calls its three public routes from its own origin with a bearer, never a
 # cookie. Outermost, so a preflight is answered before AuthMiddleware: extension origins only, no credentials, so no
@@ -561,7 +575,7 @@ def _serve(key: str, fn: Callable[[], dict], ttl: float | None = None, *, ref: L
 
 @app.api_route("/health", methods=["GET", "HEAD"])  # HEAD for uptime checks
 def health():
-    return {"ok": True}
+    return {"ok": True, "app": "ffl"}
 
 
 @app.get("/leagues")
@@ -1297,9 +1311,11 @@ def week_current(ref: LeagueRef = Depends(open_league)):
 
 
 @app.get("/plays")
-def plays_(team: int | None = None, week: int | None = None, ref: LeagueRef = Depends(open_league)):
+def plays_(team: int | None = None, week: int | None = None, limit: int | None = Query(None, ge=1),
+           ref: LeagueRef = Depends(open_league)):
     """Every feed row of one game's week, newest first (the /plays page): mine, or with `team` that team's;
-    `week` (a finished week's board links its own) else the current one. `me`/`opp` name the two sides the
+    `week` (a finished week's board links its own) else the current one; `limit` the newest that many (the
+    Matchup board's strip, refetched alone when a /live delta moves one of its players). `me`/`opp` name the two sides the
     way the board does; `current` says whether the week is the current one (the way back is then `/`)."""
     runner = _lane(ref)
     current = _board(None, None, ref=ref)
@@ -1311,7 +1327,7 @@ def plays_(team: int | None = None, week: int | None = None, ref: LeagueRef = De
     return {"week": data["week"], "current": data["week"] == current["week"], "live": season.is_live(),
             "mine": data.get("mine", True),
             "game_on": live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"], ref)),
-            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data, ref=ref),
+            "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data, limit, ref=ref),
             "stale_since": data.get("stale_since")}
 
 
@@ -1326,8 +1342,11 @@ def team(team_id: int, ref: LeagueRef = Depends(open_league)):
     """Any fantasy team's roster for the current week (the team page), the league's live points laid on."""
     data = _serve(f"team:{team_id}", lambda: espn_season.team_state(team_id, ref=ref), ref=ref, page=True)
     wk = data["week"]
-    return {**data, "side": live.overlay_side(data["side"], _live_points(wk, ref), _live_games(wk, ref),
-                                              _live_stats(wk, ref), _scoring(ref=ref))}
+    side = live.overlay_side(data["side"], _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref),
+                             _scoring(ref=ref))
+    # attached on every request, outside the cached build, as /roster does
+    entries = outlook.load(wk)
+    return {**data, "side": {**side, **{g: outlook.attach_plain(side[g], entries) for g in ("lineup", "bench", "ir")}}}
 
 
 def _nfl_board(week: int, *, ref: LeagueRef) -> dict | None:
@@ -1484,23 +1503,32 @@ def player(player_id: int, ref: LeagueRef = Depends(open_league)):
 
 
 @app.get("/live")
-def live_stream(request: Request, league: str | None = Query(None)):
-    """Server-sent events: `data: <version>` whenever the ?league= league's live points change (none: the user's
-    default; a league they are not in, or none at all, ticks moves only), `data: m<n>` when any league's move was
-    logged (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live
-    page refetches its GET on either; Transactions and Players refresh on a move only. Never a 404: an EventSource
-    would retry it every 3 s for good."""
+def live_stream(request: Request, league: str | None = Query(None), moves: bool = Query(False)):
+    """Server-sent events: whenever the ?league= league's live points change (none: the user's default; a league
+    they are not in, or none at all, ticks moves only) the JSON `live.delta` of what changed since this stream last
+    sent (`data: <version>` while the league has no scored week), `data: m<n>` when any league's move was logged
+    (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live page lays
+    a delta on (web/lib/overlay.ts) or refetches its GET; Transactions and Players refresh on a move only, and
+    ask with `moves=1` for nothing else. Never a 404: an EventSource would retry it every 3 s for good."""
     try:
-        key = open_league(request, league).key
+        ref = None if moves else open_league(request, league)
     except HTTPException:
-        key = None
+        ref = None
+    key = ref.key if ref else None
+    # read once per stream: the league's scoring and the win meter's spread change weekly at most, and a page
+    # reopens its stream far more often than that
+    scoring, sigma = (_scoring(ref=ref), _sigma()) if ref else (None, {})
 
     def gen():
         seen = live.STATE.tick(key)
+        sent = live.opened(live.STATE.view(key)) if key else None
         yield live.stream_open(seen)
         while True:
             cur = live.STATE.wait_for_tick(key, seen, timeout=15.0)
-            lines = live.stream_lines(seen, cur)
+            body = None
+            if key and cur[0] != seen[0]:
+                body, sent = live.delta(sent, live.STATE.view(key), scoring, sigma)
+            lines = live.stream_lines(seen, cur, body)
             seen = cur
             yield from lines or [": keepalive\n\n"]
     return StreamingResponse(gen(), media_type="text/event-stream",
@@ -1545,7 +1573,7 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref, page=True)
     rostered = data.get("rostered", {})  # absent from a pool cached before it existed
     # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
-    written = outlook.written(data["week"], ref=ref)
+    written = outlook.written(data["week"])
     capped = False
     if q:
         found = [r for half in (data["positions"], rostered) for rows in half.values() for r in rows
@@ -1556,7 +1584,7 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
         halves = (data["positions"],) if view["fa"] and not wants_rostered else (data["positions"], rostered)
         spans = player_views.covers(view["pos"])
         found = [r for half in halves for p, rows in half.items() if p in spans for r in rows]
-    rows = [{"owner": None, "mine": False, **r, "has_outlook": not r.get("owner") and r["player_id"] in written}
+    rows = [{"owner": None, "mine": False, **r, "has_outlook": r["player_id"] in written}
             for r in season.rank_players(found)]
     if not q:
         rows = player_views.filter_players(rows, view["filters"])
@@ -1725,92 +1753,25 @@ def roster_(ref: LeagueRef = Depends(open_league)):
     data = live.overlay_roster(data, _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref), _scoring(ref=ref))
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
-    return {**data, "cards": outlook.attach(data["cards"], outlook.load(wk, ref=ref), outlook.writing(ref=ref)),
-            "outlook_run": {**outlook.last(ref), "running": outlook.running()}}
-
-
-def _roster_card(player_id: int, *, ref: LeagueRef) -> tuple[dict, int]:
-    """His card in the cached roster and its week; 404 once he is off the roster."""
-    data = _serve("roster", lambda: espn_season.roster_state(None, ref=ref), ref=ref)
-    for c in data["cards"]:
-        if c["player_id"] == player_id:
-            return c, data["week"]
-    raise HTTPException(status_code=404, detail=f"player {player_id} is not on the roster")
+    return {**data, "cards": outlook.attach(data["cards"], outlook.load(wk))}
 
 
 @app.get("/outlook/{player_id:int}")
-def card_outlook(player_id: int, ref: LeagueRef = Depends(open_league)):
-    card, week = _roster_card(player_id, ref=ref)
-    return outlook.roster_entry(card, week, ref=ref)
-
-
-@app.post("/outlook/{player_id:int}", status_code=202)
-def card_outlook_write(player_id: int, ref: LeagueRef = Depends(open_league)):
-    """One Roster card's outlook, rewritten in the background whether or not his facts moved; the card
-    polls the GET until `outlook_running` clears. 409 while the full run holds the Roster file."""
-    card, week = _roster_card(player_id, ref=ref)
-    try:
-        outlook.start_one(card, week, run=outlook.run_claude, kind=outlook.ROSTER, ref=ref)
-    except outlook.Busy as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return {"started": True}
-
-
-def _roster_job(ref: LeagueRef) -> Callable[[], tuple[list[dict], int]]:
-    """A league's (cards, week) for the outlook run, read when the run reaches it."""
-    def build():
-        state = espn_season.roster_state(None, ref=ref)
-        return state["cards"], state["week"]
-    return build
+def card_outlook(player_id: int, week: int = Query(...), user: dict = Depends(auth.current_user)):
+    """Any player's stored outlook for the page's week (outlooks are every league's; nothing writes here)."""
+    e = outlook.load(week).get(player_id)
+    ok = isinstance(e, dict) and isinstance(e.get("bullets"), list)
+    return {"bullets": e["bullets"] if ok else None, "at": e.get("generated_at") if ok else None,
+            "error": e.get("error") if isinstance(e, dict) else None}
 
 
 @app.post("/outlook/refresh", status_code=202)
-def outlook_refresh(request: Request, league: str | None = Query(None)):
-    """The hourly run (ffl-outlook.timer, a job naming no league): every league in turn, one run, each league's
-    cards read when the run reaches it (a failure is that league's outlook_run error). With ?league= (the Roster
-    page's button; a signed-in user's request with none opens their default) only that league, its cards read
-    first so a failure to read them is this answer's 502."""
-    user = (request.scope.get("state") or {}).get("user")
-    if league is None and user is None:
-        jobs = [(r, _roster_job(r)) for r in leagues.joined()]
-    else:
-        ref = open_league(request, league)
-        try:
-            cards, week = _roster_job(ref)()
-        except Exception as e:  # noqa: BLE001 — a source failure is a 502, not a bare traceback
-            raise HTTPException(status_code=502, detail={"source": "espn", "error": str(e)})
-        jobs = [(ref, lambda: (cards, week))]
+def outlook_refresh():
+    """The hourly run (the jobs container's cron, deploy/crontab; the job token only: auth.JOB_ONLY): every joined league's players in one run, each league's read when the
+    run reaches it (a failure is that league's line in last()["errors"]). The only outlook write."""
+    jobs = [lambda r=r: espn_season.outlook_cards(ref=r) for r in leagues.joined()]
     try:
-        outlook.start_leagues(jobs, run=outlook.run_claude)
-    except outlook.Busy as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    # pending needs the news context, which is fetched in the run's thread; the page reads the count from outlook_run
-    return {"started": True, "pending": None}
-
-
-def _free_agent(player_id: int, *, ref: LeagueRef) -> tuple[dict, int]:
-    """His row in the cached pool and its week; 404 once he is off the wire."""
-    data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref)
-    for rows in data["positions"].values():
-        for r in rows:
-            if r["player_id"] == player_id:
-                return r, data["week"]
-    raise HTTPException(status_code=404, detail=f"player {player_id} is not a free agent")
-
-
-@app.get("/waivers/outlook/{player_id}")
-def waiver_outlook(player_id: int, ref: LeagueRef = Depends(open_league)):
-    row, week = _free_agent(player_id, ref=ref)
-    return outlook.waiver_entry(row, week, ref=ref)
-
-
-@app.post("/waivers/outlook/{player_id}", status_code=202)
-def waiver_outlook_write(player_id: int, ref: LeagueRef = Depends(open_league)):
-    """One free agent's outlook, written in the background (a minute or two of Opus with web search);
-    the dialog polls the GET until `running` clears."""
-    row, week = _free_agent(player_id, ref=ref)
-    try:
-        outlook.start_one(row, week, run=outlook.run_claude, ref=ref)
+        outlook.start_all(jobs, run=outlook.run_batch, single=outlook.run_claude)
     except outlook.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"started": True}
@@ -2101,8 +2062,57 @@ def news_status():
     cols = ("id", "name", "kind", "active", "ok_at", "error", "failing_since")
     return {"sources": [{k: s[k] for k in cols} for s in db.news_sources(active_only=False)],
             "last_run": db.get_state("news_last_run"),
-            # {UTC date: {input, output, calls}}, the last 30 days (ffl/newsdesk/usage.py)
-            "haiku_usage": db.get_state(news_usage.HAIKU, {}) or {}, "jev_usage": db.get_state(news_usage.JEV, {}) or {}}
+            # {UTC date: {input, output, calls}}, the last 30 days (ffl/newsdesk/usage.py); the writer's is /llm/usage
+            "tag_usage": db.get_state(news_usage.TAG, {}) or {}}
+
+
+@app.get("/llm/usage")
+def llm_usage(days: int = Query(7, ge=1, le=366), user: dict = Depends(auth.require_admin)):
+    """What `claude -p` cost over the last `days` UTC days (today included): one row per (day, kind) off llm_calls.
+    The app's own spend: admins only, 403 `not_admin` for anyone else."""
+    return {"days": days, "rows": db.llm_usage(days)}
+
+
+class TokenIn(BaseModel):
+    token: str
+
+
+def ping(token: str) -> None:
+    """One `claude -p` call under `token` alone; its failure (RuntimeError) says why the token does not work."""
+    claude_cli.run("Reply with ok.", model="haiku",
+                   schema={"type": "object", "properties": {"ok": {"type": "string"}}, "required": ["ok"]},
+                   tools="", cwd=claude_cli.neutral_cwd("ping"), timeout=60, kind="ping", token=token)
+
+
+@app.get("/llm/token")
+def llm_token(user: dict = Depends(auth.require_admin)):
+    """Whether the CLI has a login, and where from (the stored row or the environment); never the value."""
+    if claude_cli._stored_token():
+        return {"set": True, "source": "db"}
+    env = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
+    return {"set": bool(env), "source": "env" if env else None}
+
+
+@app.post("/llm/token")
+def llm_token_set(body: TokenIn, user: dict = Depends(auth.require_admin)):
+    """Test the token with one ping, then store it sealed; a failed ping stores nothing (502 with the CLI's reason)."""
+    token = body.token.strip()
+    if not token:  # blank would fall through to the stored/env token in the ping, and store ""
+        return JSONResponse({"error": "no_token"}, status_code=422)
+    try:
+        ping(token)
+    except (RuntimeError, subprocess.TimeoutExpired, OSError) as e:  # timeout and exec failure are not RuntimeErrors
+        return JSONResponse({"error": "claude_failed", "message": str(e).replace(token, "…")}, status_code=502)
+    db.put_secret(claude_cli.TOKEN_KEY, token)
+    claude_cli.forget_token()
+    return {"set": True}
+
+
+@app.post("/llm/token/delete")
+def llm_token_delete(user: dict = Depends(auth.require_admin)):
+    db.del_secret(claude_cli.TOKEN_KEY)
+    claude_cli.forget_token()
+    return {"set": False}
 
 
 def correction_pass(*, ref: LeagueRef) -> dict:

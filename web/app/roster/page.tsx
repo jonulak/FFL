@@ -1,5 +1,4 @@
 import { ErrorCard } from "@/components/error-card";
-import { OutlookButton } from "@/components/outlook-button";
 import { PositionCaps } from "@/components/position-caps";
 import { RosterLive } from "@/components/roster-live";
 import { StaleBadge } from "@/components/stale-badge";
@@ -15,7 +14,6 @@ export default async function Page() {
   } catch (e) {
     return <ErrorCard {...errorFields(e)} />;
   }
-  const run = data.outlook_run;
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
@@ -24,7 +22,6 @@ export default async function Page() {
           <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
         </h1>
         <StaleBadge since={data.stale_since} />
-        <div className="ml-auto"><OutlookButton running={run.running} /></div>
         <PositionCaps caps={data.position_caps} className="basis-full" />
       </div>
       <RosterLive initial={data} />

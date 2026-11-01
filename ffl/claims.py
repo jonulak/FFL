@@ -1,7 +1,7 @@
 """Waiver claim groups: "get K of these N" as instant free-agent adds plus the ordered claim list ESPN runs (pure).
 
 ESPN has no K-of-N claim. A claim is one transaction, an add plus at most one drop, and it cancels when its add or
-its drop is gone (journal/DECISIONS.md 2026-09-22). So claims that share a drop exclude each other: every (target,
+its drop is gone (seen in a real waiver run). So claims that share a drop exclude each other: every (target,
 row) pair in rank order lands each target at most once and uses each row at most once; K = rows = cuts + open spots.
 A free agent needs no claim: he is added on Submit, in rank order, taking the group's next row, and the claims get
 the rows left. A no-drop claim lands while the roster has room, so open spots belong to one group and it takes all

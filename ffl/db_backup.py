@@ -1,17 +1,16 @@
-"""Checked pg_dump backups of the Postgres DB, to a directory or S3, and the restore (launchd: com.jonulak.ffl-backup).
+"""Checked pg_dump backups of the Postgres DB, to a directory, and the restore (the stack's cron: `backup /backups`).
 
 `pg_dump -Fc` of FFL_DB_URL goes to a local temp file and is checked there (`pg_restore --list` reads it, and its
 alembic_version equals the code's head: an empty or stale DB would otherwise push 14 real dumps out), then is put at
 `ffl-YYYY-MM-DD.dump` in the destination (a directory, written under a dot-name and renamed so a sync client never
-uploads half a file; or `s3://bucket/prefix/`), keeping the newest `keep`. A dump opens with pg_restore anywhere:
+uploads half a file), keeping the newest `keep`. A dump opens with pg_restore anywhere:
 no WAL to copy first.
 
 Restore into an empty or disposable database with the API stopped: --clean's DROPs wait on live queries, and
 objects the dump does not hold stay.
 
-    uv run python -m ffl.db backup [dest]    # dest: FFL_BACKUP_DEST, else the Drive folder (Mac)
-    uv run python -m ffl.db restore <src> --url URL [--to-rds]   # src: a .dump, a directory or s3:// prefix (newest)
-    uv run --env-file ~/.config/ffl/rds-rw.env python -m ffl.db restore <src> --url-from-env --to-rds   # target: FFL_DB_URL (no pw in argv)
+    uv run python -m ffl.db backup [dest]    # dest: else FFL_BACKUP_DEST (one is required)
+    uv run python -m ffl.db restore <src> --url URL --yes   # src: a .dump or a directory (newest); prints the target first
 """
 from __future__ import annotations
 
@@ -27,9 +26,7 @@ import sqlalchemy as sa
 
 from . import db
 
-DEFAULT_DEST = str(Path.home() / "Library/CloudStorage/GoogleDrive-admin@example.com/My Drive/FFL/backup")
 _NAME = re.compile(r"^ffl-\d{4}-\d{2}-\d{2}\.dump$")
-_LOCAL_HOSTS = {"", "localhost", "127.0.0.1", "::1"}
 
 
 # ---- the Postgres client tools ---------------------------------------------------------------------------------
@@ -122,50 +119,6 @@ class DirStore:
         (self.path / name).unlink(missing_ok=True)
 
 
-class S3Store:
-    """s3://bucket/prefix/. `client` is a boto3 S3 client (tests pass a stub); credentials are boto3's own chain."""
-
-    def __init__(self, bucket: str, prefix: str, client=None):
-        self.bucket, self.prefix = bucket, (prefix.strip("/") + "/") if prefix.strip("/") else ""
-        self._client = client
-
-    @property
-    def client(self):
-        if self._client is None:
-            import boto3
-            self._client = boto3.client("s3")
-        return self._client
-
-    def uri(self, name: str) -> str:
-        return f"s3://{self.bucket}/{self.prefix}{name}"
-
-    def put(self, local: Path, name: str) -> None:
-        self.client.upload_file(str(local), self.bucket, self.prefix + name)
-
-    def list(self) -> list[str]:
-        names, token = [], None
-        while True:
-            kw = {"ContinuationToken": token} if token else {}
-            r = self.client.list_objects_v2(Bucket=self.bucket, Prefix=self.prefix, **kw)
-            names += [o["Key"][len(self.prefix):] for o in r.get("Contents", [])]
-            token = r.get("NextContinuationToken") if r.get("IsTruncated") else None
-            if not token:
-                return sorted(n for n in names if _NAME.match(n))
-
-    def get(self, name: str, local: Path) -> None:
-        self.client.download_file(self.bucket, self.prefix + name, str(local))
-
-    def delete(self, name: str) -> None:
-        self.client.delete_object(Bucket=self.bucket, Key=self.prefix + name)
-
-
-def store_for(dest: str, client=None):
-    if dest.startswith("s3://"):
-        bucket, _, prefix = dest.removeprefix("s3://").partition("/")
-        return S3Store(bucket, prefix, client)
-    return DirStore(dest)
-
-
 # ---- backup / restore -------------------------------------------------------------------------------------------
 
 def dump_head(path: str | Path) -> str | None:
@@ -182,10 +135,12 @@ def _check(path: Path) -> None:
         raise RuntimeError(f"backup source is at schema {current!r}, code wants {head!r}: refusing to publish it")
 
 
-def backup(dest: str | None = None, keep: int = 14, today: date | None = None, client=None) -> str:
-    dest = dest or os.environ.get("FFL_BACKUP_DEST") or DEFAULT_DEST
+def backup(dest: str | None = None, keep: int = 14, today: date | None = None) -> str:
+    dest = dest or os.environ.get("FFL_BACKUP_DEST")
+    if not dest:
+        raise SystemExit("backup: name a directory (python -m ffl.db backup DIR) or set FFL_BACKUP_DEST")
     name = f"ffl-{(today or date.today()).isoformat()}.dump"
-    store = store_for(dest, client)
+    store = DirStore(dest)
     uri, env = _libpq(db.url())
     with tempfile.TemporaryDirectory() as tmp:
         local = Path(tmp) / name
@@ -195,32 +150,6 @@ def backup(dest: str | None = None, keep: int = 14, today: date | None = None, c
     for old in store.list()[:-keep]:
         store.delete(old)
     return store.uri(name)
-
-
-def _local_host(url: str) -> bool:
-    u = sa.engine.make_url(url)
-    host = u.host or u.query.get("host") or ""
-    host = host if isinstance(host, str) else host[0]
-    return host in _LOCAL_HOSTS or host.startswith("/")  # a socket directory is local
-
-
-def server_is_rds(url: str) -> bool:
-    """Ask the server (a read): every Amazon RDS Postgres has the `rds_superuser` role, a plain server has none.
-    A loopback address can be the RDS (the ffl-rds tunnel: 127.0.0.1:5434), so the host alone never says local.
-    An unreachable server raises SystemExit: locality unknown is never taken as local."""
-    eng = sa.create_engine(url, poolclass=sa.pool.NullPool)
-    try:
-        with eng.connect() as c:
-            return bool(c.execute(sa.text("select count(*) from pg_roles where rolname = 'rds_superuser'")).scalar())
-    except sa.exc.DBAPIError as e:
-        raise SystemExit(f"cannot ask {sa.engine.make_url(url).host or 'the local socket'} whether it is an RDS: {e.orig}")
-    finally:
-        eng.dispose()
-
-
-def is_local(url: str) -> bool:
-    """A local server: a loopback/socket host AND not an RDS (a tunnel to the RDS is loopback too)."""
-    return _local_host(url) and not server_is_rds(url)
 
 
 _NEWER_SETTING = re.compile(r'unrecognized configuration parameter "transaction_timeout"')
@@ -233,26 +162,24 @@ def _only_newer_settings(stderr: str) -> bool:
     return bool(errors) and all(_NEWER_SETTING.search(ln) for ln in errors)
 
 
-def restore(src: str, url: str, to_rds: bool = False, client=None) -> None:
-    """The newest dump in a directory / s3 prefix, or the named .dump, into `url` (--clean --if-exists)."""
-    if not to_rds and not is_local(url):
-        raise SystemExit(f"restore target {sa.engine.make_url(url).host} is not a local server (or is an RDS through a "
-                         "tunnel): pass --to-rds to restore there")
+def restore(src: str, url: str, yes: bool = False) -> None:
+    """The newest dump in a directory, or the named .dump, into `url` (--clean --if-exists). Names the target, then
+    refuses (exit 2) unless `yes`: --clean drops every object the dump holds there."""
+    u = sa.engine.make_url(url)
+    print(f"restoring {src} into database {u.database!r} on {u.host or u.query.get('host') or 'the local socket'}")
+    if not yes:
+        print("restore: pass --yes to replace that database's contents")
+        raise SystemExit(2)
     with tempfile.TemporaryDirectory() as tmp:
-        if src.endswith(".dump") and not src.startswith("s3://"):
+        if src.endswith(".dump"):
             local = Path(src)
         else:
-            if src.endswith(".dump"):
-                src, _, name = src.rpartition("/")
-                store = store_for(src + "/", client)
-            else:
-                store = store_for(src, client)
-                names = store.list()
-                if not names:
-                    raise SystemExit(f"no ffl-*.dump in {src}")
-                name = names[-1]
-            local = Path(tmp) / name
-            store.get(name, local)
+            store = DirStore(src)
+            names = store.list()
+            if not names:
+                raise SystemExit(f"no ffl-*.dump in {src}")
+            local = Path(tmp) / names[-1]
+            store.get(names[-1], local)
         _run("pg_restore", "--list", str(local), url=url)
         uri, env = _libpq(url)
         r = pg_tool("pg_restore", "--clean", "--if-exists", "--no-owner", "--no-acl", f"--dbname={uri}", str(local),
@@ -267,37 +194,24 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-RESTORE_USAGE = ("usage: python -m ffl.db restore <src> (--url URL | --url-from-env) [--to-rds]  (--url or --url-from-env "
-                 "is required: the target is named, never the app's DB by default; --url-from-env takes FFL_DB_URL "
-                 "from the environment, e.g. `uv run --env-file ~/.config/ffl/rds-rw.env ...`, so no password is in argv)")
+RESTORE_USAGE = ("usage: python -m ffl.db restore <src> --url URL [--yes]  (--url is required: the target is named, "
+                 "never the app's DB by default; without --yes it prints the target and stops)")
 
 
 def restore_main(argv: list[str]) -> int:
-    """The target is explicit, exactly one of: `--url URL`, or `--url-from-env` for FFL_DB_URL as the environment
-    holds it (uv's --env-file sets it; without one, ffl.config's load of the checkout's .env fills it, which is then
-    the app's own database). Either way the line printed before anything is restored names the host and database."""
-    args, url, to_rds, from_env = list(argv), None, False, False
-    if "--to-rds" in args:
-        args.remove("--to-rds")
-        to_rds = True
-    if "--url-from-env" in args:
-        args.remove("--url-from-env")
-        from_env = True
-    if "--url" in args:
-        i = args.index("--url")
-        if i + 1 >= len(args):
-            raise SystemExit(RESTORE_USAGE)
-        url = args[i + 1]
-        del args[i:i + 2]
-    if len(args) != 1 or from_env == bool(url):
+    args = list(argv)
+    yes = "--yes" in args
+    if yes:
+        args.remove("--yes")
+    if "--url" not in args:
         raise SystemExit(RESTORE_USAGE)
-    if from_env:
-        url = os.environ.get("FFL_DB_URL")
-        if not url:
-            raise SystemExit("restore --url-from-env: FFL_DB_URL is not set in the environment")
-    u = sa.engine.make_url(url)
-    print(f"restoring {args[0]} into database {u.database!r} on {u.host or u.query.get('host') or 'the local socket'}"
-          f"{' (FFL_DB_URL from the environment)' if from_env else ''}")
-    restore(args[0], url, to_rds)
+    i = args.index("--url")
+    if i + 1 >= len(args):
+        raise SystemExit(RESTORE_USAGE)
+    url = args[i + 1]
+    del args[i:i + 2]
+    if len(args) != 1:
+        raise SystemExit(RESTORE_USAGE)
+    restore(args[0], url, yes)
     print("restored")
     return 0

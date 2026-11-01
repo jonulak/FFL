@@ -1,7 +1,7 @@
 """The league registry: every league the app knows lives in the `leagues` table, and a user's place in one (their team,
 their default) in `memberships`. Nothing here picks a league on its own: a caller names one (ffl-soc.4.12).
 
-The CLI acts as FFL_USER (their sign-in email, in .env) on FFL_LEAGUE (or --league), else that user's default:
+The CLI acts as FFL_USER (their username or email, in .env) on FFL_LEAGUE (or --league), else that user's default:
 
     uv run python -m ffl.leagues list
     uv run python -m ffl.leagues user add <email>          # a user for the CLI to act as, in a database nobody signs in to
@@ -95,7 +95,8 @@ def default_for(user_id: int) -> LeagueRef | None:
 
 
 def _user(email: str) -> dict:
-    user = db.user_by_email(email)
+    """By email, else by username (a /setup admin has no email)."""
+    user = db.user_by_email(email) or db.user_by_username(email)
     if user is None:
         raise SystemExit(f"no user {email!r} in this database: they sign in first, or "
                          f"`uv run python -m ffl.leagues user add {email}` where nobody signs in (a mock database)")
@@ -113,10 +114,10 @@ def join(key: str, email: str, team_id: int | None, default: bool = False) -> Le
 
 
 def acting_user() -> dict:
-    """The user a CLI command acts as: FFL_USER (an email, read now), who must exist in this database."""
+    """The user a CLI command acts as: FFL_USER (a username or email, read now), who must exist in this database."""
     email = (os.environ.get("FFL_USER") or "").strip()
     if not email:
-        raise SystemExit("FFL_USER is not set: add `FFL_USER=<your sign-in email>` to .env (the CLI acts as that user)")
+        raise SystemExit("FFL_USER is not set: add `FFL_USER=<your username or email>` to .env (the CLI acts as that user)")
     return _user(email)
 
 
@@ -129,18 +130,18 @@ def acting(key: str | None = None) -> LeagueRef:
         try:
             return membership(user["id"], key)
         except SystemExit:
-            raise SystemExit(f"{user['email']} is not a member of {key!r}; theirs: "
+            raise SystemExit(f"{user['email'] or user['username']} is not a member of {key!r}; theirs: "
                              f"{', '.join(r.key for r in for_user(user['id'])) or 'none'}") from None
     ref = default_for(user["id"])
     if ref is None:
-        raise SystemExit(f"{user['email']} has no league: `uv run python -m ffl.leagues add espn <id> --default`")
+        raise SystemExit(f"{user['email'] or user['username']} has no league: `uv run python -m ffl.leagues add espn <id> --default`")
     return ref
 
 
 def oldest() -> LeagueRef:
     """The oldest registered league, through its owner. Only for a read of NFL-wide data through a league's own view
     (kona_player_info's player pool is the same in every league): never anyone's data (the app's own notices go to
-    the operators, `notify.app_notices`). SystemExit when none is registered."""
+    the admins, `notify.app_notices`). SystemExit when none is registered."""
     refs = all_leagues()
     if not refs:
         raise SystemExit("no league registered: `uv run python -m ffl.leagues add espn <id> --default`")
@@ -286,7 +287,7 @@ def main(argv: list[str]) -> int:
                   f"team {r.team_id if r.team_id is not None else '-'}  {r.name}")
         return 0
     if argv[:2] == ["user", "add"] and len(argv) == 3:
-        print(f"user {db.ensure_user(argv[2], None)}  {argv[2]}")
+        print(f"user {db.create_user(argv[2], None)}  {argv[2]}")
         return 0
     if argv[:1] == ["join"] and len(argv) >= 3 and "--user" in argv and "--team" in argv:
         rest = argv[2:]

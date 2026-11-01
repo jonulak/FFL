@@ -1,0 +1,2935 @@
+{
+ "cases": [
+  {
+   "kind": "week",
+   "served": [
+    {
+     "live": true,
+     "me": {
+      "actual_total": 11.0,
+      "bench": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "field": "on",
+        "game": {
+         "ball": "KC",
+         "clock": "9:12",
+         "quarter": 1,
+         "red_zone": false,
+         "score": {
+          "KC": 0,
+          "LV": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p3",
+        "player_id": 3,
+        "pos": "RB",
+        "proj": 9.0,
+        "slot": "RB",
+        "team": "KC"
+       }
+      ],
+      "ir": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "INJURY_RESERVE",
+        "name": "p9",
+        "player_id": 9,
+        "pos": "TE",
+        "proj": 6.0,
+        "slot": "TE",
+        "team": "NYG"
+       }
+      ],
+      "lineup": [
+       {
+        "actual": 4.0,
+        "box": [
+         {
+          "count": 100.0,
+          "flat": false,
+          "label": "Passing Yards",
+          "points": 4.0,
+          "rate": 0.04,
+          "stat_id": 3
+         }
+        ],
+        "bye": false,
+        "field": "on",
+        "game": {
+         "ball": "KC",
+         "clock": "9:12",
+         "quarter": 1,
+         "red_zone": false,
+         "score": {
+          "KC": 0,
+          "LV": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p1",
+        "player_id": 1,
+        "pos": "QB",
+        "proj": 20.0,
+        "slot": "QB",
+        "stat_line": "4/6, 100 yds",
+        "team": "KC",
+        "volume": {
+         "count": 6,
+         "label": "pass attempts"
+        }
+       },
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p2",
+        "player_id": 2,
+        "pos": "WR",
+        "proj": 12.0,
+        "slot": "WR",
+        "team": "BUF"
+       },
+       {
+        "actual": 7.0,
+        "box": [
+         {
+          "count": 2.0,
+          "flat": false,
+          "label": "FG Made",
+          "points": 6.0,
+          "rate": 3.0,
+          "stat_id": 83
+         }
+        ],
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 100,
+        "injury": "ACTIVE",
+        "name": "p4",
+        "player_id": 4,
+        "pos": "K",
+        "proj": 8.0,
+        "slot": "K",
+        "stat_line": "FG 2/2",
+        "team": "DAL"
+       }
+      ],
+      "team_id": 1
+     },
+     "mine": true,
+     "opp": {
+      "actual_total": 0.0,
+      "bench": [
+       {
+        "actual": 0.0,
+        "bye": true,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p7",
+        "player_id": 7,
+        "pos": "WR",
+        "proj": 5.0,
+        "slot": "WR",
+        "team": "NYG"
+       }
+      ],
+      "ir": [],
+      "lineup": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p5",
+        "player_id": 5,
+        "pos": "QB",
+        "proj": 18.0,
+        "slot": "QB",
+        "team": "BUF"
+       },
+       {
+        "actual": 0.0,
+        "bye": false,
+        "field": "on",
+        "game": {
+         "ball": "KC",
+         "clock": "9:12",
+         "quarter": 1,
+         "red_zone": false,
+         "score": {
+          "KC": 0,
+          "LV": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p6",
+        "player_id": 6,
+        "pos": "TE",
+        "proj": 7.0,
+        "slot": "TE",
+        "team": "KC"
+       },
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p-16002",
+        "player_id": -16002,
+        "pos": "D/ST",
+        "proj": 6.0,
+        "slot": "D/ST",
+        "team": "BUF"
+       }
+      ],
+      "team_id": 2
+     },
+     "plays": [],
+     "week": 7,
+     "win_prob": {
+      "me": 0.765,
+      "opp": 0.235,
+      "sigma_source": "calibrated"
+     }
+    },
+    {
+     "live": true,
+     "me": {
+      "actual_total": 20.5,
+      "bench": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game": {
+         "ball": "LV",
+         "clock": "3:40",
+         "quarter": 2,
+         "red_zone": false,
+         "score": {
+          "KC": 7,
+          "LV": 3
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p3",
+        "player_id": 3,
+        "pos": "RB",
+        "proj": 9.0,
+        "slot": "RB",
+        "team": "KC"
+       }
+      ],
+      "ir": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "INJURY_RESERVE",
+        "name": "p9",
+        "player_id": 9,
+        "pos": "TE",
+        "proj": 6.0,
+        "slot": "TE",
+        "team": "NYG"
+       }
+      ],
+      "lineup": [
+       {
+        "actual": 10.5,
+        "box": [
+         {
+          "count": 162.0,
+          "flat": false,
+          "label": "Passing Yards",
+          "points": 6.48,
+          "rate": 0.04,
+          "stat_id": 3
+         },
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "TD Pass",
+          "points": 4.0,
+          "rate": 4.0,
+          "stat_id": 4
+         }
+        ],
+        "bye": false,
+        "game": {
+         "ball": "LV",
+         "clock": "3:40",
+         "quarter": 2,
+         "red_zone": false,
+         "score": {
+          "KC": 7,
+          "LV": 3
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p1",
+        "player_id": 1,
+        "pos": "QB",
+        "proj": 20.0,
+        "slot": "QB",
+        "stat_line": "11/15, 162 yds, 1 TD",
+        "team": "KC",
+        "volume": {
+         "count": 15,
+         "label": "pass attempts"
+        }
+       },
+       {
+        "actual": 3.0,
+        "box": [
+         {
+          "count": 10.0,
+          "flat": false,
+          "label": "Receiving Yards",
+          "points": 1.0,
+          "rate": 0.1,
+          "stat_id": 42
+         },
+         {
+          "count": 2.0,
+          "flat": false,
+          "label": "Reception",
+          "points": 2.0,
+          "rate": 1.0,
+          "stat_id": 53
+         }
+        ],
+        "bye": false,
+        "field": "red_zone",
+        "game": {
+         "ball": "BUF",
+         "clock": "12:01",
+         "quarter": 1,
+         "red_zone": true,
+         "score": {
+          "BUF": 0,
+          "MIA": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p2",
+        "player_id": 2,
+        "pos": "WR",
+        "proj": 12.0,
+        "slot": "WR",
+        "stat_line": "2 rec, 10 yds",
+        "team": "BUF",
+        "volume": {
+         "count": 3,
+         "label": "targets"
+        }
+       },
+       {
+        "actual": 7.0,
+        "box": [
+         {
+          "count": 2.0,
+          "flat": false,
+          "label": "FG Made",
+          "points": 6.0,
+          "rate": 3.0,
+          "stat_id": 83
+         }
+        ],
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 100,
+        "injury": "ACTIVE",
+        "name": "p4",
+        "player_id": 4,
+        "pos": "K",
+        "proj": 8.0,
+        "slot": "K",
+        "stat_line": "FG 2/2",
+        "team": "DAL"
+       }
+      ],
+      "team_id": 1
+     },
+     "mine": true,
+     "opp": {
+      "actual_total": 2.5,
+      "bench": [
+       {
+        "actual": 0.0,
+        "bye": true,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p7",
+        "player_id": 7,
+        "pos": "WR",
+        "proj": 5.0,
+        "slot": "WR",
+        "team": "NYG"
+       }
+      ],
+      "ir": [],
+      "lineup": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "field": "red_zone",
+        "game": {
+         "ball": "BUF",
+         "clock": "12:01",
+         "quarter": 1,
+         "red_zone": true,
+         "score": {
+          "BUF": 0,
+          "MIA": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p5",
+        "player_id": 5,
+        "pos": "QB",
+        "proj": 18.0,
+        "slot": "QB",
+        "team": "BUF"
+       },
+       {
+        "actual": 1.5,
+        "box": [
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "Reception",
+          "points": 1.5,
+          "rate": 1.5,
+          "stat_id": 53
+         }
+        ],
+        "bye": false,
+        "game": {
+         "ball": "LV",
+         "clock": "3:40",
+         "quarter": 2,
+         "red_zone": false,
+         "score": {
+          "KC": 7,
+          "LV": 3
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p6",
+        "player_id": 6,
+        "pos": "TE",
+        "proj": 7.0,
+        "slot": "TE",
+        "stat_line": "1 rec",
+        "team": "KC",
+        "volume": {
+         "count": 1,
+         "label": "target"
+        }
+       },
+       {
+        "actual": 1.0,
+        "box": [
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "Sack",
+          "points": 1.0,
+          "rate": 1.0,
+          "stat_id": 99
+         }
+        ],
+        "bye": false,
+        "game": {
+         "ball": "BUF",
+         "clock": "12:01",
+         "quarter": 1,
+         "red_zone": true,
+         "score": {
+          "BUF": 0,
+          "MIA": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p-16002",
+        "player_id": -16002,
+        "pos": "D/ST",
+        "proj": 6.0,
+        "slot": "D/ST",
+        "stat_line": "1 sk",
+        "team": "BUF"
+       }
+      ],
+      "team_id": 2
+     },
+     "plays": [],
+     "week": 7,
+     "win_prob": {
+      "me": 0.848,
+      "opp": 0.152,
+      "sigma_source": "calibrated"
+     }
+    },
+    {
+     "live": true,
+     "me": {
+      "actual_total": 40.5,
+      "bench": [
+       {
+        "actual": 6.5,
+        "box": [
+         {
+          "count": 45.0,
+          "flat": false,
+          "label": "Rushing Yards",
+          "points": 4.5,
+          "rate": 0.1,
+          "stat_id": 24
+         },
+         {
+          "count": 20.0,
+          "flat": false,
+          "label": "Receiving Yards",
+          "points": 2.0,
+          "rate": 0.1,
+          "stat_id": 42
+         },
+         {
+          "count": 2.0,
+          "flat": false,
+          "label": "Reception",
+          "points": 2.0,
+          "rate": 1.0,
+          "stat_id": 53
+         }
+        ],
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "KC": 27,
+          "LV": 13
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p3",
+        "player_id": 3,
+        "pos": "RB",
+        "proj": 9.0,
+        "slot": "RB",
+        "stat_line": "9 car, 45 yds \u00b7 2 rec, 20 yds",
+        "team": "KC",
+        "volume": {
+         "count": 9,
+         "label": "carries"
+        }
+       }
+      ],
+      "ir": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "INJURY_RESERVE",
+        "name": "p9",
+        "player_id": 9,
+        "pos": "TE",
+        "proj": 6.0,
+        "slot": "TE",
+        "team": "NYG"
+       }
+      ],
+      "lineup": [
+       {
+        "actual": 24.0,
+        "box": [
+         {
+          "count": 300.0,
+          "flat": false,
+          "label": "Passing Yards",
+          "points": 12.0,
+          "rate": 0.04,
+          "stat_id": 3
+         },
+         {
+          "count": 3.0,
+          "flat": false,
+          "label": "TD Pass",
+          "points": 12.0,
+          "rate": 4.0,
+          "stat_id": 4
+         }
+        ],
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "KC": 27,
+          "LV": 13
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p1",
+        "player_id": 1,
+        "pos": "QB",
+        "proj": 20.0,
+        "slot": "QB",
+        "stat_line": "22/30, 300 yds, 3 TD",
+        "team": "KC",
+        "volume": {
+         "count": 30,
+         "label": "pass attempts"
+        }
+       },
+       {
+        "actual": 9.5,
+        "box": [
+         {
+          "count": 45.0,
+          "flat": false,
+          "label": "Receiving Yards",
+          "points": 4.5,
+          "rate": 0.1,
+          "stat_id": 42
+         },
+         {
+          "count": 5.0,
+          "flat": false,
+          "label": "Reception",
+          "points": 5.0,
+          "rate": 1.0,
+          "stat_id": 53
+         }
+        ],
+        "bye": false,
+        "game": {
+         "ball": "MIA",
+         "clock": "1:15",
+         "quarter": 3,
+         "red_zone": false,
+         "score": {
+          "BUF": 14,
+          "MIA": 10
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p2",
+        "player_id": 2,
+        "pos": "WR",
+        "proj": 12.0,
+        "slot": "WR",
+        "stat_line": "5 rec, 45 yds",
+        "team": "BUF",
+        "volume": {
+         "count": 8,
+         "label": "targets"
+        }
+       },
+       {
+        "actual": 7.0,
+        "box": [
+         {
+          "count": 2.0,
+          "flat": false,
+          "label": "FG Made",
+          "points": 6.0,
+          "rate": 3.0,
+          "stat_id": 83
+         }
+        ],
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 100,
+        "injury": "ACTIVE",
+        "name": "p4",
+        "player_id": 4,
+        "pos": "K",
+        "proj": 8.0,
+        "slot": "K",
+        "stat_line": "FG 2/2",
+        "team": "DAL"
+       }
+      ],
+      "team_id": 1
+     },
+     "mine": true,
+     "opp": {
+      "actual_total": 16.75,
+      "bench": [
+       {
+        "actual": 0.0,
+        "bye": true,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p7",
+        "player_id": 7,
+        "pos": "WR",
+        "proj": 5.0,
+        "slot": "WR",
+        "team": "NYG"
+       }
+      ],
+      "ir": [],
+      "lineup": [
+       {
+        "actual": 12.25,
+        "box": [
+         {
+          "count": 155.0,
+          "flat": false,
+          "label": "Passing Yards",
+          "points": 6.2,
+          "rate": 0.04,
+          "stat_id": 3
+         },
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "TD Pass",
+          "points": 4.0,
+          "rate": 4.0,
+          "stat_id": 4
+         },
+         {
+          "count": 14.0,
+          "flat": false,
+          "label": "Rushing Yards",
+          "points": 1.4,
+          "rate": 0.1,
+          "stat_id": 24
+         }
+        ],
+        "bye": false,
+        "game": {
+         "ball": "MIA",
+         "clock": "1:15",
+         "quarter": 3,
+         "red_zone": false,
+         "score": {
+          "BUF": 14,
+          "MIA": 10
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p5",
+        "player_id": 5,
+        "pos": "QB",
+        "proj": 18.0,
+        "slot": "QB",
+        "stat_line": "12/20, 155 yds, 1 TD \u00b7 2 car, 14 yds",
+        "team": "BUF",
+        "volume": {
+         "count": 20,
+         "label": "pass attempts"
+        }
+       },
+       {
+        "actual": 1.5,
+        "box": [
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "Reception",
+          "points": 1.5,
+          "rate": 1.5,
+          "stat_id": 53
+         }
+        ],
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "KC": 27,
+          "LV": 13
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p6",
+        "player_id": 6,
+        "pos": "TE",
+        "proj": 7.0,
+        "slot": "TE",
+        "stat_line": "1 rec",
+        "team": "KC",
+        "volume": {
+         "count": 1,
+         "label": "target"
+        }
+       },
+       {
+        "actual": 3.0,
+        "box": [
+         {
+          "count": 3.0,
+          "flat": false,
+          "label": "Sack",
+          "points": 3.0,
+          "rate": 1.0,
+          "stat_id": 99
+         }
+        ],
+        "bye": false,
+        "field": "on",
+        "game": {
+         "ball": "MIA",
+         "clock": "1:15",
+         "quarter": 3,
+         "red_zone": false,
+         "score": {
+          "BUF": 14,
+          "MIA": 10
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p-16002",
+        "player_id": -16002,
+        "pos": "D/ST",
+        "proj": 6.0,
+        "slot": "D/ST",
+        "stat_line": "3 sk",
+        "team": "BUF"
+       }
+      ],
+      "team_id": 2
+     },
+     "plays": [],
+     "week": 7,
+     "win_prob": {
+      "me": 1.0,
+      "opp": 0.0,
+      "sigma_source": "calibrated"
+     }
+    }
+   ]
+  },
+  {
+   "kind": "roster",
+   "served": [
+    {
+     "cards": [
+      {
+       "actual": 4.0,
+       "box": [
+        {
+         "count": 100.0,
+         "flat": false,
+         "label": "Passing Yards",
+         "points": 4.0,
+         "rate": 0.04,
+         "stat_id": 3
+        }
+       ],
+       "bye": false,
+       "field": "on",
+       "game": {
+        "ball": "KC",
+        "clock": "9:12",
+        "quarter": 1,
+        "red_zone": false,
+        "score": {
+         "KC": 0,
+         "LV": 0
+        },
+        "status": "in"
+       },
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p1",
+       "player_id": 1,
+       "pos": "QB",
+       "proj": 20.0,
+       "slot": "QB",
+       "stat_line": "4/6, 100 yds",
+       "team": "KC",
+       "volume": {
+        "count": 6,
+        "label": "pass attempts"
+       }
+      },
+      {
+       "actual": 0.0,
+       "bye": false,
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p2",
+       "player_id": 2,
+       "pos": "WR",
+       "proj": 12.0,
+       "slot": "WR",
+       "team": "BUF"
+      },
+      {
+       "actual": 7.0,
+       "box": [
+        {
+         "count": 2.0,
+         "flat": false,
+         "label": "FG Made",
+         "points": 6.0,
+         "rate": 3.0,
+         "stat_id": 83
+        }
+       ],
+       "bye": false,
+       "game": {
+        "clock": "0:00",
+        "quarter": 4,
+        "score": {
+         "DAL": 20,
+         "NYG": 17
+        },
+        "status": "post"
+       },
+       "game_played": 100,
+       "injury": "ACTIVE",
+       "name": "p4",
+       "player_id": 4,
+       "pos": "K",
+       "proj": 8.0,
+       "slot": "K",
+       "stat_line": "FG 2/2",
+       "team": "DAL"
+      },
+      {
+       "actual": 0.0,
+       "bye": false,
+       "field": "on",
+       "game": {
+        "ball": "KC",
+        "clock": "9:12",
+        "quarter": 1,
+        "red_zone": false,
+        "score": {
+         "KC": 0,
+         "LV": 0
+        },
+        "status": "in"
+       },
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p3",
+       "player_id": 3,
+       "pos": "RB",
+       "proj": 9.0,
+       "slot": "RB",
+       "team": "KC"
+      },
+      {
+       "actual": 0.0,
+       "bye": false,
+       "game": {
+        "clock": "0:00",
+        "quarter": 4,
+        "score": {
+         "DAL": 20,
+         "NYG": 17
+        },
+        "status": "post"
+       },
+       "game_played": 0,
+       "injury": "INJURY_RESERVE",
+       "name": "p9",
+       "player_id": 9,
+       "pos": "TE",
+       "proj": 6.0,
+       "slot": "TE",
+       "team": "NYG"
+      }
+     ],
+     "live": true,
+     "week": 7
+    },
+    {
+     "cards": [
+      {
+       "actual": 10.5,
+       "box": [
+        {
+         "count": 162.0,
+         "flat": false,
+         "label": "Passing Yards",
+         "points": 6.48,
+         "rate": 0.04,
+         "stat_id": 3
+        },
+        {
+         "count": 1.0,
+         "flat": false,
+         "label": "TD Pass",
+         "points": 4.0,
+         "rate": 4.0,
+         "stat_id": 4
+        }
+       ],
+       "bye": false,
+       "game": {
+        "ball": "LV",
+        "clock": "3:40",
+        "quarter": 2,
+        "red_zone": false,
+        "score": {
+         "KC": 7,
+         "LV": 3
+        },
+        "status": "in"
+       },
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p1",
+       "player_id": 1,
+       "pos": "QB",
+       "proj": 20.0,
+       "slot": "QB",
+       "stat_line": "11/15, 162 yds, 1 TD",
+       "team": "KC",
+       "volume": {
+        "count": 15,
+        "label": "pass attempts"
+       }
+      },
+      {
+       "actual": 3.0,
+       "box": [
+        {
+         "count": 10.0,
+         "flat": false,
+         "label": "Receiving Yards",
+         "points": 1.0,
+         "rate": 0.1,
+         "stat_id": 42
+        },
+        {
+         "count": 2.0,
+         "flat": false,
+         "label": "Reception",
+         "points": 2.0,
+         "rate": 1.0,
+         "stat_id": 53
+        }
+       ],
+       "bye": false,
+       "field": "red_zone",
+       "game": {
+        "ball": "BUF",
+        "clock": "12:01",
+        "quarter": 1,
+        "red_zone": true,
+        "score": {
+         "BUF": 0,
+         "MIA": 0
+        },
+        "status": "in"
+       },
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p2",
+       "player_id": 2,
+       "pos": "WR",
+       "proj": 12.0,
+       "slot": "WR",
+       "stat_line": "2 rec, 10 yds",
+       "team": "BUF",
+       "volume": {
+        "count": 3,
+        "label": "targets"
+       }
+      },
+      {
+       "actual": 7.0,
+       "box": [
+        {
+         "count": 2.0,
+         "flat": false,
+         "label": "FG Made",
+         "points": 6.0,
+         "rate": 3.0,
+         "stat_id": 83
+        }
+       ],
+       "bye": false,
+       "game": {
+        "clock": "0:00",
+        "quarter": 4,
+        "score": {
+         "DAL": 20,
+         "NYG": 17
+        },
+        "status": "post"
+       },
+       "game_played": 100,
+       "injury": "ACTIVE",
+       "name": "p4",
+       "player_id": 4,
+       "pos": "K",
+       "proj": 8.0,
+       "slot": "K",
+       "stat_line": "FG 2/2",
+       "team": "DAL"
+      },
+      {
+       "actual": 0.0,
+       "bye": false,
+       "game": {
+        "ball": "LV",
+        "clock": "3:40",
+        "quarter": 2,
+        "red_zone": false,
+        "score": {
+         "KC": 7,
+         "LV": 3
+        },
+        "status": "in"
+       },
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p3",
+       "player_id": 3,
+       "pos": "RB",
+       "proj": 9.0,
+       "slot": "RB",
+       "team": "KC"
+      },
+      {
+       "actual": 0.0,
+       "bye": false,
+       "game": {
+        "clock": "0:00",
+        "quarter": 4,
+        "score": {
+         "DAL": 20,
+         "NYG": 17
+        },
+        "status": "post"
+       },
+       "game_played": 0,
+       "injury": "INJURY_RESERVE",
+       "name": "p9",
+       "player_id": 9,
+       "pos": "TE",
+       "proj": 6.0,
+       "slot": "TE",
+       "team": "NYG"
+      }
+     ],
+     "live": true,
+     "week": 7
+    },
+    {
+     "cards": [
+      {
+       "actual": 24.0,
+       "box": [
+        {
+         "count": 300.0,
+         "flat": false,
+         "label": "Passing Yards",
+         "points": 12.0,
+         "rate": 0.04,
+         "stat_id": 3
+        },
+        {
+         "count": 3.0,
+         "flat": false,
+         "label": "TD Pass",
+         "points": 12.0,
+         "rate": 4.0,
+         "stat_id": 4
+        }
+       ],
+       "bye": false,
+       "game": {
+        "clock": "0:00",
+        "quarter": 4,
+        "score": {
+         "KC": 27,
+         "LV": 13
+        },
+        "status": "post"
+       },
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p1",
+       "player_id": 1,
+       "pos": "QB",
+       "proj": 20.0,
+       "slot": "QB",
+       "stat_line": "22/30, 300 yds, 3 TD",
+       "team": "KC",
+       "volume": {
+        "count": 30,
+        "label": "pass attempts"
+       }
+      },
+      {
+       "actual": 9.5,
+       "box": [
+        {
+         "count": 45.0,
+         "flat": false,
+         "label": "Receiving Yards",
+         "points": 4.5,
+         "rate": 0.1,
+         "stat_id": 42
+        },
+        {
+         "count": 5.0,
+         "flat": false,
+         "label": "Reception",
+         "points": 5.0,
+         "rate": 1.0,
+         "stat_id": 53
+        }
+       ],
+       "bye": false,
+       "game": {
+        "ball": "MIA",
+        "clock": "1:15",
+        "quarter": 3,
+        "red_zone": false,
+        "score": {
+         "BUF": 14,
+         "MIA": 10
+        },
+        "status": "in"
+       },
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p2",
+       "player_id": 2,
+       "pos": "WR",
+       "proj": 12.0,
+       "slot": "WR",
+       "stat_line": "5 rec, 45 yds",
+       "team": "BUF",
+       "volume": {
+        "count": 8,
+        "label": "targets"
+       }
+      },
+      {
+       "actual": 7.0,
+       "box": [
+        {
+         "count": 2.0,
+         "flat": false,
+         "label": "FG Made",
+         "points": 6.0,
+         "rate": 3.0,
+         "stat_id": 83
+        }
+       ],
+       "bye": false,
+       "game": {
+        "clock": "0:00",
+        "quarter": 4,
+        "score": {
+         "DAL": 20,
+         "NYG": 17
+        },
+        "status": "post"
+       },
+       "game_played": 100,
+       "injury": "ACTIVE",
+       "name": "p4",
+       "player_id": 4,
+       "pos": "K",
+       "proj": 8.0,
+       "slot": "K",
+       "stat_line": "FG 2/2",
+       "team": "DAL"
+      },
+      {
+       "actual": 6.5,
+       "box": [
+        {
+         "count": 45.0,
+         "flat": false,
+         "label": "Rushing Yards",
+         "points": 4.5,
+         "rate": 0.1,
+         "stat_id": 24
+        },
+        {
+         "count": 20.0,
+         "flat": false,
+         "label": "Receiving Yards",
+         "points": 2.0,
+         "rate": 0.1,
+         "stat_id": 42
+        },
+        {
+         "count": 2.0,
+         "flat": false,
+         "label": "Reception",
+         "points": 2.0,
+         "rate": 1.0,
+         "stat_id": 53
+        }
+       ],
+       "bye": false,
+       "game": {
+        "clock": "0:00",
+        "quarter": 4,
+        "score": {
+         "KC": 27,
+         "LV": 13
+        },
+        "status": "post"
+       },
+       "game_played": 0,
+       "injury": "ACTIVE",
+       "name": "p3",
+       "player_id": 3,
+       "pos": "RB",
+       "proj": 9.0,
+       "slot": "RB",
+       "stat_line": "9 car, 45 yds \u00b7 2 rec, 20 yds",
+       "team": "KC",
+       "volume": {
+        "count": 9,
+        "label": "carries"
+       }
+      },
+      {
+       "actual": 0.0,
+       "bye": false,
+       "game": {
+        "clock": "0:00",
+        "quarter": 4,
+        "score": {
+         "DAL": 20,
+         "NYG": 17
+        },
+        "status": "post"
+       },
+       "game_played": 0,
+       "injury": "INJURY_RESERVE",
+       "name": "p9",
+       "player_id": 9,
+       "pos": "TE",
+       "proj": 6.0,
+       "slot": "TE",
+       "team": "NYG"
+      }
+     ],
+     "live": true,
+     "week": 7
+    }
+   ]
+  },
+  {
+   "kind": "team",
+   "served": [
+    {
+     "live": true,
+     "side": {
+      "actual_total": 0.0,
+      "bench": [
+       {
+        "actual": 0.0,
+        "bye": true,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p7",
+        "player_id": 7,
+        "pos": "WR",
+        "proj": 5.0,
+        "slot": "WR",
+        "team": "NYG"
+       }
+      ],
+      "ir": [],
+      "lineup": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p5",
+        "player_id": 5,
+        "pos": "QB",
+        "proj": 18.0,
+        "slot": "QB",
+        "team": "BUF"
+       },
+       {
+        "actual": 0.0,
+        "bye": false,
+        "field": "on",
+        "game": {
+         "ball": "KC",
+         "clock": "9:12",
+         "quarter": 1,
+         "red_zone": false,
+         "score": {
+          "KC": 0,
+          "LV": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p6",
+        "player_id": 6,
+        "pos": "TE",
+        "proj": 7.0,
+        "slot": "TE",
+        "team": "KC"
+       },
+       {
+        "actual": 0.0,
+        "bye": false,
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p-16002",
+        "player_id": -16002,
+        "pos": "D/ST",
+        "proj": 6.0,
+        "slot": "D/ST",
+        "team": "BUF"
+       }
+      ],
+      "team_id": 2
+     },
+     "week": 7
+    },
+    {
+     "live": true,
+     "side": {
+      "actual_total": 2.5,
+      "bench": [
+       {
+        "actual": 0.0,
+        "bye": true,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p7",
+        "player_id": 7,
+        "pos": "WR",
+        "proj": 5.0,
+        "slot": "WR",
+        "team": "NYG"
+       }
+      ],
+      "ir": [],
+      "lineup": [
+       {
+        "actual": 0.0,
+        "bye": false,
+        "field": "red_zone",
+        "game": {
+         "ball": "BUF",
+         "clock": "12:01",
+         "quarter": 1,
+         "red_zone": true,
+         "score": {
+          "BUF": 0,
+          "MIA": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p5",
+        "player_id": 5,
+        "pos": "QB",
+        "proj": 18.0,
+        "slot": "QB",
+        "team": "BUF"
+       },
+       {
+        "actual": 1.5,
+        "box": [
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "Reception",
+          "points": 1.5,
+          "rate": 1.5,
+          "stat_id": 53
+         }
+        ],
+        "bye": false,
+        "game": {
+         "ball": "LV",
+         "clock": "3:40",
+         "quarter": 2,
+         "red_zone": false,
+         "score": {
+          "KC": 7,
+          "LV": 3
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p6",
+        "player_id": 6,
+        "pos": "TE",
+        "proj": 7.0,
+        "slot": "TE",
+        "stat_line": "1 rec",
+        "team": "KC",
+        "volume": {
+         "count": 1,
+         "label": "target"
+        }
+       },
+       {
+        "actual": 1.0,
+        "box": [
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "Sack",
+          "points": 1.0,
+          "rate": 1.0,
+          "stat_id": 99
+         }
+        ],
+        "bye": false,
+        "game": {
+         "ball": "BUF",
+         "clock": "12:01",
+         "quarter": 1,
+         "red_zone": true,
+         "score": {
+          "BUF": 0,
+          "MIA": 0
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p-16002",
+        "player_id": -16002,
+        "pos": "D/ST",
+        "proj": 6.0,
+        "slot": "D/ST",
+        "stat_line": "1 sk",
+        "team": "BUF"
+       }
+      ],
+      "team_id": 2
+     },
+     "week": 7
+    },
+    {
+     "live": true,
+     "side": {
+      "actual_total": 16.75,
+      "bench": [
+       {
+        "actual": 0.0,
+        "bye": true,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "DAL": 20,
+          "NYG": 17
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p7",
+        "player_id": 7,
+        "pos": "WR",
+        "proj": 5.0,
+        "slot": "WR",
+        "team": "NYG"
+       }
+      ],
+      "ir": [],
+      "lineup": [
+       {
+        "actual": 12.25,
+        "box": [
+         {
+          "count": 155.0,
+          "flat": false,
+          "label": "Passing Yards",
+          "points": 6.2,
+          "rate": 0.04,
+          "stat_id": 3
+         },
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "TD Pass",
+          "points": 4.0,
+          "rate": 4.0,
+          "stat_id": 4
+         },
+         {
+          "count": 14.0,
+          "flat": false,
+          "label": "Rushing Yards",
+          "points": 1.4,
+          "rate": 0.1,
+          "stat_id": 24
+         }
+        ],
+        "bye": false,
+        "game": {
+         "ball": "MIA",
+         "clock": "1:15",
+         "quarter": 3,
+         "red_zone": false,
+         "score": {
+          "BUF": 14,
+          "MIA": 10
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p5",
+        "player_id": 5,
+        "pos": "QB",
+        "proj": 18.0,
+        "slot": "QB",
+        "stat_line": "12/20, 155 yds, 1 TD \u00b7 2 car, 14 yds",
+        "team": "BUF",
+        "volume": {
+         "count": 20,
+         "label": "pass attempts"
+        }
+       },
+       {
+        "actual": 1.5,
+        "box": [
+         {
+          "count": 1.0,
+          "flat": false,
+          "label": "Reception",
+          "points": 1.5,
+          "rate": 1.5,
+          "stat_id": 53
+         }
+        ],
+        "bye": false,
+        "game": {
+         "clock": "0:00",
+         "quarter": 4,
+         "score": {
+          "KC": 27,
+          "LV": 13
+         },
+         "status": "post"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p6",
+        "player_id": 6,
+        "pos": "TE",
+        "proj": 7.0,
+        "slot": "TE",
+        "stat_line": "1 rec",
+        "team": "KC",
+        "volume": {
+         "count": 1,
+         "label": "target"
+        }
+       },
+       {
+        "actual": 3.0,
+        "box": [
+         {
+          "count": 3.0,
+          "flat": false,
+          "label": "Sack",
+          "points": 3.0,
+          "rate": 1.0,
+          "stat_id": 99
+         }
+        ],
+        "bye": false,
+        "field": "on",
+        "game": {
+         "ball": "MIA",
+         "clock": "1:15",
+         "quarter": 3,
+         "red_zone": false,
+         "score": {
+          "BUF": 14,
+          "MIA": 10
+         },
+         "status": "in"
+        },
+        "game_played": 0,
+        "injury": "ACTIVE",
+        "name": "p-16002",
+        "player_id": -16002,
+        "pos": "D/ST",
+        "proj": 6.0,
+        "slot": "D/ST",
+        "stat_line": "3 sk",
+        "team": "BUF"
+       }
+      ],
+      "team_id": 2
+     },
+     "week": 7
+    }
+   ]
+  },
+  {
+   "kind": "league",
+   "served": [
+    {
+     "live": true,
+     "scoreboard": [
+      {
+       "away": {
+        "me": true,
+        "pending_teams": [
+         "BUF",
+         "DAL",
+         "KC"
+        ],
+        "proj": 40.0,
+        "score": 11.0,
+        "starter_ids": [
+         1,
+         2,
+         4
+        ],
+        "starter_teams": [
+         "BUF",
+         "DAL",
+         "KC"
+        ],
+        "starters": [
+         {
+          "actual": 4.0,
+          "bye": false,
+          "game": {
+           "ball": "KC",
+           "clock": "9:12",
+           "quarter": 1,
+           "red_zone": false,
+           "score": {
+            "KC": 0,
+            "LV": 0
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 1,
+          "pos": "QB",
+          "proj": 20.0,
+          "team": "KC"
+         },
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 2,
+          "pos": "WR",
+          "proj": 12.0,
+          "team": "BUF"
+         },
+         {
+          "actual": 7.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 4,
+          "pos": "K",
+          "proj": 8.0,
+          "team": "DAL"
+         }
+        ],
+        "team_id": 1
+       },
+       "final": false,
+       "home": {
+        "me": false,
+        "pending_teams": [
+         "BUF",
+         "KC"
+        ],
+        "proj": 31.0,
+        "score": 0.0,
+        "starter_ids": [
+         5,
+         6,
+         -16002
+        ],
+        "starter_teams": [
+         "BUF",
+         "KC"
+        ],
+        "starters": [
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 5,
+          "pos": "QB",
+          "proj": 18.0,
+          "team": "BUF"
+         },
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game": {
+           "ball": "KC",
+           "clock": "9:12",
+           "quarter": 1,
+           "red_zone": false,
+           "score": {
+            "KC": 0,
+            "LV": 0
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 6,
+          "pos": "TE",
+          "proj": 7.0,
+          "team": "KC"
+         },
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": -16002,
+          "pos": "D/ST",
+          "proj": 6.0,
+          "team": "BUF"
+         }
+        ],
+        "team_id": 2
+       },
+       "live": true,
+       "win_prob": {
+        "away": 0.765,
+        "home": 0.235
+       }
+      },
+      {
+       "away": {
+        "me": false,
+        "pending_teams": [
+         "DAL"
+        ],
+        "proj": 10.0,
+        "score": 0.0,
+        "starter_ids": [
+         8
+        ],
+        "starter_teams": [
+         "DAL"
+        ],
+        "starters": [
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 8,
+          "pos": "WR",
+          "proj": 10.0,
+          "team": "DAL"
+         }
+        ],
+        "team_id": 3
+       },
+       "final": true,
+       "home": {
+        "me": false,
+        "pending_teams": [
+         "NYG"
+        ],
+        "proj": 10.0,
+        "score": 0.0,
+        "starter_ids": [
+         10
+        ],
+        "starter_teams": [
+         "NYG"
+        ],
+        "starters": [
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 10,
+          "pos": "RB",
+          "proj": 10.0,
+          "team": "NYG"
+         }
+        ],
+        "team_id": 4
+       },
+       "live": false,
+       "win_prob": null
+      }
+     ],
+     "week": 7
+    },
+    {
+     "live": true,
+     "scoreboard": [
+      {
+       "away": {
+        "me": true,
+        "pending_teams": [
+         "BUF",
+         "DAL",
+         "KC"
+        ],
+        "proj": 40.0,
+        "score": 20.5,
+        "starter_ids": [
+         1,
+         2,
+         4
+        ],
+        "starter_teams": [
+         "BUF",
+         "DAL",
+         "KC"
+        ],
+        "starters": [
+         {
+          "actual": 10.5,
+          "bye": false,
+          "game": {
+           "ball": "LV",
+           "clock": "3:40",
+           "quarter": 2,
+           "red_zone": false,
+           "score": {
+            "KC": 7,
+            "LV": 3
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 1,
+          "pos": "QB",
+          "proj": 20.0,
+          "team": "KC"
+         },
+         {
+          "actual": 3.0,
+          "bye": false,
+          "game": {
+           "ball": "BUF",
+           "clock": "12:01",
+           "quarter": 1,
+           "red_zone": true,
+           "score": {
+            "BUF": 0,
+            "MIA": 0
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 2,
+          "pos": "WR",
+          "proj": 12.0,
+          "team": "BUF"
+         },
+         {
+          "actual": 7.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 4,
+          "pos": "K",
+          "proj": 8.0,
+          "team": "DAL"
+         }
+        ],
+        "team_id": 1
+       },
+       "final": false,
+       "home": {
+        "me": false,
+        "pending_teams": [
+         "BUF",
+         "KC"
+        ],
+        "proj": 31.0,
+        "score": 2.5,
+        "starter_ids": [
+         5,
+         6,
+         -16002
+        ],
+        "starter_teams": [
+         "BUF",
+         "KC"
+        ],
+        "starters": [
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game": {
+           "ball": "BUF",
+           "clock": "12:01",
+           "quarter": 1,
+           "red_zone": true,
+           "score": {
+            "BUF": 0,
+            "MIA": 0
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 5,
+          "pos": "QB",
+          "proj": 18.0,
+          "team": "BUF"
+         },
+         {
+          "actual": 1.5,
+          "bye": false,
+          "game": {
+           "ball": "LV",
+           "clock": "3:40",
+           "quarter": 2,
+           "red_zone": false,
+           "score": {
+            "KC": 7,
+            "LV": 3
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 6,
+          "pos": "TE",
+          "proj": 7.0,
+          "team": "KC"
+         },
+         {
+          "actual": 1.0,
+          "bye": false,
+          "game": {
+           "ball": "BUF",
+           "clock": "12:01",
+           "quarter": 1,
+           "red_zone": true,
+           "score": {
+            "BUF": 0,
+            "MIA": 0
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": -16002,
+          "pos": "D/ST",
+          "proj": 6.0,
+          "team": "BUF"
+         }
+        ],
+        "team_id": 2
+       },
+       "live": true,
+       "win_prob": {
+        "away": 0.848,
+        "home": 0.152
+       }
+      },
+      {
+       "away": {
+        "me": false,
+        "pending_teams": [
+         "DAL"
+        ],
+        "proj": 10.0,
+        "score": 0.0,
+        "starter_ids": [
+         8
+        ],
+        "starter_teams": [
+         "DAL"
+        ],
+        "starters": [
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 8,
+          "pos": "WR",
+          "proj": 10.0,
+          "team": "DAL"
+         }
+        ],
+        "team_id": 3
+       },
+       "final": true,
+       "home": {
+        "me": false,
+        "pending_teams": [
+         "NYG"
+        ],
+        "proj": 10.0,
+        "score": 0.0,
+        "starter_ids": [
+         10
+        ],
+        "starter_teams": [
+         "NYG"
+        ],
+        "starters": [
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 10,
+          "pos": "RB",
+          "proj": 10.0,
+          "team": "NYG"
+         }
+        ],
+        "team_id": 4
+       },
+       "live": false,
+       "win_prob": null
+      }
+     ],
+     "week": 7
+    },
+    {
+     "live": true,
+     "scoreboard": [
+      {
+       "away": {
+        "me": true,
+        "pending_teams": [
+         "BUF",
+         "DAL",
+         "KC"
+        ],
+        "proj": 40.0,
+        "score": 40.5,
+        "starter_ids": [
+         1,
+         2,
+         4
+        ],
+        "starter_teams": [
+         "BUF",
+         "DAL",
+         "KC"
+        ],
+        "starters": [
+         {
+          "actual": 24.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "KC": 27,
+            "LV": 13
+           },
+           "status": "post"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 1,
+          "pos": "QB",
+          "proj": 20.0,
+          "team": "KC"
+         },
+         {
+          "actual": 9.5,
+          "bye": false,
+          "game": {
+           "ball": "MIA",
+           "clock": "1:15",
+           "quarter": 3,
+           "red_zone": false,
+           "score": {
+            "BUF": 14,
+            "MIA": 10
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 2,
+          "pos": "WR",
+          "proj": 12.0,
+          "team": "BUF"
+         },
+         {
+          "actual": 7.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 4,
+          "pos": "K",
+          "proj": 8.0,
+          "team": "DAL"
+         }
+        ],
+        "team_id": 1
+       },
+       "final": false,
+       "home": {
+        "me": false,
+        "pending_teams": [
+         "BUF",
+         "KC"
+        ],
+        "proj": 31.0,
+        "score": 16.75,
+        "starter_ids": [
+         5,
+         6,
+         -16002
+        ],
+        "starter_teams": [
+         "BUF",
+         "KC"
+        ],
+        "starters": [
+         {
+          "actual": 12.25,
+          "bye": false,
+          "game": {
+           "ball": "MIA",
+           "clock": "1:15",
+           "quarter": 3,
+           "red_zone": false,
+           "score": {
+            "BUF": 14,
+            "MIA": 10
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 5,
+          "pos": "QB",
+          "proj": 18.0,
+          "team": "BUF"
+         },
+         {
+          "actual": 1.5,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "KC": 27,
+            "LV": 13
+           },
+           "status": "post"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 6,
+          "pos": "TE",
+          "proj": 7.0,
+          "team": "KC"
+         },
+         {
+          "actual": 3.0,
+          "bye": false,
+          "game": {
+           "ball": "MIA",
+           "clock": "1:15",
+           "quarter": 3,
+           "red_zone": false,
+           "score": {
+            "BUF": 14,
+            "MIA": 10
+           },
+           "status": "in"
+          },
+          "game_played": 0,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": -16002,
+          "pos": "D/ST",
+          "proj": 6.0,
+          "team": "BUF"
+         }
+        ],
+        "team_id": 2
+       },
+       "live": true,
+       "win_prob": {
+        "away": 1.0,
+        "home": 0.0
+       }
+      },
+      {
+       "away": {
+        "me": false,
+        "pending_teams": [
+         "DAL"
+        ],
+        "proj": 10.0,
+        "score": 0.0,
+        "starter_ids": [
+         8
+        ],
+        "starter_teams": [
+         "DAL"
+        ],
+        "starters": [
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 8,
+          "pos": "WR",
+          "proj": 10.0,
+          "team": "DAL"
+         }
+        ],
+        "team_id": 3
+       },
+       "final": true,
+       "home": {
+        "me": false,
+        "pending_teams": [
+         "NYG"
+        ],
+        "proj": 10.0,
+        "score": 0.0,
+        "starter_ids": [
+         10
+        ],
+        "starter_teams": [
+         "NYG"
+        ],
+        "starters": [
+         {
+          "actual": 0.0,
+          "bye": false,
+          "game": {
+           "clock": "0:00",
+           "quarter": 4,
+           "score": {
+            "DAL": 20,
+            "NYG": 17
+           },
+           "status": "post"
+          },
+          "game_played": 100,
+          "injury": "ACTIVE",
+          "kickoff": null,
+          "player_id": 10,
+          "pos": "RB",
+          "proj": 10.0,
+          "team": "NYG"
+         }
+        ],
+        "team_id": 4
+       },
+       "live": false,
+       "win_prob": null
+      }
+     ],
+     "week": 7
+    }
+   ]
+  }
+ ],
+ "deltas": [
+  {
+   "games": {
+    "BUF": {
+     "ball": "BUF",
+     "clock": "12:01",
+     "quarter": 1,
+     "red_zone": true,
+     "score": {
+      "BUF": 0,
+      "MIA": 0
+     },
+     "status": "in"
+    },
+    "DAL": {
+     "clock": "0:00",
+     "quarter": 4,
+     "score": {
+      "DAL": 20,
+      "NYG": 17
+     },
+     "status": "post"
+    },
+    "KC": {
+     "ball": "LV",
+     "clock": "3:40",
+     "quarter": 2,
+     "red_zone": false,
+     "score": {
+      "KC": 7,
+      "LV": 3
+     },
+     "status": "in"
+    },
+    "LV": {
+     "ball": "LV",
+     "clock": "3:40",
+     "quarter": 2,
+     "red_zone": false,
+     "score": {
+      "KC": 7,
+      "LV": 3
+     },
+     "status": "in"
+    },
+    "MIA": {
+     "ball": "BUF",
+     "clock": "12:01",
+     "quarter": 1,
+     "red_zone": true,
+     "score": {
+      "BUF": 0,
+      "MIA": 0
+     },
+     "status": "in"
+    },
+    "NYG": {
+     "clock": "0:00",
+     "quarter": 4,
+     "score": {
+      "DAL": 20,
+      "NYG": 17
+     },
+     "status": "post"
+    }
+   },
+   "players": {
+    "-16002": {
+     "box": [
+      {
+       "count": 1.0,
+       "flat": false,
+       "label": "Sack",
+       "points": 1.0,
+       "rate": 1.0,
+       "stat_id": 99
+      }
+     ],
+     "stat_line": "1 sk",
+     "volume": null
+    },
+    "1": {
+     "box": [
+      {
+       "count": 162.0,
+       "flat": false,
+       "label": "Passing Yards",
+       "points": 6.48,
+       "rate": 0.04,
+       "stat_id": 3
+      },
+      {
+       "count": 1.0,
+       "flat": false,
+       "label": "TD Pass",
+       "points": 4.0,
+       "rate": 4.0,
+       "stat_id": 4
+      }
+     ],
+     "stat_line": "11/15, 162 yds, 1 TD",
+     "volume": {
+      "count": 15,
+      "label": "pass attempts"
+     }
+    },
+    "2": {
+     "box": [
+      {
+       "count": 10.0,
+       "flat": false,
+       "label": "Receiving Yards",
+       "points": 1.0,
+       "rate": 0.1,
+       "stat_id": 42
+      },
+      {
+       "count": 2.0,
+       "flat": false,
+       "label": "Reception",
+       "points": 2.0,
+       "rate": 1.0,
+       "stat_id": 53
+      }
+     ],
+     "stat_line": "2 rec, 10 yds",
+     "volume": {
+      "count": 3,
+      "label": "targets"
+     }
+    },
+    "6": {
+     "box": [
+      {
+       "count": 1.0,
+       "flat": false,
+       "label": "Reception",
+       "points": 1.5,
+       "rate": 1.5,
+       "stat_id": 53
+      }
+     ],
+     "stat_line": "1 rec",
+     "volume": {
+      "count": 1,
+      "label": "target"
+     }
+    }
+   },
+   "points": {
+    "-16002": 1.0,
+    "1": 10.5,
+    "2": 3.0,
+    "6": 1.5
+   },
+   "sigma": {
+    "D/ST": 5.5,
+    "K": 4.0,
+    "QB": 8.0,
+    "RB": 7.0,
+    "TE": 5.5,
+    "WR": 6.5
+   },
+   "v": 1,
+   "week": 7
+  },
+  {
+   "games": {
+    "BUF": {
+     "ball": "MIA",
+     "clock": "1:15",
+     "quarter": 3,
+     "red_zone": false,
+     "score": {
+      "BUF": 14,
+      "MIA": 10
+     },
+     "status": "in"
+    },
+    "KC": {
+     "clock": "0:00",
+     "quarter": 4,
+     "score": {
+      "KC": 27,
+      "LV": 13
+     },
+     "status": "post"
+    },
+    "LV": {
+     "clock": "0:00",
+     "quarter": 4,
+     "score": {
+      "KC": 27,
+      "LV": 13
+     },
+     "status": "post"
+    },
+    "MIA": {
+     "ball": "MIA",
+     "clock": "1:15",
+     "quarter": 3,
+     "red_zone": false,
+     "score": {
+      "BUF": 14,
+      "MIA": 10
+     },
+     "status": "in"
+    }
+   },
+   "players": {
+    "-16002": {
+     "box": [
+      {
+       "count": 3.0,
+       "flat": false,
+       "label": "Sack",
+       "points": 3.0,
+       "rate": 1.0,
+       "stat_id": 99
+      }
+     ],
+     "stat_line": "3 sk",
+     "volume": null
+    },
+    "1": {
+     "box": [
+      {
+       "count": 300.0,
+       "flat": false,
+       "label": "Passing Yards",
+       "points": 12.0,
+       "rate": 0.04,
+       "stat_id": 3
+      },
+      {
+       "count": 3.0,
+       "flat": false,
+       "label": "TD Pass",
+       "points": 12.0,
+       "rate": 4.0,
+       "stat_id": 4
+      }
+     ],
+     "stat_line": "22/30, 300 yds, 3 TD",
+     "volume": {
+      "count": 30,
+      "label": "pass attempts"
+     }
+    },
+    "2": {
+     "box": [
+      {
+       "count": 45.0,
+       "flat": false,
+       "label": "Receiving Yards",
+       "points": 4.5,
+       "rate": 0.1,
+       "stat_id": 42
+      },
+      {
+       "count": 5.0,
+       "flat": false,
+       "label": "Reception",
+       "points": 5.0,
+       "rate": 1.0,
+       "stat_id": 53
+      }
+     ],
+     "stat_line": "5 rec, 45 yds",
+     "volume": {
+      "count": 8,
+      "label": "targets"
+     }
+    },
+    "3": {
+     "box": [
+      {
+       "count": 45.0,
+       "flat": false,
+       "label": "Rushing Yards",
+       "points": 4.5,
+       "rate": 0.1,
+       "stat_id": 24
+      },
+      {
+       "count": 20.0,
+       "flat": false,
+       "label": "Receiving Yards",
+       "points": 2.0,
+       "rate": 0.1,
+       "stat_id": 42
+      },
+      {
+       "count": 2.0,
+       "flat": false,
+       "label": "Reception",
+       "points": 2.0,
+       "rate": 1.0,
+       "stat_id": 53
+      }
+     ],
+     "stat_line": "9 car, 45 yds \u00b7 2 rec, 20 yds",
+     "volume": {
+      "count": 9,
+      "label": "carries"
+     }
+    },
+    "5": {
+     "box": [
+      {
+       "count": 155.0,
+       "flat": false,
+       "label": "Passing Yards",
+       "points": 6.2,
+       "rate": 0.04,
+       "stat_id": 3
+      },
+      {
+       "count": 1.0,
+       "flat": false,
+       "label": "TD Pass",
+       "points": 4.0,
+       "rate": 4.0,
+       "stat_id": 4
+      },
+      {
+       "count": 14.0,
+       "flat": false,
+       "label": "Rushing Yards",
+       "points": 1.4,
+       "rate": 0.1,
+       "stat_id": 24
+      }
+     ],
+     "stat_line": "12/20, 155 yds, 1 TD \u00b7 2 car, 14 yds",
+     "volume": {
+      "count": 20,
+      "label": "pass attempts"
+     }
+    }
+   },
+   "points": {
+    "-16002": 3.0,
+    "1": 24.0,
+    "2": 9.5,
+    "3": 6.5,
+    "5": 12.25
+   },
+   "v": 2,
+   "week": 7
+  }
+ ]
+}

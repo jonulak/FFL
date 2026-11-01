@@ -47,7 +47,7 @@ def test_import_every_store_and_counts(tree):
     journal, data = tree
     report = {r["table"]: r for r in db_import.run(journal, data, 2026)}
     assert all(r["in_db"] >= r["source"] > 0 for r in report.values()), report
-    assert report["outlooks"]["source"] == 2 and report["plays"]["source"] == 2
+    assert report["outlooks"]["source"] == 1 and report["plays"]["source"] == 2
     assert report["decisions"]["source"] == 1 and db.count("decisions", 2026, ref=home_league()) == 1
     assert db.transactions(ref=home_league())[0]["player_id"] == 4688380
     assert db.transactions(ref=home_league())[1]["bid"] == 12
@@ -57,7 +57,7 @@ def test_import_every_store_and_counts(tree):
     assert db.picks(ref=home_league())[1]["ts"] is None and db.picks(ref=home_league())[1]["proj"] is None
     assert db.results_rows(ref=home_league())[0]["my_score"] == 187.92
     assert db.plays_rows(1, ref=home_league())[1]["text"] == "run"
-    assert db.outlooks_for(5, "waivers-week", ref=home_league()) and set(db.outlooks_for(5, "week", ref=home_league())) == {1}
+    assert set(db.outlooks_for(5)) == {1}, "a waivers-week file is not imported"
     assert db.snapshots(ref=home_league())[0]["k"] == 4 and len(db.snapshots(ref=home_league())[0]["rows"]) == 2
     assert db.latest_sigma()["weeks"] == [1, 2, 3, 4]
     assert db.claim_plan(5, ref=home_league())["week"] == 5
@@ -66,7 +66,7 @@ def test_import_every_store_and_counts(tree):
 def test_import_files_rows_under_home(tree):
     import sqlalchemy as sa
     db_import.run(*tree, 2026)
-    tables = ("transactions", "draft_picks", "results", "plays", "outlooks", "claim_plans", "decisions",
+    tables = ("transactions", "draft_picks", "results", "plays", "claim_plans", "decisions",
               "calibration_snapshots", "calibration_rows")
     with db._read() as c:
         for t in tables:
@@ -84,10 +84,10 @@ def test_import_twice_is_a_no_op(tree):
 def test_import_never_overwrites_newer_db_rows(tree):
     journal, data = tree
     db_import.run(journal, data, 2026)
-    db.put_outlooks(5, "week", {1: {"hash": "newer", "bullets": ["fresh"]}}, ref=home_league())
+    db.put_outlooks(5, {1: {"hash": "newer", "bullets": ["fresh"]}})
     db.put_claim_plan({"week": 5, "groups": ["newer"]}, ref=home_league())
     db_import.run(journal, data, 2026)
-    assert db.outlooks_for(5, "week", ref=home_league())[1]["hash"] == "newer"
+    assert db.outlooks_for(5)[1]["hash"] == "newer"
     assert db.claim_plan(5, ref=home_league())["groups"] == ["newer"]
 
 

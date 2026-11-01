@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Issues live in GitHub Issues (`gh issue list`); beads was retired 2026-10-28. CLAUDE.md is the full guide.
+Issues live in GitHub Issues (`gh issue list`). CLAUDE.md is the full guide.
 
 ## Non-Interactive Shell Commands
 

@@ -1,11 +1,11 @@
-"""Haiku writes each story's headline, overview and a line per player it moves (▲/▼) explaining Jev's arrow;
+"""Haiku writes each story's headline, overview and a line per player it moves (▲/▼) explaining the tagger's arrow;
 a player it only names (●) gets no line.
 
-Jev decides the effect (▲ up / ▼ down / ● none); Haiku only words it, from the sources, and says when
+The tagger decides the effect (▲ up / ▼ down / ● none); Haiku only words it, from the sources, and says when
 the sources do not support the arrow (`disagree`, stored as the player's flag). A story is a situation that
 develops (limps off, doubtful, out, on IR), so Haiku reads every source in full, newest first, and the headline
 says where it stands now. The story is written from the rev it was read at: one that moved on meanwhile is
-dropped at the write and read again next run. A headline refresh (Jev found the written headline stale, the rev
+dropped at the write and read again next run. A headline refresh (the tagger found the written headline stale, the rev
 unmoved) is written the same way but kept out of `written_ids`, which the pushes are queued from.
 A raised batch stops the run: the subscription's limit is the likely cause, and the rest would fail too.
 """
@@ -48,7 +48,8 @@ For each story below, give:
   empty list.
 A story whose status is corrected or retracted must say so plainly in both the headline and the overview
 (for example "Correction: ..." or "Report withdrawn: ..."), naming the status note's source when given.
-Answer for every story id given."""
+Answer for every story id given.
+""" + claude_cli.DATA_RULE
 
 
 def _moved(s: dict) -> list[dict]:
@@ -88,10 +89,13 @@ def _sources(s: dict, sources: dict[str, dict]) -> tuple[list[str], dict[int, li
             continue
         number[i["id"]] = n
         name = (sources.get(i["source_id"]) or {}).get("name") or i["source_id"]
-        out += [f"Source {n}{' (newest)' if n == 1 else ''}: {name}, {_when(i['published_at'])}: {i['title']}", full[i["id"]]]
+        when = _when(i["published_at"])
+        out += [f"Source {n}{' (newest)' if n == 1 else ''}: {name}, {when}:",
+                claude_cli.data_block("source", f"{i['title']}\n{full[i['id']]}", outlet=name, published=when)]
     if rest:
         out.append("Earlier sources, by title only (oldest first):")
-        out += [f"- {_when(i['published_at'])}: {i['title']}" for i in reversed(rest)]
+        out += [f"- {_when(i['published_at'])}: " + claude_cli.data_block("source", i["title"], published=_when(i["published_at"]))
+                for i in reversed(rest)]
     naming = {p["player_id"]: sorted(number[i["id"]] for i in items if i["id"] in number
                                      and p["player_id"] in (i.get("player_ids") or [])) for p in _moved(s)}
     return out, naming
@@ -136,8 +140,8 @@ def _put(s: dict, w: dict | None) -> bool:
 
 def run(index: Index, run_cli=claude_cli.run) -> dict:
     """`written_ids`: the (story, rev) written for a new rev, which may push; `refreshed`: the stories written again at
-    the same rev only because Jev found the headline stale, which never do. `usage` is what Haiku read and wrote this run, added to
-    the day's in state `news_haiku_usage`."""
+    the same rev only because the tagger found the headline stale, which never do. `usage` is what Haiku read and wrote this run (each
+    call's cost is its llm_calls row)."""
     out = {"written": 0, "written_ids": [], "refreshed": 0, "missing": 0, "failed": False, "error": None,
            "usage": usage.zero()}
     stories = db.unwritten_stories()  # all of them, newest first: no cap a run (Jonathan, 2026-10-19)
@@ -146,7 +150,7 @@ def run(index: Index, run_cli=claude_cli.run) -> dict:
         batch = stories[at:at + BATCH]
         try:
             got = run_cli(prompt(batch, index, sources), model=MODEL, schema=SCHEMA, tools="", cwd=CLAUDE_CWD,
-                          timeout=TIMEOUT)
+                          timeout=TIMEOUT, kind="news")
         except Exception as e:  # noqa: BLE001 — any failure of the CLI stops the run, with its text
             out["failed"], out["error"] = True, str(e)
             out["missing"] += len(stories) - at
@@ -169,8 +173,4 @@ def run(index: Index, run_cli=claude_cli.run) -> dict:
                 out["written_ids"].append((s["id"], s["rev"]))
             else:
                 out["refreshed"] += 1
-    try:
-        usage.record(usage.HAIKU, out["usage"], datetime.now(timezone.utc))
-    except db.DBError as e:
-        print(f"news write: usage not recorded: {e}")
     return out

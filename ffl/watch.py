@@ -120,7 +120,7 @@ def available_signal(player: dict, prev_owner: int | None, day: str, at: str) ->
 
 
 def news_signal(story: dict, row: dict, at: str) -> dict | None:
-    """A news-desk ▲ on him that Jev is at least NEWS_PROB sure of, with a reason, unflagged."""
+    """A news-desk ▲ on him that the tagger is at least NEWS_PROB sure of, with a reason, unflagged."""
     if (row["effect"] != "up" or row["prob"] < NEWS_PROB or row.get("flag")
             or not (row.get("reason") or "").strip()):
         return None

@@ -16,9 +16,24 @@ def _count(url, table):
         eng.dispose()
 
 
+def _tables(url):
+    eng = sa.create_engine(url, poolclass=sa.pool.NullPool)
+    try:
+        with eng.connect() as c:
+            return c.execute(sa.text("select count(*) from pg_tables where schemaname = 'public'")).scalar()
+    finally:
+        eng.dispose()
+
+
 def _tx():
     db.add_transactions([{"id": "1-6-DROPPED-1", "date": "d", "type": "DROPPED", "team": "t", "player": "p",
                           "action": "DROPPED", "bid": 0, "reasoning": ""}], ref=home_league())
+
+
+def test_backup_needs_a_destination(monkeypatch):
+    monkeypatch.delenv("FFL_BACKUP_DEST", raising=False)
+    with pytest.raises(SystemExit, match="FFL_BACKUP_DEST"):
+        db_backup.backup()
 
 
 def test_backup_writes_checked_dump(tmp_path):
@@ -67,12 +82,28 @@ def test_backup_failed_publish_leaves_no_temp_file(tmp_path, monkeypatch):
     assert not list((tmp_path / "bk").glob("*")) and not list((tmp_path / "bk").glob(".*"))
 
 
+def test_restore_refuses_without_yes(tmp_path, empty_db, capsys):
+    _tx()
+    bk = str(tmp_path / "bk")
+    db_backup.backup(bk, today=date(2026, 10, 8))
+    fresh = empty_db()
+    with pytest.raises(SystemExit) as e:
+        db_backup.restore(bk, fresh)
+    assert e.value.code == 2
+    out = capsys.readouterr().out
+    assert sa.engine.make_url(fresh).database in out and "--yes" in out
+    assert _tables(fresh) == 0, "nothing restored"
+    with pytest.raises(SystemExit) as e:
+        db.main(["restore", bk, "--url", fresh])
+    assert e.value.code == 2 and _tables(fresh) == 0
+
+
 def test_restore_round_trip(tmp_path, empty_db):
     _tx()
     bk = str(tmp_path / "bk")
     db_backup.backup(bk, today=date(2026, 10, 8))
     fresh = empty_db()
-    db_backup.restore(bk, fresh)  # a directory: the newest dump
+    db_backup.restore(bk, fresh, yes=True)  # a directory: the newest dump
     for t in ("transactions", "leagues", "strategies"):
         assert _count(fresh, t) == _count(db.url(), t) > 0
     assert _count(fresh, "alembic_version") == 1
@@ -84,70 +115,11 @@ def test_restore_named_file_and_newest_pick(tmp_path, empty_db):
     _tx()
     db_backup.backup(str(bk), today=date(2026, 10, 2))
     a = empty_db()
-    db_backup.restore(old, a)
+    db_backup.restore(old, a, yes=True)
     assert _count(a, "transactions") == 0
     b = empty_db()
-    db_backup.restore(str(bk), b)
+    db_backup.restore(str(bk), b, yes=True)
     assert _count(b, "transactions") == 1
-
-
-@pytest.mark.parametrize("url", [
-    "postgresql+psycopg://u:p@db.abc.rds.amazonaws.com:5432/ffl",
-    "postgresql+psycopg://u@10.0.0.5/ffl",
-])
-def test_restore_refuses_a_non_local_host_without_to_rds(tmp_path, url):
-    with pytest.raises(SystemExit, match="--to-rds"):
-        db_backup.restore(str(tmp_path), url)
-
-
-@pytest.mark.parametrize("url", ["postgresql+psycopg:///x", "postgresql+psycopg://u@localhost/x",
-                                 "postgresql+psycopg://u@127.0.0.1:5432/x", "postgresql+psycopg://u@[::1]/x",
-                                 "postgresql+psycopg://u@/x?host=/tmp"])
-def test_local_hosts(url, monkeypatch):
-    monkeypatch.setattr(db_backup, "server_is_rds", lambda u: False)
-    assert db_backup.is_local(url)
-
-
-def test_a_tunnel_to_the_rds_is_not_local(tmp_path, monkeypatch):
-    """127.0.0.1:5434 is the production RDS through the ffl-rds tunnel: the server's answer decides."""
-    monkeypatch.setattr(db_backup, "server_is_rds", lambda u: True)
-    url = "postgresql+psycopg://ffl:pw@127.0.0.1:5434/ffl?sslmode=require"
-    assert not db_backup.is_local(url)
-    with pytest.raises(SystemExit, match="--to-rds"):
-        db_backup.restore(str(tmp_path), url)
-
-
-def test_server_is_rds_asks_the_server():
-    assert db_backup.server_is_rds(db.url()) is False  # the test server: a plain Postgres, no rds_superuser
-
-
-def test_server_is_rds_unreachable_is_never_local():
-    with pytest.raises(SystemExit, match="cannot ask"):
-        db_backup.is_local("postgresql+psycopg://u:p@127.0.0.1:1/x?connect_timeout=2")
-
-
-def test_s3_store_through_a_stub_client():
-    class Stub:
-        def __init__(self):
-            self.objs = {}
-
-        def upload_file(self, path, bucket, key):
-            self.objs[key] = open(path, "rb").read()
-
-        def download_file(self, bucket, key, path):
-            open(path, "wb").write(self.objs[key])
-
-        def delete_object(self, Bucket, Key):
-            del self.objs[Key]
-
-        def list_objects_v2(self, Bucket, Prefix, **kw):
-            return {"Contents": [{"Key": k} for k in sorted(self.objs) if k.startswith(Prefix)], "IsTruncated": False}
-
-    stub = Stub()
-    for d in range(1, 5):
-        out = db_backup.backup("s3://bkt/ffl/", keep=2, today=date(2026, 10, d), client=stub)
-    assert out == "s3://bkt/ffl/ffl-2026-10-04.dump"
-    assert sorted(stub.objs) == ["ffl/ffl-2026-10-03.dump", "ffl/ffl-2026-10-04.dump"]
 
 
 def test_a_client_older_than_the_server_is_refused(monkeypatch):
@@ -184,31 +156,8 @@ def test_restore_cli_needs_url_and_touches_nothing(monkeypatch):
         db_backup.restore_main(["somewhere"])
     with pytest.raises(SystemExit, match="--url"):
         db.main(["restore", "somewhere"])
-    with pytest.raises(SystemExit, match="--url-from-env"):  # both: ambiguous, refused
-        db_backup.restore_main(["somewhere", "--url", "postgresql+psycopg:///x", "--url-from-env"])
     with pytest.raises(SystemExit, match="--url"):
         db_backup.restore_main(["somewhere", "--url"])
-
-
-def test_restore_cli_url_from_env_takes_ffl_db_url(monkeypatch, capsys):
-    got = []
-    monkeypatch.setattr(db_backup, "restore", lambda src, url, to_rds: got.append((src, url, to_rds)))
-    monkeypatch.setenv("FFL_DB_URL", "postgresql+psycopg://ffl:s3cret@127.0.0.1:5434/ffl?sslmode=require")
-    assert db_backup.restore_main(["d.dump", "--url-from-env", "--to-rds"]) == 0
-    assert got == [("d.dump", "postgresql+psycopg://ffl:s3cret@127.0.0.1:5434/ffl?sslmode=require", True)]
-    out = capsys.readouterr().out
-    assert "'ffl' on 127.0.0.1" in out and "from the environment" in out and "s3cret" not in out
-    monkeypatch.delenv("FFL_DB_URL")
-    with pytest.raises(SystemExit, match="not set"):
-        db_backup.restore_main(["d.dump", "--url-from-env"])
-    assert len(got) == 1
-
-
-def test_restore_cli_url_from_env_keeps_the_rds_gate(tmp_path, monkeypatch):
-    monkeypatch.setattr(db_backup, "server_is_rds", lambda u: True)
-    monkeypatch.setenv("FFL_DB_URL", "postgresql+psycopg://ffl:pw@127.0.0.1:5434/ffl")
-    with pytest.raises(SystemExit, match="--to-rds"):
-        db_backup.restore_main([str(tmp_path), "--url-from-env"])
 
 
 def test_counts_side_by_side_equal_then_differs(tmp_path, empty_db, capsys, monkeypatch):
@@ -218,7 +167,7 @@ def test_counts_side_by_side_equal_then_differs(tmp_path, empty_db, capsys, monk
     bk = str(tmp_path / "bk")
     db_backup.backup(bk, today=date(2026, 10, 8))
     fresh = empty_db()
-    db_backup.restore(bk, fresh)
+    db_backup.restore(bk, fresh, yes=True)
     monkeypatch.setenv("FFL_DB_URL", db.url())
     assert db.main(["counts", "env", fresh]) == 0
     out = capsys.readouterr().out

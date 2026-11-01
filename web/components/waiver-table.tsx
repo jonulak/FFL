@@ -195,9 +195,9 @@ function NameCell({ r, week, showPos, mine = false, chip, tail, actions }: {
 
 // Another team's player, where a free agent's claim control sits: the team's abbreviation,
 // opening its roster. The full name rides the hover.
-// A free agent's outlook (and the dot before it).
-function OutlookDot({ r, dot = false }: { r: Parameters<typeof WaiverOutlookButton>[0]["r"]; dot?: boolean }) {
-  return <>{dot && <span aria-hidden>·</span>}<WaiverOutlookButton r={r} /></>;
+// Any row's outlook, rostered included (and the dot before it).
+function OutlookDot({ r, week, dot = false }: { r: PlayerRow; week: number; dot?: boolean }) {
+  return <>{dot && <span aria-hidden>·</span>}<WaiverOutlookButton r={r} week={week} /></>;
 }
 
 function OwnerChip({ owner }: { owner: Owner }) {
@@ -275,14 +275,15 @@ function columns(week: number, showPos: boolean, cols: string[]): Col[] {
           {kind === "mine" && <Badge variant="muted" shape="chip">mine</Badge>}
           {r.would_start && <Badge variant="start" shape="chip">{free ? "start" : "would start"} {signed(r.week_delta ?? 0)}</Badge>}
           {free && <PoolTag r={r} />}
-        </>} tail={kind !== "mine" && <span className={`contents ${CLAIM_COL}`}>
-          {free && <OutlookDot r={r} dot />}
-          <WatchStar id={r.player_id} name={r.name} className="ml-0.5" />
+        </>} tail={<span className={`contents ${CLAIM_COL}`}>
+          <OutlookDot r={r} week={week} dot />
+          {kind !== "mine" && <WatchStar id={r.player_id} name={r.name} className="ml-0.5" />}
         </span>}
-        actions={kind !== "mine" && <>
+        actions={kind === "mine" ? <OutlookDot r={r} week={week} /> : <>
           <WatchStar id={r.player_id} name={r.name} />
+          <OutlookDot r={r} week={week} />
           {free
-            ? <><OutlookDot r={r} /><ClaimControl id={r.player_id} name={r.name} /></>
+            ? <ClaimControl id={r.player_id} name={r.name} />
             : r.owner && <OwnerChip owner={r.owner} />}
         </>} />
       );

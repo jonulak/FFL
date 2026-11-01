@@ -66,7 +66,7 @@ def test_shared_cut_is_each_groups_row_until_an_add_drops_him():
     assert C.expand(gs, {101: FA}) == [{"group": 1, "add": 201, "drop": 2}]
 
 
-# ESPN's processing, as journal/DECISIONS.md 2026-09-22 records it: claims in order; a claim is skipped when its add
+# ESPN's processing, as a real waiver run showed it: claims in order; a claim is skipped when its add
 # is gone (taken by someone else, or already mine) or its drop is gone, or it has no drop and the roster is full.
 def simulate(claims, taken, roster_ids, open_):
     mine, roster, got = set(), set(roster_ids), []

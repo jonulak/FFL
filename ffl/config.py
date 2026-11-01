@@ -62,6 +62,23 @@ def source_off(name: str) -> bool:
     return name in sources_off()
 
 
+def _check_status(self, status: int, extend: str = "", params: dict | None = None, headers: dict | None = None):
+    """espn-api's checkRequestStatus without its 401 retry, which pointed the request's LEAGUE_ENDPOINT, shared by
+    every thread reading the cached League, at leagueHistory (an address for seasons before 2018) while it retried,
+    and kept it there when the retry answered: a concurrent read got a 404, "League … does not exist" (#489)."""
+    from espn_api.requests.espn_requests import ESPNAccessDenied
+    if status == 401:
+        if not self.cookies or "espn_s2" not in self.cookies or "SWID" not in self.cookies:
+            raise ESPNAccessDenied("espn_s2 and swid are required")
+        raise ESPNAccessDenied(f"League {self.league_id} cannot be accessed with the provided credentials")
+    return _ESPN_CHECK(self, status, extend, params, headers)
+
+
+from espn_api.requests.espn_requests import EspnFantasyRequests as _Req  # noqa: E402 — patched once, at import
+
+_ESPN_CHECK = _Req.checkRequestStatus
+_Req.checkRequestStatus = _check_status
+
 _LEAGUES: dict[tuple[str, int, bool], object] = {}  # (provider_id, season, fetch_league) -> its espn-api League
 _LEAGUES_BY: dict[tuple[str, int, bool], object] = {}  # the same key -> the espn_auth.Cookies that built it (None: none)
 _LEAGUES_LOCK = threading.Lock()

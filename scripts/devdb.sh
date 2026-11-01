@@ -14,11 +14,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# never in the main checkout (production's .env lives there): every worktree's git dir hangs off its .git
-TREE="$(cd "$ROOT" && pwd -P)"
-COMMON="$(git -C "$TREE" rev-parse --path-format=absolute --git-common-dir)"
-MAIN_TREE="$(cd "$COMMON/.." && pwd -P)"
-[ "$TREE" != "$MAIN_TREE" ] || { echo "devdb: $TREE is the main checkout (production runs here); run it from a worktree" >&2; exit 1; }
 FORMULA=postgresql@18
 BIN="$(brew --prefix "$FORMULA" 2>/dev/null)/bin"
 [ -x "$BIN/psql" ] && export PATH="$BIN:$PATH"

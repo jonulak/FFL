@@ -112,25 +112,68 @@ export function sendOutcome(status: number, detailMessage: string | null): SendO
            message: detailMessage ?? "FFL didn't answer. It tries again on your next ESPN page." };
 }
 
-// A pairing in progress: the code to show, the secret to poll with, when it lapses (epoch ms).
-export type Pairing = { code: string; poll_secret: string; expires_at: number };
+// A pairing in progress: the code to show, the secret to poll with, when it lapses (epoch ms), the server it is with.
+export type Pairing = { code: string; poll_secret: string; expires_at: number; server?: string };
 
 export type Last = { at: number; ok: boolean; message: string };
 
 // Everything the extension keeps (storage.local), never a cookie value.
-export type Stored = { token?: string; pairing?: Pairing; lastHash?: string; last?: Last };
+export type Stored = { token?: string; pairing?: Pairing; lastHash?: string; last?: Last; server?: string };
+
+// The FFL server a tab is on: the origin of an http(s) URL, else null.
+export function serverOf(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+// The address typed in the code fallback: https when no scheme is given, the origin alone.
+export function typedServer(raw: string): string | null {
+  const s = raw.trim();
+  return s ? serverOf(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s}`) : null;
+}
+
+// The host permission to ask for a server: no port, which Safari won't take; Chrome and Safari then match the host on
+// any port.
+export function originPattern(origin: string): string {
+  const u = new URL(origin);
+  return `${u.protocol}//${u.hostname}/*`;
+}
+
+// What a server's `/health` and `/me` answers say: not FFL, FFL but signed out, or signed in as someone.
+export type ConnectState = { kind: "not-ffl" } | { kind: "signed-out" } | { kind: "ok"; username: string };
+
+export function connectState(health: unknown, me: unknown): ConnectState {
+  if (!health || typeof health !== "object" || (health as { app?: unknown }).app !== "ffl") return { kind: "not-ffl" };
+  if (!me || typeof me !== "object" || "error" in me) return { kind: "signed-out" };
+  const m = me as { username?: string; email?: string };
+  return { kind: "ok", username: m.username ?? m.email ?? "" };
+}
+
+// The popup's tab section: an http(s) tab whose origin isn't granted yet is asked about first (`ask`: until the grant
+// its /health and /me can't be read: CORS and the session cookie need the host permission); then what they say.
+export type TabView = ConnectState | { kind: "ask" };
+
+export function tabView(origin: string | null, granted: boolean, health: unknown, me: unknown): TabView {
+  if (!origin) return { kind: "not-ffl" };
+  if (!granted) return { kind: "ask" };
+  return connectState(health, me);
+}
 
 // The popup's view: the disclosure and Connect (not paired, no code), the code (a pairing alive), or paired.
 export type View =
   | { kind: "disclose" }
   | { kind: "code"; code: string; minutesLeft: number }
-  | { kind: "paired"; last: Last | null; pairing: false };
+  | { kind: "paired"; last: Last | null; pairing: false; server: string | null };
 
 export function viewOf(s: Stored, now: number): View {
   if (s.pairing && s.pairing.expires_at > now) {
     return { kind: "code", code: s.pairing.code, minutesLeft: Math.max(1, Math.ceil((s.pairing.expires_at - now) / 60_000)) };
   }
-  if (s.token) return { kind: "paired", last: s.last ?? null, pairing: false };
+  if (s.token) return { kind: "paired", last: s.last ?? null, pairing: false, server: s.server ?? null };
   return { kind: "disclose" };
 }
 

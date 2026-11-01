@@ -17,9 +17,9 @@ typealias PlatformViewController = NSViewController
 #endif
 
 let extensionBundleIdentifier = "com.whitebridgelabs.ffl.Extension"
-// FFL's Connect step, in Safari: it finds the extension there and links it with one tap (2026-10-29). The server is
-// the build's FFL_ORIGIN (ffl-origin.sh stamps it into Info.plist as FFLOrigin, the same one the extension was built
-// for), the live site if a build somehow has none.
+// FFL's Connect step, in Safari: it says to click the FFL icon there and Connect (the popup links this browser). The server is
+// the build's FFL_ORIGIN (Info.plist's FFLOrigin, else the configuration's FFL_ORIGIN_DEFAULT), only a default: the
+// extension picks its own server in its popup. The live site if a build somehow has none.
 let fflOrigin = Bundle.main.object(forInfoDictionaryKey: "FFLOrigin") as? String ?? "https://ffl.whitebridgelabs.com"
 let fflConnectURL = URL(string: "\(fflOrigin)/welcome?from=extension")!
 

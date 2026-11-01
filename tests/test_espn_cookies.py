@@ -246,3 +246,20 @@ def test_the_api_will_not_start_without_a_ring(monkeypatch):
 def test_deleting_the_account_drops_the_cookies(two):
     db.delete_user(two.b_id)
     assert _raw(f"SELECT user_id FROM espn_credentials WHERE user_id = {two.b_id}") == []
+
+
+def test_a_refused_read_never_repoints_the_shared_league_endpoint(monkeypatch):
+    """espn-api's 401 handling set the shared LEAGUE_ENDPOINT to leagueHistory while it retried, so another thread's
+    read on the same League got a 404 ("League … does not exist") (#489). A 401 now raises, the endpoint untouched."""
+    from types import SimpleNamespace
+
+    from espn_api.requests import espn_requests as er
+    asked = []
+    monkeypatch.setattr(er.requests, "get", lambda url, **k: asked.append(url) or SimpleNamespace(status_code=401))
+    req = er.EspnFantasyRequests("nfl", 2026, 950458410, cookies={"espn_s2": "x", "SWID": "{y}"})
+    before = req.LEAGUE_ENDPOINT
+    with pytest.raises(er.ESPNAccessDenied, match="cannot be accessed"):
+        req.league_get(params={"view": "mRoster"})
+    assert req.LEAGUE_ENDPOINT == before and asked == [before]
+    with pytest.raises(er.ESPNAccessDenied, match="espn_s2 and swid are required"):
+        er.EspnFantasyRequests("nfl", 2026, 950458410).league_get()

@@ -322,7 +322,7 @@ def recommend(bd: pd.DataFrame, settings: dict, my_roster: pd.DataFrame, picks_u
             # Discounted rather than zeroed (unlike a second K/DST below): a 2QB league starts
             # 20 QBs, so the waiver wire is bare and a QB3 is genuinely worth a late pick. The
             # factor is a judgement call, set so a QB3 lands around rounds 12-14 — where the
-            # mock post-mortem in journal/DECISIONS.md put him.
+            # mock-draft post-mortems put him.
             #
             # Backups have diminishing returns, so the discount compounds with the ones we
             # already hold at the position: the first covers the injury or bye, the fourth

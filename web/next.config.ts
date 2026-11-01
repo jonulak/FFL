@@ -3,9 +3,10 @@ import type { NextConfig } from "next";
 const API = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 
 const nextConfig: NextConfig = {
-  // `next dev` only hydrates pages served from localhost unless the host is listed here; a
-  // worktree test server is reached over loopback and the tailnet (see CLAUDE.md, test servers).
-  allowedDevOrigins: ["127.0.0.1", "macbook-pro.tailnet.ts.net"],
+  // the Docker image serves .next/standalone's server.js (web/Dockerfile)
+  output: "standalone",
+  // `next dev` only hydrates pages served from localhost unless the host is listed here
+  allowedDevOrigins: ["127.0.0.1"],
   // Next cuts a rewrite's upstream call at 30 s by default; a claims submit is one ESPN call per cancel,
   // add and claim in turn, and the dialog waits up to lib/claims.ts's SUBMIT_CEILING_MS for it
   experimental: { proxyTimeout: 300_000 },

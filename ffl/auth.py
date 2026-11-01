@@ -1,93 +1,44 @@
-"""Sign-in and job-token decisions for the season app: who may sign in, and which requests may run a job.
+"""Sign-in and job-token decisions for the season app: who is signed in, and which requests may run a job.
 
-Pure over the environment and the accounts tables (`db.users`/`identities`/`sessions`); the middleware and the
-Google routes call these and decide nothing themselves. Env is read at call time. Sign-up is closed: an identity
-signs in only if it already maps to a user or its provider-verified email is in FFL_SIGNUP_EMAILS.
+Sessions live in `db.sessions`; a user signs in with a username and password (`ffl/passwords.py`), the first one through
+`POST /setup` while nobody has a password. The middleware calls `decide` and decides nothing itself. Env is read at
+call time.
 """
 from __future__ import annotations
 
-import base64
-import functools
 import hmac
-import json
 import logging
 import os
-import time
 from typing import Callable
-from urllib.parse import parse_qs, urlencode
 
-import httpx
-from authlib.integrations.base_client import OAuthError
-from authlib.integrations.httpx_client._compat import httpx2 as authlib_httpx
-from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from joserfc import jwt
-from joserfc.errors import JoseError
-from joserfc.jwk import ECKey
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection, Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import JSONResponse, Response
 
-from . import db, db_backup
+from . import db, espn_connect, passwords
 
 log = logging.getLogger(__name__)
 
 SESSION_COOKIE = "ffl_session"  # the default name; FFL_SESSION_COOKIE overrides it (session_cookie())
-OIDC_COOKIE = "ffl_oidc"  # Starlette's signed session: authlib's state and the saved `next`, for the round trip only
-OIDC_MAX_AGE = 600
-GOOGLE_METADATA = "https://accounts.google.com/.well-known/openid-configuration"
-APPLE_ISSUER = "https://appleid.apple.com"
-APPLE_METADATA = APPLE_ISSUER + "/.well-known/openid-configuration"
-APPLE_SECRET_DAYS = 7
-APPLE_FORM = ("code", "state", "error", "user")  # what the POST callback carries on to the GET
 SESSION_DAYS = 90
-SETTINGS_PATH = "/settings"
-PROVIDERS = ("google", "apple")  # the providers a user signs in with and can link
 JOB_HEADER = "x-ffl-job"
-# authlib talks through httpx2 when it is installed (it is: the dev group, which `uv sync` installs on the box too),
-# whose errors are not httpx's
-NET_ERRORS = (httpx.HTTPError, authlib_httpx.HTTPError)
 
 # (method, request path), matched exactly. Everything not named here needs a signed-in session.
 PUBLIC: frozenset[tuple[str, str]] = frozenset({
-    ("GET", "/health"), ("HEAD", "/health"), ("GET", "/auth/providers"), ("GET", "/auth/google/start"),
-    ("GET", "/auth/google/callback"), ("GET", "/auth/apple/start"),
-    ("GET", "/auth/apple/callback"), ("POST", "/auth/apple/callback"), ("POST", "/auth/dev"),
+    ("GET", "/health"), ("HEAD", "/health"), ("GET", "/setup/status"), ("POST", "/setup"), ("POST", "/auth/signin"),
     # the browser extension's (ffl/espn_connect.py): each checks its own secret (poll secret, device token)
     ("POST", "/espn/pair/start"), ("POST", "/espn/pair/poll"), ("POST", "/espn/cookies")})
+# (method, path prefix): an invite's setup link, whose token is its own secret.
+PUBLIC_PREFIXES: tuple[tuple[str, str], ...] = (("POST", "/auth/setup/"),)
 # The timers' routes: the job token only (signed in without it is 403, signed out 401).
 JOB_ONLY: frozenset[tuple[str, str]] = frozenset({
-    ("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"), ("POST", "/refresh")})
-# The token or a session: the Roster page's outlook button posts it too.
-JOB_OR_USER: frozenset[tuple[str, str]] = frozenset({("POST", "/outlook/refresh")})
+    ("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"), ("POST", "/refresh"),
+    ("POST", "/outlook/refresh")})
 
 SIGNED_OUT = {"error": "signed_out"}
 JOB_ONLY_BODY = {"error": "job_only"}
-
-
-def _listed() -> set[str]:
-    return {e.strip().lower() for e in os.environ.get("FFL_SIGNUP_EMAILS", "").split(",") if e.strip()}
-
-
-def signup_allowed(email: str | None, verified: bool) -> bool:
-    """A verified email on FFL_SIGNUP_EMAILS (case-insensitive); `*` as the only entry opens it to any verified email
-    (beside emails it is ignored, so a list edit cannot open sign-up by accident)."""
-    if not email or not verified:
-        return False
-    listed = _listed()
-    return listed == {"*"} or email.strip().lower() in listed
-
-
-def sign_in(provider: str, subject: str, email: str | None, verified: bool, name: str | None) -> int | None:
-    """The user id for this identity, or None with nothing written. Known identity: its user. Else an allowed
-    email: the existing user with that email (linked), or a new one."""
-    uid = db.identity_user(provider, subject)
-    if uid is not None:
-        return uid
-    if not signup_allowed(email, verified):
-        return None
-    return db.sign_in_user(provider, subject, email, name)
 
 
 def job_ok(header_value: str | None) -> bool:
@@ -98,22 +49,13 @@ def job_ok(header_value: str | None) -> bool:
     return hmac.compare_digest(header_value.encode(), token.encode())
 
 
-@functools.lru_cache(maxsize=None)
-def _local(url: str) -> bool:
-    return db_backup.is_local(url)  # asks the server, so once per URL; tests call `_local.cache_clear()`
-
-
-def dev_signin_enabled() -> bool:
-    """FFL_DEV_SIGNIN=1 and a local (non-RDS) database."""
-    if os.environ.get("FFL_DEV_SIGNIN") != "1":
-        return False
-    url = os.environ.get("FFL_DB_URL", "")
-    return bool(url) and _local(url)
-
-
 def cookie_secure() -> bool:
     """Secure exactly when the app's URL is https (tailnet http test servers must still hold the cookie)."""
     return os.environ.get("FFL_APP_URL", "").startswith("https://")
+
+
+def public(method: str, path: str) -> bool:
+    return (method, path) in PUBLIC or any(method == m and path.startswith(p) for m, p in PUBLIC_PREFIXES)
 
 
 def decide(method: str, path: str, cookie: str | None, job_header: str | None, *,
@@ -122,9 +64,9 @@ def decide(method: str, path: str, cookie: str | None, job_header: str | None, *
     opens the job routes only; an unknown or expired cookie is signed out like a missing one. A database error
     propagates (a 500), never read as signed out. `on_slide` is called when this read slid the session."""
     key = (method, path)
-    if key in PUBLIC:
+    if public(method, path):
         return 0, None
-    if (key in JOB_ONLY or key in JOB_OR_USER) and job_ok(job_header):
+    if key in JOB_ONLY and job_ok(job_header):
         return 0, None
     user, slid = db.session_lookup(cookie) if cookie else (None, False)
     if key in JOB_ONLY:
@@ -164,7 +106,7 @@ class AuthMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        if (scope["method"], scope["path"]) in PUBLIC:  # on the loop: /health never waits behind stalled session reads
+        if public(scope["method"], scope["path"]):  # on the loop: /health never waits behind stalled session reads
             scope.setdefault("state", {})["user"] = None
             return await self.app(scope, receive, send)
         conn = HTTPConnection(scope)
@@ -223,210 +165,94 @@ def safe_next(raw: str | None) -> str:
     return raw
 
 
-def oidc_secret() -> str:
-    return os.environ.get("FFL_AUTH_SECRET", "")
-
-
-def _google_env() -> tuple[str, str]:
-    return os.environ.get("FFL_GOOGLE_CLIENT_ID", ""), os.environ.get("FFL_GOOGLE_CLIENT_SECRET", "")
-
-
-def google_enabled() -> bool:
-    """Client id, client secret, the OIDC session's secret and FFL_APP_URL (the callback's origin) all set (empty is
-    unset)."""
-    cid, cs = _google_env()
-    return bool(cid and cs and oidc_secret() and os.environ.get("FFL_APP_URL"))
-
-
-@functools.lru_cache(maxsize=4)
-def _google(client_id: str, client_secret: str):
-    """authlib's Google client for these credentials: built on first use (the caller reads the env per request), the
-    same instance while they hold. Google's metadata is fetched on the first redirect, not here."""
-    return OAuth().register("google", client_id=client_id, client_secret=client_secret,
-                            server_metadata_url=GOOGLE_METADATA, client_kwargs={"scope": "openid email profile"})
-
-
-def _apple_env() -> tuple[str, str, str, str]:
-    """(Services ID, team id, key id, the .p8 key base64'd whole onto one line: env files and SSM take one line)."""
-    return tuple(os.environ.get(f"FFL_APPLE_{k}", "") for k in ("CLIENT_ID", "TEAM_ID", "KEY_ID", "PRIVATE_KEY"))
-
-
-def apple_enabled() -> bool:
-    """All four Apple values, the OIDC session's secret and an https FFL_APP_URL (Apple takes https return URLs only)."""
-    return bool(all(_apple_env()) and oidc_secret() and cookie_secure())
-
-
-def apple_client_secret(client_id: str, team_id: str, key_id: str, key_b64: str, now: int) -> str:
-    """Apple's client secret: an ES256 JWT signed with the .p8 key (iss the team, sub the Services ID), good for
-    APPLE_SECRET_DAYS from `now` (Apple allows six months; the client is rebuilt daily, so it never runs out)."""
-    key = ECKey.import_key(base64.b64decode(key_b64))
-    claims = {"iss": team_id, "iat": now, "exp": now + APPLE_SECRET_DAYS * 86400, "aud": APPLE_ISSUER,
-              "sub": client_id}
-    return jwt.encode({"alg": "ES256", "kid": key_id}, claims, key)
-
-
-@functools.lru_cache(maxsize=4)
-def _apple(client_id: str, team_id: str, key_id: str, key_b64: str, day: int):
-    """authlib's Apple client, one per day (`day`: days since the epoch) so its JWT secret is always fresh. The secret
-    rides in the token request's body (Apple refuses Basic auth), and the answer comes back as a form POST, the only
-    mode Apple allows when name and email are asked for (`apple_callback_post`)."""
-    secret = apple_client_secret(client_id, team_id, key_id, key_b64, day * 86400)
-    return OAuth().register(
-        "apple", client_id=client_id, client_secret=secret, server_metadata_url=APPLE_METADATA,
-        client_kwargs={"scope": "openid name email", "token_endpoint_auth_method": "client_secret_post"},
-        authorize_params={"response_mode": "form_post"})
-
-
-def _client(provider: str):
-    """The provider's authlib client; 404 for one this app does not have, 503 for one not configured here."""
-    if provider == "google":
-        if not google_enabled():
-            raise HTTPException(503, "google_not_configured")
-        return _google(*_google_env())
-    if provider == "apple":
-        if not apple_enabled():
-            raise HTTPException(503, "apple_not_configured")
-        return _apple(*_apple_env(), int(time.time()) // 86400)
-    raise HTTPException(404, "Not Found")
-
-
-def enabled() -> dict[str, bool]:
-    return {"google": google_enabled(), "apple": apple_enabled()}
-
-
-def _callback_url(provider: str) -> str:
-    return os.environ["FFL_APP_URL"].rstrip("/") + f"/api/auth/{provider}/callback"  # _client() checked it
-
-
 def _set_session(resp, user_id: int, request: Request):
     token = db.create_session(user_id, request.headers.get("user-agent", ""))
     resp.set_cookie(session_cookie(), token, max_age=SESSION_DAYS * 86400, **_cookie_kwargs())
     return resp
 
 
-def _signin_error(code: str) -> RedirectResponse:
-    return RedirectResponse(f"/signin?error={code}", status_code=302)
+def _error(status: int, code: str) -> JSONResponse:
+    return JSONResponse({"error": code}, status_code=status)
+
+
+MAX_PASSWORD = 1024  # scrypt hashes whatever it is handed: a cap at the boundary keeps one request cheap
+SIGNIN_WINDOW = espn_connect.Window(10, 900)  # wrong passwords per (username, client address) in 15 minutes
+_DUMMY_HASH = passwords.hash_password("not-a-password")  # an unknown user costs the same scrypt as a known one
+
+
+class SignInIn(BaseModel):
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=MAX_PASSWORD)
+
+
+class PasswordIn(BaseModel):
+    current: str = Field(max_length=MAX_PASSWORD)
+    new: str = Field(max_length=MAX_PASSWORD)
 
 
 router = APIRouter()
 
 
-@router.get("/auth/providers")
-def providers():
-    return {**enabled(), "dev": dev_signin_enabled()}
+def _new_login(body: SignInIn) -> tuple[str | None, JSONResponse | None]:
+    """(the normalised username, None), or (None, the 422) for a bad username or a short password."""
+    username = passwords.check_username(body.username)
+    if username is None:
+        return None, _error(422, "bad_username")
+    if len(body.password) < passwords.MIN_PASSWORD:
+        return None, _error(422, "short_password")
+    return username, None
 
 
-@router.get("/auth/{provider}/start")
-async def signin_start(provider: str, request: Request, next: str | None = None):
-    client = _client(provider)
-    request.session["next"] = safe_next(next)  # rides in ffl_oidc to the callback
-    request.session.pop("link_user", None)  # an abandoned link's: this round trip signs in
-    try:
-        return await client.authorize_redirect(request, _callback_url(provider))
-    except (OAuthError, *NET_ERRORS, ValueError) as e:  # the provider's metadata unreachable
-        log.warning("%s sign-in start failed: %s", provider, getattr(e, "error", None) or type(e).__name__)
-        return _signin_error("failed")
+@router.get("/setup/status")
+def setup_status():
+    return {"needs_setup": db.needs_setup()}
 
 
-def _link_result(code: str) -> RedirectResponse:
-    return RedirectResponse(f"{SETTINGS_PATH}?link={code}", status_code=302)
-
-
-@router.get("/auth/{provider}/link")
-async def link_start(provider: str, request: Request):
-    """Signed in: the provider's round trip, its identity then linked to this user (ffl-soc.6.2.4), back to Settings.
-    The callback is the sign-in's (one redirect URI); `link_user` in the signed oidc cookie tells it apart."""
-    user = current_user(request)
-    client = _client(provider)
-    request.session["link_user"] = user["id"]
-    try:
-        return await client.authorize_redirect(request, _callback_url(provider))
-    except (OAuthError, *NET_ERRORS, ValueError) as e:
-        log.warning("%s link start failed: %s", provider, getattr(e, "error", None) or type(e).__name__)
-        return _link_result("failed")
-
-
-def link(user_id: int, provider: str, subject: str, email: str | None) -> str:
-    """Map this identity to `user_id`: "linked" (or it was theirs already), "taken" when it signs another user in
-    (never moved). The sign-up list does not apply: the user is signed in and has just proved they hold it."""
-    uid = db.identity_user(provider, subject)
-    if uid is not None:
-        return "linked" if uid == user_id else "taken"
-    db.link_identity(user_id, provider, subject, email or "")
-    return "linked"
-
-
-def _verified(value) -> bool:
-    """An id_token's email_verified: Google sends a boolean, Apple the string "true" as often as not."""
-    return value is True or value == "true"
-
-
-def apple_name(raw: str | None) -> str | None:
-    """The name in Apple's `user` form field (JSON, sent on the first authorization only); None when absent or junk."""
-    try:
-        name = (json.loads(raw) if raw else {}).get("name") or {}
-        full = " ".join(str(name.get(k) or "").strip() for k in ("firstName", "lastName")).strip()
-    except (ValueError, AttributeError):
-        return None
-    return full or None
-
-
-@router.post("/auth/apple/callback")
-async def apple_callback_post(request: Request):
-    """Apple answers by a form the browser POSTs here from appleid.apple.com: a cross-site POST, which never carries
-    the SameSite=Lax ffl_oidc cookie that holds the round trip's state. So this reads the form only, never the
-    session, and sends the browser on to the GET callback with it: a cross-site top-level GET does carry Lax cookies,
-    and that callback checks state and nonce as Google's does."""
-    form = parse_qs((await request.body()).decode("utf-8", "replace"))  # urlencoded: no multipart parser needed
-    params = {k: form[k][0] for k in APPLE_FORM if form.get(k) and form[k][0]}
-    url = os.environ.get("FFL_APP_URL", "").rstrip("/") + "/api/auth/apple/callback"
-    return RedirectResponse(f"{url}?{urlencode(params)}", status_code=303)
-
-
-@router.get("/auth/{provider}/callback")
-async def signin_callback(provider: str, request: Request, user: str | None = None):
-    client = _client(provider)
-    next_ = safe_next(request.session.pop("next", None))
-    link_user = request.session.pop("link_user", None)
-    failed = _link_result("failed") if link_user is not None else _signin_error("failed")
-    try:
-        token = await client.authorize_access_token(request)
-    except (OAuthError, JoseError, *NET_ERRORS, ValueError) as e:  # refused, bad state or id_token, no exchange
-        log.warning("%s sign-in callback failed: %s", provider, getattr(e, "error", None) or type(e).__name__)
-        return failed
-    info = (token or {}).get("userinfo") or {}
-    if not info.get("sub"):
-        return failed
-    if link_user is not None:
-        if await run_in_threadpool(db.user_row, link_user) is None:  # the account was deleted meanwhile
-            return _signin_error("failed")
-        return _link_result(await run_in_threadpool(link, link_user, provider, str(info["sub"]), info.get("email")))
-    name = info.get("name") if provider == "google" else apple_name(user)  # Apple's id_token carries no name
-    uid = await run_in_threadpool(sign_in, provider, str(info["sub"]), info.get("email"),
-                                  _verified(info.get("email_verified")), name)
-    if uid is None:
-        return _signin_error("closed")
-    return await run_in_threadpool(_set_session, RedirectResponse(next_, status_code=302), uid, request)
-
-
-@router.post("/auth/dev")
-async def dev_signin(request: Request):
-    """Local dev only: sign in as any email (created if absent), FFL_SIGNUP_EMAILS ignored. Off, it is a route that
-    does not exist: the body is read only after that check, so it is 404 whatever is posted."""
-    if not dev_signin_enabled():
+@router.post("/setup")
+def setup(body: SignInIn, request: Request):
+    """The first sign-up, while nobody has a password: the oldest user (made if there is none) becomes this admin.
+    After that the route does not exist."""
+    if not db.needs_setup():  # before any scrypt: once set up this is a cheap 404
         raise HTTPException(404, "Not Found")
+    username, bad = _new_login(body)
+    if bad:
+        return bad
     try:
-        body = json.loads(await request.body() or b"{}")
-    except ValueError:
-        body = None
-    email = body.get("email") if isinstance(body, dict) else None
-    if not isinstance(email, str) or "@" not in email:
-        raise HTTPException(422, "email required")
+        uid = db.claim_first_user(username, passwords.hash_password(body.password))
+    except db.Taken:
+        return _error(409, "username_taken")
+    if uid is None:  # another claim won the race
+        raise HTTPException(404, "Not Found")
+    return _set_session(JSONResponse({"ok": True}), uid, request)
 
-    def signin():
-        uid = db.ensure_user(email.strip(), None)
-        return _set_session(JSONResponse({"ok": True}), uid, request)
-    return await run_in_threadpool(signin)
+
+@router.post("/auth/signin")
+def signin(body: SignInIn, request: Request):
+    """Username (any case) and password. A wrong password, an unknown user and an invite with no password yet answer
+    alike, after the same scrypt; ten wrong tries per name and address in 15 minutes, then 429."""
+    username = body.username.strip()
+    key = f"{username.lower()}|{request.client.host if request.client else ''}"
+    if SIGNIN_WINDOW.full(key):
+        return _error(429, "rate_limited")
+    user = db.user_by_username(username) if username else None
+    stored = user and user["password_hash"]
+    if not passwords.verify(body.password, stored or _DUMMY_HASH) or not stored:
+        SIGNIN_WINDOW.allow(key)
+        return _error(401, "bad_login")
+    return _set_session(JSONResponse({"ok": True}), user["id"], request)
+
+
+@router.post("/auth/password")
+def change_password(body: PasswordIn, request: Request):
+    """A new password, with the current one; this session and the others stay."""
+    user = current_user(request)
+    stored = user.get("password_hash")
+    if not passwords.verify(body.current, stored or _DUMMY_HASH) or not stored:
+        return _error(401, "bad_login")
+    if len(body.new) < passwords.MIN_PASSWORD:
+        return _error(422, "short_password")
+    db.set_password(user["id"], passwords.hash_password(body.new))
+    return {"ok": True}
 
 
 @router.post("/auth/signout")
@@ -459,25 +285,33 @@ def revoke(session_id: str, request: Request):
 
 
 class DeleteIn(BaseModel):
-    email: str  # the confirmation: the account's own email, typed (any case)
+    username: str  # the confirmation: the account's own username, typed (any case)
 
 
 # Called with the user id after an account is deleted (api's: drop their in-memory page caches).
 ON_DELETE: list[Callable[[int], None]] = []
 
 
+def _delete_user(user_id: int) -> None:
+    db.delete_user(user_id)
+    for fn in ON_DELETE:
+        try:
+            fn(user_id)
+        except Exception:
+            log.exception("after deleting user %s", user_id)
+
+
 @router.post("/auth/delete")
 def delete_account(body: DeleteIn, request: Request):
     """The account and every personal row (`db.delete_user`), then signed out."""
     user = current_user(request)
-    if body.email.strip().lower() != user["email"].lower():
-        raise HTTPException(422, "email_mismatch")
-    db.delete_user(user["id"])
-    for fn in ON_DELETE:
-        try:
-            fn(user["id"])
-        except Exception:
-            log.exception("after deleting user %s", user["id"])
+    mine = user.get("username")
+    if not mine or body.username.strip().lower() != mine.lower():
+        return _error(422, "username_mismatch")
+    # the last admin leaving others behind would strand the install: /setup only reopens on an empty users table
+    if user.get("is_admin") and db.admin_count() <= 1 and len(db.list_users()) > 1:
+        return _error(409, "last_admin")
+    _delete_user(user["id"])
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(session_cookie(), **_cookie_kwargs())
     return resp
@@ -485,18 +319,116 @@ def delete_account(body: DeleteIn, request: Request):
 
 @router.get("/account")
 def account(request: Request):
-    """Settings' Account section: who is signed in, their sessions (this one marked), their sign-ins, and the
-    providers configured here that they have not linked yet."""
+    """Settings' Account section: who is signed in and their sessions (this one marked)."""
     user = current_user(request)
-    ids = db.user_identities(user["id"])
-    on = enabled()
-    have = {i["provider"] for i in ids}
-    return {"email": user["email"], "name": user["name"],
-            "sessions": db.user_sessions(user["id"], current=request.cookies.get(session_cookie())),
-            "identities": ids, "linkable": [p for p in PROVIDERS if on.get(p) and p not in have]}
+    return {**_who(user), "sessions": db.user_sessions(user["id"], current=request.cookies.get(session_cookie()))}
 
 
 @router.get("/auth/me")
 def me(request: Request):
+    return _who(current_user(request))
+
+
+def _who(user: dict) -> dict:
+    # .get: conftest's signed-in TEST_USER carries only id, email and name
+    return {"username": user.get("username"), "email": user["email"], "name": user["name"],
+            "is_admin": bool(user.get("is_admin"))}
+
+
+# --- admins: invites, set-password links, promotion and deletion ---
+
+def require_admin(request: Request) -> dict:
+    """The signed-in user when they are an admin (read from the database, so a demotion holds at once); else 403."""
     user = current_user(request)
-    return {"email": user["email"], "name": user["name"]}
+    row = db.user_row(user["id"])
+    if not (row and row["is_admin"]):
+        raise HTTPException(403, {"error": "not_admin", "message": "Only an admin can do that."})
+    return user
+
+
+def _setup_link(user_id: int) -> dict:
+    """A fresh setup link for the user (it replaces any earlier one): FFL_APP_URL's /setup/<token>."""
+    base = (os.environ.get("FFL_APP_URL") or "http://localhost:3300").rstrip("/")
+    return {"id": user_id, "link": f"{base}/setup/{db.issue_setup_token(user_id)}"}
+
+
+def _known(user_id: int) -> dict:
+    row = db.user_row(user_id)
+    if row is None:
+        raise HTTPException(404, {"error": "unknown_user"})
+    return row
+
+
+class InviteIn(BaseModel):
+    email: str | None = Field(None, max_length=254)
+    name: str | None = Field(None, max_length=100)
+
+
+class AdminFlagIn(BaseModel):
+    is_admin: bool
+
+
+@router.get("/admin/users")
+def admin_users(request: Request):
+    require_admin(request)
+    return {"users": db.list_users()}
+
+
+@router.post("/admin/users")
+def admin_invite(body: InviteIn, request: Request):
+    """A new user with no login yet, and the link that sets one (live 7 days)."""
+    require_admin(request)
+    try:
+        uid = db.create_invite((body.email or "").strip() or None, (body.name or "").strip() or None)
+    except db.Taken:
+        return _error(409, "email_taken")
+    return _setup_link(uid)
+
+
+@router.post("/admin/users/{user_id}/reset")
+def admin_reset(user_id: int, request: Request):
+    """A new set-password link for an existing user (their current password works until it is used)."""
+    require_admin(request)
+    _known(user_id)
+    return _setup_link(user_id)
+
+
+@router.post("/admin/users/{user_id}/admin")
+def admin_flag(user_id: int, body: AdminFlagIn, request: Request):
+    require_admin(request)
+    row = _known(user_id)
+    # shortcut: count-then-write is not atomic; two admins demoting each other at once could leave none
+    if row["is_admin"] and not body.is_admin and db.admin_count() <= 1:
+        return _error(409, "last_admin")
+    db.set_admin(user_id, body.is_admin)
+    return {"ok": True}
+
+
+@router.post("/admin/users/{user_id}/delete")
+def admin_delete(user_id: int, request: Request):
+    """Another user's account and personal rows, as /auth/delete does for one's own (which is the way to delete
+    oneself, so the caller always remains: never the last admin)."""
+    if require_admin(request)["id"] == user_id:
+        return _error(409, "self")
+    _known(user_id)
+    _delete_user(user_id)
+    return {"ok": True}
+
+
+@router.post("/auth/setup/{token}")
+def setup_link(token: str, body: SignInIn, request: Request):
+    """A setup link (public: the token is its own secret): sets the username and password, ends the link and signs
+    them in. A reset link on a user who has a password replaces it."""
+    user = db.user_by_setup_token(token)
+    if user is None:
+        return _error(404, "bad_token")
+    username, bad = _new_login(body)
+    if bad:
+        return bad
+    try:
+        db.set_username(user["id"], username)
+    except db.Taken:
+        return _error(409, "username_taken")
+    db.set_password(user["id"], passwords.hash_password(body.password))
+    db.clear_setup_token(user["id"])
+    return _set_session(JSONResponse({"ok": True}), user["id"], request)

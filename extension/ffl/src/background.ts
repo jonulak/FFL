@@ -1,16 +1,25 @@
-// The background: pairs with FFL (the code it shows, the poll that brings the device token), reads ESPN's two
-// cookies and sends them to FFL when the login changed. An MV3 worker sleeps between events and keeps no timer, so
-// every wake does what is due: a page ping polls a pending pairing and sends a changed login; the popup polls while
-// open. Never logs or stores a value: storage.local holds the token, the pairing, a hash of the last login sent and
-// the last answer (pure.ts `Stored`).
-import { api, FFL_ORIGIN, type Msg } from "./env";
+// The background: pairs with FFL (from the open FFL tab, its session confirming; or by a code the user types), reads
+// ESPN's two cookies and sends them to FFL when the login changed. An MV3 worker sleeps between events and keeps no
+// timer, so every wake does what is due: a page ping polls a pending pairing and sends a changed login; the popup polls
+// while open. Never logs or stores a value: storage.local holds the server, the token, the pairing, a hash of the last
+// login sent and the last answer (pure.ts `Stored`).
+import { api, type Msg } from "./env";
 import { distinctLogins, pairHash, pickStore, sendOutcome, signedIn, type Pair, type Partial2, type Pairing, type StoreRead,
          type Stored } from "./pure";
 
 const ESPN_URL = "https://www.espn.com/";
+// The one server the builds before 0.2 knew (baked in): an install paired then has a token and no `server`.
+const OLD_SERVER = "https://ffl.whitebridgelabs.com";
+const NO_ANSWER = "FFL didn't answer. Try again in a minute.";
+
+const migrated = (async () => {
+  const s = (await api.storage.local.get(["token", "server"])) as Stored;
+  if (s.token && !s.server) await api.storage.local.set({ server: OLD_SERVER });
+})().catch(() => { /* storage unreadable: the next wake tries again */ });
 
 async function load(): Promise<Stored> {
-  return (await api.storage.local.get(["token", "pairing", "lastHash", "last"])) as Stored;
+  await migrated;
+  return (await api.storage.local.get(["server", "token", "pairing", "lastHash", "last"])) as Stored;
 }
 
 async function save(patch: Partial<Stored>, drop: (keyof Stored)[] = []): Promise<void> {
@@ -19,13 +28,15 @@ async function save(patch: Partial<Stored>, drop: (keyof Stored)[] = []): Promis
 }
 
 // One FFL call: the status and the API's `detail.message` (never the body otherwise; no cookie is ever echoed back).
-async function post(path: string, body: unknown, token?: string): Promise<{ status: number; json: Record<string, unknown> | null; message: string | null }> {
+// `credentials: "include"` only for the confirm, which rides on the tab's FFL session.
+async function post(server: string, path: string, body: unknown, token?: string, credentials: RequestCredentials = "omit"):
+    Promise<{ status: number; json: Record<string, unknown> | null; message: string | null }> {
   try {
-    const r = await fetch(`${FFL_ORIGIN}/api${path}`, {
+    const r = await fetch(`${server}/api${path}`, {
       method: "POST",
       headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body ?? {}),
-      credentials: "omit",
+      credentials,
     });
     let json: Record<string, unknown> | null = null;
     try { json = await r.json(); } catch { json = null; }
@@ -36,12 +47,35 @@ async function post(path: string, body: unknown, token?: string): Promise<{ stat
   }
 }
 
-async function startPairing(): Promise<string | null> {
-  const r = await post("/espn/pair/start", {});
-  if (r.status !== 200 || !r.json) return r.message ?? "FFL didn't answer. Try again in a minute.";
+// A pairing whose code the user types in FFL (the fallback), kept with its server until the token comes.
+async function pairCode(server: string): Promise<string | null> {
+  const r = await post(server, "/espn/pair/start", {});
+  if (r.status !== 200 || !r.json) return r.message ?? NO_ANSWER;
   const { code, poll_secret, expires_in } = r.json as { code: string; poll_secret: string; expires_in: number };
-  const pairing: Pairing = { code, poll_secret, expires_at: Date.now() + expires_in * 1000 };
+  const pairing: Pairing = { code, poll_secret, expires_at: Date.now() + expires_in * 1000, server };
   await save({ pairing });
+  return null;
+}
+
+// The token arrived: this server and token replace any before, and the login goes at once, but behind (Safari may first
+// ask the user to allow espn.com; 2026-10-29, simulator).
+async function paired(server: string, token: string): Promise<void> {
+  await save({ server, token }, ["pairing", "lastHash", "last"]);
+  void sync(null, false);
+}
+
+// Pair with the FFL open in the tab: start a pairing, confirm its code under the tab's own session (the popup was
+// granted the origin first), then poll once for the token. No code on screen.
+async function connectTab(origin: string): Promise<string | null> {
+  const start = await post(origin, "/espn/pair/start", {});
+  if (start.status !== 200 || !start.json) return start.message ?? NO_ANSWER;
+  const { code, poll_secret } = start.json as { code: string; poll_secret: string };
+  const ok = await post(origin, "/espn/pair/confirm", { code }, undefined, "include");
+  if (ok.status === 401) return "Sign in to FFL in this tab first, or pair with a code instead.";
+  if (ok.status !== 200) return ok.message ?? NO_ANSWER;
+  const poll = await post(origin, "/espn/pair/poll", { poll_secret });
+  if (poll.status !== 200 || poll.json?.status !== "connected") return poll.message ?? NO_ANSWER;
+  await paired(origin, String(poll.json.device_token));
   return null;
 }
 
@@ -49,14 +83,12 @@ async function startPairing(): Promise<string | null> {
 async function pollPairing(): Promise<void> {
   const { pairing } = await load();
   if (!pairing) return;
-  if (pairing.expires_at <= Date.now()) { await save({}, ["pairing"]); return; }
-  const r = await post("/espn/pair/poll", { poll_secret: pairing.poll_secret });
+  // a pairing from before 0.2 names no server: let it go
+  if (pairing.expires_at <= Date.now() || !pairing.server) { await save({}, ["pairing"]); return; }
+  const r = await post(pairing.server, "/espn/pair/poll", { poll_secret: pairing.poll_secret });
   if (r.status === 410) { await save({}, ["pairing"]); return; }
   if (r.status !== 200 || !r.json || r.json.status !== "connected") return;
-  await save({ token: String(r.json.device_token) }, ["pairing", "lastHash", "last"]);
-  // the login goes at once, but behind: Safari may first ask the user to allow espn.com, and the FFL page waiting on
-  // `linked` must hear it's linked without waiting on that (2026-10-29, simulator)
-  void sync(null, false);
+  await paired(pairing.server, String(r.json.device_token));
 }
 
 // The login's cookie of a name: the one set for all of .espn.com (ESPN's sign-in sets it there), else the first.
@@ -93,13 +125,13 @@ async function readLogin(page: Partial2 | null): Promise<Pair | null> {
 // Send the login if it changed since the last one sent (`force`: the popup's Send now sends it anyway). Returns
 // whether a signed-in login was found.
 async function sync(page: Partial2 | null, force: boolean): Promise<boolean> {
-  const { token, lastHash } = await load();
-  if (!token) return false;
+  const { server, token, lastHash } = await load();
+  if (!token || !server) return false;
   const login = await readLogin(page);
   if (!login) return false;
   const hash = await pairHash(login);
   if (!force && hash === lastHash) return true;
-  const r = await post("/espn/cookies", { espn_s2: login.espn_s2, swid: login.swid, others: login.others ?? [] }, token);
+  const r = await post(server, "/espn/cookies", { espn_s2: login.espn_s2, swid: login.swid, others: login.others ?? [] }, token);
   const out = sendOutcome(r.status, r.message);
   const last = { at: Date.now(), ok: out.ok, message: out.message };
   if (out.unpaired) await save({ last }, ["token", "lastHash"]);
@@ -108,8 +140,6 @@ async function sync(page: Partial2 | null, force: boolean): Promise<boolean> {
   return true;
 }
 
-// The popup asks the page it was opened on for its cookies (the document.cookie fallback): the active espn.com tab's
-// content script answers; any other tab, nothing.
 api.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
   (async () => {
     switch (msg.kind) {
@@ -117,30 +147,24 @@ api.runtime.onMessage.addListener((msg: Msg, _sender, reply) => {
         await pollPairing();
         await sync(msg.cookies ?? null, false);
         return null;
-      case "start":
-        return { error: await startPairing() };
+      case "connect-tab":
+        return { error: await connectTab(msg.origin) };
+      case "pair-code":
+        return { error: await pairCode(msg.server) };
+      case "start": {     // the code fallback against the server already known
+        const { server } = await load();
+        return { error: server ? await pairCode(server) : "Open your FFL app in this tab, then click here." };
+      }
       case "poll":
         await pollPairing();
         return null;
-      case "state":       // the FFL site's content script: is this browser linked?
-        return { paired: Boolean((await load()).token) };
-      case "link": {      // the FFL site asks to link: a pairing whose code goes to the page, never the screen
-        const error = await startPairing();
-        const { pairing } = await load();
-        return error || !pairing ? { error: error ?? "The extension couldn't start. Try again." } : { code: pairing.code };
-      }
-      case "linked": {    // the page confirmed the code: take the token now, and send the login if ESPN has one
-        await pollPairing();
-        const { token, last } = await load();
-        return { paired: Boolean(token), last: last ?? null };
-      }
       case "cancel":
         await save({}, ["pairing"]);
         return null;
       case "send":
         return { found: await sync(msg.cookies ?? null, true) };
       case "unpair":
-        await save({}, ["token", "lastHash", "last", "pairing"]);
+        await save({}, ["server", "token", "lastHash", "last", "pairing"]);
         return null;
     }
   })().then(reply, () => reply(null));

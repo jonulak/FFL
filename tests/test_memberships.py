@@ -182,6 +182,23 @@ def test_a_new_move_drops_every_members_pages(other, monkeypatch):
     assert [c.has("transactions") for c in caches] == [False, False]
 
 
+def test_a_move_drops_rosters_and_cards_only_of_its_teams_and_players(other, monkeypatch):
+    uid = db.create_user("b@example.com", None)
+    leagues.join("espn:999", "b@example.com", team_id=5)  # the owner is on team 3, the one that moved
+    owner, member = api.cache_for(leagues.get("espn:999")), api.cache_for(leagues.membership(uid, "espn:999"))
+    keys = ("roster", "team:3", "team:5", "player:42", "player:7", "week:current", "waivers")
+    for c in (owner, member):
+        for k in keys:
+            c.get_or_build(k, lambda: {}, 60)
+    monkeypatch.setattr(api, "_start_rewarm", lambda c, dropped: None)
+    monkeypatch.setattr(api.espn_season, "forget_current_boxes", lambda **k: None)
+    api.on_new_rows([{"id": "1761800000000-3-WAIVER ADDED-42", "player_id": 42}], ref=leagues.get("espn:999"))
+    kept = {c: [k for k in keys if c.has(k)] for c in (owner, member)}
+    assert kept == {owner: ["team:5", "player:7"], member: ["roster", "team:5", "player:7"]}
+    api.on_new_rows([], ref=leagues.get("espn:999"))  # a rollover drops every move page
+    assert not any(member.has(k) for k in ("team:5", "player:7"))
+
+
 # --- the migration ---
 
 def _at_0027(empty_db, monkeypatch, with_user: bool):
@@ -230,12 +247,6 @@ def test_migration_without_a_user_files_nothing(empty_db, monkeypatch):
     assert _q(url, "SELECT user_id FROM page_cache") == [(0,)]  # no user's: served as before
 
 
-def test_sign_in_never_makes_a_membership(monkeypatch):
-    monkeypatch.setenv("FFL_SIGNUP_EMAILS", "new@example.com")
-    uid = auth.sign_in("google", "g9", "new@example.com", True, None)
-    assert leagues.for_user(uid) == []
-
-
 def test_join_from_the_command_line(other, capsys):
     uid = db.create_user("b@example.com", None)
     assert leagues.main(["join", "espn:999", "--user", "b@example.com", "--team", "5", "--default"]) == 0
@@ -262,14 +273,17 @@ def test_a_member_never_writes_to_espn_with_the_owners_cookies(other, monkeypatc
     assert sent == [{"espn_s2": "owners-s2", "SWID": "{OWNER}"}]
 
 
-# Routes that open no league: global (health, the switcher's list, live, sources, news, devices, traces, presets) or a
-# job that resolves its own ?league= through open_league (outlook refresh, transactions sync, refresh). A new route that is
+# Routes that open no league: global (health, the switcher's list, live, sources, news, devices, traces, presets, a
+# player's outlook, shared by every league) or a job that walks every league or resolves its own ?league= through
+# open_league (outlook refresh, transactions sync, refresh). A new route that is
 # neither must open the league (Depends(open_league)) or be added here on purpose: a league route without it would
 # serve the owner's league to any signed-in user.
 GLOBAL_ROUTES = {
-    "/health", "/leagues", "/live", "/live/status", "/sources/status", "/decisions/presets", "/outlook/refresh", "/refresh",
+    "/health", "/leagues", "/live", "/live/status", "/sources/status", "/decisions/presets", "/outlook/refresh",
+    "/outlook/{player_id:int}", "/refresh",
     "/transactions/sync", "/notify/subscribe", "/notify/unsubscribe", "/notify/test", "/trace",
-    "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status",
+    "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status", "/llm/usage", "/llm/token",
+    "/llm/token/delete",
 }
 
 

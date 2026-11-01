@@ -1,6 +1,6 @@
 ---
 name: pace-report
-description: Use when Jonathan asks who is beating projections, outperforming, breaking out, or worth sniping or trading for league-wide (all rosters, not just the wire), or asks for the weekly pace / overperformer scan. Not for lineup calls or the waiver table for one position.
+description: Use when the user asks who is beating projections, outperforming, breaking out, or worth sniping or trading for league-wide (all rosters, not just the wire), or asks for the weekly pace / overperformer scan. Not for lineup calls or the waiver table for one position.
 ---
 
 # Pace report
@@ -18,7 +18,7 @@ uv run python -m ffl.pace --json data/pace.json
 
 About a minute (box scores for every form week, four free-agent pools, the public scoreboard).
 From a worktree there is no `.env` or `data/`, and the API on :8300 cannot do this: run it from the
-main checkout or hand Jonathan the command. My roster is printed under the tables, every position,
+main checkout or hand the user the command. My roster is printed under the tables, every position,
 so drops and the flex rule are judged from the same output.
 
 ## Read the columns

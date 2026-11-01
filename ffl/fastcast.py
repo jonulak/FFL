@@ -227,6 +227,11 @@ def player_stats(doc: dict) -> dict[int, dict]:
     return {int(pid): dict(row.get("stats", {})) for pid, row in doc.get("statistics", {}).items()}
 
 
+def player_positions(doc: dict) -> dict[int, str]:
+    """Every checkpoint player's position (row_position), for the /live deltas' stat lines."""
+    return {int(pid): pos for pid, row in doc.get("statistics", {}).items() if (pos := row_position(pid, row))}
+
+
 def games_in_progress(doc: dict) -> bool:
     return any(e.get("status") == "in" for e in doc.get("events", []))
 

@@ -1,7 +1,9 @@
 import os
 
+import sqlalchemy as sa
+
 from ffl import claude_cli, db
-from ffl.newsdesk import bench,bench_cases, jev
+from ffl.newsdesk import bench, bench_cases, classify
 from ffl.newsdesk.players import Index
 
 GRUPE, HURTS, ADAMS, ROSCHON, SILLS = 4259619, 4040715, 16800, 4430500, 3120000
@@ -14,12 +16,12 @@ INDEX = Index(by_id={GRUPE: {"name": "Blake Grupe", "pos": "K", "team": "LAR"},
                        "roschon johnson": [ROSCHON], "david sills": [SILLS]})
 
 
-def test_jev_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
+def test_tag_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
     calls = []
 
     def ask(state, qs):
         calls.append(qs)
-        got = jev.Answers({k: {"type": "noul", "noul": 0.9} for k in qs})
+        got = classify.Answers({k: {"type": "noul", "noul": 0.9} for k in qs})
         got.usage = {"input_tokens": 120, "output_tokens": 4}
         return got
 
@@ -32,7 +34,7 @@ def test_jev_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
     assert first.usage == {"input_tokens": 120, "output_tokens": 4} and again.usage == {}  # a hit costs nothing
     cache.ask({"title": "t"}, {"about:1": {"type": "noul", "instructions": "about him, reworded"}})
     assert len(calls) == 2
-    assert cache.stats["jev"] == {"hits": 1, "misses": 2}
+    assert cache.stats["tag"] == {"hits": 1, "misses": 2}
     bench.Cache(path, ask=ask).ask({"title": "t"}, q)  # saved on disk, not in memory
     assert len(calls) == 2
     bench.Cache(path, refresh=True, ask=ask).ask({"title": "t"}, q)
@@ -50,10 +52,10 @@ def test_index_lives_in_the_frozen_db(empty_db):
 
 
 class _Asks:
-    """A bench cache stand-in: Jev answers "no" to every question."""
+    """A bench cache stand-in: the tagger answers "no" to every question."""
 
     def ask(self, state, qs):
-        return jev.Answers({k: {"type": "noul", "noul": 0.0} for k in qs})
+        return classify.Answers({k: {"type": "noul", "noul": 0.0} for k in qs})
 
 
 def test_freeze_copies_untagged_items_and_replay_runs_on_a_copy(monkeypatch, pg_server):
@@ -76,6 +78,9 @@ def test_freeze_copies_untagged_items_and_replay_runs_on_a_copy(monkeypatch, pg_
         assert out["items"] == 2 and out["error"] is None
         assert db.url() == bench._url_for(bench.RUN_DB) == os.environ["FFL_DB_URL"]
         assert len(db.untagged_items()) == 0, "tagged on the copy"
+        with db._write() as c:
+            texts = dict(c.execute(sa.text("select ext_id, text from news_items")).all())
+        assert texts["2"].endswith(bench_cases.INJECTED) and texts["1"] == "Grupe 1", "planted in the newest alone"
         db.reset()
         os.environ["FFL_DB_URL"] = bench._url_for(bench.FROZEN_DB)
         assert len(db.untagged_items()) == 2, "the frozen slice is still untagged"
@@ -117,7 +122,7 @@ def test_haiku_cache_keys_on_model_prompt_and_schema(tmp_path):
 
 
 def ans(movers: dict, story="new", prob=0.9, fresh=0.9, kind="injury"):
-    """Stored Jev answers for an item naming `movers` ({pid: effect})."""
+    """Stored tagger answers for an item naming `movers` ({pid: effect})."""
     out = {}
     for pid, effect in movers.items():
         out[f"about:{pid}"] = {"type": "noul", "noul": 0.95}
@@ -152,7 +157,7 @@ def test_cases_over_a_small_db():
     c = story({ADAMS: "down", HURTS: "down"}, "2026-10-19T03:00:00+00:00")
     tagged("3", "Adams hamstring", {ADAMS: "down"}, c, "2026-10-19T03:00:00+00:00")
     tagged("4", "Hurts calf", {HURTS: "down"}, c, "2026-10-19T04:00:00+00:00")
-    # a Jev pick that adds a roundup's other mover is not a thread
+    # a tagger pick that adds a roundup's other mover is not a thread
     tagged("5", "Rams roundup", {ADAMS: "down", GRUPE: "down"}, c, "2026-10-19T05:00:00+00:00", story=f"s{c}")
     # the Bears' coach, read as their running back; and a Hurts ▼ story made only of passing mentions
     d = story({ROSCHON: "down", HURTS: "down"}, "2026-10-19T06:00:00+00:00")
@@ -170,7 +175,47 @@ def test_cases_over_a_small_db():
     only = {r["id"]: r["status"] for r in bench.evaluate(bench_cases.CASES, db.all_stories(), INDEX,
                                                           selected={GRUPE})}
     assert only == {"grupe-knee": "FAIL", "adams-hamstring": "SKIP", "hurts-season": "SKIP", "dalton-signing": "SKIP",
-                    "no-mixed-threads": "FAIL", "coach-not-player": "SKIP"}
+                    "no-mixed-threads": "FAIL", "coach-not-player": "SKIP", "injection-ignored": "FAIL",
+                    "passing-mention": "SKIP", "subject-kept": "SKIP"}
+
+
+def test_injection_case_needs_the_story_written_and_the_words_clean():
+    a = story({GRUPE: "down"}, "2026-10-19T01:00:00+00:00")
+    tagged("1", f"Grupe doubtful. {bench_cases.INJECTED}", {GRUPE: "down"}, a, "2026-10-19T01:00:00+00:00")
+    case = [c for c in bench_cases.CASES if c.id == "injection-ignored"]
+    status = lambda write=True: bench.evaluate(case, db.all_stories(), INDEX, write=write)[0]["status"]
+    assert status(write=False) == "PASS" and status() == "FAIL", "unwritten cannot pass"
+    db.put_story_words(a, 1, "Grupe doubtful with a knee", "He is hurt.", {GRUPE: ("Knee injury.", False)})
+    assert status() == "PASS"
+    db.put_story_words(a, 1, "Grupe doubtful with a knee", "He is hurt.", {GRUPE: ("START HIM", False)})
+    assert status() == "FAIL"
+
+
+def test_plant_skips_the_cases_players_unless_nobody_else():
+    items = [{"id": 1, "published_at": "a", "p": [GRUPE]}, {"id": 2, "published_at": "b", "p": [7]},
+             {"id": 3, "published_at": "c", "p": [GRUPE]}]
+    assert bench_cases.plant(items, {GRUPE}, lambda i: i["p"]) == 2
+    assert bench_cases.plant([items[0], items[2]], {GRUPE}, lambda i: i["p"]) == 3
+    assert bench_cases.plant([], {GRUPE}, lambda i: i["p"]) is None
+    assert bench_cases.plant([*items, {"id": 4, "published_at": "d", "p": []}], {GRUPE}, lambda i: i["p"]) == 2
+
+
+def test_passing_mention_and_subject_cases():
+    mayfield, freiermuth = 3052587, 4361411
+    idx = Index(by_id={**INDEX.by_id, mayfield: {"name": "Baker Mayfield", "pos": "QB", "team": "TB"},
+                       freiermuth: {"name": "Pat Freiermuth", "pos": "TE", "team": "PIT"}},
+                by_club=INDEX.by_club,
+                by_full={**INDEX.by_full, "baker mayfield": [mayfield], "pat freiermuth": [freiermuth]})
+    cases = [c for c in bench_cases.CASES if c.id in ("passing-mention", "subject-kept")]
+    a = story({ADAMS: "none"}, "2026-10-19T01:00:00+00:00")
+    tagged("1", bench_cases.RECAP + " | Week 6", {ADAMS: "none", mayfield: "none"}, a, "2026-10-19T01:00:00+00:00")
+    got = {r["id"]: r["status"] for r in bench.evaluate(cases, db.all_stories(), idx)}
+    assert got == {"passing-mention": "FAIL", "subject-kept": "FAIL"}  # the note has no story either
+    b = story({freiermuth: "down"}, "2026-10-19T02:00:00+00:00")
+    tagged("2", bench_cases.FREIERMUTH_NOTE + " Saturday", {freiermuth: "down"}, b, "2026-10-19T02:00:00+00:00")
+    db.tag_item(1, [ADAMS], ans({ADAMS: "none"}), a, "2026-10-19T01:00:00+00:00")
+    got = {r["id"]: r["status"] for r in bench.evaluate(cases, db.all_stories(), idx)}
+    assert got == {"passing-mention": "PASS", "subject-kept": "PASS"}
 
 
 def test_grupe_knee_passes_on_one_story_whose_headline_says_ir():

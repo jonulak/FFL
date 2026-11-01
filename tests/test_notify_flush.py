@@ -254,3 +254,22 @@ def test_switches_are_per_league_quiet_hours_global():
     out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
     assert [p["url"] for p in sent] == [f"/transactions?league={HOME_KEY}"] and out["off"] == 1
     assert db.recent_notices(ref=other)[0]["outcome"] == "off"
+
+
+def test_a_news_item_queued_in_two_leagues_pushes_once_across_runs():
+    other = _other()
+    news = {**_n("news:7:1", "news", "Out for the season."), "url": "/news"}
+    db.add_notices([news], ref=home_league())
+    db.add_notices([news], ref=other)
+    db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
+    sent = []
+    out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
+    assert len(sent) == 1 and out["duplicate"] == 1
+    assert sent[0]["title"] == "t", "a news push names no league"
+    watch = {**_n("watch:5:2026-10-09", "watch"), "url": "/players"}
+    db.add_notices([watch], ref=home_league())
+    notify.flush(T, send=lambda sub, payload: sent.append(payload))
+    db.add_notices([watch], ref=other)  # a later run, the other league: read back from the table, not memory
+    out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
+    assert len(sent) == 2 and out["duplicate"] == 1, "a key sent in one league is never sent again in another"
+    assert db.recent_notices(ref=other)[0]["outcome"] == "duplicate"

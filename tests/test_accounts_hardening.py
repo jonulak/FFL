@@ -1,18 +1,10 @@
-"""ffl-soc.6.2.6: one user per person under concurrent first sign-ins, lower(email) unique, expired sessions swept,
-'*' opens sign-up only alone."""
-import threading
+"""ffl-soc.6.2.6: lower(email) unique, expired sessions swept."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
 import sqlalchemy as sa
 
-from ffl import auth, db
-from tests.conftest import TEST_USER
-
-
-@pytest.fixture(autouse=True)
-def _env(monkeypatch):
-    monkeypatch.setenv("FFL_SIGNUP_EMAILS", "a@b.com")
+from ffl import db
 
 
 def _count(table) -> int:
@@ -20,95 +12,10 @@ def _count(table) -> int:
         return c.execute(sa.select(sa.func.count()).select_from(table)).scalar()
 
 
-def _users() -> int:
-    """Users besides the template's signed-in test user."""
-    with db._read() as c:
-        return c.execute(sa.select(sa.func.count()).select_from(db.users).where(db.users.c.id != TEST_USER["id"])).scalar()
-
-
-def _race(n, fn):
-    """fn(i) on n threads released together; their answers, or the first exception raised."""
-    gate, out, errs = threading.Barrier(n), [None] * n, []
-
-    def run(i):
-        gate.wait()
-        try:
-            out[i] = fn(i)
-        except Exception as e:  # noqa: BLE001 — surfaced below
-            errs.append(e)
-    ts = [threading.Thread(target=run, args=(i,)) for i in range(n)]
-    for t in ts:
-        t.start()
-    for t in ts:
-        t.join()
-    if errs:
-        raise errs[0]
-    return out
-
-
-@pytest.fixture
-def lockstep(monkeypatch):
-    """Every racer reads 'no such identity' (and, in a check-then-insert sign-in, 'no such email') before any of them
-    writes: the interleaving that splits a person in two, made certain rather than lucky."""
-    def at(n):
-        gate = threading.Barrier(n, timeout=5)
-        for name in ("identity_user", "user_by_email"):
-            real = getattr(db, name)
-
-            def wrapped(*a, real=real, **k):
-                r = real(*a, **k)
-                try:
-                    gate.wait()
-                except threading.BrokenBarrierError:
-                    pass
-                return r
-            monkeypatch.setattr(db, name, wrapped)
-    return at
-
-
-def test_concurrent_first_sign_ins_of_one_identity_make_one_user(lockstep):
-    lockstep(6)
-    uids = _race(6, lambda i: auth.sign_in("google", "g1", "a@b.com", True, "Ann"))
-    assert len(set(uids)) == 1 and uids[0] is not None
-    assert _users() == 1 and _count(db.identities) == 1
-
-
-def test_concurrent_first_sign_ins_of_two_identities_one_email_make_one_user(lockstep):
-    lockstep(6)
-    uids = _race(6, lambda i: auth.sign_in("google" if i % 2 else "apple", f"s{i % 2}", "A@b.com", True, None))
-    assert len(set(uids)) == 1
-    assert _users() == 1 and _count(db.identities) == 2
-
-
-def test_sign_in_user_never_moves_an_identity():
-    uid = db.sign_in_user("google", "g1", "a@b.com", "Ann")
-    other = db.create_user("c@d.com", None)
-    with db._write() as c:  # a second identity row pointing at the other user, as a link from 6.2.4 would
-        c.execute(sa.insert(db.identities).values(provider="google", subject="g2", user_id=other, email="c@d.com",
-                                                 created_at="2026-10-27T00:00:00+00:00"))
-    assert db.sign_in_user("google", "g2", "a@b.com", None) == other
-    assert db.sign_in_user("google", "g1", "zzz@b.com", None) == uid
-    assert _users() == 2                         # a known identity's new email makes no user
-
-
-def test_ensure_user_matches_any_case():
-    uid = db.ensure_user("Dev@Example.com", None)
-    assert db.ensure_user("dev@example.COM", "X") == uid
-    assert _users() == 1
-
-
 def test_lower_email_is_unique():
     db.create_user("a@b.com", None)
     with pytest.raises(sa.exc.IntegrityError):
         db.create_user("A@B.com", None)
-
-
-def test_signup_star_opens_only_alone(monkeypatch):
-    monkeypatch.setenv("FFL_SIGNUP_EMAILS", "*, a@b.com")
-    assert not auth.signup_allowed("anyone@x.com", True)
-    assert auth.signup_allowed("a@b.com", True)
-    monkeypatch.setenv("FFL_SIGNUP_EMAILS", " * ")
-    assert auth.signup_allowed("anyone@x.com", True)
 
 
 def _iso(dt):

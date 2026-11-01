@@ -17,7 +17,7 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from . import calibrate, consensus, db, espn_write, leagues
+from . import calibrate, consensus, db, espn_write, leagues, outlook
 from .sources import cbs, fleaflicker, scoring_key, sharks
 from . import season as S
 from .adp import norm_name
@@ -1874,6 +1874,25 @@ def _gap_games(gaps: dict[int, list[int]], week: int, *, ref: leagues.LeagueRef)
         if rows := [g for w in ws for g in _GAP_GAMES.get((lk, pid, w), [])]:
             out[pid] = rows
     return out
+
+
+def outlook_cards(*, ref: leagues.LeagueRef) -> tuple[list[dict], int]:
+    """The league's players the hourly outlook run writes (outlook.wanted over the league pool), with every
+    member's watched players; one deeper than the pool is read by id. Returns (cards, the pool's week)."""
+    pool = league_pool(ref=ref)
+    week = pool["week"]
+    watched: set[int] = set()
+    for m in leagues.members(ref.key):
+        watched |= set(db.watched_ids(ref=m))
+    free_ids = [p["player_id"] for pos, ps in pool["frees"].items() if pos in outlook.POSITIONS for p in ps]
+    cards = outlook.wanted(pool, outlook.recent_up(free_ids, date.today()), watched)
+    # a man the pool has is already judged by wanted(); D/ST ids are negative
+    have = {p["player_id"] for p in pool["rostered"]} | {p["player_id"] for ps in pool["frees"].values() for p in ps}
+    missing = sorted(pid for pid in watched if pid not in have and pid > 0)
+    if missing:
+        deep = pool["enrich"](*_watched_rows(fresh_league(ref), missing, week, ref=ref))
+        cards += [p for p in deep if p["pos"] in outlook.POSITIONS]
+    return cards, week
 
 
 def _watched_rows(lg, ids: list[int], week: int, *, ref: leagues.LeagueRef) -> tuple[list[dict], dict[int, list[dict]]]:

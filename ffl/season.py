@@ -276,7 +276,7 @@ def roster_cards(roster: list[dict], settings: dict, week: int) -> list[dict]:
 
     A player sat by hand (`sat`) is left out of the call: SIT, worth nothing to the lineup (`play_proj` 0, so the
     swap sheet never offers him), and the rest of the roster is called without him. `model_call` is the call he
-    would have had, which the outlook's hash and sheet read so a sit does not rewrite his outlook.
+    would have had, shown by the chip (the outlook carries no call).
     """
     model = ({c["player_id"]: c for c in roster_cards([{**p, "sat": False} for p in roster], settings, week)}
              if any(p.get("sat") for p in roster) else {})

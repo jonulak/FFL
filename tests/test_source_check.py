@@ -61,8 +61,8 @@ def test_disabled_source_is_a_skip_not_a_fail(monkeypatch, capsys):
 
 
 def test_select_filters_by_substring():
-    cs = [("espn-mRoster[x]", None), ("seed-pft", None), ("jev", None)]
-    assert [n for n, _ in sc.select(cs, ["seed", "jev"])] == ["seed-pft", "jev"]
+    cs = [("espn-mRoster[x]", None), ("seed-pft", None), ("claude-p", None)]
+    assert [n for n, _ in sc.select(cs, ["seed", "claude"])] == ["seed-pft", "claude-p"]
     assert sc.select(cs, None) == cs
 
 

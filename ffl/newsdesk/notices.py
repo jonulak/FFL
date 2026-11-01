@@ -1,9 +1,9 @@
 """News pushes, pure: which written stories reach the phone, and what they say.
 
-A player row pushes when it moves my roster down (▼ on a player I hold) or a free agent up (▲), Jev is sure of it
+A player row pushes when it moves my roster down (▼ on a player I hold) or a free agent up (▲), the tagger is sure of it
 (NEWS_PUSH_PROB), Haiku wrote him a line and did not disagree with the arrow, and he is not muted. A kicker or defense
 (`pos`, off the player index) pushes only as a ▼ on my roster that is an injury or his club letting him go (QUIET_POS:
-Jev has no kind for a release, so it is read off Haiku's line, RELEASED). One push per story
+The tagger has no kind for a release, so it is read off Haiku's line, RELEASED). One push per story
 revision (`news:<id>:<rev>`); a correction or retraction pushes once more (`news:<id>:<status>`), only when the
 story pushed before. At most one push per player and kind of news in DEDUPE: `recent` is what was queued in that
 time (sent or waiting), off the notices table and the stories' rows; a story whose earlier revision pushed is a

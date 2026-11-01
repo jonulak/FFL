@@ -15,6 +15,7 @@ from the checkpoint have recorded nothing this week, so ESPN's own zero stands.
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -52,6 +53,7 @@ class State:
         self.leagues: dict[str, tuple[dict[int, float], int | None]] = {}
         self.games: dict[str, dict] = {}  # team -> {status, quarter, clock, score} (fastcast.game_states)
         self.stats: dict[int, dict] = {}  # player -> raw stat row (fastcast.player_stats)
+        self.positions: dict[int, str] = {}  # player -> position off the checkpoint (fastcast.player_positions)
         self.at: float | None = None  # when the points last changed
         self.connected = False
         self.error: str | None = None
@@ -59,7 +61,8 @@ class State:
 
     def update(self, leagues: dict[str, tuple[dict[int, float], int | None]], games: dict[str, dict] | None = None,
                stats: dict[int, dict] | None = None,
-               scope: dict[str, tuple[set[int], set[str]]] | None = None) -> bool:
+               scope: dict[str, tuple[set[int], set[str]]] | None = None,
+               positions: dict[int, str] | None = None) -> bool:
         """Store every league's latest (points, week), the game states and stat rows; tick `version` (and wake the
         stream) only when a point moved or a game changed status or quarter. `versions[key]` ticks only on that
         league's own change: a point of one of its `scope` players or a game of one of its `scope` clubs (the
@@ -84,6 +87,8 @@ class State:
             self.games = games
             if stats is not None:
                 self.stats = stats
+            if positions is not None:
+                self.positions = positions
             self.leagues = leagues
             if same_points and same_games and self.version:
                 return False
@@ -100,6 +105,14 @@ class State:
     def week_for(self, key: str) -> int | None:
         """The NFL week a league's points were scored for."""
         return self.leagues.get(key, ({}, None))[1]
+
+    def view(self, key: str) -> dict:
+        """A league's live state as one consistent read, for `delta` (each dict is replaced whole on update, never
+        mutated, so the references stay as read)."""
+        with self.cond:
+            points, week = self.leagues.get(key, ({}, None))
+            return {"week": week, "points": points, "games": self.games, "stats": self.stats,
+                    "positions": self.positions}
 
     def moved(self) -> None:
         """A move was logged (api.on_new_rows, once its pages are rebuilt): wake the stream so open pages refetch.
@@ -139,15 +152,49 @@ def stream_open(cur: tuple[int, int]) -> str:
     return f"retry: 3000\ndata: {cur[0]} m{cur[1]}\n\n"
 
 
-def stream_lines(seen: tuple[int, int], cur: tuple[int, int]) -> list[str]:
+def stream_lines(seen: tuple[int, int], cur: tuple[int, int], body: dict | None = None) -> list[str]:
     """The /live events between two (league version, moves) ticks: `data: m<n>` for a move (the Transactions and
-    Players pages refresh only on these), `data: <version>` for the stream's own league's points. Live pages refetch on either."""
+    Players pages refresh only on these), `data: <version>` for the stream's own league's points, or with `body`
+    (`delta`) that JSON in its place. Live pages refetch on a move or a bare version; one that can lay a delta on
+    (web/lib/overlay.ts) does so instead."""
     out = []
     if cur[1] != seen[1]:
         out.append(f"data: m{cur[1]}\n\n")
     if cur[0] != seen[0]:
-        out.append(f"data: {cur[0]}\n\n")
+        out.append(f"data: {json.dumps({'v': cur[0], **body}, separators=(',', ':'))}\n\n" if body is not None
+                   else f"data: {cur[0]}\n\n")
     return out
+
+
+def opened(view: dict) -> dict:
+    """What a /live stream counts as sent when it opens on State.view: the points and stat rows as they stand (the
+    page was just fetched), no games and no sigma, so its first delta carries every game and the spread."""
+    return {**view, "games": {}, "sigma": None}
+
+
+def delta(sent: dict, cur: dict, scoring: list[dict] | None, sigma: dict) -> tuple[dict | None, dict]:
+    """What one /live stream sends for its league on a tick, and what it has then sent: the points, game states
+    (clock included) and players' stat-derived fields (overlay_players': `stat_line`, `box`, `volume`) changed
+    since `sent` (`opened`, then this function's own answers; `cur` is State.view), and `sigma` when it changed.
+    A new week sends `week` alone: the page refetches. None (a bare version) while the league has no scored week."""
+    if cur["week"] is None:
+        return None, sent
+    if sent["week"] != cur["week"]:
+        return {"week": cur["week"]}, opened(cur)
+    out: dict = {"week": cur["week"],
+                 "points": {pid: v for pid, v in cur["points"].items() if sent["points"].get(pid) != v},
+                 "games": {t: g for t, g in cur["games"].items() if sent["games"].get(t) != g},
+                 "players": {}}
+    for pid, row in cur["stats"].items():
+        if sent["stats"].get(pid) != row:
+            # shortcut: the checkpoint's positionId, where the page's overlay reads the payload's pos (both ESPN's
+            # default position); key the derived fields by pos if a player's ever differ
+            pos = cur["positions"].get(pid, "")
+            out["players"][pid] = {"stat_line": stat_line(pos, row), "volume": volume(pos, row),
+                                   "box": box_score(row, scoring, pos) if scoring else None}
+    if sigma != sent["sigma"]:
+        out["sigma"] = sigma
+    return out, {**cur, "sigma": sigma}
 
 
 def _sans_clock(games: dict[str, dict]) -> dict[str, tuple]:
@@ -510,7 +557,8 @@ class Runner(threading.Thread):
         self.state.update({ln.key: (a, ln.week) for ln, a in zip(self.lanes, afters)}, fc.game_states(doc),
                           fc.player_stats(doc),
                           {ln.key: (set(ln.roster), {r["team"] for r in ln.roster.values()})
-                           for ln in self.lanes if ln.roster})
+                           for ln in self.lanes if ln.roster},
+                          positions=fc.player_positions(doc))
         self.plays.remember(doc)  # before the events: the play that moved a player is in this doc
         # the first checkpoint after boot is a baseline, not a burst of "events" for every player
         if not first:

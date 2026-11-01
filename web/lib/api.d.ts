@@ -4,15 +4,15 @@
  */
 
 export interface paths {
-    "/auth/providers": {
+    "/setup/status": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Providers */
-        get: operations["providers_auth_providers_get"];
+        /** Setup Status */
+        get: operations["setup_status_setup_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -21,45 +21,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/{provider}/start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Signin Start */
-        get: operations["signin_start_auth__provider__start_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/auth/{provider}/link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Link Start
-         * @description Signed in: the provider's round trip, its identity then linked to this user (ffl-soc.6.2.4), back to Settings.
-         *     The callback is the sign-in's (one redirect URI); `link_user` in the signed oidc cookie tells it apart.
-         */
-        get: operations["link_start_auth__provider__link_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/auth/apple/callback": {
+    "/setup": {
         parameters: {
             query?: never;
             header?: never;
@@ -69,37 +31,18 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Apple Callback Post
-         * @description Apple answers by a form the browser POSTs here from appleid.apple.com: a cross-site POST, which never carries
-         *     the SameSite=Lax ffl_oidc cookie that holds the round trip's state. So this reads the form only, never the
-         *     session, and sends the browser on to the GET callback with it: a cross-site top-level GET does carry Lax cookies,
-         *     and that callback checks state and nonce as Google's does.
+         * Setup
+         * @description The first sign-up, while nobody has a password: the oldest user (made if there is none) becomes this admin.
+         *     After that the route does not exist.
          */
-        post: operations["apple_callback_post_auth_apple_callback_post"];
+        post: operations["setup_setup_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auth/{provider}/callback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Signin Callback */
-        get: operations["signin_callback_auth__provider__callback_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/auth/dev": {
+    "/auth/signin": {
         parameters: {
             query?: never;
             header?: never;
@@ -109,11 +52,31 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dev Signin
-         * @description Local dev only: sign in as any email (created if absent), FFL_SIGNUP_EMAILS ignored. Off, it is a route that
-         *     does not exist: the body is read only after that check, so it is 404 whatever is posted.
+         * Signin
+         * @description Username (any case) and password. A wrong password, an unknown user and an invite with no password yet answer
+         *     alike, after the same scrypt; ten wrong tries per name and address in 15 minutes, then 429.
          */
-        post: operations["dev_signin_auth_dev_post"];
+        post: operations["signin_auth_signin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Password
+         * @description A new password, with the current one; this session and the others stay.
+         */
+        post: operations["change_password_auth_password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -206,8 +169,7 @@ export interface paths {
         };
         /**
          * Account
-         * @description Settings' Account section: who is signed in, their sessions (this one marked), their sign-ins, and the
-         *     providers configured here that they have not linked yet.
+         * @description Settings' Account section: who is signed in and their sessions (this one marked).
          */
         get: operations["account_account_get"];
         put?: never;
@@ -229,6 +191,106 @@ export interface paths {
         get: operations["me_auth_me_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Users */
+        get: operations["admin_users_admin_users_get"];
+        put?: never;
+        /**
+         * Admin Invite
+         * @description A new user with no login yet, and the link that sets one (live 7 days).
+         */
+        post: operations["admin_invite_admin_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin Reset
+         * @description A new set-password link for an existing user (their current password works until it is used).
+         */
+        post: operations["admin_reset_admin_users__user_id__reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Flag */
+        post: operations["admin_flag_admin_users__user_id__admin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{user_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin Delete
+         * @description Another user's account and personal rows, as /auth/delete does for one's own (which is the way to delete
+         *     oneself, so the caller always remains: never the last admin).
+         */
+        post: operations["admin_delete_admin_users__user_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/setup/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Setup Link
+         * @description A setup link (public: the token is its own secret): sets the username and password, ends the link and signs
+         *     them in. A reset link on a user who has a password replaces it.
+         */
+        post: operations["setup_link_auth_setup__token__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -692,7 +754,8 @@ export interface paths {
         /**
          * Plays
          * @description Every feed row of one game's week, newest first (the /plays page): mine, or with `team` that team's;
-         *     `week` (a finished week's board links its own) else the current one. `me`/`opp` name the two sides the
+         *     `week` (a finished week's board links its own) else the current one; `limit` the newest that many (the
+         *     Matchup board's strip, refetched alone when a /live delta moves one of its players). `me`/`opp` name the two sides the
          *     way the board does; `current` says whether the week is the current one (the way back is then `/`).
          */
         get: operations["plays__plays_get"];
@@ -814,9 +877,12 @@ export interface paths {
         };
         /**
          * Live Stream
-         * @description Server-sent events: `data: <version>` whenever live points change, `data: m<n>` when a league move was
-         *     logged (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live
-         *     page refetches its GET on either; Transactions and Players refresh on a move only.
+         * @description Server-sent events: whenever the ?league= league's live points change (none: the user's default; a league
+         *     they are not in, or none at all, ticks moves only) the JSON `live.delta` of what changed since this stream last
+         *     sent (`data: <version>` while the league has no scored week), `data: m<n>` when any league's move was logged
+         *     (its pages already rebuilt), and a comment every 15 s so the proxy keeps the connection open. A live page lays
+         *     a delta on (web/lib/overlay.ts) or refetches its GET; Transactions and Players refresh on a move only, and
+         *     ask with `moves=1` for nothing else. Never a 404: an EventSource would retry it every 3 s for good.
          */
         get: operations["live_stream_live_get"];
         put?: never;
@@ -1132,15 +1198,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Card Outlook */
+        /**
+         * Card Outlook
+         * @description Any player's stored outlook for the page's week (outlooks are every league's; nothing writes here).
+         */
         get: operations["card_outlook_outlook__player_id__get"];
         put?: never;
-        /**
-         * Card Outlook Write
-         * @description One Roster card's outlook, rewritten in the background whether or not his facts moved; the card
-         *     polls the GET until `outlook_running` clears. 409 while the full run holds the Roster file.
-         */
-        post: operations["card_outlook_write_outlook__player_id__post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1158,34 +1222,10 @@ export interface paths {
         put?: never;
         /**
          * Outlook Refresh
-         * @description The hourly run (ffl-outlook.timer, a job naming no league): every league in turn, one run, each league's
-         *     cards read when the run reaches it (a failure is that league's outlook_run error). With ?league= (the Roster
-         *     page's button; a signed-in user's request with none opens their default) only that league, its cards read
-         *     first so a failure to read them is this answer's 502.
+         * @description The hourly run (the jobs container's cron, deploy/crontab; the job token only: auth.JOB_ONLY): every joined league's players in one run, each league's read when the
+         *     run reaches it (a failure is that league's line in last()["errors"]). The only outlook write.
          */
         post: operations["outlook_refresh_outlook_refresh_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/waivers/outlook/{player_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Waiver Outlook */
-        get: operations["waiver_outlook_waivers_outlook__player_id__get"];
-        put?: never;
-        /**
-         * Waiver Outlook Write
-         * @description One free agent's outlook, written in the background (a minute or two of Opus with web search);
-         *     the dialog polls the GET until `running` clears.
-         */
-        post: operations["waiver_outlook_write_waivers_outlook__player_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1492,6 +1532,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/llm/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Llm Usage
+         * @description What `claude -p` cost over the last `days` UTC days (today included): one row per (day, kind) off llm_calls.
+         *     The app's own spend: admins only, 403 `not_admin` for anyone else.
+         */
+        get: operations["llm_usage_llm_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/llm/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Llm Token
+         * @description Whether the CLI has a login, and where from (the stored row or the environment); never the value.
+         */
+        get: operations["llm_token_llm_token_get"];
+        put?: never;
+        /**
+         * Llm Token Set
+         * @description Test the token with one ping, then store it sealed; a failed ping stores nothing (502 with the CLI's reason).
+         */
+        post: operations["llm_token_set_llm_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/llm/token/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Llm Token Delete */
+        post: operations["llm_token_delete_llm_token_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/refresh": {
         parameters: {
             query?: never;
@@ -1518,6 +1620,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminFlagIn */
+        AdminFlagIn: {
+            /** Is Admin */
+            is_admin: boolean;
+        };
         /** DecisionEdit */
         DecisionEdit: {
             /** Rationale */
@@ -1529,8 +1636,8 @@ export interface components {
         };
         /** DeleteIn */
         DeleteIn: {
-            /** Email */
-            email: string;
+            /** Username */
+            username: string;
         };
         /** EndpointIn */
         EndpointIn: {
@@ -1553,6 +1660,13 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** InviteIn */
+        InviteIn: {
+            /** Email */
+            email?: string | null;
+            /** Name */
+            name?: string | null;
         };
         /** LineupIn */
         LineupIn: {
@@ -1585,10 +1699,24 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** PasswordIn */
+        PasswordIn: {
+            /** Current */
+            current: string;
+            /** New */
+            new: string;
+        };
         /** PlanIn */
         PlanIn: {
             /** Groups */
             groups: components["schemas"]["GroupIn"][];
+        };
+        /** SignInIn */
+        SignInIn: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
         };
         /** SitIn */
         SitIn: {
@@ -1623,6 +1751,11 @@ export interface components {
              * @default
              */
             ua: string;
+        };
+        /** TokenIn */
+        TokenIn: {
+            /** Token */
+            token: string;
         };
         /** TraceIn */
         TraceIn: {
@@ -1663,7 +1796,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    providers_auth_providers_get: {
+    setup_status_setup_status_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1683,18 +1816,18 @@ export interface operations {
             };
         };
     };
-    signin_start_auth__provider__start_get: {
+    setup_setup_post: {
         parameters: {
-            query?: {
-                next?: string | null;
-            };
+            query?: never;
             header?: never;
-            path: {
-                provider: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignInIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1716,16 +1849,18 @@ export interface operations {
             };
         };
     };
-    link_start_auth__provider__link_get: {
+    signin_auth_signin_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                provider: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignInIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1747,38 +1882,18 @@ export interface operations {
             };
         };
     };
-    apple_callback_post_auth_apple_callback_post: {
+    change_password_auth_password_post: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordIn"];
             };
         };
-    };
-    signin_callback_auth__provider__callback_get: {
-        parameters: {
-            query?: {
-                user?: string | null;
-            };
-            header?: never;
-            path: {
-                provider: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -1796,26 +1911,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    dev_signin_auth_dev_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
                 };
             };
         };
@@ -1960,6 +2055,191 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    admin_users_admin_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    admin_invite_admin_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_reset_admin_users__user_id__reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_flag_admin_users__user_id__admin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminFlagIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_delete_admin_users__user_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setup_link_auth_setup__token__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignInIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2664,6 +2944,7 @@ export interface operations {
             query?: {
                 team?: number | null;
                 week?: number | null;
+                limit?: number | null;
                 league?: string | null;
             };
             header?: never;
@@ -2860,7 +3141,10 @@ export interface operations {
     };
     live_stream_live_get: {
         parameters: {
-            query?: never;
+            query?: {
+                league?: string | null;
+                moves?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2874,6 +3158,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3454,8 +3747,8 @@ export interface operations {
     };
     card_outlook_outlook__player_id__get: {
         parameters: {
-            query?: {
-                league?: string | null;
+            query: {
+                week: number;
             };
             header?: never;
             path: {
@@ -3467,39 +3760,6 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    card_outlook_write_outlook__player_id__post: {
-        parameters: {
-            query?: {
-                league?: string | null;
-            };
-            header?: never;
-            path: {
-                player_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3520,9 +3780,7 @@ export interface operations {
     };
     outlook_refresh_outlook_refresh_post: {
         parameters: {
-            query?: {
-                league?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -3536,81 +3794,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    waiver_outlook_waivers_outlook__player_id__get: {
-        parameters: {
-            query?: {
-                league?: string | null;
-            };
-            header?: never;
-            path: {
-                player_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    waiver_outlook_write_waivers_outlook__player_id__post: {
-        parameters: {
-            query?: {
-                league?: string | null;
-            };
-            header?: never;
-            path: {
-                player_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4074,6 +4257,110 @@ export interface operations {
         };
     };
     news_status_news_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    llm_usage_llm_usage_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    llm_token_llm_token_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    llm_token_set_llm_token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    llm_token_delete_llm_token_delete_post: {
         parameters: {
             query?: never;
             header?: never;

@@ -14,13 +14,18 @@ export const API_TIMEOUT_MS = 20_000;
 
 // ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
 export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; espn: boolean; quiet: [string, string] };
+// GET /llm/token (admins): whether the CLI has a login and where from (the stored row or the server's environment); never the value.
+export type LlmToken = { set: boolean; source: "db" | "env" | null };
+// GET /llm/usage: what `claude -p` cost, one row per (UTC day, kind) over the last `days` days.
+export type LlmUsage = { days: number; rows: { day: string; kind: string; calls: number; input: number; output: number; cost_usd: number }[] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
 
 // ffl/auth.py GET /account: Settings' Account section (ffl-soc.6.2.4)
 export type AccountSession = { id: string; created_at: string; last_seen: string; ua: string; current: boolean };
-export type Account = {
-  email: string; name: string | null; sessions: AccountSession[];
-  identities: { provider: string; email: string; created_at: string }[]; linkable: string[];
+export type Account = { username: string | null; email: string | null; name: string | null; is_admin: boolean; sessions: AccountSession[] };
+// GET /admin/users (admins only): Settings › Users. has_password false: invited, the setup link not used yet.
+export type AdminUser = {
+  id: number; username: string | null; email: string | null; name: string | null; is_admin: boolean; has_password: boolean; created_at: string;
 };
 
 export class ApiError extends Error {
@@ -131,25 +136,22 @@ export type Card = Player & {
   espn_order: number;
   // the slot a START puts him in (the league's strategy (`uv run python -m ffl.strategy show`), Slot by kickoff): the chip names it; null on any other call
   call_slot: string | null;
-  outlook: OutlookBullet[] | null; outlook_at: string | null; outlook_stale: boolean;
-  // a rewrite of this card alone is running (POST /outlook/{id}); the last one's failure, if it failed
-  outlook_running: boolean; outlook_error: string | null;
-};
-// GET /outlook/{id}: one card's outlook fields, polled while its rewrite runs.
-export type CardOutlook = Pick<Card, "outlook" | "outlook_at" | "outlook_stale" | "outlook_running" | "outlook_error">;
-export type OutlookRun = {
-  at: string | null; generated: number; skipped: number; failed: number; running: boolean;
-  error: string | null; last_failure: string | null; pending: number | null;
-};
+  // his facts changed since the outlook was written (the hourly run rewrites it)
+  outlook_stale: boolean;
+} & Outlooked;
+// A player's outlook as a roster carries it (Roster cards, Team rows): written by the hourly run, one per
+// player for every league; error is the last failed write's reason.
+export type Outlooked = { outlook: OutlookBullet[] | null; outlook_at: string | null; outlook_error: string | null };
+// GET /outlook/{id}?week=N: one player's stored outlook, read on a tap (the Players dialog).
+export type PlayerOutlook = { bullets: OutlookBullet[] | null; at: string | null; error: string | null };
 // position_caps is absent on a page payload cached before it was added
 export type Roster = { week: number; live: boolean; cards: Card[]; empty_slots: string[]; position_caps?: PositionCap[]; writes: boolean;
-  outlook_run: OutlookRun; stale_since: string | null; decision?: DecisionRef | null };
-export type OutlookStarted = { started: boolean; pending: number | null };
+  stale_since: string | null; decision?: DecisionRef | null };
 export type LineupEntry = { slot: string; player_id: number | null; name: string; proj: number };
 export type Swap = { slot: string; out: string; in: string; gain: number };
 // `abbrev` and `logo` as on a Club, so the scorebug can carry the mark (logo "" when ESPN has none).
-export type Side = {
-  team_id: number; team: string; owner: string; wins: number; losses: number; ties: number; abbrev: string; logo: string; lineup: Player[]; bench: Player[]; ir: Player[];
+export type Side<P extends Player = Player> = {
+  team_id: number; team: string; owner: string; wins: number; losses: number; ties: number; abbrev: string; logo: string; lineup: P[]; bench: P[]; ir: P[];
   optimal: LineupEntry[]; optimal_swaps: Swap[]; proj_total: number; optimal_total: number; actual_total: number;
 };
 // One row of the play feed (ffl/plays.py): a starter's points moved by `delta` to `total`.
@@ -206,20 +208,15 @@ export type Owner = { team_id: number; name: string | null; abbrev: string | nul
 export type PlayerRow = Player & {
   ros_proj: number; ros_adj: number; week_proj: number; delta_roster: number | null; delta_pool: number | null;
   would_start: boolean | null; week_delta: number | null; add: number | null;
-  has_outlook: boolean;  // bullets written for him this week, from the row's outlook dialog (free agents only)
+  has_outlook: boolean;  // bullets written for him this week (any row, rostered included), read by the row's outlook dialog
   // ESPN's waiver status: FREEAGENT is added instantly, WAIVERS is a claim; null when the read failed
   // (counts as WAIVERS) and on a rostered player. waiver_date: ms epoch his waiver period ends.
   status: "FREEAGENT" | "WAIVERS" | null; waiver_date: number | null;
   owner: Owner | null; mine: boolean;
 };
-// A free agent: the only row a claim, the START gain and the outlook dialog apply to.
+// A free agent: the only row a claim and the START gain apply to.
 export type FreeAgentRow = PlayerRow & {
   owner: null; mine: false; add: number; delta_roster: number; delta_pool: number; would_start: boolean; week_delta: number;
-};
-// One free agent's outlook (GET /waivers/outlook/{id}): written on a click, a minute or two of
-// Opus with web search, so `running` is polled. `error` is the last failed write's reason.
-export type WaiverOutlook = {
-  bullets: OutlookBullet[] | null; at: string | null; stale: boolean; running: boolean; error: string | null;
 };
 // One of my players as the Waivers table compares a free agent against him: the same ROS and
 // week figures, by adjusted ROS best first (season.roster_rows).
@@ -302,10 +299,13 @@ export type League = {
   scoreboard: { home: ScoreSide; away: ScoreSide; live: boolean; final: boolean; win_prob?: { away: number; home: number } | null }[];
   stale_since: string | null;
 };
+export type TeamPlayer = Player & Outlooked;
 // GET /team/{id}: any team's roster for the week (the team page), its club with the standings
 // rank (null before ESPN has standings), `mine` when it is my own team.
 export type TeamRoster = {
-  week: number; live: boolean; mine: boolean; club: Club & { rank: number | null }; side: Side;
+  week: number; live: boolean; mine: boolean; club: Club & { rank: number | null };
+  // every player on it carries his outlook
+  side: Side<TeamPlayer>;
   stale_since: string | null;
 };
 // GET /transactions: the league's log as moves, newest first (season.group_transactions). A
@@ -325,7 +325,7 @@ export type PlayerTx = {
   round?: number; pick?: number; overall?: number;
 };
 
-// The news desk's feed (GET /news, ffl/newsdesk/feed.py). A row is one player a story moves: Jev's effect and kind,
+// The news desk's feed (GET /news, ffl/newsdesk/feed.py). A row is one player a story moves: the tagger's effect and kind,
 // Haiku's line (`reason`, null until written) and `flag` when Haiku doubts the arrow; `owner` is who holds him now
 // (read at request time, null for a free agent and when the owners read failed). Rows come ▲/▼ first, then ●.
 export type NewsEffect = "up" | "down" | "none";

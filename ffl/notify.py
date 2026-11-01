@@ -134,25 +134,20 @@ def check_espn() -> int:
     return n
 
 
-def operator_emails() -> list[str]:
-    """FFL_OPERATOR_EMAILS (comma-separated, read now): who hears about the app itself."""
-    return [e.strip() for e in (os.environ.get("FFL_OPERATOR_EMAILS") or "").split(",") if e.strip()]
-
-
 def app_notices(rows: list[dict]) -> int:
-    """Queue notices about the app itself (a source failing, fitted weights) for each operator (FFL_OPERATOR_EMAILS),
-    once, under their default league; nobody else hears of them. An operator with no account or no league, or no
-    operator at all, gets nothing (logged)."""
+    """Queue notices about the app itself (a source failing, fitted weights) for each admin, once, under their default
+    league; nobody else hears of them. An admin with no league, or no admin at all, gets nothing (logged)."""
     from . import leagues
     if not rows:
         return 0
+    admins = [u for u in db.list_users() if u["is_admin"]]
+    if not admins:
+        log.warning("notify: app notice not queued: no admin")
     n = 0
-    for email in operator_emails() or [None]:
-        user = db.user_by_email(email) if email else None
-        ref = leagues.default_for(user["id"]) if user else None
+    for user in admins:
+        ref = leagues.default_for(user["id"])
         if ref is None:
-            log.warning("notify: app notice not queued for %s: %s", email or "nobody (FFL_OPERATOR_EMAILS unset)",
-                        "no league" if user else "no such user")
+            log.warning("notify: app notice not queued for user %s: no league", user["id"])
             continue
         n += db.add_notices(rows, ref=ref)
     return n
@@ -287,7 +282,7 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
 
 
 # Where a notification opens: Declarative Web Push wants the absolute URL (production; setup.sh sets it).
-APP_URL = os.environ.get("FFL_APP_URL", "https://ffl.whitebridgelabs.com")
+APP_URL = os.environ.get("FFL_APP_URL", "http://localhost:3300")
 
 
 def payload_for(push: dict, app_url: str = APP_URL) -> dict:
@@ -352,6 +347,7 @@ def league_url(url: str, ref) -> str:
 def for_league(push: dict, ref, named: bool) -> dict:
     """A planned push dressed for its league: the label after the title when more than one league is registered,
     the league's page, and a tag of its own (a device replaces a notification with the same tag)."""
+    named = named and not push["keys"][0].startswith("news:")  # a news item is one push whatever the league (#480)
     title = f"{push['title']} · {league_label(ref)}" if named else push["title"]
     tag = f"{ref.key}:{push['tag']}"
     return {**push, "title": title, "url": league_url(push["url"], ref), "tag": tag, "ref": ref}
@@ -371,6 +367,11 @@ def _send_all(pushes: list[dict], send, at: str, user_id: int) -> int:
     return sent
 
 
+# A news item (and a watched player's push of the day) is the same message in every league that queues it: one push
+# per user, the first league's; the others are marked `duplicate`.
+ONCE_PER_USER = ("news:", "watch:")
+
+
 def flush(t: datetime | None = None, send=None) -> dict:
     """Send every user's queue to that user's devices: nothing in their quiet hours (every league's); in each of their
     leagues the notices switched off there and the stale ones are marked, the rest grouped within the league and
@@ -384,15 +385,19 @@ def flush(t: datetime | None = None, send=None) -> dict:
     for r in leagues.memberships():
         by_user.setdefault(r.user_id, []).append(r)
     at = t.isoformat(timespec="seconds")
-    out = {"sent": 0, "pushes": 0, "off": 0, "expired": 0, "held": 0}
+    out = {"sent": 0, "pushes": 0, "off": 0, "expired": 0, "held": 0, "duplicate": 0}
     for uid, refs in by_user.items():
         unsent = {r.key: db.unsent_notices(ref=r) for r in refs}
         if in_quiet(t, quiet(uid)):
             out["held"] += sum(len(u) for u in unsent.values())
             continue
         pushes = []
+        seen = {k for p in ONCE_PER_USER for k in db.notice_keys(p, ref=refs[0])}  # sent in any league, any run
         for r in refs:
             planned, marks = plan(unsent[r.key], prefs(ref=r), t)
+            marks["duplicate"] = [k for p in planned for k in p["keys"] if k in seen]
+            planned = [p for p in planned if not set(p["keys"]) & seen]
+            seen |= {k for p in planned for k in p["keys"] if k.startswith(ONCE_PER_USER)}
             for outcome, keys in marks.items():
                 db.mark_notices(keys, outcome, at, ref=r)
                 out[outcome] += len(keys)
@@ -585,6 +590,6 @@ if __name__ == "__main__":
     import sys
     if sys.argv[1:] == ["keys"]:
         pub, priv = vapid_keys()
-        print(f"VAPID_PUBLIC_KEY={pub}\nVAPID_PRIVATE_KEY={priv}\nVAPID_SUBJECT=mailto:admin@example.com")
+        print(f"VAPID_PUBLIC_KEY={pub}\nVAPID_PRIVATE_KEY={priv}")
     else:
         print("usage: python -m ffl.notify keys")

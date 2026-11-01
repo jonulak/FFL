@@ -40,6 +40,11 @@
           text-decoration: underline; text-underline-offset: 3px; align-self: flex-start; }
   ul { margin: 0; padding-left: 18px; }
   li + li { margin-top: 4px; }
+  form { display: flex; flex-direction: column; gap: 8px; }
+  label { font-size: 13px; font-weight: 600; }
+  input { font: 15px/1 system-ui, -apple-system, sans-serif; height: 44px; padding: 0 12px; border-radius: 10px;
+          border: 1px solid var(--line); background: var(--panel); color: var(--ink); caret-color: currentColor; }
+  input:focus-visible { outline: 2px solid oklch(0.86 0.22 130); outline-offset: 2px; }
   .rule { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
   [hidden] { display: none !important; }
 </style>
@@ -48,17 +53,32 @@
 <main>
   <span class="mark">FFL</span>
 
-  <section id="disclose" hidden>
-    <h1>Connect this browser to FFL</h1>
-    <ul>
+  <!-- the FFL open in this tab: not one, signed out, or ready to connect (popup.ts connectState) -->
+  <section id="tab" hidden>
+    <h1 id="tab-title">Connect this browser to FFL</h1>
+    <p id="tab-text" class="muted" aria-live="polite">Looking at this tab…</p>
+    <ul id="tab-disclose" hidden>
       <li>FFL reads two of ESPN's cookies in this browser, <b>espn_s2</b> and <b>SWID</b>: your ESPN login.</li>
-      <li>They go only to FFL (<span id="host"></span>), to read your fantasy leagues and make the moves you ask for.</li>
+      <li>They go only to your FFL (<span id="host"></span>), to read your fantasy leagues and make the moves you ask for.</li>
       <li>Nothing else is read, on ESPN or any other site.</li>
     </ul>
-    <button id="open" class="primary">Open FFL to connect</button>
-    <p class="muted">Sign in to FFL there, then tap <b>Connect this browser</b>.</p>
-    <button id="connect" class="link">Use a code instead</button>
+    <button id="connect" class="primary" hidden>Connect</button>
     <p id="connect-error" class="bad" role="status"></p>
+    <button id="use-code" class="link">Pair with a code instead</button>
+  </section>
+
+  <section id="code-form" hidden>
+    <h1>Pair with a code</h1>
+    <form id="server-form">
+      <label for="server">Your FFL's address</label>
+      <input id="server" type="text" inputmode="url" autocomplete="url" spellcheck="false" autocapitalize="off"
+             placeholder="ffl.example.com" required>
+      <p class="muted">https unless your server is on your own network</p>
+      <button type="submit" id="start" class="primary">Show a code</button>
+    </form>
+    <p class="muted">Your ESPN login goes only to that address. Type the code there, under the Connect step.</p>
+    <p id="start-error" class="bad" role="status"></p>
+    <button id="back" class="link">Back</button>
   </section>
 
   <section id="code-view" hidden>
@@ -71,6 +91,7 @@
 
   <section id="paired" hidden>
     <h1 id="paired-title">Connected to FFL</h1>
+    <p id="paired-host" class="muted"></p>
     <p id="last"></p>
     <p id="last-at" class="muted"></p>
     <p id="hint" class="muted">Signing in to ESPN in this browser sends your login to FFL by itself.</p>

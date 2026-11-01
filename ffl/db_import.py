@@ -70,12 +70,12 @@ def _plays(data: Path, season: int):
     return len(rows), rows
 
 
-_OUTLOOK = re.compile(r"^(week|waivers-week)-(\d+)\.json$")  # anchored: `week` must not also take `waivers-week`
+_OUTLOOK = re.compile(r"^week-(\d+)\.json$")  # the Roster's; a free agent's waivers-week files are not kept
 
 
 def _outlooks(data: Path, season: int):
     rows, source = [], 0
-    for p in sorted((data / "outlook").glob("*week-*.json")):
+    for p in sorted((data / "outlook").glob("week-*.json")):
         m = _OUTLOOK.match(p.name)
         if not m:
             continue
@@ -84,7 +84,7 @@ def _outlooks(data: Path, season: int):
             if not pid.isdigit():
                 continue
             source += 1
-            rows.append({"season": season, "week": int(m[2]), "kind": m[1], "player_id": int(pid),
+            rows.append({"season": season, "week": int(m[1]), "player_id": int(pid),
                          "entry": entry, "updated": updated})
     return source, rows
 
@@ -130,8 +130,8 @@ def _league():
     return leagues.acting()  # the old files are all the home league's: FFL_USER's default
 
 
-# the tables run() files under the acting league (FFL_USER's default), whose the old files all are (_picks stamps its own; sigma_fits is global)
-_LEAGUE_TABLES = {"transactions", "results", "plays", "outlooks", "claim_plans", "decisions"}
+# the tables run() files under the acting league (FFL_USER's default), whose the old files all are (_picks stamps its own; sigma_fits and outlooks are global)
+_LEAGUE_TABLES = {"transactions", "results", "plays", "claim_plans", "decisions"}
 
 
 def run(journal: Path, data: Path, season: int) -> list[dict]:

@@ -6,7 +6,7 @@
 # CI does not run this: its postgres:16 service container is the server (.github/workflows/test.yml).
 set -euo pipefail
 
-FORMULA=postgresql@18      # local; production is RDS PG 16, so nothing may use a PG 17+ feature
+FORMULA=postgresql@18      # local; the stack runs postgres:16, so nothing may use a PG 17+ feature
 
 if ! brew services list | grep -E "^$FORMULA +started" >/dev/null; then
   brew services start "$FORMULA"
