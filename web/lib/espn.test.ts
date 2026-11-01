@@ -92,7 +92,7 @@ describe("the rest", () => {
     expect(espnMessage(null, "fallback")).toBe("fallback");
   });
   it("initials", () => {
-    expect(initials("My Team")).toBe("JST");
+    expect(initials("My Team")).toBe("MT");
     expect(initials(null)).toBe("?");
   });
 });
