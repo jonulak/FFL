@@ -62,7 +62,9 @@ Draft pipeline: settings -> players -> adp -> browser + draft_watch. Every draft
 ## Config
 **Stack.** Production is the Docker Compose stack (`docker-compose.yml`, installed by `install.sh` into `~/ffl`):
 `db` (postgres:16, not published on the host; a `docker-compose.override.yml` opens it for the draft tools), `api` (`ghcr.io/jonulak/ffl-api`, the root `Dockerfile`; `deploy/entrypoint.sh`
-migrates then starts uvicorn on :8300), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
+migrates then starts uvicorn on :8300; no Node, no agent CLI), `runner` (`ghcr.io/jonulak/ffl-runner`, `Dockerfile.runner`:
+the standalone `claude` binary behind `ffl/harness.py`, stdlib only, :8310 on the internal network, no published port,
+`x-ffl-job` required), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
 and `jobs` (the api image under busybox crond, `deploy/crontab`: the tick every 15 min, news every 10, outlooks at :05,
 transactions at :35, calibration Wednesdays, a nightly backup). HTTPS is a reverse proxy in front of the web port, with
 `FFL_APP_URL` set to the https URL (push and the Secure cookie need it). Images are built by `.github/workflows/images.yml`
@@ -85,7 +87,11 @@ header = `FFL_JOB_TOKEN`, sent by the jobs container. Two test servers on one ho
 `FFL_SESSION_COOKIE=ffl_session_<web port>` on their API and web.
 
 **Claude token.** `claude -p` (outlooks, the news tagger and writer) runs on the token stored in Settings › Claude,
-else `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` in the environment (`ffl/claude_cli.py`). It runs from a neutral
+else `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` in the environment (`ffl/claude_cli.py`). The API resolves the
+token and sends the call (prompt, schema, model, credential) to the runner at `FFL_RUNNER_URL`; with it unset (dev on
+the Mac, tests) `claude_cli` calls `harness.call` in process, so a local `claude` on PATH is all dev needs. The
+contract (`ffl/harness.py`) is harness-neutral; a second harness is one entry in `HARNESSES`. Errors are `LlmError`
+(`.account` for a login/plan/runner failure) or `subprocess.TimeoutExpired`. It runs from a neutral
 temp directory so no CLAUDE.md applies. Every call is a row in `llm_calls`; `GET /llm/usage` is admins'.
 
 **ESPN connection** (`ffl/espn_auth.py`, `ffl/espn_connect.py`). Each user's ESPN cookies (espn_s2 + SWID) are their

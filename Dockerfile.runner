@@ -1,0 +1,19 @@
+# The agent runner: the harness binaries (the standalone `claude`, no Node) behind ffl/harness.py's stdlib HTTP shim.
+# Only the api reaches it (compose's internal network, the x-ffl-job secret); it holds no data and no key ring.
+FROM python:3.12-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd -m runner
+USER runner
+# Pinned, in its own layer (images.yml caches layers, so an upgrade downloads only what changed); bump to take a new claude.
+ARG CLAUDE_CODE_VERSION=2.1.316
+RUN curl -fsSL https://claude.ai/install.sh | bash -s ${CLAUDE_CODE_VERSION} \
+ && /home/runner/.local/bin/claude --version
+ENV PATH=/home/runner/.local/bin:$PATH PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+COPY ffl/__init__.py ffl/harness.py ffl/
+EXPOSE 8310
+CMD ["python", "-m", "ffl.harness"]

@@ -56,7 +56,8 @@ def test_run_passes_model_and_strips_env(monkeypatch, tmp_path):
     assert "--allowedTools" not in args
     assert "disableAllHooks" in args[args.index("--settings") + 1]
     assert not any(k.startswith("CLAUDE") for k in seen["env"])
-    assert seen["cwd"] == str(cwd) and cwd.is_dir()
+    neutral = claude_cli.neutral_cwd("neutral")  # the runner's own neutral dir, named by the caller's cwd
+    assert seen["cwd"] == str(neutral) and neutral.is_dir()
     assert seen["input"] == "hi" and seen["timeout"] == 9
 
 

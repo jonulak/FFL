@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import subprocess
 
-from .. import claude_cli
+from .. import claude_cli, harness
 
 # scores are the model's own 0..1 estimates, not calibrated probabilities; tag.py's thresholds were set on a calibrated
 # classifier's, so a threshold may need moving (the bench is the check)
@@ -18,7 +18,7 @@ MODEL = "haiku"
 TIMEOUT_S = 120
 CWD = claude_cli.neutral_cwd("news-tag")
 # The account, not the request: no login or token, out of quota or credit. Every item would fail alike.
-ACCOUNT_MARKS = ("not logged in", "no claude token", "quota", "rate limit", "usage limit", "credit")  # lowercase
+ACCOUNT_MARKS = harness.ACCOUNT_MARKS  # an error naming one is the account's, not the item's
 UNIT = {"type": "number", "minimum": 0, "maximum": 1}
 
 
@@ -108,7 +108,7 @@ def ask(state, questions: dict, run_cli=claude_cli.run) -> Answers:
         out = run_cli(prompt(state, questions), model=MODEL, schema=schema_for(questions), tools="", cwd=CWD,
                       timeout=TIMEOUT_S, kind="news_tag")
     except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as e:  # a timeout or bad JSON too
-        raise ClassifyError(f"classify: {e}", account=any(m in str(e).lower() for m in ACCOUNT_MARKS)) from e
+        raise ClassifyError(f"classify: {e}", account=getattr(e, "account", None) or any(m in str(e).lower() for m in ACCOUNT_MARKS)) from e
     got = parse(out, questions)
     u = getattr(out, "usage", None) or {}
     got.usage = {"input_tokens": u.get("input", 0), "output_tokens": u.get("output", 0)}
