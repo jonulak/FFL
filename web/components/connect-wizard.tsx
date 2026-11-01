@@ -13,6 +13,7 @@ import { servicesDue, wizardStart } from "@/lib/llm";
 import { arrivedAccount, canPaste, newRefusal, pickable, resentAccount, type EspnStatus, type LeagueChoice, type LeagueChoices, type PickResult,
          type Platform } from "@/lib/espn";
 import { AppSettingsCards } from "./app-settings";
+import { Code, CredentialSteps, Out, Ui } from "./credential-steps";
 import { PHONE_ACTION } from "./claims-submit";
 import { espnGet, espnPost, TeamMark, why } from "./espn-api";
 import { LeagueProblemMark } from "./league-problem";
@@ -389,6 +390,29 @@ function Line({ done, children }: { done: boolean; children: React.ReactNode }) 
   );
 }
 
+function EspnCookieSteps() {
+  return (
+    <CredentialSteps label="How to find them" title="Copy your ESPN cookies"
+                     description="On a computer, in Chrome or Safari. A couple of minutes."
+                     footnote="FFL checks them with ESPN, then keeps them encrypted. They're never shown again.">
+      <li>Sign in at <Out href={ESPN_FANTASY}>ESPN Fantasy</Out>.</li>
+      <li>
+        Open the developer tools. Chrome: <Ui>View › Developer › Developer Tools</Ui>. Safari: first turn on{" "}
+        <Ui>Settings › Advanced › Show features for web developers</Ui>, then <Ui>Develop › Show Web Inspector</Ui>.
+      </li>
+      <li>
+        Find the cookies. Chrome: the <Ui>Application</Ui> tab, then <Ui>Cookies › https://fantasy.espn.com</Ui>.
+        Safari: the <Ui>Storage</Ui> tab, then <Ui>Cookies</Ui>.
+      </li>
+      <li>
+        Double-click the value of <Code>espn_s2</Code> and copy all of it (it&apos;s long), then do the same for{" "}
+        <Code>SWID</Code>, braces included.
+      </li>
+      <li>Back here, paste each into its box and choose <Ui>Connect</Ui>.</li>
+    </CredentialSteps>
+  );
+}
+
 function PasteForm({ onConnected, onCancel }: { onConnected: (account: number) => void; onCancel?: () => void }) {
   const [s2, setS2] = useState("");
   const [swid, setSwid] = useState("");
@@ -414,12 +438,11 @@ function PasteForm({ onConnected, onCancel }: { onConnected: (account: number) =
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <h2 className="font-display text-xl font-semibold leading-tight">Paste them instead</h2>
-          <ol className="list-decimal space-y-1 pl-5 text-sm leading-relaxed">
-            <li>Sign in to ESPN Fantasy, then open the browser&apos;s developer tools.</li>
-            <li>Chrome: <b>Application</b> › Cookies › espn.com. Safari: <b>Storage</b> › Cookies.</li>
-            <li>Copy the values of <code className="font-mono text-[0.8125rem]">espn_s2</code> and <code className="font-mono text-[0.8125rem]">SWID</code>, whole.</li>
-          </ol>
-          <p className="text-xs leading-4 text-muted-foreground">You&apos;ll paste again each time ESPN signs you out; the extension does that for you.</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Two cookies from ESPN&apos;s site, copied on a computer. You&apos;ll paste again each time ESPN signs you out;
+            the extension does that for you.
+          </p>
+          <EspnCookieSteps />
         </div>
         <form onSubmit={submit} className="space-y-3">
           <div className="space-y-1.5">

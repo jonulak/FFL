@@ -79,6 +79,8 @@ rows in `app_secrets`, read through a 60 s cache): the app's address (stored fro
 push contact, the Claude token, the YouTube key, the push key pair (`notify.ensure_keys`, run by
 `deploy/entrypoint.sh`, so a dev API never pushes). An admin sets them in the setup wizard (skippable steps) and
 Settings › App (`/app/settings`); never add a user-facing setting to `.env`. No code reads them from the environment.
+Every credential a user must bring (a key, a token, a cookie) gets a skippable wizard step, a card in Settings, and a
+"How to get…" button (`web/components/credential-steps.tsx`) whose dialog walks through getting it, with links.
 In development `FFL_DB_URL` (`postgresql+psycopg://...`) names the one database; Postgres is the only backend, and
 an unset URL or another scheme is a `SchemaError`. An environment variable beats `.env`. Never commit `.env`.
 

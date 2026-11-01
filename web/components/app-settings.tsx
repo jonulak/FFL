@@ -1,6 +1,5 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { ClientError, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
@@ -9,6 +8,7 @@ import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input";
 import type { AppSettings } from "@/lib/api";
 import { PHONE_ACTION } from "./claims-submit";
+import { CredentialSteps, Out, Ui } from "./credential-steps";
 import { Spinner } from "./motion";
 
 type Msg = { ok: boolean; text: string } | null;
@@ -122,8 +122,35 @@ function PushContactCard({ settings, onSaved }: { settings: AppSettings; onSaved
   );
 }
 
+const YT_CONSOLE = "https://console.cloud.google.com/";
 const YT_LIBRARY = "https://console.cloud.google.com/apis/library/youtube.googleapis.com";
 const YT_CREDENTIALS = "https://console.cloud.google.com/apis/credentials";
+
+function YoutubeKeySteps() {
+  return (
+    <CredentialSteps label="How to get a key" title="Get a YouTube API key"
+                     description="Free, with any Google account. About five minutes."
+                     footnote="Each check of a channel spends 1 of the 10,000 free units Google gives a key a day.">
+          <li>Open the <Out href={YT_CONSOLE}>Google Cloud console</Out> and sign in.</li>
+          <li>
+            Make a project: open the project picker at the top, choose <Ui>New project</Ui>, name it (FFL is fine) and
+            choose <Ui>Create</Ui>. No billing account is needed.
+          </li>
+          <li>
+            With that project selected, open <Out href={YT_LIBRARY}>YouTube Data API v3</Out> and choose <Ui>Enable</Ui>.
+          </li>
+          <li>
+            Open <Out href={YT_CREDENTIALS}>Credentials</Out>, choose <Ui>Create credentials › API key</Ui>, and copy
+            the key it shows.
+          </li>
+          <li>
+            Recommended: choose <Ui>Edit API key</Ui>, under <Ui>API restrictions</Ui> pick <Ui>Restrict key</Ui> and
+            tick <Ui>YouTube Data API v3</Ui>, then <Ui>Save</Ui>. A leaked key then can&apos;t be used for anything else.
+          </li>
+          <li>Back here, paste the key into <Ui>YouTube API key</Ui> and choose <Ui>Save</Ui>.</li>
+    </CredentialSteps>
+  );
+}
 
 function YoutubeCard({ settings, onSaved }: { settings: AppSettings; onSaved: (s: AppSettings) => void }) {
   const [key, setKey] = useState("");
@@ -138,24 +165,7 @@ function YoutubeCard({ settings, onSaved }: { settings: AppSettings; onSaved: (s
           {set ? "Connected: the news desk finds new press conferences through the YouTube API."
             : "Optional. Without a key the news desk reads each club's public video feed, which is slower to show new press conferences and sometimes down for hours."}
         </p>
-        <ol className="list-decimal space-y-1.5 pl-5 text-muted-foreground marker:text-foreground/50">
-          <li>
-            Sign in to Google Cloud and{" "}
-            <a href={YT_LIBRARY} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-foreground underline underline-offset-2">
-              enable the YouTube Data API v3<ExternalLink aria-hidden className="size-3.5" />
-            </a>{" "}
-            (create a project when it asks; it&apos;s free).
-          </li>
-          <li>
-            Open{" "}
-            <a href={YT_CREDENTIALS} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-foreground underline underline-offset-2">
-              Credentials<ExternalLink aria-hidden className="size-3.5" />
-            </a>
-            , choose <span className="text-foreground">Create credentials › API key</span>, and restrict the key to the
-            YouTube Data API v3.
-          </li>
-          <li>Paste the key below. Each check of a channel spends 1 of the 10,000 free units Google gives a key a day.</li>
-        </ol>
+        <YoutubeKeySteps />
         <form onSubmit={(e) => { e.preventDefault(); save("key", { youtube_key: key }, "Saved."); }} className="space-y-3">
           <Field data-invalid={invalid}>
             <FieldLabel htmlFor="youtube-key">{set ? "Replace the key" : "YouTube API key"}</FieldLabel>
