@@ -85,17 +85,6 @@ def test_parse_journal_fields_kinds_and_keys():
     assert all(r["source"] == "import" for r in rows)
 
 
-def test_the_real_journal_parses_every_entry():
-    text = (ROOT / "journal" / "DECISIONS.md").read_text()
-    rows = D.parse_journal(text)
-    headings = [l for l in text.splitlines() if l.startswith("## 20")]
-    app_claims = [l for l in headings if l.endswith("Waiver claims (from the app)")]
-    assert len(rows) == len(headings) - len(app_claims) + len({l[3:13] for l in app_claims})
-    assert len({r["import_key"] for r in rows}) == len(rows)
-    waller = [r for r in rows if r["at"] == "2026-10-02" and "Waller" in r["title"]]
-    assert len(waller) == 1 and waller[0]["exit_conditions"] is not None, "the singular 'Exit condition:' label"
-
-
 def test_singular_exit_condition_label_lands_in_exit_conditions():
     text = "## 2026-09-18 — Mayer to Williams\n- **Exit condition:** drop him after two quiet games\n"
     (row,) = D.parse_journal(text)

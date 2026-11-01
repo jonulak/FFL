@@ -23,7 +23,7 @@ memory.
 Needs Docker with Compose, `curl` and `openssl`.
 
 ```
-curl -fsSL https://raw.githubusercontent.com/White-Bridge-Labs/FFL/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh
 ```
 
 It makes `~/ffl` (or `$FFL_HOME`), downloads `docker-compose.yml`, writes `.env` with generated secrets, starts the
@@ -183,7 +183,7 @@ uv run pytest -q
 
 ### Publishing images
 
-A push to `main` (or a `v*` tag) builds `ghcr.io/white-bridge-labs/ffl-api` and `ffl-web`
+A push to `main` (or a `v*` tag) builds `ghcr.io/jonulak/ffl-api` and `ffl-web`
 (`.github/workflows/images.yml`). Packages pushed with `GITHUB_TOKEN` start private: after the first publish, make
 both public once (each package's Package settings › Change visibility), or installs cannot pull them.
 

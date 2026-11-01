@@ -18,7 +18,7 @@ services:
       retries: 10
 
   api:
-    image: ghcr.io/white-bridge-labs/ffl-api:${FFL_VERSION:-latest}
+    image: ghcr.io/jonulak/ffl-api:${FFL_VERSION:-latest}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -32,7 +32,7 @@ services:
         condition: service_healthy
 
   web:
-    image: ghcr.io/white-bridge-labs/ffl-web:${FFL_VERSION:-latest}
+    image: ghcr.io/jonulak/ffl-web:${FFL_VERSION:-latest}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -43,7 +43,7 @@ services:
       - api
 
   jobs:
-    image: ghcr.io/white-bridge-labs/ffl-api:${FFL_VERSION:-latest}
+    image: ghcr.io/jonulak/ffl-api:${FFL_VERSION:-latest}
     restart: unless-stopped
     command: ["crond", "-f", "-L", "/dev/stdout"]  # Debian's busybox has no -d
     env_file: .env

@@ -19,7 +19,7 @@ def test_images_workflow():
     assert jobs["build"]["if"] == "github.event_name == 'pull_request'"
     assert jobs["publish"]["if"] == "github.event_name == 'push'"
     assert jobs["publish"]["permissions"]["packages"] == "write"
-    for name in ("ghcr.io/white-bridge-labs/ffl-api", "ghcr.io/white-bridge-labs/ffl-web", "linux/amd64,linux/arm64"):
+    for name in ("ghcr.io/jonulak/ffl-api", "ghcr.io/jonulak/ffl-web", "linux/amd64,linux/arm64"):
         assert name in yaml.safe_dump(jobs["publish"])
     for job in jobs.values():
         for step in job["steps"]:

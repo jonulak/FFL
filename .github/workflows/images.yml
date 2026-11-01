@@ -2,7 +2,7 @@ name: Images
 
 # The Docker images: a PR builds both (amd64 only, nothing pushed, no login) so a broken Dockerfile fails
 # before it merges; a push to main or a v* tag builds both for amd64 + arm64 and publishes them to GHCR as
-# ghcr.io/white-bridge-labs/ffl-api and ffl-web, tagged latest, sha-<short> and (on a tag) the tag name.
+# ghcr.io/jonulak/ffl-api and ffl-web, tagged latest, sha-<short> and (on a tag) the tag name.
 # web/Dockerfile's FFL_API_URL default (http://api:8300) is the compose stack's, so no build-args.
 
 on:
@@ -42,8 +42,8 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - { name: ghcr.io/white-bridge-labs/ffl-api, context: . }
-          - { name: ghcr.io/white-bridge-labs/ffl-web, context: web }
+          - { name: ghcr.io/jonulak/ffl-api, context: . }
+          - { name: ghcr.io/jonulak/ffl-web, context: web }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0

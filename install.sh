@@ -1,5 +1,5 @@
 #!/bin/sh
-# FFL in one line: curl -fsSL https://raw.githubusercontent.com/White-Bridge-Labs/FFL/main/install.sh | sh
+# FFL in one line: curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh
 # Puts docker-compose.yml and a filled .env in $FFL_HOME (default ~/ffl) and starts the stack. Safe to re-run: .env is kept.
 set -eu
 
@@ -23,7 +23,7 @@ main() {
   command -v openssl >/dev/null 2>&1 || { echo "openssl is needed to make the secrets: install it and re-run" >&2; exit 2; }
 
   FFL_HOME=${FFL_HOME:-$HOME/ffl}
-  BASE=${FFL_INSTALL_BASE:-https://raw.githubusercontent.com/White-Bridge-Labs/FFL/main}
+  BASE=${FFL_INSTALL_BASE:-https://raw.githubusercontent.com/jonulak/FFL/main}
 
   umask 077  # .env holds the secrets
   mkdir -p "$FFL_HOME"

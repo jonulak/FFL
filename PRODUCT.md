@@ -8,45 +8,43 @@ web
 
 ## Users
 
-One user: Jonathan, the manager of team 7 ("My Team") in a private 10-team ESPN
-fantasy football league (2026 season, 2-QB starting lineup, full PPR). Nobody else in the league
-ever sees the UI. No public write-up is planned.
+Managers of teams in ESPN fantasy football leagues who run their own install, and the league-mates
+they invite to it. Each user sees only their own teams, in one or more leagues.
 
 Usage scenes, all confirmed:
 - **Phone, Sunday morning / game day.** Lineup checks and injury news on a small screen, often one-handed, under time pressure before kickoffs.
 - **Phone, Tuesday/Wednesday waiver window.** Scanning the add table and deciding claims.
-- **Laptop, midweek sit-down.** Reading the journal, standings and outlooks; considered decisions at a desk.
+- **Laptop, midweek sit-down.** Reading the decisions, standings and outlooks; considered decisions at a desk.
 - **Laptop, alongside the ESPN site.** The UI in one window while acting (setting lineups, submitting claims) in ESPN in another. The UI advises; ESPN is where the action is taken.
 
 ## Product Purpose
 
-A season cockpit for one fantasy team. It turns two projection sources, the league's scoring and
+A season cockpit for a fantasy team. It turns two projection sources, the league's scoring and
 the live ESPN roster/waiver state into a start/sit call and a waiver ranking, shows the reason
 beside every call, and keeps a durable record of every decision and result.
 
 **Success is making the call fast.** Start/sit and waiver decisions answered in seconds with the
-reason visible. The record (journal, results, standings) is protected second; when the two
+reason visible. The record (decisions, results, standings) is protected second; when the two
 compete for a screen, the decision wins.
 
-The same repo also holds the pre-draft board and live draft assistant (CLI tools; the draft is
-done, 2026-09-07, from slot 5). The web UI's Draft page is now a recap surface.
+The same repo also holds the pre-draft board and live draft assistant (CLI tools).
 
 ## Positioning
 
-Not a general fantasy app. Every number is scored to *this* league's settings (2-QB, PPR, 4-pt
-pass TD) and averaged across ESPN and Sleeper, which neither source does for a 2-QB league. The
+Not a general fantasy app. Every number is scored to the league's own settings (2-QB or OP lineups,
+PPR, custom scoring) and averaged across several projection sources, which no single source does. The
 decision rules are written down in the league's strategy (`uv run python -m ffl.strategy show`) and the code computes facts against them; the
 UI shows the rule that fired, not a black-box grade. Nothing needs to be persuasive or general:
-it is the one manager's own instrument.
+it is the manager's own instrument.
 
 ## Operating Context
 
 - **Cadence:** Tue/Wed waivers → Thu/Sun/Mon games → results sync. Weekly rhythm for 17 weeks plus playoffs.
-- **Production:** self-hosted: one Docker Compose stack (Postgres, API, web, a cron jobs container) on the owner's machine, signed in with username and password; Jonathan runs his own copy of the same images.
+- **Production:** self-hosted: one Docker Compose stack (Postgres, API, web, a cron jobs container) on the operator's machine, signed in with username and password.
 - **Data flow:** FastAPI (`ffl/api.py`, 127.0.0.1:8300) serves pure computations from `ffl/season.py`; Next 16 server components fetch it through a `/api/*` rewrite. ESPN is read via authenticated cookies; injuries from ESPN's public feed with a 30-min cache and last-good fallback, so data can be stale and the UI already carries a stale badge.
 - **Outlooks:** the paragraph under each Roster card is written by `claude -p` from a fact sheet, cached per week under a hash of the facts, regenerated hourly by the jobs container. GETs never generate. Outlook text never changes the call.
-- **Record:** the `decisions` table in Postgres (every roster decision, reasoning, alternatives; `journal/DECISIONS.md` is frozen history, imported there). The app records its own moves (lineup, sit, claims, free adds) and the Decisions page asks for the reason; `uv run python -m ffl.decisions` adds, explains and lists the rest. Also the `transactions`, `results` and `draft_picks` tables, and a sync (Refresh).
-- **Pages:** Matchup (default, the head-to-head), Roster, League, NFL (every game of the week, live first; a game opens its scorebug, my and my opponent's starters in it, and a play-by-play feed), Players (every player in the league; a Free agents toggle, on by default, is the waiver view), Journal, Draft.
+- **Record:** the `decisions` table in Postgres (every roster decision, reasoning, alternatives). The app records its own moves (lineup, sit, claims, free adds) and the Decisions page asks for the reason; `uv run python -m ffl.decisions` adds, explains and lists the rest. Also the `transactions`, `results` and `draft_picks` tables, and a sync (Refresh).
+- **Pages:** Matchup (default, the head-to-head), Roster, League, NFL (every game of the week, live first; a game opens its scorebug, my and my opponent's starters in it, and a play-by-play feed), Players (every player in the league; a Free agents toggle, on by default, is the waiver view), Transactions, News, Decisions, Settings.
 
 ## Capabilities and Constraints
 
@@ -59,15 +57,15 @@ it is the one manager's own instrument.
 
 ## Brand Commitments
 
-Product name in the UI: "FFL" (title), team name "My Team". No logo, no imagery,
+Product name in the UI: "FFL" (title); team names are ESPN's. No logo, no imagery,
 no voice guide. No visual constraints were volunteered; none are recorded here.
 
 ## Evidence on Hand
 
 - Real league data via ESPN and Sleeper APIs (regenerated into gitignored `data/`).
-- Real season record in the SQLite DB (`data/ffl.db`: decisions, transactions, weekly results, draft picks; standings read live from ESPN), with the pre-DB prose history in `journal/`.
+- The season record in the Postgres database (decisions, transactions, weekly results, draft picks; standings read live from ESPN).
 - Strategy and the formulas that drive every number: the league's strategy (`uv run python -m ffl.strategy show`).
-- Absent, and not to be fabricated: other users, testimonials, comparisons to other apps, historical seasons before 2026.
+- Absent, and not to be fabricated: other users, testimonials, comparisons to other apps, earlier seasons.
 
 ## Product Principles
 

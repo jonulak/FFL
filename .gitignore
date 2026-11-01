@@ -24,3 +24,4 @@ terraform.tfvars
 *.tfplan
 # deploy/box/rebuild.sh's one-apply lifting of the box's prevent_destroy
 terraform/*_override.tf
+.impeccable/hook.cache.json
