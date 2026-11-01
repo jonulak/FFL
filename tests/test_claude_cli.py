@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from ffl import claude_cli
+from ffl import claude_cli, db
 
 
 def test_neutral_cwd_is_outside_the_repo_and_data_with_no_claude_md_above():
@@ -38,7 +38,6 @@ def test_parse_envelope_carries_usage():
 
 def test_run_passes_model_and_strips_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDECODE", "1")
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)  # the token's own tests are below
     monkeypatch.setattr(claude_cli.shutil, "which", lambda name: "/bin/claude")
     seen = {}
 
@@ -62,11 +61,12 @@ def test_run_passes_model_and_strips_env(monkeypatch, tmp_path):
 
 
 def test_run_keeps_the_oauth_token(monkeypatch, tmp_path):
-    """An environment's CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`) still logs the CLI in with no stored one; the
-    nested-session markers go, the token stays."""
+    """A stored `claude setup-token` token logs the CLI in as CLAUDE_CODE_OAUTH_TOKEN; the nested-session markers go,
+    the token stays."""
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-tok")
+    db.put_secret("claude_token", "sk-ant-oat01-tok")
+    claude_cli.forget_token()
     monkeypatch.setattr(claude_cli.shutil, "which", lambda name: "/bin/claude")
     seen = {}
 
@@ -127,16 +127,17 @@ def test_secrets_are_sealed_in_app_secrets():
 
 
 def _no_env_token(monkeypatch):
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    from ffl import db
+    db.del_secret("claude_token")
     claude_cli.forget_token()
 
 
-def test_token_env_prefers_the_sealed_row_over_the_environment(monkeypatch):
+def test_token_env_reads_the_sealed_row_through_a_cache(monkeypatch):
     from ffl import db
     _no_env_token(monkeypatch)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-env")
-    assert claude_cli.token_env() == {"ANTHROPIC_API_KEY": "sk-ant-api-env"}
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-env")  # the environment is never read
+    with pytest.raises(RuntimeError, match="no Claude token"):
+        claude_cli.token_env()
     db.put_secret("claude_token", "sk-ant-oat01-row")
     claude_cli.forget_token()
     assert claude_cli.token_env() == {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-row"}
@@ -158,16 +159,16 @@ def test_stored_token_survives_a_forget_between_its_reads(monkeypatch):
     def racing():
         claude_cli.forget_token()  # lands between the cache check and the read of its timestamp
         return real()
-    monkeypatch.setattr(claude_cli.time, "monotonic", racing)
+    from ffl import appconf
+    monkeypatch.setattr(appconf.time, "monotonic", racing)
     assert claude_cli._stored_token() == "sk-ant-oat01-row"
 
 
 def test_token_env_without_any_token_raises(monkeypatch):
     _no_env_token(monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-env")  # the environment is never read
     with pytest.raises(RuntimeError, match="no Claude token: Settings › Claude"):
         claude_cli.token_env()
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-env")
-    assert claude_cli.token_env() == {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-env"}
 
 
 def test_token_env_treats_a_row_the_ring_cannot_open_as_none(monkeypatch):
@@ -181,7 +182,7 @@ def test_token_env_treats_a_row_the_ring_cannot_open_as_none(monkeypatch):
 
 
 def test_run_feeds_the_token_and_drops_the_environments(monkeypatch, tmp_path):
-    """The sealed row wins over the environment; a `token=` given to run wins over both (Settings' test call)."""
+    """The sealed row, never the environment's; a `token=` given to run wins (Settings' test call)."""
     from ffl import db
     _no_env_token(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-env")

@@ -10,6 +10,7 @@ DEV_ONLY = {
     "FFL_SESSION_COOKIE", "FFL_USER", "FFL_WRITES", "FFL_BACKUP_DEST", "FFL_DATA_DIR",
     "FFL_DB_URL", "FFL_TEST_PG",
     "FFL_RUNNER_URL", "FFL_RUNNER_PORT",  # set by docker-compose.yml, not .env
+    "FFL_SOURCES_OFF", "FFL_OUTLOOK_WORKERS",  # advanced knobs, in the README only: a fresh .env leaves them unset
 }
 
 

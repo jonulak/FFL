@@ -64,7 +64,7 @@ export function NotifySettings({ config }: { config: NotifyConfig }) {
   }
 
   const enable = () => run(async () => {
-    if (!config.public_key) return "The API has no VAPID key yet.";
+    if (!config.public_key) return "This server has no push keys yet: restart the api container to make them.";
     if ((await Notification.requestPermission()) !== "granted") return "Notifications were not allowed.";
     const reg = await swReady();
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(config.public_key) });

@@ -14,8 +14,10 @@ export const API_TIMEOUT_MS = 20_000;
 
 // ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
 export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; espn: boolean; quiet: [string, string] };
-// GET /llm/token (admins): whether the CLI has a login and where from (the stored row or the server's environment); never the value.
-export type LlmToken = { set: boolean; source: "db" | "env" | null };
+// GET /llm/token (admins): whether the CLI has a login (the stored row); never the value.
+export type LlmToken = { set: boolean; source: "db" | null };
+// GET/POST /app/settings (admins): the install's own settings; the YouTube key's value never comes back.
+export type AppSettings = { app_url: string | null; push_contact: string | null; youtube_key_set: boolean };
 // GET /llm/usage: what `claude -p` cost, one row per (UTC day, kind) over the last `days` days.
 export type LlmUsage = { days: number; rows: { day: string; kind: string; calls: number; input: number; output: number; cost_usd: number }[] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };

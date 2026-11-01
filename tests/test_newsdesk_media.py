@@ -7,7 +7,7 @@ import pytest
 import sqlalchemy as sa
 from youtube_transcript_api import RequestBlocked, VideoUnavailable
 
-from ffl import db
+from ffl import appconf, db
 from ffl.newsdesk import collect, media
 from ffl.newsdesk.players import Index
 
@@ -56,7 +56,7 @@ def test_captions_switched_off_read_nothing(monkeypatch):
 def _offline(monkeypatch):
     monkeypatch.setattr(media, "_get", lambda url, **kw: pytest.fail(f"unexpected fetch {url}"))
     monkeypatch.setattr(media, "captions", lambda vid: pytest.fail(f"unexpected captions {vid}"))
-    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+    appconf.put(appconf.YOUTUBE_KEY, None)
 
 
 def fix(name):
@@ -211,7 +211,7 @@ API_PAGE = {"items": [
 
 
 def test_api_key_lists_uploads_from_the_data_api(monkeypatch):
-    monkeypatch.setenv("YOUTUBE_API_KEY", "k")
+    appconf.put(appconf.YOUTUBE_KEY, "k")
     db.put_news_sources([YT])
     calls = []
 
@@ -228,7 +228,7 @@ def test_api_key_lists_uploads_from_the_data_api(monkeypatch):
 
 
 def test_api_failure_falls_back_to_the_feed(monkeypatch):
-    monkeypatch.setenv("YOUTUBE_API_KEY", "k")
+    appconf.put(appconf.YOUTUBE_KEY, "k")
     db.put_news_sources([YT])
     pages = {media.YT_API: Resp(b'{"error": {"code": 403}}', status=403), YT["url"]: Resp(channel())}
     monkeypatch.setattr(media, "_get", lambda url, **kw: pages[url])
@@ -238,7 +238,7 @@ def test_api_failure_falls_back_to_the_feed(monkeypatch):
 
 
 def test_both_failing_reports_the_api_error(monkeypatch):
-    monkeypatch.setenv("YOUTUBE_API_KEY", "k")
+    appconf.put(appconf.YOUTUBE_KEY, "k")
     db.put_news_sources([YT])
     pages = {media.YT_API: Resp(b"{}", status=403), YT["url"]: Resp(b"", status=404)}
     monkeypatch.setattr(media, "_get", lambda url, **kw: pages[url])

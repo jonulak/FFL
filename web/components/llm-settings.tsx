@@ -15,8 +15,8 @@ import { Spinner } from "./motion";
 const SAVE_TIMEOUT_MS = 75_000;
 
 // The Claude login the outlooks and the news desk run under (admins: GET/POST /llm/token, /llm/token/delete).
-// Save tests the token with one call and stores it only when that works; Remove drops the stored one (a token from the
-// server's environment is not ours to remove). On Settings, and as the wizard's first step on a fresh server.
+// Save tests the token with one call and stores it only when that works; Remove drops it. On Settings › App, and as
+// the wizard's first step on a fresh server.
 export function LlmSettings({ initial, onSaved }: { initial: LlmToken; onSaved?: () => void }) {
   const [status, setStatus] = useState(initial);
   const [token, setToken] = useState("");
@@ -42,7 +42,7 @@ export function LlmSettings({ initial, onSaved }: { initial: LlmToken; onSaved?:
     setBusy("remove"); setMsg(null);
     try {
       await clientPost("/llm/token/delete");
-      setStatus(await clientGet<LlmToken>("/llm/token"));  // the environment's token, if any, is back in force
+      setStatus(await clientGet<LlmToken>("/llm/token"));
       setMsg({ ok: true, text: "Removed." });
     } catch (err) {
       setMsg({ ok: false, text: `Not removed: ${err instanceof Error ? err.message : String(err)}` });
@@ -57,7 +57,6 @@ export function LlmSettings({ initial, onSaved }: { initial: LlmToken; onSaved?:
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
           {status.source === "db" ? "Connected: outlooks and the news desk run on the token saved here."
-            : status.source === "env" ? "Connected through the server's environment. A token saved here takes its place."
             : "Not connected: outlooks and the news desk wait until a token is saved."}
         </p>
         <form onSubmit={save} className="space-y-3">

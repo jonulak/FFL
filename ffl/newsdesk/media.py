@@ -5,7 +5,7 @@ then `split.by_player` cuts it into one item per player named, linking to that m
 or the episode page with the seconds in `at_s`. A transcript stored is done: one naming nobody is not
 fetched again.
 
-YouTube: the channel's RSS lists its newest 15 videos (with YOUTUBE_API_KEY in `.env`, the Data API's
+YouTube: the channel's RSS lists its newest 15 videos (with a YouTube API key in Settings › App, the Data API's
 uploads playlist does, 1 of the day's 10,000 quota units a call, RSS kept as the fallback: the RSS server
 answered 404 for every channel for hours on 2026-10-21); a title `is_presser` is fetched through
 youtube-transcript-api (English, manual or automatic). Captions come some time after the upload: a
@@ -31,7 +31,6 @@ read: after a failed transcript fetch the next poll takes the whole feed again.
 """
 from __future__ import annotations
 
-import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -43,7 +42,7 @@ import requests
 from youtube_transcript_api import (NoTranscriptFound, RequestBlocked, TranscriptsDisabled, VideoUnplayable,
                                     YouTubeRequestFailed, YouTubeTranscriptApi)
 
-from .. import config, db
+from .. import appconf, config, db
 from . import collect, split
 from .players import Index
 
@@ -192,9 +191,9 @@ def _uploads(source: dict, key: str) -> list[dict]:
 
 
 def _poll(source: dict, last: dict | None = None) -> tuple[list[dict], dict | None] | Exception:
-    """A YouTube channel off the Data API when YOUTUBE_API_KEY is set, its RSS when the API fails (the API's
+    """A YouTube channel off the Data API when a YouTube API key is stored (Settings › App), its RSS when the API fails (the API's
     error reported if both do); anything else, and a channel without the key, off its feed."""
-    key = os.environ.get("YOUTUBE_API_KEY") if source["kind"] == "youtube" else None
+    key = appconf.get(appconf.YOUTUBE_KEY) if source["kind"] == "youtube" else None
     if not key:
         return _feed(source, last)
     try:

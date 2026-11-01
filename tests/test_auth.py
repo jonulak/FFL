@@ -1,4 +1,4 @@
-from ffl import auth
+from ffl import appconf, auth
 
 
 def test_job_ok_fails_closed(monkeypatch):
@@ -14,9 +14,9 @@ def test_job_ok_fails_closed(monkeypatch):
 
 
 def test_cookie_secure_follows_app_url(monkeypatch):
-    monkeypatch.delenv("FFL_APP_URL", raising=False)
+    appconf.put(appconf.APP_URL, None)
     assert auth.cookie_secure() is False
-    monkeypatch.setenv("FFL_APP_URL", "http://100.1.1.1:3301")
+    appconf.put(appconf.APP_URL, "http://100.1.1.1:3301")
     assert auth.cookie_secure() is False
-    monkeypatch.setenv("FFL_APP_URL", "https://ffl.whitebridgelabs.com")
+    appconf.put(appconf.APP_URL, "https://ffl.whitebridgelabs.com")
     assert auth.cookie_secure() is True

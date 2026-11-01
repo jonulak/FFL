@@ -13,7 +13,7 @@ import os
 import re
 from datetime import datetime, timedelta
 
-from . import db
+from . import appconf, db
 from .season import parse_tx_id, slot_label
 
 log = logging.getLogger(__name__)
@@ -281,15 +281,12 @@ def plan(unsent: list[dict], prefs: dict, t: datetime) -> tuple[list[dict], dict
     return pushes, marks
 
 
-# Where a notification opens: Declarative Web Push wants the absolute URL (production; setup.sh sets it).
-APP_URL = os.environ.get("FFL_APP_URL", "http://localhost:3300")
-
-
-def payload_for(push: dict, app_url: str = APP_URL) -> dict:
+def payload_for(push: dict, app_url: str | None = None) -> dict:
     """The push message. Declarative Web Push (`web_push` 8030, Safari 18.4+): Safari shows the notification and opens
     `navigate` itself, with no service worker in the way; iOS often never fires the worker's notificationclick for a
     Home Screen app in the background (WebKit bug 268797; ffl-e9x.10). The legacy top-level fields stay for a browser
     that ignores `web_push` and hands the message to sw.js's push handler as before."""
+    app_url = app_url or appconf.app_url()  # Declarative Web Push wants the absolute URL
     legacy = {k: push[k] for k in ("title", "body", "url", "tag")}  # never `ref`: the league rides in url
     return {"web_push": 8030, "notification": {"title": push["title"], "body": push["body"], "tag": push["tag"],
                                                "navigate": app_url.rstrip("/") + push["url"]}, **legacy}
@@ -315,13 +312,21 @@ def deliver(push: dict, subs: list[dict], send) -> tuple[bool, list[str]]:
 def webpush_sender(sub: dict, payload: dict) -> None:
     from pywebpush import webpush
     webpush(subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]}, data=json.dumps(payload),
-            vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
-            vapid_claims={"sub": os.environ.get("VAPID_SUBJECT", "mailto:admin@example.com")}, ttl=24 * 3600, timeout=10)
+            vapid_private_key=appconf.get(appconf.VAPID_PRIVATE), vapid_claims={"sub": vapid_subject()},
+            ttl=24 * 3600, timeout=10)
+
+
+def vapid_subject() -> str:
+    """The contact push services may write to: the admin's address (Settings › App), else the app's URL. Apple refuses
+    a placeholder like mailto:admin@localhost (403 BadJwtToken)."""
+    contact = appconf.get(appconf.PUSH_CONTACT)
+    return f"mailto:{contact}" if contact else appconf.app_url()
 
 
 def sender():
-    """The real sender, or None when FFL_NOTIFY=0 or the VAPID key is missing (a dev/worktree API never pushes)."""
-    if os.environ.get("FFL_NOTIFY", "1") == "0" or not os.environ.get("VAPID_PRIVATE_KEY"):
+    """The real sender, or None when FFL_NOTIFY=0 or no key pair is stored (only the API image's entrypoint makes one,
+    so a dev/worktree API never pushes)."""
+    if os.environ.get("FFL_NOTIFY", "1") == "0" or not appconf.get(appconf.VAPID_PRIVATE):
         return None
     return webpush_sender
 
@@ -586,10 +591,20 @@ def vapid_keys() -> tuple[str, str]:
     return b64(pub), b64(key.private_numbers().private_value.to_bytes(32, "big"))
 
 
+def ensure_keys() -> bool:
+    """Store a fresh key pair when none opens (a new install, or a lost key ring); True when it made one. Run by the
+    API image's entrypoint on every start; a stored pair is kept, since every subscription is bound to it."""
+    if appconf.get(appconf.VAPID_PRIVATE) and appconf.get(appconf.VAPID_PUBLIC):
+        return False
+    pub, priv = vapid_keys()
+    appconf.put(appconf.VAPID_PRIVATE, priv)
+    appconf.put(appconf.VAPID_PUBLIC, pub)
+    return True
+
+
 if __name__ == "__main__":
     import sys
-    if sys.argv[1:] == ["keys"]:
-        pub, priv = vapid_keys()
-        print(f"VAPID_PUBLIC_KEY={pub}\nVAPID_PRIVATE_KEY={priv}")
+    if sys.argv[1:] == ["ensure-keys"]:
+        print("notify: push keys created" if ensure_keys() else "notify: push keys present")
     else:
-        print("usage: python -m ffl.notify keys")
+        print("usage: python -m ffl.notify ensure-keys")

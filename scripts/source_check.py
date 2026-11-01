@@ -303,11 +303,10 @@ def seed_media(source: dict) -> Callable[[], str]:
 
 
 def youtube_api() -> str:
-    import os
-
+    from ffl import appconf
     from ffl.newsdesk import media, seed
-    key = os.environ.get("YOUTUBE_API_KEY")
-    _need(key, "no YOUTUBE_API_KEY")
+    key = appconf.get(appconf.YOUTUBE_KEY)
+    _need(key, "no YouTube API key (Settings › App)")
     src = next(s for s in seed.SOURCES if s["kind"] == "youtube")
     rows = media._uploads(src, key)  # 1 quota unit; the key rides in a header
     return f"{src['id']}: {len(rows)} uploads"

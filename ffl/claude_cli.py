@@ -9,12 +9,11 @@ from __future__ import annotations
 import os
 import shutil  # noqa: F401  (tests patch claude_cli.shutil / claude_cli.subprocess: the same modules harness uses)
 import subprocess
-import time
 from pathlib import Path
 
 import requests
 
-from . import db, harness, vault
+from . import appconf, db, harness
 from .harness import DATA_RULE, HOOKS_OFF, data_block, neutral_cwd  # noqa: F401  (imported from here by callers)
 
 
@@ -39,34 +38,21 @@ def parse_envelope(stdout: str) -> Structured:
     return out
 
 
-TOKEN_KEY = "claude_token"
-TOKEN_TTL_S = 60
-_TOKEN: tuple[str | None, float] | None = None   # (the sealed row's value, when it was read)
+TOKEN_KEY = appconf.CLAUDE_TOKEN
 
 
 def forget_token() -> None:
-    global _TOKEN
-    _TOKEN = None
+    appconf.forget()
 
 
 def _stored_token() -> str | None:
-    global _TOKEN
-    t = _TOKEN  # read once: forget_token() on a request thread may clear the global mid-read
-    if t is None or time.monotonic() - t[1] > TOKEN_TTL_S:
-        try:
-            value = db.get_secret(TOKEN_KEY)
-        except vault.VaultError as e:  # sealed under a ring this host lacks: as if none were stored
-            print(f"claude_cli: the stored Claude token does not open: {e}")
-            value = None
-        _TOKEN = t = (value, time.monotonic())  # cached either way, so a bad row is said once a minute at most
-    return t[0]
+    return appconf.get(TOKEN_KEY)
 
 
 def token_env(token: str | None = None) -> dict:
-    """The CLI's login: `token`, else the sealed `claude_token` row (Settings › Claude), else the environment's
-    CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY; under the variable its kind needs (`claude setup-token`'s
-    sk-ant-oat… is an OAuth token, anything else an API key)."""
-    t = token or _stored_token() or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
+    """The CLI's login: `token`, else the sealed `claude_token` row (Settings › Claude); under the variable its kind
+    needs (`claude setup-token`'s sk-ant-oat… is an OAuth token, anything else an API key)."""
+    t = token or _stored_token()
     if not t:
         raise LlmError("no Claude token: Settings › Claude", account=True)
     return harness.credential_env(t)

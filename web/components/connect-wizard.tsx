@@ -8,10 +8,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Label } from "@/components/ui/label";
-import type { LlmToken } from "@/lib/api";
-import { wizardStart } from "@/lib/llm";
+import type { AppSettings, LlmToken } from "@/lib/api";
+import { servicesDue, wizardStart } from "@/lib/llm";
 import { arrivedAccount, canPaste, newRefusal, pickable, resentAccount, type EspnStatus, type LeagueChoice, type LeagueChoices, type PickResult,
          type Platform } from "@/lib/espn";
+import { AppSettingsCards } from "./app-settings";
 import { PHONE_ACTION } from "./claims-submit";
 import { espnGet, espnPost, TeamMark, why } from "./espn-api";
 import { LeagueProblemMark } from "./league-problem";
@@ -21,7 +22,7 @@ import { Spinner } from "./motion";
 // Where each platform installs the extension, when the store listing exists (the box's env; none: no button).
 export type InstallLinks = { testflight: string | null; chrome: string | null; mac: string | null };
 
-type Step = "claude" | "connect" | "leagues" | "setup";
+type Step = "claude" | "services" | "connect" | "leagues" | "setup";
 const STEPS: [Step, string][] = [["connect", "Connect"], ["leagues", "Leagues"], ["setup", "Set up"]];
 const POLL_MS = 2000;
 
@@ -29,30 +30,37 @@ const POLL_MS = 2000;
 // computer), pick the leagues that login is in, set them up one at a time, then open one. A first run (no league yet)
 // skips Connect when a working login is already stored; Add an ESPN login (`add`, from Settings) waits for a login
 // that wasn't there when it opened. One login at a time: Settings manages the leagues of the others.
-// An admin on a server with no Claude token (`claude`, fetched for admins only) is asked for one first, and can skip it.
-export function ConnectWizard({ platform, links, initial, add, hasLeagues, startPaste, claude }: {
+// An admin on a server with no Claude token (`claude`, fetched for admins only) is asked for one first, then for the
+// optional services (`services`, the same), and can skip either.
+export function ConnectWizard({ platform, links, initial, add, hasLeagues, startPaste, claude, services }: {
   platform: Platform; links: InstallLinks; initial: EspnStatus; add: boolean; hasLeagues: boolean; startPaste: boolean;
-  claude: LlmToken | null;
+  claude: LlmToken | null; services: AppSettings | null;
 }) {
   const firstRun = !add;
   const ready = firstRun ? arrivedAccount(initial, [], true) : null;
-  const [step, setStep] = useState<Step>(wizardStart(claude, ready !== null));
-  const steps: [Step, string][] = claude && !claude.set ? [["claude", "Claude"], ...STEPS] : STEPS;
+  const [step, setStep] = useState<Step>(wizardStart(claude, services, ready !== null));
+  const steps: [Step, string][] = [
+    ...(claude && !claude.set ? [["claude", "Claude"] as [Step, string]] : []),
+    ...(servicesDue(services) ? [["services", "Services"] as [Step, string]] : []),
+    ...STEPS,
+  ];
+  const toEspn = () => setStep(ready ? "leagues" : "connect");
   const [account, setAccount] = useState<number | null>(ready?.id ?? null);
   const [picked, setPicked] = useState<{ leagues: LeagueChoice[]; def: string | null } | null>(null);
 
   return (
     <div className="flex flex-col gap-6">
-      <nav aria-label="Setup steps" className="flex border-b border-foreground/12">
+      <nav aria-label="Setup steps" className="flex overflow-x-auto border-b border-foreground/12 [scrollbar-width:none]">
         {steps.map(([s, label], i) => (
           <span key={s} aria-current={s === step ? "step" : undefined}
-                className={`font-display px-3 max-sm:px-2.5 pb-2.5 text-[0.8125rem] font-semibold uppercase tracking-[0.12em] first:pl-0 ${
+                className={`font-display shrink-0 whitespace-nowrap px-3 max-sm:px-2 pb-2.5 text-[0.8125rem] font-semibold uppercase tracking-[0.12em] max-sm:tracking-[0.06em] first:pl-0 ${
                   s === step ? "text-foreground shadow-[inset_0_-2px_0_var(--foreground)]" : "text-foreground/45"}`}>
             {i + 1} {label}
           </span>
         ))}
       </nav>
-      {step === "claude" && claude && <ClaudeStep initial={claude} onDone={() => setStep(ready ? "leagues" : "connect")} />}
+      {step === "claude" && claude && <ClaudeStep initial={claude} onDone={() => servicesDue(services) ? setStep("services") : toEspn()} />}
+      {step === "services" && services && <ServicesStep initial={services} onDone={toEspn} />}
       {step === "connect" && (
         <ConnectStep platform={platform} links={links} initial={initial} firstRun={firstRun} startPaste={startPaste}
                      onArrived={(id) => { setAccount(id); setStep("leagues"); }} />
@@ -143,6 +151,23 @@ function ClaudeStep({ initial, onDone }: { initial: LlmToken; onDone: () => void
       </Heading>
       <LlmSettings initial={initial} onSaved={() => window.setTimeout(onDone, 700)} />
       <Button variant="ghost" onClick={onDone} className={PHONE_ACTION}>Skip for now</Button>
+    </section>
+  );
+}
+
+// --- 0b Services (an admin, while none is set) ---
+
+function ServicesStep({ initial, onDone }: { initial: AppSettings; onDone: () => void }) {
+  const [saved, setSaved] = useState(false);
+  return (
+    <section className="space-y-5">
+      <Heading title="Optional services">
+        Two extras that need a minute of your own. FFL works without them, and both stay in Settings › App to add or
+        change later.
+      </Heading>
+      <AppSettingsCards initial={initial} optionalOnly onSaved={() => setSaved(true)} />
+      {saved ? <Button onClick={onDone} className={PHONE_ACTION}>Continue</Button>
+        : <Button variant="ghost" onClick={onDone} className={PHONE_ACTION}>Skip for now</Button>}
     </section>
   );
 }
