@@ -166,7 +166,7 @@ export function statusTag(p: { status: PoolStatus | null; waiver_date: number | 
 }
 
 // Why a roster player cannot be a cut, or null. A locked one (his game started) can: no instant add
-// drops him, so he is a claim-only row (a free agent who needs him is claimed too).
+// drops him (ESPN blocks a free agent for him), so he goes for waiver claims only.
 export function cutBlock(p: ClaimPlayer): string | null {
   if (p.slot === "IR") return "on IR";
   if (p.droppable === false) return "undroppable";

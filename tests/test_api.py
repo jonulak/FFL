@@ -667,7 +667,7 @@ def test_submit_free_agent_is_instant(claims_env):
     assert api.espn_write._fake(home_league()).adds == [{"add": 102, "drop": 1}]
 
 
-def test_a_locked_cut_turns_a_free_agent_into_a_claim(claims_env, monkeypatch):
+def test_a_locked_cut_never_goes_for_a_free_agent(claims_env, monkeypatch):
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
     claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [1], "open": 0}]})
     api.cache_for(home_league()).clear()
@@ -680,10 +680,12 @@ def test_a_locked_cut_turns_a_free_agent_into_a_claim(claims_env, monkeypatch):
 
     monkeypatch.setattr(api.espn_season, "free_agent_pool", locked_r1)
     g = claims_env.get("/claims").json()
-    assert g["errors"] == [] and g["now"] == [] and g["claims"] == [{"group": 0, "add": 102, "drop": 1}]
-    r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": []}).json()
-    assert r["now"] == [] and [(c["add"], c["drop"]) for c in r["sent"]] == [(102, 1)]
-    assert api.espn_write._fake(home_league()).adds == []
+    assert g["now"] == [] and g["claims"] == [] and "game has started" in g["errors"][0]["reason"]
+    assert claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": []}).status_code == 422
+    assert api.espn_write._fake(home_league()).adds == [] and api.espn_write._fake(home_league()).claims == []
+    # as a waiver target, the same locked cut is a claim
+    claims_env.pool["WR"][1]["status"] = "WAIVERS"
+    assert claims_env.get("/claims").json()["claims"] == [{"group": 0, "add": 102, "drop": 1}]
 
 
 @pytest.fixture
@@ -710,7 +712,7 @@ def test_roster_add_adds_now_and_leaves_the_plan(add_env, monkeypatch):
 def test_roster_add_refuses(add_env):
     add_env.locked = {1}
     r = add_env.post("/roster/add", json={"add": 102, "drop": 1})
-    assert r.status_code == 409 and r.json()["detail"]["locked"] is True, "a locked drop goes to the claims sheet"
+    assert r.status_code == 409 and "game has started" in r.json()["detail"]["error"], "ESPN blocks a free agent for a locked drop"
     assert add_env.post("/roster/add", json={"add": 101, "drop": 2}).status_code == 409, "on waivers: a claim"
     assert add_env.post("/roster/add", json={"add": 102, "drop": 99}).status_code == 409, "not on my roster"
     api.espn_write._fake(home_league()).fail_adds.add(102)

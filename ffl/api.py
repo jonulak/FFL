@@ -930,7 +930,7 @@ class AddIn(BaseModel):
     drop: int | None = None
 
 
-LOCKED_DROP = "his game has started: ESPN won't drop him for a free agent now, so put it on the claims sheet"
+LOCKED_DROP = "his game has started: ESPN won't drop him for a free agent"
 
 
 @app.post("/roster/add")
@@ -961,7 +961,7 @@ def roster_add(body: AddIn, ref: LeagueRef = Depends(open_league)):
         roster = [{**p, **{k: v for k, v in flags.get(p["player_id"], {}).items() if k in ("locked", "droppable")}}
                   for p in _claims_roster(data, ref=ref)]
         if body.drop is not None and body.drop in _locked(roster):
-            raise HTTPException(409, {"error": LOCKED_DROP, "locked": True})
+            raise HTTPException(409, {"error": LOCKED_DROP})
         spots = claims_mod.open_spots(roster, _roster_size(ref=ref))
         if body.drop is None and not spots:
             raise HTTPException(409, {"error": "no open roster spot: pick someone to drop"})

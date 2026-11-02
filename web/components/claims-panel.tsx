@@ -134,7 +134,7 @@ function cutFace(player: Lookup, id: number, rank: number): Face {
   return {
     pid: id, rank, tone: "text-out",
     tags: block ? <span className="text-xs text-destructive">{block}</span>
-      : pl?.locked && <span className="text-xs text-muted-foreground" title="his game has started: no instant add can drop him, so this row is a claim">claim only</span>,
+      : pl?.locked && <span className="text-xs text-muted-foreground" title="his game has started: ESPN drops him only for a waiver claim, never for a free agent">waiver claims only</span>,
     value: pl?.ros_adj != null ? `ROS ${pts(pl.ros_adj)}` : null,
   };
 }
@@ -184,7 +184,7 @@ function EmptySlot({ fx, open, rest, drop }: { fx: string; open: boolean; rest: 
 
 // The roster picker under "make room": weakest first by adjusted ROS, every player listed; one
 // who cannot go (undroppable, on IR) is shown disabled with the reason, so his absence from the cuts
-// is explained; one whose game has started can go, as a claim.
+// is explained; one whose game has started can go, for waiver claims only.
 function CutPicker({ gi, roster, used, disabled }: { gi: number; roster: [number, ClaimPlayer][]; used: Set<number>; disabled: boolean }) {
   const { groups, setGroups } = useClaims();
   const items = roster.filter(([id]) => !used.has(id)).map(([id, p]) => ({ id, p, block: cutBlock(p) }));
@@ -201,7 +201,7 @@ function CutPicker({ gi, roster, used, disabled }: { gi: number; roster: [number
             <ComboboxItem key={i.id} value={i} disabled={!!i.block}>
               <span className="min-w-0 flex-1 truncate">{i.p.name}</span>
               <span className="text-xs tabular-nums text-muted-foreground">
-                {i.block ?? `${i.p.pos} · ROS ${pts(i.p.ros_adj)}${i.p.locked ? " · claim only" : ""}`}
+                {i.block ?? `${i.p.pos} · ROS ${pts(i.p.ros_adj)}${i.p.locked ? " · waiver claims only" : ""}`}
               </span>
             </ComboboxItem>
           )}
@@ -272,7 +272,7 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
   const shown = displayTargets(g, status);
   const fa = shown.filter((t) => t.now);
   const waiting = shown.filter((t) => !t.now);
-  // "now" is the server's word: a free agent whose only rows are locked cuts is claimed, not added
+  // "now" is the server's word: a free agent with no unlocked row is not added (the plan shows the error)
   const added = new Set(data.now.map((m) => m.add));
   const name = (id: number) => player(id)?.name ?? `player ${id}`;
 

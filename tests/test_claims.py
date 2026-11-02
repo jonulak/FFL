@@ -148,18 +148,20 @@ def test_locked_cut_is_a_valid_cut():
     roster = ROSTER[:-2] + [R(16, locked=True), R(99, "IR")]
     g = [{"targets": [101], "cuts": [16], "open": 0}]
     assert errs(g, roster=roster) == []                                        # a Wednesday claim
-    assert errs(g, roster=roster, status={101: FA}) == []                      # a free agent claims him
+    # ESPN blocks a free agent for a locked drop: with no unlocked row it is an error, never a claim
+    assert any("game has started" in r for r in errs(g, roster=roster, status={101: FA}))
+    assert errs([{**g[0], "cuts": [16, 1]}], roster=roster, status={101: FA}) == []
 
 
-def test_locked_cut_is_claim_only():
-    # 102 (FA) skips locked 1 for an instant add and takes 2; 103 (FA) has only locked 1 left: a claim
+def test_locked_cut_is_for_waiver_claims_only():
+    # 102 (FA) skips locked 1 and takes 2; 103 (FA) is left with only locked 1: no add, no claim; 101 (W) claims 1
     g = {"targets": [102, 103, 101], "cuts": [1, 2], "open": 0}
     st = {102: FA, 103: FA}
     assert pairs(C.plan_now([g], st, {1})) == [(102, 2)]
-    assert pairs(C.expand([g], st, locked={1})) == [(103, 1), (101, 1)]
+    assert pairs(C.expand([g], st, locked={1})) == [(101, 1)]
     w = FakeW([])
     r = C.run_submit([g], st, [], set(), False, w, locked={1})
-    assert w.adds == [(102, 2)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(103, 1), (101, 1)]
+    assert w.adds == [(102, 2)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 1)]
 
 
 def test_target_not_in_pool():

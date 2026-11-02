@@ -8,8 +8,8 @@ the rows left. A no-drop claim lands while the roster has room, so open spots be
 of them; otherwise another group's no-drop claim could fill a spot this group counted on. A roster player may be a cut
 in several groups: claims sharing a drop exclude each other anyway, so it reads "drop him for group 1, else for group
 2"; once a free-agent add has dropped him he is gone from every group's rows. A locked cut (his game has started)
-can't be dropped for an instant add, so it is a claim-only row: free agents skip it on Submit and a free agent left
-without a row claims it like a waiver target (unproven on ESPN: the submit's read-back says whether it held)."""
+is for waiver claims only: ESPN never drops him for a free agent, so free agents skip his row on Submit, and a group
+whose free agents have only locked cuts is an error."""
 from __future__ import annotations
 
 from collections import Counter
@@ -53,8 +53,8 @@ def plan_now(groups, status, locked=frozenset()):
 
 
 def expand(groups, status, now=None, locked=frozenset()):
-    """Claims over each group's waiver targets x rooms left after the instant adds, and its free agents that did not
-    land x the locked cuts left (the rows an instant add can't use).
+    """Waiver claims over each group's WAIVERS targets x rooms left after the instant adds. A free agent never gets a
+    claim (ESPN blocks one for a locked drop); `locked` only shapes the default `now`.
 
     now: the instant adds that landed (run_submit's: a refused one gives its row back); defaults to plan_now. A group
     loses the open spots its own adds took and every cut any add dropped.
@@ -62,16 +62,15 @@ def expand(groups, status, now=None, locked=frozenset()):
     if now is None:
         now = plan_now(groups, status, locked)
     gone = {m["drop"] for m in now if m["drop"] is not None}
-    landed = {m["add"] for m in now}
     out = []
     for gi, g in enumerate(groups):
         taken = sum(1 for m in now if m["group"] == gi and m["drop"] is None)
         left = [None] * max(0, g.get("open", 0) - taken) + [c for c in g["cuts"] if c not in gone]
         for t in g["targets"]:
-            if t in landed:
+            if status.get(t) == FREE:
                 continue
             seen_open = False
-            for d in (left if status.get(t) != FREE else [c for c in left if c in locked]):
+            for d in left:
                 # One no-drop claim per target is enough; open spots (None) are valuable.
                 if d is None:
                     if seen_open:
@@ -129,6 +128,11 @@ def validate(groups, roster, pool_ids, roster_size, status, instant_adds=True, o
             err(gi, None, f"group {n} uses more open spots ({op}) than the roster has ({free})")
         elif op and op != free:
             err(gi, None, f"group {n} must use all {free} open spots, or none")
+
+        # A free agent goes in on an open spot or an unlocked cut: ESPN won't drop a locked player for him.
+        if free_targets(g, status) and g["cuts"] and not op and all((by_id.get(c) or {}).get("locked") for c in g["cuts"]):
+            err(gi, None, f"group {n}: a free agent can't replace a player whose game has started (ESPN blocks it); "
+                          "add an unlocked cut or the open spots")
 
         # Target validation.
         for t in g["targets"]:
