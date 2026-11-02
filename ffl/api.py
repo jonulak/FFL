@@ -1346,7 +1346,7 @@ def team(team_id: int, ref: LeagueRef = Depends(open_league)):
     side = live.overlay_side(data["side"], _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref),
                              _scoring(ref=ref))
     # attached on every request, outside the cached build, as /roster does
-    entries = outlook.load(wk)
+    entries = outlook.load(wk, [r["player_id"] for g in ("lineup", "bench", "ir") for r in side[g]])
     return {**data, "side": {**side, **{g: outlook.attach_plain(side[g], entries) for g in ("lineup", "bench", "ir")}}}
 
 
@@ -1573,8 +1573,6 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
         raise HTTPException(422, {"error": str(e)}) from e
     data = _serve("waivers", lambda: espn_season.free_agent_pool(None, ref=ref), ref=ref, page=True)
     rostered = data.get("rostered", {})  # absent from a pool cached before it existed
-    # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
-    written = outlook.written(data["week"])
     capped = False
     if q:
         found = [r for half in (data["positions"], rostered) for rows in half.values() for r in rows
@@ -1585,6 +1583,8 @@ def players(pos: Literal["QB", "RB", "WR", "TE", "D/ST", "K", "FLEX", "ALL"] | N
         halves = (data["positions"],) if view["fa"] and not wants_rostered else (data["positions"], rostered)
         spans = player_views.covers(view["pos"])
         found = [r for half in halves for p, rows in half.items() if p in spans for r in rows]
+    # read on every request, as /roster attaches its outlooks: a finished write shows on the next load
+    written = outlook.written(data["week"], [r["player_id"] for r in found])
     rows = [{"owner": None, "mine": False, **r, "has_outlook": r["player_id"] in written}
             for r in season.rank_players(found)]
     if not q:
@@ -1754,16 +1754,15 @@ def roster_(ref: LeagueRef = Depends(open_league)):
     data = live.overlay_roster(data, _live_points(wk, ref), _live_games(wk, ref), _live_stats(wk, ref), _scoring(ref=ref))
     # attach on every request, not inside the cached build: a finished generation run must show
     # on the next load, not after the TTL
-    return {**data, "cards": outlook.attach(data["cards"], outlook.load(wk))}
+    return {**data, "cards": outlook.attach(data["cards"], outlook.load(wk, [c["player_id"] for c in data["cards"]]))}
 
 
 @app.get("/outlook/{player_id:int}")
 def card_outlook(player_id: int, week: int = Query(...), user: dict = Depends(auth.current_user)):
     """Any player's stored outlook for the page's week (outlooks are every league's; nothing writes here)."""
-    e = outlook.load(week).get(player_id)
+    e = outlook.load(week, [player_id]).get(player_id)
     ok = isinstance(e, dict) and isinstance(e.get("bullets"), list)
-    return {"bullets": e["bullets"] if ok else None, "at": e.get("generated_at") if ok else None,
-            "error": e.get("error") if isinstance(e, dict) else None}
+    return {"bullets": e["bullets"] if ok else None, "at": e.get("generated_at") if ok else None}
 
 
 @app.post("/outlook/refresh", status_code=202)

@@ -98,9 +98,6 @@ function Body({ r, first }: { r: PlayerRow; first: FirstRead }) {
           {phase === "empty" && (
             <p className="py-3 text-sm text-muted-foreground">No outlook written for {r.name} this week.</p>
           )}
-          {phase === "failed" && (
-            <p className="py-3 text-sm text-out">The last write failed: {o?.error}</p>
-          )}
           {phase === "ready" && o?.bullets && <Bullets bullets={o.bullets} />}
           </Swap>
         </div>
@@ -108,7 +105,6 @@ function Body({ r, first }: { r: PlayerRow; first: FirstRead }) {
         {phase === "ready" && o?.at && (
           <p className="border-t border-foreground/10 px-4 py-3 text-xs text-muted-foreground">
             Outlook · <Ago iso={o.at} />
-            {o.error && <span className="text-out"> · last write failed</span>}
           </p>
         )}
       </div>

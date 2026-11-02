@@ -157,6 +157,14 @@ def test_outlooks_upsert_per_player_week():
     db.put_outlooks(5, {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}})
     assert db.outlooks_for(5) == {1: {"hash": "b", "bullets": ["y"]}, 2: {"hash": "c", "bullets": []}}
     assert db.outlooks_for(6) == {}
+    assert db.outlooks_for(5, player_ids=[2, 9]) == {2: {"hash": "c", "bullets": []}}
+    assert db.outlooks_for(5, player_ids=[]) == {}
+
+
+def test_outlook_ids_reads_only_the_named_players_with_bullets():
+    db.put_outlooks(5, {1: {"bullets": []}, 2: {"error": "old"}, 3: {"bullets": "para"}, 4: {"bullets": ["x"]}})
+    assert db.outlook_ids(5, [1, 2, 3, 9]) == {1}
+    assert db.outlook_ids(5, []) == set() and db.outlook_ids(6, [1]) == set()
 
 
 CAL = {"player_id": 1, "name": "A", "pos": "QB", "model": 234.3, "l3": 13.7, "weight": 1.12, "games_left": 14}

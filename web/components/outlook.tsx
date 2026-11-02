@@ -38,15 +38,12 @@ type OutlookOf = Outlooked & { name: string; pos: string; player_id: number; out
 // A row's outlook, written by the hourly run. It sits in the row's detail, which is already opened on a
 // tap, so it is shown whole at every width rather than folded again on the phone.
 export function Outlook({ c }: { c: OutlookOf }) {
-  const { outlook: bullets, outlook_at: at, outlook_stale: stale, outlook_error: error } = c;
-  const note = error
-    ? <span key="error" className="fx-in inline-block text-out" title={error}>&nbsp;· last write failed</span>
-    : null;
+  const { outlook: bullets, outlook_at: at, outlook_stale: stale } = c;
 
   if (!bullets?.length) {
     // the hourly run never writes a kicker or a defense
     const none = c.pos === "K" || c.pos === "D/ST" ? "No outlook for kickers and defenses." : "No outlook written yet.";
-    return <p className="text-xs text-muted-foreground">{none}{note}</p>;
+    return <p className="text-xs text-muted-foreground">{none}</p>;
   }
   return (
     <div>
@@ -55,7 +52,6 @@ export function Outlook({ c }: { c: OutlookOf }) {
       <p className="pt-1.5 text-xs text-muted-foreground">
         Outlook · {at ? <Ago iso={at} /> : "—"}
         <Presence show={!!stale}><span className="text-close-foreground dark:text-close"> · facts changed since</span></Presence>
-        {note}
       </p>
     </div>
   );
@@ -63,13 +59,13 @@ export function Outlook({ c }: { c: OutlookOf }) {
 
 // How old his outlook is, for the collapsed row: the short age under the disclosure chevron, so a glance down the
 // list says which to recheck. Amber once the card's facts have changed since it was written (the stamp's "facts
-// changed since"), red when the last write failed; nothing before the first.
-export function outlookAge(c: OutlookOf, now: number): { age: string; tone: "fresh" | "stale" | "failed" } | null {
+// changed since"); nothing before the first.
+export function outlookAge(c: OutlookOf, now: number): { age: string; tone: "fresh" | "stale" } | null {
   if (!c.outlook?.length || !c.outlook_at) return null;
-  return { age: shortAge(minutesSince(c.outlook_at, now)), tone: c.outlook_error ? "failed" : c.outlook_stale ? "stale" : "fresh" };
+  return { age: shortAge(minutesSince(c.outlook_at, now)), tone: c.outlook_stale ? "stale" : "fresh" };
 }
 
-const AGE_TONE = { fresh: "text-muted-foreground", stale: "text-close-foreground dark:text-close", failed: "text-out" } as const;
+const AGE_TONE = { fresh: "text-muted-foreground", stale: "text-close-foreground dark:text-close" } as const;
 
 // A new age (a minute on, a write landed) fades in.
 export function OutlookAge({ c, now }: { c: OutlookOf; now: number }) {
@@ -92,5 +88,5 @@ export function outlookAgeLabel(c: OutlookOf, now: number): string {
   const a = outlookAge(c, now);
   if (!a) return "";
   const when = a.age === "now" ? "just now" : `${a.age.slice(0, -1)} ${UNIT[a.age.slice(-1) as keyof typeof UNIT]} ago`;
-  return `, outlook written ${when}${a.tone === "stale" ? ", facts changed since" : a.tone === "failed" ? ", last write failed" : ""}`;
+  return `, outlook written ${when}${a.tone === "stale" ? ", facts changed since" : ""}`;
 }

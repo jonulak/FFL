@@ -3,7 +3,7 @@ import type { OutlookBullet, PlayerOutlook } from "./api";
 import { outlookPhase } from "./waiver-outlook";
 
 const take: OutlookBullet = { label: "Take", text: "A stash.", sources: [{ site: "Rotowire", date: "10/1", url: "https://x.test" }] };
-const o = (kw: Partial<PlayerOutlook>): PlayerOutlook => ({ bullets: null, at: null, error: null, ...kw });
+const o = (kw: Partial<PlayerOutlook>): PlayerOutlook => ({ bullets: null, at: null, ...kw });
 
 describe("outlookPhase", () => {
   it("is loading until the first read lands", () => {
@@ -12,9 +12,7 @@ describe("outlookPhase", () => {
   it("is empty when nothing is stored", () => {
     expect(outlookPhase(o({}))).toBe("empty");
   });
-  it("shows the bullets once written, a failure beside them only when there are none", () => {
+  it("shows the bullets once written", () => {
     expect(outlookPhase(o({ bullets: [take], at: "2026-10-02T09:00-04:00" }))).toBe("ready");
-    expect(outlookPhase(o({ bullets: [take], error: "RuntimeError: x" }))).toBe("ready");
-    expect(outlookPhase(o({ error: "x" }))).toBe("failed");
   });
 });
