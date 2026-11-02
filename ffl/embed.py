@@ -26,7 +26,8 @@ def _load():
 
 def passages(texts: list[str]) -> list[list[float]]:
     """The stored side: one vector per text."""
-    return [v.tolist() for v in _load().passage_embed(texts)]
+    # batch 8, not fastembed's 256: on ~450-token pieces 256 peaked at 5 GB and ran slower (57 vs 34 ms a piece, #112)
+    return [v.tolist() for v in _load().passage_embed(texts, batch_size=8)]
 
 
 def query(text: str) -> list[float]:

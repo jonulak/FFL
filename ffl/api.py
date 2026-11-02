@@ -2049,7 +2049,8 @@ def news_search(q: str = ""):
         qvec = None
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
     stories = [{"id": s["id"], "headline": s["headline"], "overview": s["overview"], "latest_at": s["latest_at"],
-                "status": s["status"], "kind": s["kind"], "player_ids": [p["player_id"] for p in s["players"]]}
+                "status": s["status"], "kind": s["kind"], "player_ids": [p["player_id"] for p in s["players"]],
+                "match": s["match"]}
                for s in db.search_stories(qvec, q, since)]
     return {"players": news_feed.search(index, q), "stories": stories}
 

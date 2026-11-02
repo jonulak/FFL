@@ -22,7 +22,7 @@ from contextlib import contextmanager
 
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql import distinct_on, insert as pg_insert
 
 from .config import DATA, ROOT, SEASON
 
@@ -762,6 +762,17 @@ news_item_versions = sa.Table(
     sa.Column("seen_at", sa.String, nullable=False),
 )
 sa.Index("ix_news_item_versions_item", news_item_versions.c.season, news_item_versions.c.item_id)
+
+# An item's latest text in pieces, a vector each (the embed stage): what GET /news/search matches a source's detail on.
+news_item_chunks = sa.Table(
+    "news_item_chunks", metadata, _season(),
+    sa.Column("item_id", sa.Integer, nullable=False),
+    sa.Column("pos", sa.Integer, nullable=False),
+    sa.Column("hash", sa.String, nullable=False),        # the item's hash when chunked: another = revised, chunk again
+    sa.Column("text", sa.String, nullable=False),
+    sa.Column("embedding", Vector(384), nullable=False),
+    sa.PrimaryKeyConstraint("season", "item_id", "pos"),
+)
 
 # A video or episode's whole transcript, kept so matching and tagging can be re-run without refetching.
 news_media_table = sa.Table(
@@ -2461,20 +2472,66 @@ def put_story_embedding(story_id: int, headline: str, vec: list[float], season: 
                                                  t.c.headline == headline).values(embedding=vec)).rowcount)
 
 
+def unchunked_items(limit: int, season: int = SEASON) -> list[dict]:
+    """Live items on a story whose latest text has no chunks yet (new, revised, or from before chunking), newest first:
+    {id, hash, title, text}."""
+    t, k = news_items_table, news_item_chunks
+    done = sa.exists().where(k.c.season == t.c.season, k.c.item_id == t.c.id, k.c.hash == t.c.hash)
+    q = (sa.select(t.c.id, t.c.hash, t.c.title, t.c.text)
+         .where(t.c.season == season, t.c.story_id.is_not(None), t.c.withdrawn_at.is_(None), ~done)
+         .order_by(t.c.published_at.desc(), t.c.id.desc()).limit(limit))
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
+
+
+def put_item_chunks(item_id: int, hash: str, pieces: list[tuple[str, list[float]]], season: int = SEASON) -> bool:
+    """Replace the item's chunks with `pieces` (text, vector), unless its text was revised since it was read."""
+    t, k = news_items_table, news_item_chunks
+    with _write() as c:
+        cur = c.execute(sa.select(t.c.hash).where(t.c.season == season, t.c.id == item_id).with_for_update()).scalar()
+        if cur != hash:
+            return False
+        c.execute(sa.delete(k).where(k.c.season == season, k.c.item_id == item_id))
+        if pieces:
+            c.execute(sa.insert(k), [{"season": season, "item_id": item_id, "pos": n, "hash": hash, "text": text,
+                                      "embedding": vec} for n, (text, vec) in enumerate(pieces)])
+        return True
+
+
+def _nearest_stories(c, qvec: list[float], since: str, limit: int, season: int) -> list:
+    """(story id, distance, item id, passage) of the `limit` written stories nearest `qvec`, each by its best vector:
+    its words (item id and passage None) or a chunk of one of its live items' latest text."""
+    s, t, k = news_stories, news_items_table, news_item_chunks
+    written = (s.c.season == season, s.c.written_rev >= 1, s.c.latest_at >= since)
+    words = (sa.select(s.c.id.label("sid"), s.c.embedding.cosine_distance(qvec).label("d"),
+                       sa.cast(sa.null(), sa.Integer).label("item_id"), sa.cast(sa.null(), sa.String).label("text"))
+             .where(*written, s.c.embedding.is_not(None)))
+    pieces = (sa.select(s.c.id, k.c.embedding.cosine_distance(qvec), k.c.item_id, k.c.text)
+              .select_from(k.join(t, sa.and_(t.c.season == k.c.season, t.c.id == k.c.item_id, t.c.hash == k.c.hash))
+                           .join(s, sa.and_(s.c.season == t.c.season, s.c.id == t.c.story_id)))
+              .where(*written, t.c.withdrawn_at.is_(None)))
+    u = sa.union_all(words, pieces).subquery()
+    best = sa.select(u).ext(distinct_on(u.c.sid)).order_by(u.c.sid, u.c.d).subquery()
+    return c.execute(sa.select(best).order_by(best.c.d, best.c.sid).limit(limit)).all()
+
+
 def search_stories(qvec: list[float] | None, q: str, since: str, limit: int = 10, season: int = SEASON) -> list[dict]:
     """Written stories with news at or after `since`: those whose headline contains `q` first (an exact name still
-    wins), newest first, then the `limit` nearest `qvec` by cosine distance (none when `qvec` is None)."""
+    wins), newest first, then the `limit` nearest `qvec` by cosine distance over their words and their sources' text
+    (none when `qvec` is None). Each carries `match`: the source passage it was found by ({item_id, text}), else None."""
     t = news_stories
     base = sa.select(t).where(t.c.season == season, t.c.written_rev >= 1, t.c.latest_at >= since)
     with _read() as c:
         rows = c.execute(base.where(t.c.headline.icontains(q, autoescape=True))
                          .order_by(t.c.latest_at.desc(), t.c.id.desc()).limit(limit)).all() if q.strip() else []
-        if qvec is not None:
-            rows += c.execute(base.where(t.c.embedding.is_not(None))
-                              .order_by(t.c.embedding.cosine_distance(qvec), t.c.id).limit(limit)).all()
-        seen: set[int] = set()
-        rows = [r for r in rows if not (r.id in seen or seen.add(r.id))]
-        return _stories_out(c, rows, season)
+        near = _nearest_stories(c, qvec, since, limit, season) if qvec is not None else []
+        match = {n.sid: {"item_id": n.item_id, "text": n.text} if n.item_id is not None else None for n in near}
+        ids = [n.sid for n in near if n.sid not in {r.id for r in rows}]
+        by_id = {r.id: r for r in c.execute(base.where(t.c.id.in_(ids))).all()} if ids else {}
+        out = _stories_out(c, rows + [by_id[i] for i in ids if i in by_id], season)
+        for s in out:
+            s["match"] = match.get(s["id"])
+        return out
 
 
 def _decision_out(r) -> dict:
