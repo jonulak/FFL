@@ -8,7 +8,14 @@ COPY . .
 # baked in at build: the /api/* rewrite's target (the server components read it again at run time)
 ARG FFL_API_URL=http://api:8300
 ENV FFL_API_URL=$FFL_API_URL NEXT_TELEMETRY_DISABLED=1
-RUN pnpm exec next build
+# Reproducible build: the build ID is a hash of the sources, so it changes exactly when they do. The two keys are for
+# server actions and draft mode, which the app doesn't use; they're readable in this public image anyway. Next reads the
+# preview keys only from its cache file (expiry 2100).
+ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+RUN mkdir -p .next/cache \
+ && echo '{"previewModeId":"00000000000000000000000000000000","previewModeSigningKey":"0000000000000000000000000000000000000000000000000000000000000000","previewModeEncryptionKey":"0000000000000000000000000000000000000000000000000000000000000000","expireAt":4102444800000}' > .next/cache/.previewinfo \
+ && FFL_BUILD_ID=$(find . -path ./node_modules -prune -o -path ./.next -prune -o -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-20) \
+    pnpm exec next build
 
 FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
 WORKDIR /web

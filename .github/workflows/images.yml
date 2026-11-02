@@ -32,7 +32,8 @@ jobs:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.file }}
           platforms: linux/amd64
-          push: false
+          build-args: SOURCE_DATE_EPOCH=0
+          outputs: type=image,push=false,rewrite-timestamp=true
           cache-from: type=gha,scope=${{ matrix.image.file }}
 
   publish:
@@ -70,9 +71,13 @@ jobs:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.file }}
           platforms: linux/amd64,linux/arm64
-          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # layers reused across releases keep their digests, so an install's upgrade pulls only the changed ones
+          # Reproducible: unchanged inputs give byte-identical layers even after a cache miss, so an install's upgrade
+          # pulls only the layers whose contents changed. The epoch is a constant, not the commit time: every new
+          # file is stamped with it, so a per-commit value would change every layer on every push.
+          build-args: SOURCE_DATE_EPOCH=0
+          outputs: type=image,push=true,rewrite-timestamp=true
+          # the cache only makes builds faster now
           cache-from: type=gha,scope=${{ matrix.image.file }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.file }}
