@@ -5,6 +5,8 @@ const API = process.env.FFL_API_URL ?? "http://127.0.0.1:8300";
 const nextConfig: NextConfig = {
   // the Docker image serves .next/standalone's server.js (web/Dockerfile)
   output: "standalone",
+  // web/Dockerfile sets a hash of the sources so its builds are reproducible; null is Next's random ID
+  generateBuildId: async () => process.env.FFL_BUILD_ID ?? null,
   // `next dev` only hydrates pages served from localhost unless the host is listed here
   allowedDevOrigins: ["127.0.0.1"],
   // Next cuts a rewrite's upstream call at 30 s by default; a claims submit is one ESPN call per cancel,
