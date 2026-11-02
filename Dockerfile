@@ -1,5 +1,7 @@
 # The API image; the jobs container runs it too, with `crond -f -L /dev/stdout` as its command.
-FROM python:3.12-slim
+# Bases pinned by digest (Dependabot bumps them): a floating tag's upstream rebuild would rebuild every layer, and every
+# install's upgrade would pull the whole image again instead of the layers that changed.
+FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
 
 # No agent CLI here: `claude -p` runs in the runner image (Dockerfile.runner). pg_dump/pg_restore 18 (restores any dump up to 18, dumps the postgres:16 server; the distro ships
 # another major) for `ffl.db backup`/`restore`, busybox for crond, curl for the cron jobs.
@@ -18,7 +20,7 @@ RUN ln -s /bin/busybox /usr/local/bin/crond \
  && mkdir -p /etc/crontabs /var/spool/cron /backups \
  && ln -s /etc/crontabs /var/spool/cron/crontabs
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /uvx /bin/
 ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 
 WORKDIR /app
