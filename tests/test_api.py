@@ -545,7 +545,7 @@ def test_a_test_server_records_a_fake_claim_only_when_asked(claims_env, monkeypa
     # FFL_RECORD_FAKE=1 (a worktree test server, own DB): recorded, marked fake, as /lineup and sit do
     monkeypatch.setenv("FFL_RECORD_FAKE", "1")
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
-    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
+    claims_env.post("/claims", json={"groups": [{"targets": [102, 101], "cuts": [1, 2], "open": 0}]})
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]}).json()
     rows = {row["id"]: row for row in db.decisions(ref=home_league())}
     assert [rows[d["id"]]["title"] for d in r["decisions"]] == ["[fake] Week 6 waiver claims", "[fake] Week 6 add: Mims, drop R1"]
@@ -661,7 +661,7 @@ def test_a_plan_after_the_waiver_run_is_a_new_claims_decision(claims_env, monkey
 
 def test_submit_free_agent_is_instant(claims_env):
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"          # Mims cleared waivers
-    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
+    claims_env.post("/claims", json={"groups": [{"targets": [102, 101], "cuts": [1, 2], "open": 0}]})
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]}).json()
     assert r["now"] == [{"group": 0, "add": 102, "drop": 1}] and [(c["add"], c["drop"]) for c in r["sent"]] == [(101, 2)]
     assert api.espn_write._fake(home_league()).adds == [{"add": 102, "drop": 1}]
@@ -777,7 +777,7 @@ def test_submit_status_flip_since_preview_is_409(claims_env):
 def test_instant_adds_gate_off_rejects_free_agent_targets(claims_env, monkeypatch):
     monkeypatch.setenv("FFL_INSTANT_ADDS", "0")
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
-    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
+    claims_env.post("/claims", json={"groups": [{"targets": [102, 101], "cuts": [1, 2], "open": 0}]})
     assert api.claims_mod.INSTANT_OFF in [e["reason"] for e in claims_env.get("/claims").json()["errors"]]
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert r.status_code == 422 and "FFL_INSTANT_ADDS" in str(r.json())
@@ -802,7 +802,7 @@ def test_submit_writes_carry_espn_period(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "submit_claim", lambda a, d, wk, **k: weeks.append(wk) or real_submit(a, d, wk, **k))
     monkeypatch.setattr(api.espn_write, "add_free_agent", lambda a, d, wk, **k: weeks.append(wk) or real_add(a, d, wk, **k))
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
-    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
+    claims_env.post("/claims", json={"groups": [{"targets": [102, 101], "cuts": [1, 2], "open": 0}]})
     r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert r.status_code == 200 and weeks == [6, 6]
 
@@ -821,7 +821,7 @@ def test_landed_add_rebuilds_the_pool_before_returning(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_season, "free_agent_pool", pool_fn)
     api.cache_for(home_league()).clear()
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
-    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
+    claims_env.post("/claims", json={"groups": [{"targets": [102, 101], "cuts": [1, 2], "open": 0}]})
     before = calls["n"]
     claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert calls["n"] == before + 1                            # rebuilt inline, not left to a background thread
@@ -942,7 +942,7 @@ def test_edit_after_submit_flags(claims_env):
 def test_submit_readback_failure_still_journals(claims_env, monkeypatch):
     monkeypatch.setattr(api.espn_write, "writes", lambda: True)
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
-    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
+    claims_env.post("/claims", json={"groups": [{"targets": [102, 101], "cuts": [1, 2], "open": 0}]})
 
     def down(**k):   # the read-back only: the pre-submit read is pending_state
         raise api.espn_write.WriteError(503, "down")
@@ -1013,7 +1013,7 @@ def test_a_running_submit_reads_as_running(claims_env):
 
 def test_instant_add_is_consumed_from_the_plan(claims_env, monkeypatch):
     claims_env.pool["WR"][1]["status"] = "FREEAGENT"
-    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]})
+    claims_env.post("/claims", json={"groups": [{"targets": [102, 101], "cuts": [1, 2], "open": 0}]})
     claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     roster = [{"player_id": i, "slot": "BE", "name": f"R{i}", "pos": "WR", "droppable": True, "locked": False}
               for i in range(2, 17)] + [{"player_id": 102, "slot": "BE", "name": "Mims", "pos": "WR", "droppable": True, "locked": False}]

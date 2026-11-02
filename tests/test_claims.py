@@ -40,7 +40,7 @@ def test_dst_negative_ids():
 
 
 def test_free_agents_now_then_claims():
-    g = {"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}
+    g = {"targets": [102, 101, 103], "cuts": [1, 2], "open": 0}
     st = {102: FA, 101: W, 103: W}
     assert pairs(C.plan_now([g], st)) == [(102, 1)]
     assert pairs(C.expand([g], st)) == [(101, 2), (103, 2)]
@@ -97,7 +97,7 @@ def test_never_more_than_k_and_best_first():
 
 
 def test_cap_holds_with_free_agents():
-    g = {"targets": [101, 102, 103, 104], "cuts": [1, 2], "open": 0}
+    g = {"targets": [102, 104, 101, 103], "cuts": [1, 2], "open": 0}
     st = {102: FA, 104: FA}
     now = C.plan_now([g], st)
     used_rows = {m["drop"] for m in now}
@@ -162,6 +162,22 @@ def test_locked_cut_is_for_waiver_claims_only():
     w = FakeW([])
     r = C.run_submit([g], st, [], set(), False, w, locked={1})
     assert w.adds == [(102, 2)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 1)]
+
+
+def test_waiver_target_ranked_above_a_free_agent_holds_a_row():
+    # 101 (W) ranks over 102 (FA): 101 keeps cut 1, 102 is added now for cut 2
+    g = {"targets": [101, 102], "cuts": [1, 2], "open": 0}
+    st = {102: FA}
+    assert pairs(C.plan_now([g], st)) == [(102, 2)]
+    assert pairs(C.expand([g], st)) == [(101, 1)]
+    w = FakeW([])
+    C.run_submit([g], st, [], set(), False, w)
+    assert w.adds == [(102, 2)]
+    # one row: it is 101's, so 102 is not added
+    one = {**g, "cuts": [1]}
+    assert C.plan_now([one], st) == [] and pairs(C.expand([one], st)) == [(101, 1)]
+    # locked 2 is held for 101 (no free agent can use it), so 102 takes unlocked 1
+    assert pairs(C.plan_now([g], st, {2})) == [(102, 1)] and pairs(C.expand([g], st, locked={2})) == [(101, 2)]
 
 
 def test_target_not_in_pool():
@@ -285,7 +301,7 @@ def test_submit_order_mismatch():
 
 
 def test_run_submit_free_agent_now_then_claims():
-    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    g = [{"targets": [102, 101, 103], "cuts": [1, 2], "open": 0}]
     w = FakeW([])
     r = C.run_submit(g, {102: "FREEAGENT"}, [], set(), False, w)
     assert w.adds == [(102, 1)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 2), (103, 2)] and r["match"]

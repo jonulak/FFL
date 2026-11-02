@@ -431,7 +431,7 @@ def test_claims_submit_runs_the_real_fake_store_under_its_league(monkeypatch, cl
     monkeypatch.setattr(api, "_roster_size", lambda **k: 17)
     monkeypatch.setattr(api, "_limits", lambda **k: {})
     q = {"league": "espn:999"}
-    assert client.post("/claims", params=q, json={"groups": [{"targets": [101, 102], "cuts": [1, 2], "open": 0}]}).status_code == 200
+    assert client.post("/claims", params=q, json={"groups": [{"targets": [102, 101], "cuts": [1, 2], "open": 0}]}).status_code == 200
     r = client.post("/claims/submit", params=q, json={"replace_outside": False, "expect_now": [{"group": 0, "add": 102, "drop": 1}]})
     assert r.status_code == 200, r.text
     fake, home = espn_write._fake(other), espn_write._fake(home_league())

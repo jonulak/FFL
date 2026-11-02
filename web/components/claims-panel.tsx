@@ -20,7 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import type { ClaimErr, ClaimGroup, ClaimPlayer, PoolStatus } from "@/lib/api";
+import type { ClaimErr, ClaimGroup, ClaimPlayer } from "@/lib/api";
 import {
   addCut, capacity, cutBlock, displayTargets, groupPos, holder, moveGroup, newGroup, place, processDay, prune,
   regroupKeys, removeFrom, removeGroup, setOpen, statusTag,
@@ -255,8 +255,8 @@ function LiftedGroup({ g, gi }: { g: ClaimGroup; gi: number }) {
   );
 }
 
-// One group: "get K of N", the targets best first (free agents on top: they are added the moment
-// you submit), then the rows that make room, first to go first. Its grip reorders the groups; a
+// One group: "get K of N", the targets best first (a free agent is added the moment you submit, on
+// the rows the waiver targets above him leave), then the rows that make room, first to go first. Its grip reorders the groups; a
 // target's or a cut's grip moves him within the group or into another one. `g` is the group as
 // the drag shows it, `dragging` the list a row is being dragged in, `landing` the group a dragged
 // row has moved into, `cutId` the drag id of each of its cuts. While a group is dragged the list
@@ -270,8 +270,6 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
   const { groups, setGroups, status, player, data, submitting } = useClaims();
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: `g${gkey}`, disabled: submitting || settling });
   const shown = displayTargets(g, status);
-  const fa = shown.filter((t) => t.now);
-  const waiting = shown.filter((t) => !t.now);
   // "now" is the server's word: a free agent with no unlocked row is not added (the plan shows the error)
   const added = new Set(data.now.map((m) => m.add));
   const name = (id: number) => player(id)?.name ?? `player ${id}`;
@@ -300,11 +298,8 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
           {g.targets.length === 0 && (
             <EmptySlot fx={`t${gkey}`} open={dragging === "t"} rest="Pick targets with the claim button on any row" drop="Drop to move him into this group" />
           )}
-          <SortableContext id={`fa${gi}`} items={fa.map((t) => `t${t.id}`)} strategy={verticalListSortingStrategy}>
-            <ol>{fa.map((t, i) => targetLine(t, i + 1))}</ol>
-          </SortableContext>
-          <SortableContext id={`w${gi}`} items={waiting.map((t) => `t${t.id}`)} strategy={verticalListSortingStrategy}>
-            <ol>{waiting.map((t, i) => targetLine(t, fa.length + i + 1))}</ol>
+          <SortableContext id={`t${gi}`} items={shown.map((t) => `t${t.id}`)} strategy={verticalListSortingStrategy}>
+            <ol>{shown.map((t, i) => targetLine(t, i + 1))}</ol>
           </SortableContext>
         </Zone>
 
@@ -399,9 +394,8 @@ function RosterBlock() {
   );
 }
 
-// A group's list in the order the panel shows it: targets FA block first, cuts as stored.
-const order = (g: ClaimGroup, list: "targets" | "cuts", status: Record<string, PoolStatus>) =>
-  list === "targets" ? displayTargets(g, status).map((t) => t.id) : g.cuts;
+// A group's list in the order the panel shows it: as stored.
+const order = (g: ClaimGroup, list: "targets" | "cuts") => g[list];
 
 // The panel's body, shared by the docked column and the phone's sheet. `heading` is the title
 // element each host needs (an h2, or the sheet's labelled title).
@@ -571,14 +565,14 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     const onRow = kindOf(over.id) !== "z";
     const to = !onRow ? numOf(over.id) : k === "c" ? keys.indexOf(cutKey(over.id)) : holder(drag.preview, list, numOf(over.id));
     if (to == null || to < 0 || to === drag.at) return;
-    const rows = order(drag.preview[to], list, status);
+    const rows = order(drag.preview[to], list);
     let i = rows.length;
     if (onRow) {
       const r = active.rect.current.translated;
       i = rows.indexOf(numOf(over.id)) + (r && r.top + r.height / 2 > over.rect.top + over.rect.height / 2 ? 1 : 0);
     }
     capture();
-    setDrag({ ...drag, at: to, preview: place(drag.preview, status, list, id, to, i, drag.at) });
+    setDrag({ ...drag, at: to, preview: place(drag.preview, list, id, to, i, drag.at) });
   };
 
   // A group's drop: the cards hold folded while the lifted one flies home, then open around it.
@@ -613,7 +607,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     if (over && kindOf(over.id) === k && over.id !== active.id) {
       const gi = d.at;
       const og = k === "c" ? keys.indexOf(cutKey(over.id)) : holder(next, list, numOf(over.id));
-      if (gi === og) next = place(next, status, list, id, gi, order(next[gi], list, status).indexOf(numOf(over.id)), gi);
+      if (gi === og) next = place(next, list, id, gi, order(next[gi], list).indexOf(numOf(over.id)), gi);
     }
     if (JSON.stringify(next) !== JSON.stringify(d.before)) setGroups(prune(d.before, next));
   };
@@ -631,7 +625,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     }
     if (!rowKind || dragged == null || drag?.at == null) return null;
     const g = shown[drag.at];
-    const i = order(g, listOf(rowKind), status).indexOf(dragged);
+    const i = order(g, listOf(rowKind)).indexOf(dragged);
     return rowKind === "t"
       ? <Lifted {...targetFace(player, dragged, status[String(dragged)] === "FREEAGENT", i + 1)} />
       : <Lifted {...cutFace(player, dragged, g.open + i + 1)} />;

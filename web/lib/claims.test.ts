@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addTarget, atMost, capacity, cutBlock, displayTargets, groupPos, move, moveGroup, removeFrom, reorderTargets,
+  addTarget, atMost, capacity, cutBlock, displayTargets, groupPos, move, moveGroup, removeFrom,
   addCut, holder, newGroup, place, processDay, prune, regroupKeys, removeGroup, rowTag, setOpen, statusTag, submitFailure, submitSummary,
   SUBMIT_CEILING_MS, SUBMIT_FLOOR_MS, SUBMIT_MARGIN_MS, SUBMIT_PER_WRITE_MS, errorWhere, submitTimeoutMs,
   recoverSubmit, type SubmitAnswer,
@@ -53,16 +53,9 @@ describe("claim groups", () => {
 });
 
 describe("free agents", () => {
-  it("free agents display first, flagged now", () =>
-    expect(displayTargets(G[0], { "102": "FREEAGENT" })).toEqual([{ id: 102, now: true }, { id: 101, now: false }, { id: 103, now: false }]));
+  it("targets display in rank order, free agents flagged now", () =>
+    expect(displayTargets(G[0], { "102": "FREEAGENT" })).toEqual([{ id: 101, now: false }, { id: 102, now: true }, { id: 103, now: false }]));
   it("unknown status counts as waivers", () => expect(displayTargets(G[0], {}).every((t) => !t.now)).toBe(true));
-  it("reorder within the waiver block keeps the FA block first", () => {
-    const g = { targets: [101, 102, 103], cuts: [], open: 0 };
-    // 102 is FA: display is [102 | 101, 103]; move 103 above 101 in the waiver block
-    expect(reorderTargets(g, { "102": "FREEAGENT" }, false, 1, 0)).toEqual([102, 103, 101]);
-    expect(reorderTargets({ targets: [101, 102, 103], cuts: [], open: 0 }, { "101": "FREEAGENT", "103": "FREEAGENT" }, true, 1, 0))
-      .toEqual([103, 101, 102]);
-  });
   it("status tag", () => {
     expect(statusTag({ status: "FREEAGENT", waiver_date: null })).toBe("FA");
     expect(statusTag({ status: "WAIVERS", waiver_date: new Date(2026, 9, 7, 3).getTime() })).toBe("W·Wed");
@@ -104,40 +97,40 @@ describe("dragging between groups", () => {
     expect(holder(G, "cuts", 201)).toBeNull();
   });
   it("places a target in another group at a position", () => {
-    const g = place(G, {}, "targets", 102, 1, 0);
+    const g = place(G, "targets", 102, 1, 0);
     expect(g[0].targets).toEqual([101, 103]);
     expect(g[1].targets).toEqual([102, 201]);
   });
   it("places a cut at the end of another group", () => {
-    const g = place(G, {}, "cuts", 1, 1, 9);
+    const g = place(G, "cuts", 1, 1, 9);
     expect(g[0].cuts).toEqual([2]);
     expect(g[1].cuts).toEqual([3, 1]);
   });
   it("moves a shared cut out of the group it is dragged from only", () => {
     const shared = addCut(G, 1, 1);
-    const g = place(shared, {}, "cuts", 1, 1, 0, 0);
+    const g = place(shared, "cuts", 1, 1, 0, 0);
     expect(g[0].cuts).toEqual([2]);
     expect(g[1].cuts).toEqual([1, 3]);
-    expect(place(shared, {}, "cuts", 2, 1, 0, 0)[0].cuts).toEqual([1]);
+    expect(place(shared, "cuts", 2, 1, 0, 0)[0].cuts).toEqual([1]);
   });
-  it("reorders inside one group like an array move", () => expect(place(G, {}, "targets", 101, 0, 2)[0].targets).toEqual([102, 103, 101]));
-  it("a free agent lands in its group's FA block, wherever it is dropped", () => {
-    const g = place(G, { "201": "FREEAGENT" }, "targets", 201, 0, 3);
-    expect(g[0].targets).toEqual([201, 101, 102, 103]);
+  it("reorders inside one group like an array move", () => expect(place(G, "targets", 101, 0, 2)[0].targets).toEqual([102, 103, 101]));
+  it("a free agent lands where he is dropped, below a waiver target too", () => {
+    const g = place(G, "targets", 201, 0, 3);
+    expect(g[0].targets).toEqual([101, 102, 103, 201]);
   });
   it("keeps a group the drag emptied until the drop prunes it", () => {
-    const g = place(G, {}, "targets", 201, 0, 0);
-    const moved = place(g, {}, "cuts", 3, 0, 0);
+    const g = place(G, "targets", 201, 0, 0);
+    const moved = place(g, "cuts", 3, 0, 0);
     expect(moved).toHaveLength(2);
     expect(prune(G, moved)).toEqual([{ targets: [201, 101, 102, 103], cuts: [3, 1, 2], open: 0 }]);
   });
   it("prune keeps a group that was already empty", () => {
     const g = [...G, { targets: [], cuts: [], open: 0 }];
-    expect(prune(g, place(g, {}, "cuts", 3, 0, 0))).toHaveLength(3);
+    expect(prune(g, place(g, "cuts", 3, 0, 0))).toHaveLength(3);
   });
   it("does not mutate its input", () => {
     const before = JSON.stringify(G);
-    place(G, {}, "targets", 102, 1, 0);
+    place(G, "targets", 102, 1, 0);
     expect(JSON.stringify(G)).toBe(before);
   });
 });
