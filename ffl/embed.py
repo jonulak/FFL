@@ -1,7 +1,8 @@
 """Text embeddings from a local model (fastembed's ONNX bge-small-en-v1.5): no key, no cost, no network once cached.
 
 The API image bakes the model in (FASTEMBED_CACHE_PATH); a dev machine downloads it on first use. The model loads on
-the first call, so a process that never searches or embeds never pays its memory. Tests swap `passages` and `query`.
+the first call, so a process that never searches or embeds never pays its memory. Tests swap `passages`, `query`
+and `tokens`.
 """
 from __future__ import annotations
 
@@ -10,8 +11,10 @@ import threading
 
 MODEL = "BAAI/bge-small-en-v1.5"
 DIM = 384
+MAX_TOKENS = 512  # what the model reads of a text; the rest is silently dropped
 
 _model = None
+_tokenizer = None
 _lock = threading.Lock()
 
 
@@ -35,3 +38,14 @@ def query(text: str) -> list[float]:
     return next(iter(_load().query_embed(text))).tolist()
 
 
+def tokens(text: str) -> int:
+    """How many tokens the model reads `text` as, its two markers included, never truncated: a piece over MAX_TOKENS
+    would lose its end."""
+    global _tokenizer
+    if _tokenizer is None:
+        from tokenizers import Tokenizer  # fastembed's own dependency
+        tok = Tokenizer.from_file(str(_load().model._model_dir / "tokenizer.json"))  # its copy truncates at 512
+        tok.no_truncation()
+        tok.no_padding()
+        _tokenizer = tok
+    return len(_tokenizer.encode(text).ids)

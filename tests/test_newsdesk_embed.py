@@ -123,6 +123,17 @@ def test_chunks_carry_a_short_last_paragraph_and_split_a_giant_one():
     assert stage.chunks("a" * 4000) == ["a" * 1800, "a" * 1800, "a" * 400]  # no spaces: a hard cut
 
 
+def test_a_piece_too_dense_for_the_model_is_split_until_each_fits(monkeypatch):
+    monkeypatch.setattr(embed, "tokens", lambda text: len(text.split()) + 2)  # a token a word: a name-dense report
+    title = "Injury report"
+    body = "\n".join(f"Player{n} (ankle) DNP." for n in range(300))  # ~1,800 chars a piece, ~400 words each
+    parts = stage.chunks(body, title)
+    assert all(embed.tokens(f"{title}\n{p}") <= embed.MAX_TOKENS for p in parts)
+    assert {line for p in parts for line in p.split("\n")} == set(body.split("\n"))  # nothing dropped
+    assert stage.chunks("word " * 5000, title) and all(  # one long paragraph too
+        embed.tokens(f"{title}\n{p}") <= embed.MAX_TOKENS for p in stage.chunks("word " * 5000, title))
+
+
 def test_stage_chunks_each_live_item_once_and_again_after_a_revision():
     sid = written("Receiver limps off")
     iid = item(sid, "He was limited Wednesday.\n\nCoach called him a game-time decision.")

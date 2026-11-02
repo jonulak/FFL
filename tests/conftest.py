@@ -208,6 +208,7 @@ def _fake_embedder(request, monkeypatch):
     from ffl import embed
     monkeypatch.setattr(embed, "passages", lambda texts: [fake_vector(t) for t in texts])
     monkeypatch.setattr(embed, "query", fake_vector)
+    monkeypatch.setattr(embed, "tokens", lambda text: len(text) // 4 + 2)  # plain prose's ~4 chars a token
 
 
 @pytest.fixture(autouse=True)

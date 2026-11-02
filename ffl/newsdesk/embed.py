@@ -14,7 +14,8 @@ import textwrap
 from .. import db, embed
 
 BATCH = 256    # stories, or items, embedded and stored at a time: a backfill's vectors never sit in memory all at once
-MAX = 1800     # chars a piece: ~450 tokens, inside bge-small's 512 with the title
+MAX = 1800     # chars a piece: ~450 tokens; a denser piece over the model's limit is split again (_cap)
+TITLE = 200    # chars of the item's title embedded in front of each piece
 OVERLAP = 300  # a piece starts with the previous one's last paragraph when it is this short
 
 
@@ -36,8 +37,20 @@ def _fit(para: str) -> list[str]:
     return out
 
 
-def chunks(body: str) -> list[str]:
-    """The text in pieces of at most MAX chars on paragraph boundaries, most articles one or two pieces."""
+def _cap(title: str, piece: str) -> list[str]:
+    """The piece, halved at the paragraph, sentence or space nearest its middle until each half with the title fits
+    what the model reads: so no piece loses its end."""
+    if len(piece) < 2 or embed.tokens(f"{title}\n{piece}") <= embed.MAX_TOKENS:
+        return [piece]
+    mid = len(piece) // 2
+    cut = max(piece.rfind("\n", 0, mid), piece.rfind(". ", 0, mid) + 1, piece.rfind(" ", 0, mid))
+    cut = cut if cut > 0 else mid
+    return _cap(title, piece[:cut].strip()) + _cap(title, piece[cut:].strip())
+
+
+def chunks(body: str, title: str = "") -> list[str]:
+    """The text in pieces of at most MAX chars on paragraph boundaries, most articles one or two pieces, each of them
+    within the model's token limit with `title` in front."""
     out: list[str] = []
     cur: list[str] = []
     for para in (part for line in body.split("\n") if (p := line.strip()) for part in _fit(p)):
@@ -48,7 +61,7 @@ def chunks(body: str) -> list[str]:
         cur.append(para)
     if cur:
         out.append("\n".join(cur))
-    return out
+    return [part for piece in out for part in _cap(title, piece)]
 
 
 def _stories() -> dict:
@@ -63,8 +76,9 @@ def _stories() -> dict:
 def _items() -> dict:
     items = pieces = 0
     while batch := db.unchunked_items(BATCH):
-        cut = [chunks(i["text"]) or [""] for i in batch]  # an empty text still gets a row (its title), so it isn't read again
-        vecs = iter(embed.passages([f"{i['title']}\n{p}" for i, ps in zip(batch, cut) for p in ps]))
+        # an empty text still gets a row (its title), so it isn't read again
+        cut = [chunks(i["text"], i["title"][:TITLE]) or [""] for i in batch]
+        vecs = iter(embed.passages([f"{i['title'][:TITLE]}\n{p}" for i, ps in zip(batch, cut) for p in ps]))
         stored = 0
         for i, ps in zip(batch, cut):
             got = [(p, next(vecs)) for p in ps]
