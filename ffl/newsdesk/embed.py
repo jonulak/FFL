@@ -3,7 +3,7 @@ item's latest text in pieces of about 300-450 tokens, so a detail only a source 
 
 The run's last stage before health, so it never delays a push: once per written revision (a rewrite clears the vector,
 `db.put_story_words`) and per item text (a revision is chunked again, `db.unchunked_items`). Its first run backfills
-everything before (about 17 ms a vector: a season's ~14k pieces in about five minutes). A model failure fails this
+everything before (a season, ~14k pieces, took 12.5 minutes and 640 MB on a Mac). A model failure fails this
 stage alone; what was stored stays, and the next run does the rest.
 """
 from __future__ import annotations
