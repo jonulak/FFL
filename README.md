@@ -51,15 +51,21 @@ password.
 
 ## Upgrade
 
+Run the installer again:
+
 ```
-cd ~/ffl && docker compose pull && docker compose up -d
+curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh
 ```
+
+It keeps your `.env`, fetches the current `docker-compose.yml`, pulls the images and restarts what changed (set
+`FFL_HOME` first if the install is not in `~/ffl`). Don't upgrade with `docker compose pull` alone: it keeps the old
+`docker-compose.yml`, and a new release may need a new one (a new service, a new database image).
 
 An upgrade replaces the containers, never the volumes: your settings, logins and history live in the database (the
 `pgdata` volume) and stay put. Never run `docker compose down -v`, which deletes the volumes and everything in them.
 
 The API migrates the database on start; a failed migration shows only in `docker compose logs api` (the api restarts
-until it succeeds). `FFL_VERSION` in `.env` pins an image tag instead of `latest`. `install.sh` re-fetches
+until it succeeds). `FFL_VERSION` in `.env` pins an image tag instead of `latest`, and the installer then fetches that release's compose file. It re-fetches
 `docker-compose.yml`, so put local changes in a `docker-compose.override.yml` beside it.
 
 ## Configuration

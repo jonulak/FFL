@@ -56,7 +56,7 @@ cd extension/ffl && pnpm build         # the browser extension -> dist/chrome, d
 #   and hands them to TestFlight; ci_scripts/ci_post_clone.sh installs Node and builds dist/safari
 uv run python scripts/pageload.py [base]   # load time of every page on a throttled phone (default :3300)
 curl -X POST -H "x-ffl-job: $FFL_JOB_TOKEN" 127.0.0.1:8300/notify/tick   # also /outlook/refresh, /news/run, /transactions/sync, /refresh
-docker compose pull && docker compose up -d   # upgrade an install (in its directory)
+curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh   # install, and also the upgrade (keeps .env, re-fetches docker-compose.yml); never a bare `compose pull`
 ```
 Draft pipeline: settings -> players -> adp -> browser + draft_watch. Every draft tool builds the board from the DB
 (`board.load_inputs(ref)` + `build`); the ADP feed is 2QB when the lineup starts two QBs or an OP (`FFL_ADP_MODE` overrides).
@@ -194,3 +194,6 @@ refuses any other without `--live`. `data/` is gitignored caches.
   differs from training data; read `node_modules/next/dist/docs/` first.
 - Issues live in GitHub Issues. Specs, plans and design notes go in an issue's body or comments, not in .md files.
 - Never commit `.env` or anything containing `espn_s2` / `SWID`.
+- An upgrade is re-running `install.sh` against an existing `~/ffl`: it re-fetches `docker-compose.yml` (at the pinned
+  `FFL_VERSION` tag, else main) and keeps `.env`, never adding a key to it. A change to the compose file, the images or
+  `deploy/env.example` must work for an install upgraded that way; a key a new release needs goes in the app settings.

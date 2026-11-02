@@ -121,3 +121,38 @@ def test_running_stack_keeps_port(tmp_path, stub_path):
     sock.close()
     assert r.returncode == 0, r.stderr
     assert _val(tmp_path, "FFL_PORT") == str(web)
+
+
+def test_rerun_is_the_upgrade_it_replaces_a_stale_compose_file(tmp_path, stub_path):
+    assert run(tmp_path, stub_path).returncode == 0
+    compose = tmp_path / "ffl" / "docker-compose.yml"
+    compose.write_text("services:\n  db:\n    image: postgres:15\n")  # an older release's file
+    env = (tmp_path / "ffl" / ".env").read_text()
+    assert run(tmp_path, stub_path).returncode == 0
+    assert compose.read_bytes() == (REPO / "docker-compose.yml").read_bytes()
+    assert (tmp_path / "ffl" / ".env").read_text() == env
+
+
+CURL = """#!/bin/sh
+for a; do case $a in https://*) url=$a;; esac; [ "$prev" = -o ] && out=$a; prev=$a; done
+echo "$url" >> "$CURL_LOG"
+cp "$REPO/${url#*/FFL/*/}" "$out"
+"""
+
+
+@pytest.mark.parametrize("version, ref", [("latest", "main"), ("v1.2.0", "v1.2.0")])
+def test_compose_file_comes_from_the_pinned_release(tmp_path, stub_path, version, ref):
+    """With no FFL_INSTALL_BASE the files come over curl (a stub serving the repo's): from the tag FFL_VERSION pins,
+    else main."""
+    (tmp_path / "bin" / "curl").write_text(CURL)
+    (tmp_path / "bin" / "curl").chmod(0o755)
+    (tmp_path / "ffl").mkdir()
+    env = re.sub(r"^FFL_VERSION=.*$", f"FFL_VERSION={version}", (REPO / "deploy" / "env.example").read_text(),
+                 flags=re.M)
+    (tmp_path / "ffl" / ".env").write_text(env)
+    r = subprocess.run(["/bin/sh", str(REPO / "install.sh")], capture_output=True, text=True, env={
+        "PATH": stub_path, "HOME": str(tmp_path), "FFL_HOME": str(tmp_path / "ffl"), "REPO": str(REPO),
+        "DOCKER_LOG": str(tmp_path / "docker.log"), "CURL_LOG": str(tmp_path / "curl.log")})
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "curl.log").read_text().split() == [
+        f"https://raw.githubusercontent.com/jonulak/FFL/{ref}/docker-compose.yml"]
