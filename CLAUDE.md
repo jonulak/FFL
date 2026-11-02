@@ -63,7 +63,7 @@ Draft pipeline: settings -> players -> adp -> browser + draft_watch. Every draft
 
 ## Config
 **Stack.** Production is the Docker Compose stack (`docker-compose.yml`, installed by `install.sh` into `~/ffl`):
-`db` (postgres:16, not published on the host; a `docker-compose.override.yml` opens it for the draft tools), `api` (`ghcr.io/jonulak/ffl-api`, the root `Dockerfile`; `deploy/entrypoint.sh`
+`db` (`pgvector/pgvector:pg16`: postgres:16 with pgvector for the news search; Mac: `brew install pgvector`, `scripts/pg-test-setup.sh`; not published on the host; a `docker-compose.override.yml` opens it for the draft tools), `api` (`ghcr.io/jonulak/ffl-api`, the root `Dockerfile`; `deploy/entrypoint.sh`
 migrates then starts uvicorn on :8300; no Node, no agent CLI), `runner` (`ghcr.io/jonulak/ffl-runner`, `Dockerfile.runner`:
 the standalone `claude` binary behind `ffl/harness.py`, stdlib only, :8310 on the internal network, no published port,
 `x-ffl-job` required), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)

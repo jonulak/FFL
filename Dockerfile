@@ -26,6 +26,11 @@ ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-cache
+# The news search's embedding model, baked in: production never downloads it, and a code change keeps this layer
+ENV FASTEMBED_CACHE_PATH=/app/models
+COPY ffl/embed.py /tmp/embed.py
+RUN uv run --no-sync python /tmp/embed.py && rm /tmp/embed.py
+ENV HF_HUB_OFFLINE=1
 COPY ffl ffl
 COPY migrations migrations
 COPY alembic.ini ./

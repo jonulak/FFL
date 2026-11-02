@@ -42,7 +42,7 @@ from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
-from . import appconf, auth, claude_cli, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
+from . import appconf, auth, claude_cli, embed, espn_auth, espn_connect, fastcast, news, playbook, vault, watch
 from . import claims as claims_mod
 from . import db
 from . import decisions as decisions_mod
@@ -2035,13 +2035,23 @@ def news_player(player_id: int, days: int = Query(30, ge=1, le=366), before: str
 
 @app.get("/news/search")
 def news_search(q: str = ""):
+    """Players by name, and the last 30 days' written stories: a headline containing `q`, then the nearest by meaning."""
     if not q.strip():
-        return {"players": []}
+        return {"players": [], "stories": []}
     try:
         index = news_players.fetch_index()
     except (Exception, SystemExit) as e:  # noqa: BLE001
         raise HTTPException(502, {"source": "espn", "error": f"player index: {str(e) or type(e).__name__}"}) from e
-    return {"players": news_feed.search(index, q)}
+    try:
+        qvec = embed.query(q)
+    except Exception as e:  # noqa: BLE001 — no model: the headline match still answers
+        log.warning("news search: embedding failed, headline match only: %s: %s", type(e).__name__, e)
+        qvec = None
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
+    stories = [{"id": s["id"], "headline": s["headline"], "overview": s["overview"], "latest_at": s["latest_at"],
+                "status": s["status"], "kind": s["kind"], "player_ids": [p["player_id"] for p in s["players"]]}
+               for s in db.search_stories(qvec, q, since)]
+    return {"players": news_feed.search(index, q), "stories": stories}
 
 
 class MuteIn(BaseModel):

@@ -9,8 +9,10 @@ dependencies = [
     "cryptography>=50",
     "espn-api>=0.46.0",
     "fastapi>=0.141.1",
+    "fastembed>=0.9.1",
     "lxml>=6.1.3",
     "pandas>=3.0.5",
+    "pgvector>=0.5.1",
     "psycopg[binary]>=3.3.6",
     "python-dotenv>=1.2.3",
     "pywebpush>=2.5.0",
@@ -34,4 +36,5 @@ dev = [
 pythonpath = ["."]
 markers = [
     "real_auth: run the API's real sign-in middleware instead of conftest's signed-in TEST_USER",
+    "real_embedder: use the real local embedding model (ffl.embed) instead of conftest's fake",
 ]

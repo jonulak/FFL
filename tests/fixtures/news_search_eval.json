@@ -1,0 +1,656 @@
+{
+ "stories": [
+  {
+   "key": 1,
+   "headline": "Darnell Okafor questionable for Sunday with a hamstring",
+   "overview": "Darnell Okafor tweaked his hamstring Thursday and is a game-time call.",
+   "line": "Limited all week; may sit or play a reduced role"
+  },
+  {
+   "key": 2,
+   "headline": "Trey Whitfield questionable for Sunday with a hamstring",
+   "overview": "Trey Whitfield tweaked his hamstring Thursday and is a game-time call.",
+   "line": "Limited all week; may sit or play a reduced role"
+  },
+  {
+   "key": 3,
+   "headline": "Marcus Lindqvist questionable for Sunday with a hamstring",
+   "overview": "Marcus Lindqvist tweaked his hamstring Thursday and is a game-time call.",
+   "line": "Limited all week; may sit or play a reduced role"
+  },
+  {
+   "key": 4,
+   "headline": "Jalen Pryce questionable for Sunday with a hamstring",
+   "overview": "Jalen Pryce tweaked his hamstring Thursday and is a game-time call.",
+   "line": "Limited all week; may sit or play a reduced role"
+  },
+  {
+   "key": 5,
+   "headline": "Cole Haverty questionable for Sunday with a hamstring",
+   "overview": "Cole Haverty tweaked his hamstring Thursday and is a game-time call.",
+   "line": "Limited all week; may sit or play a reduced role"
+  },
+  {
+   "key": 6,
+   "headline": "Darnell Okafor tears ACL, out for the season",
+   "overview": "Darnell Okafor went down untouched in practice; an MRI confirmed the tear.",
+   "line": "Season over; his targets go to the depth behind him"
+  },
+  {
+   "key": 7,
+   "headline": "Trey Whitfield tears ACL, out for the season",
+   "overview": "Trey Whitfield went down untouched in practice; an MRI confirmed the tear.",
+   "line": "Season over; his targets go to the depth behind him"
+  },
+  {
+   "key": 8,
+   "headline": "Marcus Lindqvist tears ACL, out for the season",
+   "overview": "Marcus Lindqvist went down untouched in practice; an MRI confirmed the tear.",
+   "line": "Season over; his targets go to the depth behind him"
+  },
+  {
+   "key": 9,
+   "headline": "Jalen Pryce tears ACL, out for the season",
+   "overview": "Jalen Pryce went down untouched in practice; an MRI confirmed the tear.",
+   "line": "Season over; his targets go to the depth behind him"
+  },
+  {
+   "key": 10,
+   "headline": "Cole Haverty tears ACL, out for the season",
+   "overview": "Cole Haverty went down untouched in practice; an MRI confirmed the tear.",
+   "line": "Season over; his targets go to the depth behind him"
+  },
+  {
+   "key": 11,
+   "headline": "Darnell Okafor dealt to Chicago for a fifth-round pick",
+   "overview": "The deadline move sends Darnell Okafor to the Bears.",
+   "line": "New offense, unclear role in his first week"
+  },
+  {
+   "key": 12,
+   "headline": "Trey Whitfield dealt to Chicago for a fifth-round pick",
+   "overview": "The deadline move sends Trey Whitfield to the Bears.",
+   "line": "New offense, unclear role in his first week"
+  },
+  {
+   "key": 13,
+   "headline": "Marcus Lindqvist dealt to Chicago for a fifth-round pick",
+   "overview": "The deadline move sends Marcus Lindqvist to the Bears.",
+   "line": "New offense, unclear role in his first week"
+  },
+  {
+   "key": 14,
+   "headline": "Jalen Pryce dealt to Chicago for a fifth-round pick",
+   "overview": "The deadline move sends Jalen Pryce to the Bears.",
+   "line": "New offense, unclear role in his first week"
+  },
+  {
+   "key": 15,
+   "headline": "Cole Haverty dealt to Chicago for a fifth-round pick",
+   "overview": "The deadline move sends Cole Haverty to the Bears.",
+   "line": "New offense, unclear role in his first week"
+  },
+  {
+   "key": 16,
+   "headline": "Darnell Okafor banned three games for a conduct violation",
+   "overview": "The league handed down the penalty Tuesday; he will not appeal.",
+   "line": "Unavailable through Week 12"
+  },
+  {
+   "key": 17,
+   "headline": "Trey Whitfield banned three games for a conduct violation",
+   "overview": "The league handed down the penalty Tuesday; he will not appeal.",
+   "line": "Unavailable through Week 12"
+  },
+  {
+   "key": 18,
+   "headline": "Marcus Lindqvist banned three games for a conduct violation",
+   "overview": "The league handed down the penalty Tuesday; he will not appeal.",
+   "line": "Unavailable through Week 12"
+  },
+  {
+   "key": 19,
+   "headline": "Jalen Pryce banned three games for a conduct violation",
+   "overview": "The league handed down the penalty Tuesday; he will not appeal.",
+   "line": "Unavailable through Week 12"
+  },
+  {
+   "key": 20,
+   "headline": "Cole Haverty banned three games for a conduct violation",
+   "overview": "The league handed down the penalty Tuesday; he will not appeal.",
+   "line": "Unavailable through Week 12"
+  },
+  {
+   "key": 21,
+   "headline": "Darnell Okafor in the protocol after a helmet-to-helmet hit",
+   "overview": "Darnell Okafor left in the second quarter and did not return.",
+   "line": "Must clear independent evaluation before Sunday"
+  },
+  {
+   "key": 22,
+   "headline": "Trey Whitfield in the protocol after a helmet-to-helmet hit",
+   "overview": "Trey Whitfield left in the second quarter and did not return.",
+   "line": "Must clear independent evaluation before Sunday"
+  },
+  {
+   "key": 23,
+   "headline": "Marcus Lindqvist in the protocol after a helmet-to-helmet hit",
+   "overview": "Marcus Lindqvist left in the second quarter and did not return.",
+   "line": "Must clear independent evaluation before Sunday"
+  },
+  {
+   "key": 24,
+   "headline": "Jalen Pryce in the protocol after a helmet-to-helmet hit",
+   "overview": "Jalen Pryce left in the second quarter and did not return.",
+   "line": "Must clear independent evaluation before Sunday"
+  },
+  {
+   "key": 25,
+   "headline": "Cole Haverty in the protocol after a helmet-to-helmet hit",
+   "overview": "Cole Haverty left in the second quarter and did not return.",
+   "line": "Must clear independent evaluation before Sunday"
+  },
+  {
+   "key": 26,
+   "headline": "Darnell Okafor signs a four-year extension",
+   "overview": "Darnell Okafor agreed to terms worth $80 million.",
+   "line": "Contract news only; no change on the field"
+  },
+  {
+   "key": 27,
+   "headline": "Trey Whitfield signs a four-year extension",
+   "overview": "Trey Whitfield agreed to terms worth $80 million.",
+   "line": "Contract news only; no change on the field"
+  },
+  {
+   "key": 28,
+   "headline": "Marcus Lindqvist signs a four-year extension",
+   "overview": "Marcus Lindqvist agreed to terms worth $80 million.",
+   "line": "Contract news only; no change on the field"
+  },
+  {
+   "key": 29,
+   "headline": "Jalen Pryce signs a four-year extension",
+   "overview": "Jalen Pryce agreed to terms worth $80 million.",
+   "line": "Contract news only; no change on the field"
+  },
+  {
+   "key": 30,
+   "headline": "Cole Haverty signs a four-year extension",
+   "overview": "Cole Haverty agreed to terms worth $80 million.",
+   "line": "Contract news only; no change on the field"
+  },
+  {
+   "key": 31,
+   "headline": "Darnell Okafor named the starter after the veteran's benching",
+   "overview": "Coaches moved Darnell Okafor to the top of the depth chart.",
+   "line": "Lead role from this week on"
+  },
+  {
+   "key": 32,
+   "headline": "Trey Whitfield named the starter after the veteran's benching",
+   "overview": "Coaches moved Trey Whitfield to the top of the depth chart.",
+   "line": "Lead role from this week on"
+  },
+  {
+   "key": 33,
+   "headline": "Marcus Lindqvist named the starter after the veteran's benching",
+   "overview": "Coaches moved Marcus Lindqvist to the top of the depth chart.",
+   "line": "Lead role from this week on"
+  },
+  {
+   "key": 34,
+   "headline": "Jalen Pryce named the starter after the veteran's benching",
+   "overview": "Coaches moved Jalen Pryce to the top of the depth chart.",
+   "line": "Lead role from this week on"
+  },
+  {
+   "key": 35,
+   "headline": "Cole Haverty named the starter after the veteran's benching",
+   "overview": "Coaches moved Cole Haverty to the top of the depth chart.",
+   "line": "Lead role from this week on"
+  },
+  {
+   "key": 36,
+   "headline": "Darnell Okafor carted off with a high ankle sprain",
+   "overview": "X-rays were negative but he is in a walking boot.",
+   "line": "Likely to miss two to four weeks"
+  },
+  {
+   "key": 37,
+   "headline": "Trey Whitfield carted off with a high ankle sprain",
+   "overview": "X-rays were negative but he is in a walking boot.",
+   "line": "Likely to miss two to four weeks"
+  },
+  {
+   "key": 38,
+   "headline": "Marcus Lindqvist carted off with a high ankle sprain",
+   "overview": "X-rays were negative but he is in a walking boot.",
+   "line": "Likely to miss two to four weeks"
+  },
+  {
+   "key": 39,
+   "headline": "Jalen Pryce carted off with a high ankle sprain",
+   "overview": "X-rays were negative but he is in a walking boot.",
+   "line": "Likely to miss two to four weeks"
+  },
+  {
+   "key": 40,
+   "headline": "Cole Haverty carted off with a high ankle sprain",
+   "overview": "X-rays were negative but he is in a walking boot.",
+   "line": "Likely to miss two to four weeks"
+  },
+  {
+   "key": 41,
+   "headline": "Darnell Okafor placed on injured reserve",
+   "overview": "The club moved Darnell Okafor to IR on Monday with a shoulder problem.",
+   "line": "Out at least four games"
+  },
+  {
+   "key": 42,
+   "headline": "Trey Whitfield placed on injured reserve",
+   "overview": "The club moved Trey Whitfield to IR on Monday with a shoulder problem.",
+   "line": "Out at least four games"
+  },
+  {
+   "key": 43,
+   "headline": "Marcus Lindqvist placed on injured reserve",
+   "overview": "The club moved Marcus Lindqvist to IR on Monday with a shoulder problem.",
+   "line": "Out at least four games"
+  },
+  {
+   "key": 44,
+   "headline": "Jalen Pryce placed on injured reserve",
+   "overview": "The club moved Jalen Pryce to IR on Monday with a shoulder problem.",
+   "line": "Out at least four games"
+  },
+  {
+   "key": 45,
+   "headline": "Cole Haverty placed on injured reserve",
+   "overview": "The club moved Cole Haverty to IR on Monday with a shoulder problem.",
+   "line": "Out at least four games"
+  },
+  {
+   "key": 46,
+   "headline": "Darnell Okafor released by the team",
+   "overview": "Darnell Okafor was cut to open a roster spot.",
+   "line": "Free agent; no role until he signs elsewhere"
+  },
+  {
+   "key": 47,
+   "headline": "Trey Whitfield released by the team",
+   "overview": "Trey Whitfield was cut to open a roster spot.",
+   "line": "Free agent; no role until he signs elsewhere"
+  },
+  {
+   "key": 48,
+   "headline": "Marcus Lindqvist released by the team",
+   "overview": "Marcus Lindqvist was cut to open a roster spot.",
+   "line": "Free agent; no role until he signs elsewhere"
+  },
+  {
+   "key": 49,
+   "headline": "Jalen Pryce released by the team",
+   "overview": "Jalen Pryce was cut to open a roster spot.",
+   "line": "Free agent; no role until he signs elsewhere"
+  },
+  {
+   "key": 50,
+   "headline": "Cole Haverty released by the team",
+   "overview": "Cole Haverty was cut to open a roster spot.",
+   "line": "Free agent; no role until he signs elsewhere"
+  },
+  {
+   "key": 51,
+   "headline": "Darnell Okafor posts 180 yards and two scores",
+   "overview": "Darnell Okafor torched the secondary in a blowout win.",
+   "line": "Usage spike makes him a weekly starter"
+  },
+  {
+   "key": 52,
+   "headline": "Trey Whitfield posts 180 yards and two scores",
+   "overview": "Trey Whitfield torched the secondary in a blowout win.",
+   "line": "Usage spike makes him a weekly starter"
+  },
+  {
+   "key": 53,
+   "headline": "Marcus Lindqvist posts 180 yards and two scores",
+   "overview": "Marcus Lindqvist torched the secondary in a blowout win.",
+   "line": "Usage spike makes him a weekly starter"
+  },
+  {
+   "key": 54,
+   "headline": "Jalen Pryce posts 180 yards and two scores",
+   "overview": "Jalen Pryce torched the secondary in a blowout win.",
+   "line": "Usage spike makes him a weekly starter"
+  },
+  {
+   "key": 55,
+   "headline": "Cole Haverty posts 180 yards and two scores",
+   "overview": "Cole Haverty torched the secondary in a blowout win.",
+   "line": "Usage spike makes him a weekly starter"
+  },
+  {
+   "key": 56,
+   "headline": "Darnell Okafor's snap share falls to 30 percent",
+   "overview": "The rookie behind Darnell Okafor took over passing downs.",
+   "line": "Fewer routes means fewer chances"
+  },
+  {
+   "key": 57,
+   "headline": "Trey Whitfield's snap share falls to 30 percent",
+   "overview": "The rookie behind Trey Whitfield took over passing downs.",
+   "line": "Fewer routes means fewer chances"
+  },
+  {
+   "key": 58,
+   "headline": "Marcus Lindqvist's snap share falls to 30 percent",
+   "overview": "The rookie behind Marcus Lindqvist took over passing downs.",
+   "line": "Fewer routes means fewer chances"
+  },
+  {
+   "key": 59,
+   "headline": "Jalen Pryce's snap share falls to 30 percent",
+   "overview": "The rookie behind Jalen Pryce took over passing downs.",
+   "line": "Fewer routes means fewer chances"
+  },
+  {
+   "key": 60,
+   "headline": "Cole Haverty's snap share falls to 30 percent",
+   "overview": "The rookie behind Cole Haverty took over passing downs.",
+   "line": "Fewer routes means fewer chances"
+  },
+  {
+   "key": 61,
+   "headline": "Darnell Okafor misses practice with the flu",
+   "overview": "Darnell Okafor was sent home Wednesday feeling sick.",
+   "line": "Expected back by the weekend"
+  },
+  {
+   "key": 62,
+   "headline": "Trey Whitfield misses practice with the flu",
+   "overview": "Trey Whitfield was sent home Wednesday feeling sick.",
+   "line": "Expected back by the weekend"
+  },
+  {
+   "key": 63,
+   "headline": "Marcus Lindqvist misses practice with the flu",
+   "overview": "Marcus Lindqvist was sent home Wednesday feeling sick.",
+   "line": "Expected back by the weekend"
+  },
+  {
+   "key": 64,
+   "headline": "Jalen Pryce misses practice with the flu",
+   "overview": "Jalen Pryce was sent home Wednesday feeling sick.",
+   "line": "Expected back by the weekend"
+  },
+  {
+   "key": 65,
+   "headline": "Cole Haverty misses practice with the flu",
+   "overview": "Cole Haverty was sent home Wednesday feeling sick.",
+   "line": "Expected back by the weekend"
+  },
+  {
+   "key": 66,
+   "headline": "Darnell Okafor skips practice amid a contract dispute",
+   "overview": "Darnell Okafor wants a new deal and stayed away from the facility.",
+   "line": "Status for Sunday uncertain"
+  },
+  {
+   "key": 67,
+   "headline": "Trey Whitfield skips practice amid a contract dispute",
+   "overview": "Trey Whitfield wants a new deal and stayed away from the facility.",
+   "line": "Status for Sunday uncertain"
+  },
+  {
+   "key": 68,
+   "headline": "Marcus Lindqvist skips practice amid a contract dispute",
+   "overview": "Marcus Lindqvist wants a new deal and stayed away from the facility.",
+   "line": "Status for Sunday uncertain"
+  },
+  {
+   "key": 69,
+   "headline": "Jalen Pryce skips practice amid a contract dispute",
+   "overview": "Jalen Pryce wants a new deal and stayed away from the facility.",
+   "line": "Status for Sunday uncertain"
+  },
+  {
+   "key": 70,
+   "headline": "Cole Haverty skips practice amid a contract dispute",
+   "overview": "Cole Haverty wants a new deal and stayed away from the facility.",
+   "line": "Status for Sunday uncertain"
+  },
+  {
+   "key": 71,
+   "headline": "Darnell Okafor activated from IR, expected to play",
+   "overview": "Darnell Okafor practiced in full all week after six weeks out.",
+   "line": "Back in his old role right away"
+  },
+  {
+   "key": 72,
+   "headline": "Trey Whitfield activated from IR, expected to play",
+   "overview": "Trey Whitfield practiced in full all week after six weeks out.",
+   "line": "Back in his old role right away"
+  },
+  {
+   "key": 73,
+   "headline": "Marcus Lindqvist activated from IR, expected to play",
+   "overview": "Marcus Lindqvist practiced in full all week after six weeks out.",
+   "line": "Back in his old role right away"
+  },
+  {
+   "key": 74,
+   "headline": "Jalen Pryce activated from IR, expected to play",
+   "overview": "Jalen Pryce practiced in full all week after six weeks out.",
+   "line": "Back in his old role right away"
+  },
+  {
+   "key": 75,
+   "headline": "Cole Haverty activated from IR, expected to play",
+   "overview": "Cole Haverty practiced in full all week after six weeks out.",
+   "line": "Back in his old role right away"
+  },
+  {
+   "key": 76,
+   "headline": "Snow and high winds forecast for Darnell Okafor's game",
+   "overview": "A storm is expected over the stadium Sunday.",
+   "line": "Passing game may be held back"
+  },
+  {
+   "key": 77,
+   "headline": "Snow and high winds forecast for Trey Whitfield's game",
+   "overview": "A storm is expected over the stadium Sunday.",
+   "line": "Passing game may be held back"
+  },
+  {
+   "key": 78,
+   "headline": "Snow and high winds forecast for Marcus Lindqvist's game",
+   "overview": "A storm is expected over the stadium Sunday.",
+   "line": "Passing game may be held back"
+  },
+  {
+   "key": 79,
+   "headline": "Snow and high winds forecast for Jalen Pryce's game",
+   "overview": "A storm is expected over the stadium Sunday.",
+   "line": "Passing game may be held back"
+  },
+  {
+   "key": 80,
+   "headline": "Snow and high winds forecast for Cole Haverty's game",
+   "overview": "A storm is expected over the stadium Sunday.",
+   "line": "Passing game may be held back"
+  },
+  {
+   "key": 81,
+   "headline": "Darnell Okafor arrested on a DUI charge",
+   "overview": "Police detained Darnell Okafor early Saturday; the team is gathering information.",
+   "line": "Discipline possible; may be inactive"
+  },
+  {
+   "key": 82,
+   "headline": "Trey Whitfield arrested on a DUI charge",
+   "overview": "Police detained Trey Whitfield early Saturday; the team is gathering information.",
+   "line": "Discipline possible; may be inactive"
+  },
+  {
+   "key": 83,
+   "headline": "Marcus Lindqvist arrested on a DUI charge",
+   "overview": "Police detained Marcus Lindqvist early Saturday; the team is gathering information.",
+   "line": "Discipline possible; may be inactive"
+  },
+  {
+   "key": 84,
+   "headline": "Jalen Pryce arrested on a DUI charge",
+   "overview": "Police detained Jalen Pryce early Saturday; the team is gathering information.",
+   "line": "Discipline possible; may be inactive"
+  },
+  {
+   "key": 85,
+   "headline": "Cole Haverty arrested on a DUI charge",
+   "overview": "Police detained Cole Haverty early Saturday; the team is gathering information.",
+   "line": "Discipline possible; may be inactive"
+  },
+  {
+   "key": 86,
+   "headline": "Darnell Okafor's team on bye this week",
+   "overview": "No game this week for Darnell Okafor.",
+   "line": "Zero points this week"
+  },
+  {
+   "key": 87,
+   "headline": "Trey Whitfield's team on bye this week",
+   "overview": "No game this week for Trey Whitfield.",
+   "line": "Zero points this week"
+  },
+  {
+   "key": 88,
+   "headline": "Marcus Lindqvist's team on bye this week",
+   "overview": "No game this week for Marcus Lindqvist.",
+   "line": "Zero points this week"
+  },
+  {
+   "key": 89,
+   "headline": "Jalen Pryce's team on bye this week",
+   "overview": "No game this week for Jalen Pryce.",
+   "line": "Zero points this week"
+  },
+  {
+   "key": 90,
+   "headline": "Cole Haverty's team on bye this week",
+   "overview": "No game this week for Cole Haverty.",
+   "line": "Zero points this week"
+  },
+  {
+   "key": 91,
+   "headline": "Darnell Okafor's offensive coordinator fired",
+   "overview": "The team dismissed its play-caller after a third straight loss.",
+   "line": "Scheme change could shift his workload"
+  },
+  {
+   "key": 92,
+   "headline": "Trey Whitfield's offensive coordinator fired",
+   "overview": "The team dismissed its play-caller after a third straight loss.",
+   "line": "Scheme change could shift his workload"
+  },
+  {
+   "key": 93,
+   "headline": "Marcus Lindqvist's offensive coordinator fired",
+   "overview": "The team dismissed its play-caller after a third straight loss.",
+   "line": "Scheme change could shift his workload"
+  },
+  {
+   "key": 94,
+   "headline": "Jalen Pryce's offensive coordinator fired",
+   "overview": "The team dismissed its play-caller after a third straight loss.",
+   "line": "Scheme change could shift his workload"
+  },
+  {
+   "key": 95,
+   "headline": "Cole Haverty's offensive coordinator fired",
+   "overview": "The team dismissed its play-caller after a third straight loss.",
+   "line": "Scheme change could shift his workload"
+  },
+  {
+   "key": 96,
+   "headline": "Darnell Okafor benched after two lost fumbles",
+   "overview": "Coaches pulled Darnell Okafor in the third quarter for ball security.",
+   "line": "Role may shrink next week"
+  },
+  {
+   "key": 97,
+   "headline": "Trey Whitfield benched after two lost fumbles",
+   "overview": "Coaches pulled Trey Whitfield in the third quarter for ball security.",
+   "line": "Role may shrink next week"
+  },
+  {
+   "key": 98,
+   "headline": "Marcus Lindqvist benched after two lost fumbles",
+   "overview": "Coaches pulled Marcus Lindqvist in the third quarter for ball security.",
+   "line": "Role may shrink next week"
+  },
+  {
+   "key": 99,
+   "headline": "Jalen Pryce benched after two lost fumbles",
+   "overview": "Coaches pulled Jalen Pryce in the third quarter for ball security.",
+   "line": "Role may shrink next week"
+  },
+  {
+   "key": 100,
+   "headline": "Cole Haverty benched after two lost fumbles",
+   "overview": "Coaches pulled Cole Haverty in the third quarter for ball security.",
+   "line": "Role may shrink next week"
+  }
+ ],
+ "queries": [
+  {
+   "q": "hamstring, questionable for Sunday",
+   "expected": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  },
+  {
+   "q": "torn knee ligament, done for the year",
+   "expected": [
+    6,
+    7,
+    8,
+    9,
+    10
+   ]
+  },
+  {
+   "q": "traded at the deadline to another team",
+   "expected": [
+    11,
+    12,
+    13,
+    14,
+    15
+   ]
+  },
+  {
+   "q": "head injury, has to pass the league's tests",
+   "expected": [
+    21,
+    22,
+    23,
+    24,
+    25
+   ]
+  },
+  {
+   "q": "kicked off the roster",
+   "expected": [
+    46,
+    47,
+    48,
+    49,
+    50
+   ]
+  }
+ ]
+}

@@ -1488,7 +1488,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** News Search */
+        /**
+         * News Search
+         * @description Players by name, and the last 30 days' written stories: a headline containing `q`, then the nearest by meaning.
+         */
         get: operations["news_search_news_search_get"];
         put?: never;
         post?: never;

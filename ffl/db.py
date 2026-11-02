@@ -21,6 +21,7 @@ import threading
 from contextlib import contextmanager
 
 import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .config import DATA, ROOT, SEASON
@@ -794,6 +795,7 @@ news_stories = sa.Table(
     sa.Column("status", sa.String, nullable=False, default="live"),    # live|corrected|retracted
     sa.Column("status_at", sa.String),
     sa.Column("status_note", sa.String),                 # which source corrected or withdrew it
+    sa.Column("embedding", Vector(384)),                 # its written words (ffl.embed); NULL until the embed stage
 )
 sa.Index("ix_news_stories_updated", news_stories.c.season, news_stories.c.updated_at)
 sa.Index("ix_news_stories_latest", news_stories.c.season, news_stories.c.latest_at)
@@ -2254,7 +2256,7 @@ def withdraw_item(item_id: int, at: str, season: int = SEASON) -> dict | None:
             _relatest(c, sid, season)
             return None
         _bump_story(c, sid, season, status="retracted", status_at=at, updated_at=at, latest_at=at)
-        return dict(c.execute(sa.select(s).where(s.c.id == sid)).first()._mapping)
+        return dict(c.execute(sa.select(*[k for k in s.c if k.name != "embedding"]).where(s.c.id == sid)).first()._mapping)
 
 
 def set_story_status(story_id: int, status: str, at: str, note: str | None, season: int = SEASON) -> None:
@@ -2300,7 +2302,7 @@ def update_story(story_id: int, fields: dict, season: int = SEASON) -> None:
 
 def _stories_out(c, rows, season: int) -> list[dict]:
     """Story rows dressed with their `players` (story_player rows) and `items` (item rows, oldest first)."""
-    out = [{k: v for k, v in r._mapping.items() if k != "season"} for r in rows]
+    out = [{k: v for k, v in r._mapping.items() if k not in ("season", "embedding")} for r in rows]
     ids = [s["id"] for s in out]
     if not ids:
         return out
@@ -2401,7 +2403,7 @@ def put_story_words(story_id: int, rev: int, headline: str, overview: str, lines
     with _write() as c:
         done = c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id, t.c.rev == rev,
                                             t.c.reword == reword)
-                         .values(headline=headline, overview=overview, written_rev=rev, reword=0))
+                         .values(headline=headline, overview=overview, written_rev=rev, reword=0, embedding=None))
         if not done.rowcount:
             return False
         for pid, (reason, flag) in lines.items():
@@ -2431,6 +2433,39 @@ def news_feed(before: str | None, limit: int, player_id: int | None = None, sinc
     q = q.order_by(t.c.latest_at.desc(), t.c.id.desc()).limit(limit)
     with _read() as c:
         return _stories_out(c, c.execute(q).all(), season)
+
+
+def unembedded_stories(limit: int, season: int = SEASON) -> list[dict]:
+    """Written stories with no vector of their words (new, rewritten, or from before embeddings), newest news first."""
+    t = news_stories
+    q = (sa.select(t).where(t.c.season == season, t.c.written_rev >= 1, t.c.embedding.is_(None))
+         .order_by(t.c.latest_at.desc(), t.c.id.desc()).limit(limit))
+    with _read() as c:
+        return _stories_out(c, c.execute(q).all(), season)
+
+
+def put_story_embedding(story_id: int, headline: str, vec: list[float], season: int = SEASON) -> bool:
+    """Store the vector, unless the story was rewritten since it was read (put_story_words cleared or changed it)."""
+    t = news_stories
+    with _write() as c:
+        return bool(c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id, t.c.embedding.is_(None),
+                                                 t.c.headline == headline).values(embedding=vec)).rowcount)
+
+
+def search_stories(qvec: list[float] | None, q: str, since: str, limit: int = 10, season: int = SEASON) -> list[dict]:
+    """Written stories with news at or after `since`: those whose headline contains `q` first (an exact name still
+    wins), newest first, then the `limit` nearest `qvec` by cosine distance (none when `qvec` is None)."""
+    t = news_stories
+    base = sa.select(t).where(t.c.season == season, t.c.written_rev >= 1, t.c.latest_at >= since)
+    with _read() as c:
+        rows = c.execute(base.where(t.c.headline.icontains(q, autoescape=True))
+                         .order_by(t.c.latest_at.desc(), t.c.id.desc()).limit(limit)).all() if q.strip() else []
+        if qvec is not None:
+            rows += c.execute(base.where(t.c.embedding.is_not(None))
+                              .order_by(t.c.embedding.cosine_distance(qvec), t.c.id).limit(limit)).all()
+        seen: set[int] = set()
+        rows = [r for r in rows if not (r.id in seen or seen.add(r.id))]
+        return _stories_out(c, rows, season)
 
 
 def _decision_out(r) -> dict:
