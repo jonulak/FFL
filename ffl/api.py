@@ -973,6 +973,12 @@ def roster_add(body: AddIn, ref: LeagueRef = Depends(open_league)):
             espn_write.add_free_agent(body.add, body.drop, data["week"] if period is None else period, ref=ref)
         except espn_write.WriteError as e:
             raise _espn_error(e)
+        except requests.RequestException as e:  # ESPN may have executed it before the connection died, as /lineup
+            for c in caches_for_league(ref):
+                c.drop("waivers")
+                c.drop("roster")
+            raise HTTPException(502, {"source": "espn", "error": "ESPN did not answer — the add may have happened; reload",
+                                      "uncertain": True}) from e
         dec = None
         if _records(ref=ref):
             names = {i: r["name"] for i, r in _pool_rows(data).items()} | {r["player_id"]: r["name"] for r in roster}

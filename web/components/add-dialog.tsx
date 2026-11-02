@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import type { ClaimPlayer, DecisionRef } from "@/lib/api";
-import { addCut, addTarget, cutBlock } from "@/lib/claims";
+import { addCut, addTarget, cutBlock, SUBMIT_FLOOR_MS } from "@/lib/claims";
 import { pts } from "@/lib/format";
 import { useClaims } from "./claims-context";
 import { PHONE_ACTION, PHONE_INSET } from "./claims-submit";
@@ -25,13 +25,20 @@ export function AddDialog({ id, name, open, onOpenChange, onAdded }: {
   id: number; name: string; open: boolean; onOpenChange: (o: boolean) => void; onAdded: (d: DecisionRef | null) => void;
 }) {
   const desk = useDesk();
-  const body = <Body id={id} name={name} close={() => onOpenChange(false)} onAdded={onAdded}
+  // mounted from the first open on and kept, so the panel closes with its rows rather than empty; a fresh pick on reopen
+  const [opens, setOpens] = useState(0);
+  const [was, setWas] = useState(false);
+  if (open !== was) {
+    setWas(open);
+    if (open) setOpens(opens + 1);
+  }
+  const body = opens > 0 && <Body key={opens} id={id} name={name} close={() => onOpenChange(false)} onAdded={onAdded}
     Title={desk ? DialogTitle : SheetTitle} Description={desk ? DialogDescription : SheetDescription} />;
   if (desk) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex max-h-[calc(var(--vv-h,100dvh)-4rem)] flex-col gap-3 rounded-lg p-4 shadow-[0_24px_48px_-20px_rgb(0_0_0_/_0.6)] sm:max-w-md">
-          {open && body}
+          {body}
         </DialogContent>
       </Dialog>
     );
@@ -40,7 +47,7 @@ export function AddDialog({ id, name, open, onOpenChange, onAdded }: {
     <Sheet open={open} onOpenChange={onOpenChange}>
       {/* PHONE_INSET: the layout sets no viewport-fit=cover, so the inset alone reads 0 in the in-app browser */}
       <SheetContent side="bottom" className={`max-h-[85dvh] gap-3 rounded-t-xl px-4 pt-4 ${PHONE_INSET}`}>
-        {open && body}
+        {body}
       </SheetContent>
     </Sheet>
   );
@@ -74,7 +81,8 @@ function Body({ id, name, close, onAdded, Title, Description }: {
     setSending(true);
     setError(null);
     try {
-      const r = await clientPost<{ decision: DecisionRef | null }>("/roster/add", { add: id, drop: pick === "open" ? null : pick });
+      const r = await clientPost<{ decision: DecisionRef | null }>("/roster/add", { add: id, drop: pick === "open" ? null : pick },
+        SUBMIT_FLOOR_MS); // ESPN's write, then the roster pages rebuilt inline: well past the default 20 s at worst
       toast(data.writes ? `Added ${name}` : `Test mode: added ${name} (fake write)`, dropName ? { description: `Dropped ${dropName}` } : undefined);
       close();
       onAdded(r.decision);
@@ -82,7 +90,9 @@ function Body({ id, name, close, onAdded, Title, Description }: {
       void refresh();
     } catch (e) {
       const detail = e instanceof ClientError ? (e.body as { detail?: { error?: string; locked?: boolean } } | null)?.detail : null;
-      setError({ text: detail?.error ?? (e instanceof Error ? e.message : String(e)), locked: !!detail?.locked });
+      // no answer at all (timeout, the phone left the app): ESPN may have taken it, so never say it failed
+      const text = e instanceof ClientError ? detail?.error ?? e.message : "No answer from the server: the add may have happened. Reload to see the roster.";
+      setError({ text, locked: !!detail?.locked });
     } finally {
       setSending(false);
     }
