@@ -2,7 +2,7 @@
 # deploy/env.example); everything else is set in the app (the setup wizard, Settings › App) and kept in the database.
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16   # postgres:16 with pgvector (news search); same data directory
     restart: unless-stopped
     environment:
       POSTGRES_USER: ffl
