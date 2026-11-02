@@ -1,5 +1,5 @@
 """One news run (`POST /news/run`, launchd/com.jonulak.ffl-news every 10 minutes): seed, index, collect, recheck,
-media, tag, write, embed, notices, health. Each stage is tried on its own and a failure is reported, the rest still run,
+media, tag, write, notices, embed, health. Each stage is tried on its own and a failure is reported, the rest still run,
 like notify.tick; the stages that need the player index are skipped without one. The stage dict is kept as state
 `news_last_run` for `GET /news/status`.
 
@@ -179,9 +179,9 @@ def run() -> dict:
     stage("media", lambda: media.run_all(index, now), needs_index=True)
     stage("tag", lambda: tag.run(index, now=now), needs_index=True)
     stage("write", lambda: write.run(index), needs_index=True)
-    stage("embed", embed.run)  # its own stage: a model failure never costs a write or a push
     written = out["write"].get("written_ids", []) if isinstance(out["write"], dict) else []
     stage("notices", lambda: notify_written(written, index), needs_index=True)  # its revisions wait for the index
+    stage("embed", embed.run)  # after the pushes: a backfill's minute never delays one, and a model failure costs neither
     stage("health", _health)
     try:
         db.put_state("news_last_run", {"at": notify.now(), "stages": out})
