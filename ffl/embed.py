@@ -34,5 +34,3 @@ def query(text: str) -> list[float]:
     return next(iter(_load().query_embed(text))).tolist()
 
 
-if __name__ == "__main__":  # the image's build step: fetch the model into the cache
-    print(len(query("warm up")), "dims from", MODEL)

@@ -26,10 +26,10 @@ ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-cache
-# The news search's embedding model, baked in: production never downloads it, and a code change keeps this layer
+# The news search's embedding model (ffl/embed.py's MODEL; tests/test_embed.py holds them equal), baked in: production
+# never downloads it. Named here rather than read from the code, so no code edit rebuilds this 68 MB layer.
 ENV FASTEMBED_CACHE_PATH=/app/models
-COPY ffl/embed.py /tmp/embed.py
-RUN uv run --no-sync python /tmp/embed.py && rm /tmp/embed.py
+RUN uv run --no-sync python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
 ENV HF_HUB_OFFLINE=1
 COPY ffl ffl
 COPY migrations migrations
