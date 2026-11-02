@@ -122,8 +122,6 @@ export function atMost(groups: ClaimGroup[], pos: Map<number, string>): string {
 
 const isFA = (id: number, status: Status) => status[String(id)] === "FREEAGENT";
 
-export const groupHasFA = (g: ClaimGroup, status: Status): boolean => g.targets.some((t) => isFA(t, status));
-
 // The order the panel shows: free agents first (they are added on Submit, ahead of any claim), then
 // the waiver targets, each block in rank order. Unknown status counts as waivers.
 export function displayTargets(g: ClaimGroup, status: Status): { id: number; now: boolean }[] {
@@ -167,12 +165,11 @@ export function statusTag(p: { status: PoolStatus | null; waiver_date: number | 
   return p.waiver_date ? `W·${new Date(p.waiver_date).toLocaleDateString("en-US", { weekday: "short" })}` : "W";
 }
 
-// Why a roster player cannot be a cut, or null. A locked cut (his game started) only blocks an
-// instant add; a claim processes after the games.
-export function cutBlock(p: ClaimPlayer, groupHasFA: boolean): string | null {
+// Why a roster player cannot be a cut, or null. A locked one (his game started) can: no instant add
+// drops him, so he is a claim-only row (a free agent who needs him is claimed too).
+export function cutBlock(p: ClaimPlayer): string | null {
   if (p.slot === "IR") return "on IR";
   if (p.droppable === false) return "undroppable";
-  if (groupHasFA && p.locked) return "game started";
   return null;
 }
 

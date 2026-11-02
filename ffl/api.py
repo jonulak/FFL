@@ -732,6 +732,11 @@ def _players(groups, data):
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
 
 
+def _locked(roster) -> set:
+    """My players whose game has started: a claim-only cut (no instant add can drop him)."""
+    return {p["player_id"] for p in roster if p.get("locked")}
+
+
 def _claims_roster(data, *, ref: LeagueRef):
     """My roster as the claims read it: the cached pool's rows with the slots a fake lineup move (FFL_WRITES=0) put
     players in laid over, as the Roster page does, so a fake move off IR clears the IR block here too."""
@@ -750,7 +755,8 @@ def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S, *, ref: Lea
     roster, status = _claims_roster(data, ref=ref), _status(data) if status is None else status
     last = plan["submits"][-1] if plan["submits"] else None
     ids = set(last["ids"]) if last else set()
-    now, expansion = claims_mod.plan_now(plan["groups"], status), claims_mod.expand(plan["groups"], status)
+    locked = _locked(roster)
+    now, expansion = claims_mod.plan_now(plan["groups"], status, locked), claims_mod.expand(plan["groups"], status, locked=locked)
     try:
         pending, perr = espn_write.pending_state(max_age, ref=ref)[0], None
     except espn_write.WriteError as e:
@@ -851,7 +857,8 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
         plan, roster = _load_plan(data["week"], ref=ref), _claims_roster(data, ref=ref)
         status = _fresh_status(data, ref=ref)
         # the dialog showed an "Add now" list from its own read: instant adds can't be undone, so any other is a 409
-        now = claims_mod.plan_now(plan["groups"], status)
+        locked = _locked(roster)
+        now = claims_mod.plan_now(plan["groups"], status, locked)
         if now != [m.model_dump() for m in body.expect_now]:
             raise HTTPException(409, {"error": "statuses changed — review again", "now": now})
         errs = _validate(plan, roster, data, status, ref=ref)
@@ -875,7 +882,7 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
                             submit_claim=lambda a, d: espn_write.submit_claim(a, d, wk, ref=ref),
                             add_free_agent=lambda a, d: espn_write.add_free_agent(a, d, wk, ref=ref),
                             reorder_claims=lambda ids: espn_write.reorder_claims(ids, ref=ref))
-        res = claims_mod.run_submit(plan["groups"], status, pending, set(last["ids"]) if last else set(), body.replace_outside, w)
+        res = claims_mod.run_submit(plan["groups"], status, pending, set(last["ids"]) if last else set(), body.replace_outside, w, locked)
         strip = lambda m: {k: m[k] for k in ("group", "add", "drop")}  # noqa: E731
         # ids = what ESPN still holds of ours (sent now, or kept from the last submit when a cancel failed), so the
         # next submit cancels them; with no read-back, assume sent + last
@@ -895,21 +902,92 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
             if res["sent"]:
                 try:
                     decs.append(db.put_week_claims(data["week"], _mark_fake(claims_mod.decision_row(
-                        submitted, names, status, data["week"], len(plan["submits"]), len(plan.get("retired", [])))), ref=ref))
+                        submitted, names, res["now"], data["week"], len(plan["submits"]), len(plan.get("retired", [])))), ref=ref))
                 except db.DBError as e:
                     log.warning("claims not recorded: %s", e)
             decs += [r for r in (_record(_mark_fake(row), ref=ref) for row in claims_mod.free_add_rows(res["now"], names, data["week"])) if r]
         elif res["now"] or res["sent"]:
             log.info("claims not recorded (logging off, or FFL_WRITES=0 without FFL_RECORD_FAKE=1)")
         if res["now"]:
-            # the roster changed: the pages that show it rebuilt inline, so the next one shows the add, not the dropped
-            # player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)
-            espn_season.forget_current_boxes(ref=ref)
-            c, *others = caches_for_league(ref)  # every member's pages show the rosters
-            for o in (c, *others):
-                o.expire_all()
-            c.rebuild("waivers", "roster", "week:current", "league:current")
+            _roster_changed(ref)
         return {**res, "decisions": decs}
+    finally:
+        lock.release()
+
+
+def _roster_changed(ref: LeagueRef):
+    """After an add: the pages that show the roster rebuilt inline, so the next one shows the add, not the dropped
+    player; the rest are served stale once and rebuilt behind it (all of them inline outlasts the client's 60 s)."""
+    espn_season.forget_current_boxes(ref=ref)
+    c, *others = caches_for_league(ref)  # every member's pages show the rosters
+    for o in (c, *others):
+        o.expire_all()
+    c.rebuild("waivers", "roster", "week:current", "league:current")
+
+
+class AddIn(BaseModel):
+    add: int
+    drop: int | None = None
+
+
+LOCKED_DROP = "his game has started: ESPN won't drop him for a free agent now, so put it on the claims sheet"
+
+
+@app.post("/roster/add")
+def roster_add(body: AddIn, ref: LeagueRef = Depends(open_league)):
+    """Add one free agent now, dropping `drop` (None: into an open spot): the quick path beside the claims sheet.
+    Statuses and locks are re-read here, and the add runs the claims' own checks as a one-group plan."""
+    lock = _lock("submit", ref)  # the claims' lock: an add and a submit never race the roster or the plan
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, "a submit or add is already running")
+    try:
+        data = _pool(ref)
+        status = _fresh_status(data, ref=ref)
+        if status.get(body.add) != claims_mod.FREE:
+            raise HTTPException(409, {"error": "no longer a free agent: put him on the claims sheet"})
+        try:
+            flags = espn_season.roster_flags(espn_season.fresh_league(ref=ref), ref=ref)
+            _, period = espn_write.pending_state(JUST_READ_S, ref=ref)
+        except espn_write.WriteError as e:
+            raise _espn_error(e)
+        except Exception as e:  # noqa: BLE001 — the mRoster read
+            raise HTTPException(502, {"source": "espn", "error": str(e)})
+        if period is not None and espn_season.league_period(period, ref=ref) != data["week"]:
+            espn_season.refresh_league()
+            for c in caches_for_league(ref):
+                c.drop("waivers")
+            raise HTTPException(409, {"error": "ESPN's week changed — reload"})
+        # locks and droppable from this read; slots as the claims see them (the fake's overlay included)
+        roster = [{**p, **{k: v for k, v in flags.get(p["player_id"], {}).items() if k in ("locked", "droppable")}}
+                  for p in _claims_roster(data, ref=ref)]
+        if body.drop is not None and body.drop in _locked(roster):
+            raise HTTPException(409, {"error": LOCKED_DROP, "locked": True})
+        spots = claims_mod.open_spots(roster, _roster_size(ref=ref))
+        if body.drop is None and not spots:
+            raise HTTPException(409, {"error": "no open roster spot: pick someone to drop"})
+        g = {"targets": [body.add], "cuts": [] if body.drop is None else [body.drop], "open": spots if body.drop is None else 0}
+        errs = _validate({"groups": [g]}, roster, data, status, ref=ref)
+        if errs:
+            raise HTTPException(409, {"error": "; ".join(e["reason"] for e in errs)})
+        try:
+            espn_write.add_free_agent(body.add, body.drop, data["week"] if period is None else period, ref=ref)
+        except espn_write.WriteError as e:
+            raise _espn_error(e)
+        dec = None
+        if _records(ref=ref):
+            names = {i: r["name"] for i, r in _pool_rows(data).items()} | {r["player_id"]: r["name"] for r in roster}
+            row = claims_mod.free_add_rows([{"group": None, "add": body.add, "drop": body.drop}], names, data["week"])[0]
+            dec = _record(_mark_fake(row), ref=ref)
+        # he is on the roster now, and the dropped player gone: both out of the claims plan
+        try:
+            plan = _load_plan(data["week"], CLAIMS_REUSE_S, ref=ref)
+            groups = claims_mod.taken_out(plan["groups"], body.add, body.drop)
+            if groups != plan["groups"]:
+                _save_plan({**plan, "groups": groups}, ref=ref)
+        except db.DBError as e:  # ESPN took the add: the plan shows him as "already on your roster" until edited
+            log.warning("added, but the claims plan not updated: %s", e)
+        _roster_changed(ref)
+        return {"decision": dec}
     finally:
         lock.release()
 

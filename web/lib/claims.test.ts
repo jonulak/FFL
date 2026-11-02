@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addTarget, atMost, capacity, cutBlock, displayTargets, groupHasFA, groupPos, move, moveGroup, removeFrom, reorderTargets,
+  addTarget, atMost, capacity, cutBlock, displayTargets, groupPos, move, moveGroup, removeFrom, reorderTargets,
   addCut, holder, newGroup, place, processDay, prune, regroupKeys, removeGroup, rowTag, setOpen, statusTag, submitFailure, submitSummary,
   SUBMIT_CEILING_MS, SUBMIT_FLOOR_MS, SUBMIT_MARGIN_MS, SUBMIT_PER_WRITE_MS, errorWhere, submitTimeoutMs,
   recoverSubmit, type SubmitAnswer,
@@ -56,10 +56,6 @@ describe("free agents", () => {
   it("free agents display first, flagged now", () =>
     expect(displayTargets(G[0], { "102": "FREEAGENT" })).toEqual([{ id: 102, now: true }, { id: 101, now: false }, { id: 103, now: false }]));
   it("unknown status counts as waivers", () => expect(displayTargets(G[0], {}).every((t) => !t.now)).toBe(true));
-  it("group has FA", () => {
-    expect(groupHasFA(G[0], { "103": "FREEAGENT" })).toBe(true);
-    expect(groupHasFA(G[0], { "103": "WAIVERS" })).toBe(false);
-  });
   it("reorder within the waiver block keeps the FA block first", () => {
     const g = { targets: [101, 102, 103], cuts: [], open: 0 };
     // 102 is FA: display is [102 | 101, 103]; move 103 above 101 in the waiver block
@@ -75,10 +71,9 @@ describe("free agents", () => {
   });
   it("cut blocks", () => {
     const p: ClaimPlayer = { name: "x", pos: "WR", team: "DET", add: null, ros_adj: 50, slot: "BE", status: null, waiver_date: null, droppable: true, locked: true };
-    expect(cutBlock(p, false)).toBeNull();
-    expect(cutBlock(p, true)).toBe("game started");
-    expect(cutBlock({ ...p, droppable: false }, false)).toBe("undroppable");
-    expect(cutBlock({ ...p, slot: "IR" }, false)).toBe("on IR");
+    expect(cutBlock(p)).toBeNull(); // locked: a claim-only cut, never blocked
+    expect(cutBlock({ ...p, droppable: false })).toBe("undroppable");
+    expect(cutBlock({ ...p, slot: "IR" })).toBe("on IR");
   });
 });
 

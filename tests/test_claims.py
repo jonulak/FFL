@@ -144,11 +144,22 @@ def test_undroppable_cut_rejected():
     assert any("undroppable" in r for r in errs([{"targets": [101], "cuts": [16], "open": 0}], roster=roster))
 
 
-def test_locked_cut_only_matters_for_instant_adds():
+def test_locked_cut_is_a_valid_cut():
     roster = ROSTER[:-2] + [R(16, locked=True), R(99, "IR")]
     g = [{"targets": [101], "cuts": [16], "open": 0}]
-    assert errs(g, roster=roster) == []                                        # a Wednesday claim: fine
-    assert any("game has started" in r for r in errs(g, roster=roster, status={101: FA}))
+    assert errs(g, roster=roster) == []                                        # a Wednesday claim
+    assert errs(g, roster=roster, status={101: FA}) == []                      # a free agent claims him
+
+
+def test_locked_cut_is_claim_only():
+    # 102 (FA) skips locked 1 for an instant add and takes 2; 103 (FA) has only locked 1 left: a claim
+    g = {"targets": [102, 103, 101], "cuts": [1, 2], "open": 0}
+    st = {102: FA, 103: FA}
+    assert pairs(C.plan_now([g], st, {1})) == [(102, 2)]
+    assert pairs(C.expand([g], st, locked={1})) == [(103, 1), (101, 1)]
+    w = FakeW([])
+    r = C.run_submit([g], st, [], set(), False, w, locked={1})
+    assert w.adds == [(102, 2)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(103, 1), (101, 1)]
 
 
 def test_target_not_in_pool():
@@ -196,7 +207,7 @@ def test_empty_group_rejected():
 
 def test_decision_row_and_free_adds():
     names = {101: "Addison", 102: "Mims", 103: "Doubs", 1: "Shaheed", 2: "Lockett"}
-    r = C.decision_row([{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}], names, {102: FA}, 6, 2)
+    r = C.decision_row([{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}], names, [{"group": 0, "add": 102, "drop": 1}], 6, 2)
     assert (r["kind"], r["title"], r["week"], r["rationale"]) == ("claims", "Week 6 waiver claims", 6, None)
     assert r["decision"] == "(1) get 2 of 3: Addison, Mims (FA, added now), Doubs; cut Shaheed, Lockett"
     assert r["facts"]["submits"] == 2 and r["player_ids"] == [101, 102, 103, 1, 2]

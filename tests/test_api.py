@@ -667,6 +667,62 @@ def test_submit_free_agent_is_instant(claims_env):
     assert api.espn_write._fake(home_league()).adds == [{"add": 102, "drop": 1}]
 
 
+def test_a_locked_cut_turns_a_free_agent_into_a_claim(claims_env, monkeypatch):
+    claims_env.pool["WR"][1]["status"] = "FREEAGENT"
+    claims_env.post("/claims", json={"groups": [{"targets": [102], "cuts": [1], "open": 0}]})
+    api.cache_for(home_league()).clear()
+    pool_fn = api.espn_season.free_agent_pool
+
+    def locked_r1(week=None, **k):
+        d = pool_fn(week, **k)
+        d["roster"] = [{**p, "locked": p["player_id"] == 1} for p in d["roster"]]
+        return d
+
+    monkeypatch.setattr(api.espn_season, "free_agent_pool", locked_r1)
+    g = claims_env.get("/claims").json()
+    assert g["errors"] == [] and g["now"] == [] and g["claims"] == [{"group": 0, "add": 102, "drop": 1}]
+    r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": []}).json()
+    assert r["now"] == [] and [(c["add"], c["drop"]) for c in r["sent"]] == [(102, 1)]
+    assert api.espn_write._fake(home_league()).adds == []
+
+
+@pytest.fixture
+def add_env(claims_env, monkeypatch):
+    claims_env.pool["WR"][1]["status"] = "FREEAGENT"                                  # Mims is a free agent
+    claims_env.locked = set()
+    monkeypatch.setattr(api.espn_season, "fresh_league", lambda *a, **k: None)
+    monkeypatch.setattr(api.espn_season, "roster_flags",
+                        lambda lg, **k: {i: {"locked": i in claims_env.locked, "droppable": True} for i in range(1, 17)})
+    return claims_env
+
+
+def test_roster_add_adds_now_and_leaves_the_plan(add_env, monkeypatch):
+    monkeypatch.setenv("FFL_RECORD_FAKE", "1")
+    add_env.post("/claims", json={"groups": [{"targets": [102, 101], "cuts": [1], "open": 0}, {"targets": [-16020], "cuts": [1, 2], "open": 0}]})
+    r = add_env.post("/roster/add", json={"add": 102, "drop": 1})
+    assert r.status_code == 200 and api.espn_write._fake(home_league()).adds == [{"add": 102, "drop": 1}]
+    assert db.decisions(ref=home_league())[0]["title"] == "[fake] Week 6 add: Mims, drop R1"
+    assert r.json()["decision"]["needs_rationale"] is True
+    assert db.claim_plan(6, ref=home_league())["groups"] == [{"targets": [101], "cuts": [], "open": 0},
+                                                              {"targets": [-16020], "cuts": [2], "open": 0}]
+
+
+def test_roster_add_refuses(add_env):
+    add_env.locked = {1}
+    r = add_env.post("/roster/add", json={"add": 102, "drop": 1})
+    assert r.status_code == 409 and r.json()["detail"]["locked"] is True, "a locked drop goes to the claims sheet"
+    assert add_env.post("/roster/add", json={"add": 101, "drop": 2}).status_code == 409, "on waivers: a claim"
+    assert add_env.post("/roster/add", json={"add": 102, "drop": 99}).status_code == 409, "not on my roster"
+    api.espn_write._fake(home_league()).fail_adds.add(102)
+    assert add_env.post("/roster/add", json={"add": 102, "drop": 2}).status_code == 502
+    assert api.espn_write._fake(home_league()).adds == []
+
+
+def test_roster_add_into_an_open_spot(add_env):
+    assert add_env.post("/roster/add", json={"add": 102}).status_code == 200              # 16 of 17: one open spot
+    assert api.espn_write._fake(home_league()).adds == [{"add": 102, "drop": None}]
+
+
 def test_instant_add_rebuilds_only_the_roster_pages_inline(claims_env):
     built = {"week:current": 0, "player:9": 0}
 

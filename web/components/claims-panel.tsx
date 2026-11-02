@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import type { ClaimErr, ClaimGroup, ClaimPlayer, PoolStatus } from "@/lib/api";
 import {
-  addCut, capacity, cutBlock, displayTargets, groupHasFA, groupPos, holder, moveGroup, newGroup, place, processDay, prune,
+  addCut, capacity, cutBlock, displayTargets, groupPos, holder, moveGroup, newGroup, place, processDay, prune,
   regroupKeys, removeFrom, removeGroup, setOpen, statusTag,
 } from "@/lib/claims";
 import { pts, signed } from "@/lib/format";
@@ -128,12 +128,13 @@ function targetFace(player: Lookup, id: number, now: boolean, rank: number): Fac
     value: pl?.add != null ? <>add <span className="font-display text-sm font-semibold text-foreground">{signed(pl.add)}</span></> : null,
   };
 }
-function cutFace(player: Lookup, id: number, hasFA: boolean, rank: number): Face {
+function cutFace(player: Lookup, id: number, rank: number): Face {
   const pl = player(id);
-  const block = pl ? cutBlock(pl, hasFA) : null;
+  const block = pl ? cutBlock(pl) : null;
   return {
     pid: id, rank, tone: "text-out",
-    tags: block && <span className="text-xs text-destructive">{block}</span>,
+    tags: block ? <span className="text-xs text-destructive">{block}</span>
+      : pl?.locked && <span className="text-xs text-muted-foreground" title="his game has started: no instant add can drop him, so this row is a claim">claim only</span>,
     value: pl?.ros_adj != null ? `ROS ${pts(pl.ros_adj)}` : null,
   };
 }
@@ -182,11 +183,11 @@ function EmptySlot({ fx, open, rest, drop }: { fx: string; open: boolean; rest: 
 }
 
 // The roster picker under "make room": weakest first by adjusted ROS, every player listed; one
-// who cannot go (undroppable, on IR, his game started in a group that adds a free agent now) is
-// shown disabled with the reason, so his absence from the cuts is explained.
-function CutPicker({ gi, roster, used, hasFA, disabled }: { gi: number; roster: [number, ClaimPlayer][]; used: Set<number>; hasFA: boolean; disabled: boolean }) {
+// who cannot go (undroppable, on IR) is shown disabled with the reason, so his absence from the cuts
+// is explained; one whose game has started can go, as a claim.
+function CutPicker({ gi, roster, used, disabled }: { gi: number; roster: [number, ClaimPlayer][]; used: Set<number>; disabled: boolean }) {
   const { groups, setGroups } = useClaims();
-  const items = roster.filter(([id]) => !used.has(id)).map(([id, p]) => ({ id, p, block: cutBlock(p, hasFA) }));
+  const items = roster.filter(([id]) => !used.has(id)).map(([id, p]) => ({ id, p, block: cutBlock(p) }));
   type Item = (typeof items)[number];
   return (
     <Combobox<Item> items={items} value={null} disabled={disabled}
@@ -200,7 +201,7 @@ function CutPicker({ gi, roster, used, hasFA, disabled }: { gi: number; roster: 
             <ComboboxItem key={i.id} value={i} disabled={!!i.block}>
               <span className="min-w-0 flex-1 truncate">{i.p.name}</span>
               <span className="text-xs tabular-nums text-muted-foreground">
-                {i.block ?? `${i.p.pos} · ROS ${pts(i.p.ros_adj)}`}
+                {i.block ?? `${i.p.pos} · ROS ${pts(i.p.ros_adj)}${i.p.locked ? " · claim only" : ""}`}
               </span>
             </ComboboxItem>
           )}
@@ -271,11 +272,12 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
   const shown = displayTargets(g, status);
   const fa = shown.filter((t) => t.now);
   const waiting = shown.filter((t) => !t.now);
-  const hasFA = groupHasFA(g, status);
+  // "now" is the server's word: a free agent whose only rows are locked cuts is claimed, not added
+  const added = new Set(data.now.map((m) => m.add));
   const name = (id: number) => player(id)?.name ?? `player ${id}`;
 
   const targetLine = (t: { id: number; now: boolean }, rank: number) => (
-    <Line key={t.id} id={`t${t.id}`} name={name(t.id)} disabled={submitting} {...targetFace(player, t.id, t.now, rank)}
+    <Line key={t.id} id={`t${t.id}`} name={name(t.id)} disabled={submitting} {...targetFace(player, t.id, t.now && added.has(t.id), rank)}
       onRemove={() => setGroups(removeFrom(groups, gi, "targets", t.id))} removeLabel={`Remove ${name(t.id)} from group ${gi + 1}`} />
   );
 
@@ -327,13 +329,13 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
           <SortableContext id={`cuts${gi}`} items={g.cuts.map(cutId)} strategy={verticalListSortingStrategy}>
             <ol>
               {g.cuts.map((c, i) => (
-                <Line key={c} id={cutId(c)} name={name(c)} disabled={submitting} {...cutFace(player, c, hasFA, g.open + i + 1)}
+                <Line key={c} id={cutId(c)} name={name(c)} disabled={submitting} {...cutFace(player, c, g.open + i + 1)}
                   onRemove={() => setGroups(removeFrom(groups, gi, "cuts", c))} removeLabel={`Remove ${name(c)} from the cuts`} />
               ))}
             </ol>
           </SortableContext>
         </Zone>
-        <div data-slide="pick"><CutPicker gi={gi} roster={roster} used={new Set(g.cuts)} hasFA={hasFA} disabled={submitting} /></div>
+        <div data-slide="pick"><CutPicker gi={gi} roster={roster} used={new Set(g.cuts)} disabled={submitting} /></div>
         {data.open_spots > 0 && (
           <Label data-slide="open" className="mt-2.5 text-xs font-normal text-foreground/80">
             <Checkbox checked={g.open > 0} disabled={submitting}
@@ -632,7 +634,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     const i = order(g, listOf(rowKind), status).indexOf(dragged);
     return rowKind === "t"
       ? <Lifted {...targetFace(player, dragged, status[String(dragged)] === "FREEAGENT", i + 1)} />
-      : <Lifted {...cutFace(player, dragged, groupHasFA(g, status), g.open + i + 1)} />;
+      : <Lifted {...cutFace(player, dragged, g.open + i + 1)} />;
   };
 
   return (
