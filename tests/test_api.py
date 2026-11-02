@@ -10,6 +10,7 @@ import requests
 from fastapi.testclient import TestClient
 
 from ffl import appconf, api, db, leagues
+from ffl.newsdesk import embed as news_embed
 from tests.home import HOME_KEY, home_league
 
 
@@ -311,8 +312,8 @@ def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeyp
 
 def test_outlook_read_serves_any_player(client):
     api.outlook.save(3, {7: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}})
-    assert client.get("/outlook/7?week=3").json() == {"bullets": [TAKE], "at": "t", "error": None}
-    assert client.get("/outlook/8?week=3").json() == {"bullets": None, "at": None, "error": None}
+    assert client.get("/outlook/7?week=3").json() == {"bullets": [TAKE], "at": "t"}
+    assert client.get("/outlook/8?week=3").json() == {"bullets": None, "at": None}
     assert client.get("/outlook/7").status_code == 422, "the page's week is required"
     assert client.post("/outlook/7").status_code == 405, "nothing writes on a click"
 
@@ -328,7 +329,7 @@ def test_players_rows_carry_has_outlook_for_rostered_players_too(client, monkeyp
 def test_team_rows_carry_outlooks(client):
     api.outlook.save(3, {1: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}})
     row = client.get("/team/3").json()["side"]["lineup"][0]
-    assert row["outlook"] == [TAKE] and row["outlook_at"] == "t" and row["outlook_error"] is None
+    assert row["outlook"] == [TAKE] and row["outlook_at"] == "t"
     assert "outlook_stale" not in row
 
 
@@ -2087,7 +2088,10 @@ def test_api_news_routes(news_client):
     assert news_client.get("/news/player/1").json()["player"]["mine"] is True
 
     assert [r["player_id"] for r in news_client.get("/news/search?q=tank").json()["players"]] == [2]
-    assert news_client.get("/news/search").json() == {"players": []}
+    assert news_client.get("/news/search").json() == {"players": [], "stories": []}
+    assert news_embed.run()["embedded"] == 3
+    hits = news_client.get("/news/search?q=free").json()["stories"]
+    assert [h["headline"] for h in hits[:2]] == ["free again", "free"] and hits[0]["player_ids"] == [2]
 
     assert news_client.post("/news/mute/2", json={"muted": True}).json() == {"muted": True}
     assert db.get_state("news_mutes", user_id=0) == [2]

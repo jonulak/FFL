@@ -9,8 +9,8 @@ name: Test
 # NO paths: FILTER, deliberately. A required check that a path filter skips never reports, and a
 # PR waiting on a check that never runs is blocked, not passed. It runs on every PR unconditionally.
 #
-# The suite needs neither data/ nor .env: it runs on its own databases on the postgres:16 service below
-# (the stack runs postgres:16), made and dropped by tests/conftest.py through FFL_TEST_PG.
+# The suite needs neither data/ nor .env: it runs on its own databases on the pgvector/pgvector:pg16 service below
+# (the stack runs it: postgres:16 with pgvector), made and dropped by tests/conftest.py through FFL_TEST_PG.
 
 on:
   pull_request:
@@ -25,7 +25,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_PASSWORD: ffl-ci          # a throwaway container on the runner, reachable only from this job
         ports:
@@ -52,9 +52,9 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version: 26
 
-      - run: corepack enable
+      - run: npm install -g corepack@0.36.0 && corepack enable  # Node 25+ no longer bundles corepack
 
       - name: Install web dependencies
         working-directory: web

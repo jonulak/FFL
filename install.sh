@@ -1,6 +1,8 @@
 #!/bin/sh
 # FFL in one line: curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh
 # Puts docker-compose.yml and a filled .env in $FFL_HOME (default ~/ffl) and starts the stack. Safe to re-run: .env is kept.
+# Re-running it is also the upgrade: a bare `docker compose pull` keeps the old docker-compose.yml, which a new image
+# may not run against (a new service, a new db image).
 set -eu
 
 fetch() {  # fetch <repo path> <dest>
@@ -36,11 +38,16 @@ main() {
   command -v openssl >/dev/null 2>&1 || { echo "openssl is needed to make the secrets: install it and re-run" >&2; exit 2; }
 
   FFL_HOME=${FFL_HOME:-$HOME/ffl}
-  BASE=${FFL_INSTALL_BASE:-https://raw.githubusercontent.com/jonulak/FFL/main}
-
   umask 077  # .env holds the secrets
   mkdir -p "$FFL_HOME"
   cd "$FFL_HOME"
+  # A pinned FFL_VERSION (an image tag such as v1.2.0, which is also its git tag) takes that release's compose file
+  version=$( [ -f .env ] && sed -n 's/^FFL_VERSION=//p' .env || true)
+  case ${version:-latest} in
+    latest) ref=main ;;
+    *) ref=$version ;;
+  esac
+  BASE=${FFL_INSTALL_BASE:-https://raw.githubusercontent.com/jonulak/FFL/$ref}
   fetch docker-compose.yml docker-compose.yml
 
   if [ ! -f .env ]; then

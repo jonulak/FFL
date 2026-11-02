@@ -1,16 +1,20 @@
 # The agent runner: the harness binaries (the standalone `claude`, no Node) behind ffl/harness.py's stdlib HTTP shim.
 # Only the api reaches it (compose's internal network, the x-ffl-job secret); it holds no data and no key ring.
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+# images.yml sets it (a constant) so the build is reproducible: useradd dates /etc/shadow with it
+ARG SOURCE_DATE_EPOCH
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
- && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /var/lib/apt/lists/* /var/log/apt/* /var/log/dpkg.log /var/log/alternatives.log /var/cache/ldconfig/aux-cache \
  && useradd -m runner
 USER runner
-# Pinned, in its own layer (images.yml caches layers, so an upgrade downloads only what changed); bump to take a new claude.
+# Pinned, in its own layer (an upgrade downloads only what changed); bump to take a new claude. `claude --version`
+# writes ~/.claude.json with a fresh machine and user ID, which would change the layer on every build.
 ARG CLAUDE_CODE_VERSION=2.1.316
 RUN curl -fsSL https://claude.ai/install.sh | bash -s ${CLAUDE_CODE_VERSION} \
- && /home/runner/.local/bin/claude --version
+ && /home/runner/.local/bin/claude --version \
+ && rm -rf /home/runner/.claude.json /home/runner/.claude
 ENV PATH=/home/runner/.local/bin:$PATH PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app

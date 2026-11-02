@@ -189,6 +189,27 @@ def _claude_token(_db_in_tmp):
     appconf.forget()
 
 
+def fake_vector(text: str) -> list[float]:
+    """A stand-in embedding: each word hashed into one of 384 dims, normalized. Texts sharing words are near."""
+    import hashlib
+    import math
+    v = [0.0] * 384
+    for w in text.lower().replace(",", " ").replace(".", " ").split():
+        v[int(hashlib.md5(w.encode()).hexdigest(), 16) % 384] += 1.0
+    n = math.sqrt(sum(x * x for x in v)) or 1.0
+    return [x / n for x in v] if any(v) else [1.0] + [0.0] * 383
+
+
+@pytest.fixture(autouse=True)
+def _fake_embedder(request, monkeypatch):
+    """No test loads the real model (a test marked `real_embedder` does: the search eval)."""
+    if request.node.get_closest_marker("real_embedder"):
+        return
+    from ffl import embed
+    monkeypatch.setattr(embed, "passages", lambda texts: [fake_vector(t) for t in texts])
+    monkeypatch.setattr(embed, "query", fake_vector)
+
+
 @pytest.fixture(autouse=True)
 def _sources_reset():
     from ffl import consensus, sources

@@ -200,7 +200,7 @@ def test_play_store_is_the_runner_lane_of_the_league(monkeypatch, other):
 
 def test_other_league_roster_attaches_the_shared_outlooks(client, two, other, monkeypatch):
     loaded = []
-    monkeypatch.setattr(api.outlook, "load", lambda week: loaded.append(week) or {})
+    monkeypatch.setattr(api.outlook, "load", lambda week, ids=None: loaded.append(week) or {})
     monkeypatch.setattr(api.outlook, "attach", lambda cards, entries: [{**c, "outlook": "x"} for c in cards])
     body = client.get("/roster?league=espn:999").json()
     assert body["cards"][0]["outlook"] == "x" and "outlook_run" not in body
