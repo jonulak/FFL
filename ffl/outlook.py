@@ -233,9 +233,9 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date) -> str:
     return "\n".join(lines)
 
 
-def load(week: int) -> dict[int, dict]:
-    """The week's entries by player id; a week with none is empty."""
-    return db.outlooks_for(week)
+def load(week: int, player_ids=None) -> dict[int, dict]:
+    """The week's entries by player id (only `player_ids`' when given); a week with none is empty."""
+    return db.outlooks_for(week, player_ids=player_ids)
 
 
 def save(week: int, entries: dict[int, dict]) -> None:
@@ -246,30 +246,27 @@ def put(week: int, pid: int, entry: dict) -> None:
     db.put_outlooks(week, {pid: entry})
 
 
-def _entry(entries: dict[int, dict], pid: int) -> tuple[dict, dict | None]:
-    """(the raw entry or {}, the entry when it is a whole one, else None)."""
+def _entry(entries: dict[int, dict], pid: int) -> dict | None:
+    """The entry when it is a whole one, else None."""
     raw = entries.get(pid)
-    raw = raw if isinstance(raw, dict) else {}
     # a half-written entry, or a paragraph from before the bullets, is no entry: the next run rewrites it
-    return raw, raw if "card_hash" in raw and isinstance(raw.get("bullets"), list) else None
+    return raw if isinstance(raw, dict) and "card_hash" in raw and isinstance(raw.get("bullets"), list) else None
 
 
 def attach_plain(rows: list[dict], entries: dict[int, dict]) -> list[dict]:
-    """The stored bullets on each row, with the last write's failure; no stale flag (a row is not a card)."""
+    """The stored bullets on each row; no stale flag (a row is not a card)."""
     out = []
     for r in rows:
-        raw, e = _entry(entries, r["player_id"])
-        out.append({**r, "outlook": e["bullets"] if e else None, "outlook_at": e.get("generated_at") if e else None,
-                    "outlook_error": raw.get("error")})
+        e = _entry(entries, r["player_id"])
+        out.append({**r, "outlook": e["bullets"] if e else None, "outlook_at": e.get("generated_at") if e else None})
     return out
 
 
 def attach(cards: list[dict], entries: dict[int, dict]) -> list[dict]:
-    """The stored bullets on each card, flagged stale when the card's own facts have moved since, with the last
-    write's failure."""
+    """The stored bullets on each card, flagged stale when the card's own facts have moved since."""
     out = []
     for c, a in zip(cards, attach_plain(cards, entries)):
-        e = _entry(entries, c["player_id"])[1]
+        e = _entry(entries, c["player_id"])
         out.append({**a, "outlook_stale": bool(e) and e["card_hash"] != card_hash(c)})
     return out
 
@@ -480,6 +477,6 @@ def start_all(jobs: list, run=run_batch, single=run_claude) -> threading.Thread:
     return t
 
 
-def written(week: int) -> set[int]:
-    """The players with bullets this week, for the Players table's button."""
-    return {pid for pid, e in load(week).items() if isinstance(e, dict) and isinstance(e.get("bullets"), list)}
+def written(week: int, player_ids) -> set[int]:
+    """Which of `player_ids` have bullets this week, for the Players table's button."""
+    return db.outlook_ids(week, player_ids)

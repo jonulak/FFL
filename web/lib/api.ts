@@ -143,9 +143,9 @@ export type Card = Player & {
 } & Outlooked;
 // A player's outlook as a roster carries it (Roster cards, Team rows): written by the hourly run, one per
 // player for every league; error is the last failed write's reason.
-export type Outlooked = { outlook: OutlookBullet[] | null; outlook_at: string | null; outlook_error: string | null };
+export type Outlooked = { outlook: OutlookBullet[] | null; outlook_at: string | null };
 // GET /outlook/{id}?week=N: one player's stored outlook, read on a tap (the Players dialog).
-export type PlayerOutlook = { bullets: OutlookBullet[] | null; at: string | null; error: string | null };
+export type PlayerOutlook = { bullets: OutlookBullet[] | null; at: string | null };
 // position_caps is absent on a page payload cached before it was added
 export type Roster = { week: number; live: boolean; cards: Card[]; empty_slots: string[]; position_caps?: PositionCap[]; writes: boolean;
   stale_since: string | null; decision?: DecisionRef | null };

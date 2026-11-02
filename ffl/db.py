@@ -411,7 +411,7 @@ outlooks = sa.Table(
     "outlooks", metadata, _season(),                     # shared by every league: one card per player and week
     sa.Column("week", sa.Integer, nullable=False),
     sa.Column("player_id", sa.Integer, nullable=False),
-    sa.Column("entry", sa.JSON, nullable=False),         # hash, card_hash, bullets, generated_at, error
+    sa.Column("entry", sa.JSON, nullable=False),         # hash, card_hash, bullets, generated_at
     sa.Column("updated", sa.String, nullable=False),
     sa.PrimaryKeyConstraint("season", "week", "player_id"),
 )
@@ -1621,12 +1621,27 @@ def put_outlooks(week: int, entries: dict[int, dict], season: int = SEASON) -> N
         c.execute(_upsert(outlooks, vals, _KEYS["outlooks"], ["entry", "updated"]))
 
 
-def outlooks_for(week: int, season: int = SEASON) -> dict[int, dict]:
+def outlooks_for(week: int, season: int = SEASON, player_ids=None) -> dict[int, dict]:
+    """The week's entries by player id; with `player_ids`, only theirs (a page reads its own players)."""
     t = outlooks
-    q = sa.select(t.c.player_id, t.c.entry).where(
-        t.c.season == season, t.c.week == week)
+    q = sa.select(t.c.player_id, t.c.entry).where(t.c.season == season, t.c.week == week)
+    if player_ids is not None:
+        if not (ids := list(player_ids)):
+            return {}
+        q = q.where(t.c.player_id.in_(ids))
     with _read() as c:
         return {pid: e for pid, e in c.execute(q)}
+
+
+def outlook_ids(week: int, player_ids, season: int = SEASON) -> set[int]:
+    """Which of `player_ids` have bullets this week; reads the ids only, not the entries."""
+    if not (ids := list(player_ids)):
+        return set()
+    t = outlooks
+    q = sa.select(t.c.player_id).where(t.c.season == season, t.c.week == week, t.c.player_id.in_(ids),
+                                       sa.func.json_typeof(t.c.entry["bullets"]) == "array")
+    with _read() as c:
+        return set(c.execute(q).scalars())
 
 
 _CAL_COLS = ("player_id", "name", "pos", "model", "l3", "weight", "games_left")

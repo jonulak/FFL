@@ -356,7 +356,7 @@ def test_load_and_save_round_trip_and_an_empty_week(outlook_dir):
 
 def test_written_lists_players_with_bullets(outlook_dir):
     outlook.save(5, {1: {"bullets": [TAKE]}, 2: {"error": "boom"}})
-    assert outlook.written(5) == {1}
+    assert outlook.written(5, range(10)) == {1}
 
 
 def job(*cards, week=5):
@@ -374,7 +374,7 @@ def test_start_all_writes_each_player_once_across_leagues(outlook_dir):
         asked.append(ids)
         return answer(prompt, ids)
     outlook.start_all([job(card()), job(card())], run=run).join(5)
-    assert asked == [[1]] and outlook.written(5) == {1}
+    assert asked == [[1]] and outlook.written(5, range(10)) == {1}
     assert outlook.last()["generated"] == 1 and outlook.last()["errors"] == []
 
 
@@ -382,14 +382,14 @@ def test_start_all_survives_one_leagues_failure(outlook_dir):
     def broken():
         raise RuntimeError("espn down")
     outlook.start_all([broken, job(card(player_id=2))], run=answer).join(5)
-    assert outlook.written(5) == {2}
+    assert outlook.written(5, range(10)) == {2}
     assert outlook.last()["errors"] == ["RuntimeError: espn down"] and outlook.last()["generated"] == 1
     assert not outlook.running()
 
 
 def test_start_all_a_card_without_an_id_costs_its_league_alone(outlook_dir):
     outlook.start_all([job(card(player_id=3), {"name": "no id"}), job(card(player_id=2))], run=answer).join(5)
-    assert outlook.written(5) == {2}, "none of the broken league's cards, the other league's all"
+    assert outlook.written(5, range(10)) == {2}, "none of the broken league's cards, the other league's all"
     assert outlook.last()["errors"] == ["KeyError: 'player_id'"] and not outlook.running()
 
 
@@ -397,14 +397,14 @@ def test_attach_plain_adds_the_outlook_without_a_stale_flag():
     rows = [{"player_id": 1}, {"player_id": 2}, {"player_id": 3}]
     entries = {1: {"card_hash": "c", "bullets": [TAKE], "generated_at": "t"}, 2: {"error": "boom"}, 3: "junk"}
     a, b, c = outlook.attach_plain(rows, entries)
-    assert a == {"player_id": 1, "outlook": [TAKE], "outlook_at": "t", "outlook_error": None}
-    assert b == {"player_id": 2, "outlook": None, "outlook_at": None, "outlook_error": "boom"}
-    assert c == {"player_id": 3, "outlook": None, "outlook_at": None, "outlook_error": None}
+    assert a == {"player_id": 1, "outlook": [TAKE], "outlook_at": "t"}
+    assert b == {"player_id": 2, "outlook": None, "outlook_at": None}
+    assert c == {"player_id": 3, "outlook": None, "outlook_at": None}
 
 
 def test_start_all_groups_by_week(outlook_dir):
     outlook.start_all([job(card(), week=5), job(card(player_id=2), week=6)], run=answer).join(5)
-    assert outlook.written(5) == {1} and outlook.written(6) == {2}
+    assert outlook.written(5, range(10)) == {1} and outlook.written(6, range(10)) == {2}
     assert outlook.last()["generated"] == 2 and outlook.last()["pending"] == 2
 
 

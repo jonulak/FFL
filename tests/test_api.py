@@ -311,8 +311,8 @@ def test_outlook_refresh_starts_a_run_and_answers_409_while_busy(client, monkeyp
 
 def test_outlook_read_serves_any_player(client):
     api.outlook.save(3, {7: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}})
-    assert client.get("/outlook/7?week=3").json() == {"bullets": [TAKE], "at": "t", "error": None}
-    assert client.get("/outlook/8?week=3").json() == {"bullets": None, "at": None, "error": None}
+    assert client.get("/outlook/7?week=3").json() == {"bullets": [TAKE], "at": "t"}
+    assert client.get("/outlook/8?week=3").json() == {"bullets": None, "at": None}
     assert client.get("/outlook/7").status_code == 422, "the page's week is required"
     assert client.post("/outlook/7").status_code == 405, "nothing writes on a click"
 
@@ -328,7 +328,7 @@ def test_players_rows_carry_has_outlook_for_rostered_players_too(client, monkeyp
 def test_team_rows_carry_outlooks(client):
     api.outlook.save(3, {1: {"hash": "h", "card_hash": "c", "bullets": [TAKE], "generated_at": "t"}})
     row = client.get("/team/3").json()["side"]["lineup"][0]
-    assert row["outlook"] == [TAKE] and row["outlook_at"] == "t" and row["outlook_error"] is None
+    assert row["outlook"] == [TAKE] and row["outlook_at"] == "t"
     assert "outlook_stale" not in row
 
 
