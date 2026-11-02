@@ -31,17 +31,17 @@ def test_stage_embeds_written_stories_once_and_again_after_a_rewrite():
     assert stage.run() == {"embedded": 0, "stale": 0}
     db.set_story_status(a, "corrected", at(0), None)
     assert db.put_story_words(a, 2, "Correction: receiver fine", "O", {1: ("r", False)})
-    assert [s["id"] for s in db.unembedded_stories(10)] == [a]
+    assert [s["id"] for s in db.unembedded_stories()] == [a]
     assert stage.run()["embedded"] == 1
 
 
 def test_the_vector_of_a_story_rewritten_meanwhile_is_dropped():
     a = written("Old headline")
-    [s] = db.unembedded_stories(10)
+    [s] = db.unembedded_stories()
     db.ask_reword(a)
     assert db.put_story_words(a, 1, "New headline", "O", {1: ("r", False)}, reword=1)
     assert db.put_story_embedding(a, s["headline"], fake_vector("old")) is False
-    assert db.unembedded_stories(10)[0]["headline"] == "New headline"
+    assert db.unembedded_stories()[0]["headline"] == "New headline"
 
 
 def test_a_model_failure_fails_only_the_embed_stage(monkeypatch):
@@ -55,7 +55,22 @@ def test_a_model_failure_fails_only_the_embed_stage(monkeypatch):
     monkeypatch.setattr(pipeline, "_health", lambda: 0)
     out = pipeline.run()
     assert out["embed"] == {"error": "RuntimeError: no model"} and out["health"] == 0
-    assert db.unembedded_stories(10)  # retried next run
+    assert db.unembedded_stories()  # retried next run
+    stages = list(out)
+    assert stages.index("notices") < stages.index("embed") < stages.index("health")  # never delays a push
+
+
+def test_one_run_backfills_past_a_chunk(monkeypatch):
+    monkeypatch.setattr(stage, "CHUNK", 2)
+    for n in range(5):
+        written(f"Story {n}")
+    assert stage.run() == {"embedded": 5, "stale": 0}
+    assert db.unembedded_stories() == []
+
+
+def test_unembedded_rows_carry_only_the_words():
+    a = written("H", "O", lines="the line")
+    assert db.unembedded_stories() == [{"id": a, "headline": "H", "overview": "O", "reasons": ["the line"]}]
 
 
 def test_search_puts_headline_matches_first_then_meaning():

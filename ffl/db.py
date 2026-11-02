@@ -2435,13 +2435,22 @@ def news_feed(before: str | None, limit: int, player_id: int | None = None, sinc
         return _stories_out(c, c.execute(q).all(), season)
 
 
-def unembedded_stories(limit: int, season: int = SEASON) -> list[dict]:
-    """Written stories with no vector of their words (new, rewritten, or from before embeddings), newest news first."""
-    t = news_stories
-    q = (sa.select(t).where(t.c.season == season, t.c.written_rev >= 1, t.c.embedding.is_(None))
-         .order_by(t.c.latest_at.desc(), t.c.id.desc()).limit(limit))
+def unembedded_stories(season: int = SEASON) -> list[dict]:
+    """Written stories with no vector of their words (new, rewritten, or from before embeddings), newest news first:
+    only the words embedded ({id, headline, overview, reasons}), never the sources, so a whole season's backfill is light."""
+    t, p = news_stories, news_story_players
+    q = (sa.select(t.c.id, t.c.headline, t.c.overview)
+         .where(t.c.season == season, t.c.written_rev >= 1, t.c.embedding.is_(None))
+         .order_by(t.c.latest_at.desc(), t.c.id.desc()))
     with _read() as c:
-        return _stories_out(c, c.execute(q).all(), season)
+        out = [{**r._mapping, "reasons": []} for r in c.execute(q)]
+        by_id = {s["id"]: s for s in out}
+        if by_id:
+            for r in c.execute(sa.select(p.c.story_id, p.c.reason)
+                               .where(p.c.season == season, p.c.story_id.in_(by_id), p.c.reason.is_not(None))
+                               .order_by(p.c.story_id, p.c.player_id)):
+                by_id[r.story_id]["reasons"].append(r.reason)
+        return out
 
 
 def put_story_embedding(story_id: int, headline: str, vec: list[float], season: int = SEASON) -> bool:
