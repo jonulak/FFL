@@ -2092,6 +2092,7 @@ def test_api_news_routes(news_client):
     assert news_embed.run()["embedded"] == 3
     hits = news_client.get("/news/search?q=free").json()["stories"]
     assert [h["headline"] for h in hits[:2]] == ["free again", "free"] and hits[0]["player_ids"] == [2]
+    assert all("match" in h for h in hits)
 
     assert news_client.post("/news/mute/2", json={"muted": True}).json() == {"muted": True}
     assert db.get_state("news_mutes", user_id=0) == [2]
