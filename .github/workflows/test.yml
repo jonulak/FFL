@@ -52,9 +52,9 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version: 26
 
-      - run: corepack enable
+      - run: npm install -g corepack@0.36.0 && corepack enable  # Node 25+ no longer bundles corepack
 
       - name: Install web dependencies
         working-directory: web
