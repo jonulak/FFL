@@ -28,6 +28,8 @@ def stub_path(tmp_path):
 
 
 def test_install_fills_env_and_starts(tmp_path, stub_path):
+    (tmp_path / "bin" / "nc").write_text("#!/bin/sh\nexit 1\n")  # every port reads free, whatever the host serves
+    (tmp_path / "bin" / "nc").chmod(0o755)
     r = run(tmp_path, stub_path)
     assert r.returncode == 0, r.stderr
     env = (tmp_path / "ffl" / ".env").read_text()
@@ -41,6 +43,7 @@ def test_install_fills_env_and_starts(tmp_path, stub_path):
     assert (tmp_path / "ffl" / "docker-compose.yml").read_bytes() == (REPO / "docker-compose.yml").read_bytes()
     log = (tmp_path / "docker.log").read_text().splitlines()
     assert "compose pull" in log and log[-1] == "compose up -d"
+    assert _val(tmp_path, "FFL_PORT") == "3300"
     assert "Open http://localhost:3300" in r.stdout
 
     assert run(tmp_path, stub_path).returncode == 0
