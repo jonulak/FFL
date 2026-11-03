@@ -9,7 +9,7 @@ name: Test
 # NO paths: FILTER, deliberately. A required check that a path filter skips never reports, and a
 # PR waiting on a check that never runs is blocked, not passed. It runs on every PR unconditionally.
 #
-# The suite needs neither data/ nor .env: it runs on its own databases on the pgvector/pgvector:pg16 service below
+# The suite needs neither data/ nor .env: it runs on its own databases on the pgvector/pgvector:pg16-trixie service below
 # (the stack runs it: postgres:16 with pgvector), made and dropped by tests/conftest.py through FFL_TEST_PG.
 
 on:
@@ -25,7 +25,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16-trixie
         env:
           POSTGRES_PASSWORD: ffl-ci          # a throwaway container on the runner, reachable only from this job
         ports:

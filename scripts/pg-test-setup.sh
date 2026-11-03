@@ -3,7 +3,7 @@
 # tests may create and drop databases with. The suite's default admin URL is the socket as you
 # (postgresql+psycopg:///postgres, a superuser on a Homebrew install); to run it as the role instead:
 #   FFL_TEST_PG=postgresql+psycopg://ffl_test_admin@/postgres uv run pytest -q
-# CI does not run this: its pgvector/pgvector:pg16 service container is the server (.github/workflows/test.yml).
+# CI does not run this: its pgvector/pgvector:pg16-trixie service container is the server (.github/workflows/test.yml).
 set -euo pipefail
 
 FORMULA=postgresql@18      # local; the stack runs postgres:16, so nothing may use a PG 17+ feature
