@@ -2,7 +2,7 @@
 # deploy/env.example); everything else is set in the app (the setup wizard, Settings › App) and kept in the database.
 services:
   db:
-    image: pgvector/pgvector:pg16   # postgres:16 with pgvector (news search); same data directory
+    image: pgvector/pgvector:pg16-trixie   # postgres:16 + pgvector; trixie = the glibc (2.41) postgres:16 made existing data with
     restart: unless-stopped
     environment:
       POSTGRES_USER: ffl
