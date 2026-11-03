@@ -154,30 +154,43 @@ def test_locked_cut_is_a_valid_cut():
 
 
 def test_locked_cut_is_for_waiver_claims_only():
-    # 102 (FA) skips locked 1 and takes 2; 103 (FA) is left with only locked 1: no add, no claim; 101 (W) claims 1
+    # 102 (FA) skips locked 1 and takes 2; 103 (FA) is left with only locked 1: no add, no claim; 101 (W) claims 1,
+    # held: ESPN takes no claim with a locked drop until the rollover
     g = {"targets": [102, 103, 101], "cuts": [1, 2], "open": 0}
     st = {102: FA, 103: FA}
     assert pairs(C.plan_now([g], st, {1})) == [(102, 2)]
     assert pairs(C.expand([g], st, locked={1})) == [(101, 1)]
     w = FakeW([])
     r = C.run_submit([g], st, [], set(), False, w, locked={1})
-    assert w.adds == [(102, 2)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 1)]
+    assert w.adds == [(102, 2)] and r["sent"] == [] and pairs(r["held"]) == [(101, 1)]
 
 
-def test_waiver_target_ranked_above_a_free_agent_holds_a_row():
-    # 101 (W) ranks over 102 (FA): 101 keeps cut 1, 102 is added now for cut 2
-    g = {"targets": [101, 102], "cuts": [1, 2], "open": 0}
+def test_waiver_target_ranked_above_a_free_agent_claims_him():
+    # get 1 of [101 (W), 102 (FA)] with one cut: 102 now for 1, then 101 claimed for 102
+    g = {"targets": [101, 102], "cuts": [1], "open": 0}
     st = {102: FA}
-    assert pairs(C.plan_now([g], st)) == [(102, 2)]
-    assert pairs(C.expand([g], st)) == [(101, 1)]
+    assert pairs(C.plan_now([g], st)) == [(102, 1)]
+    assert pairs(C.expand([g], st)) == [(101, 102)]
     w = FakeW([])
-    C.run_submit([g], st, [], set(), False, w)
-    assert w.adds == [(102, 2)]
-    # one row: it is 101's, so 102 is not added
-    one = {**g, "cuts": [1]}
-    assert C.plan_now([one], st) == [] and pairs(C.expand([one], st)) == [(101, 1)]
-    # locked 2 is held for 101 (no free agent can use it), so 102 takes unlocked 1
-    assert pairs(C.plan_now([g], st, {2})) == [(102, 1)] and pairs(C.expand([g], st, locked={2})) == [(101, 2)]
+    r = C.run_submit([g], st, [], set(), False, w)
+    assert w.adds == [(102, 1)] and pairs(r["sent"]) == [(101, 102)]
+    # the plan keeps him as 101's cut, so the next expand makes the same claim
+    after = C.consume([g], r["now"])
+    assert after == [{"targets": [101], "cuts": [102], "open": 0}] and pairs(C.expand(after, {})) == [(101, 102)]
+    # two rows: 101 claims the group's own row first, then 102
+    two = {**g, "cuts": [1, 2]}
+    assert pairs(C.plan_now([two], st)) == [(102, 1)] and pairs(C.expand([two], st)) == [(101, 2), (101, 102)]
+    # ranked below him, 101 never claims him; his add failing means no claim on him
+    assert pairs(C.expand([{**g, "targets": [102, 101]}], st)) == []
+    assert C.expand([g], st, now=[]) == [{"group": 0, "add": 101, "drop": 1}]
+
+
+def test_a_claim_dropping_a_locked_free_agent_is_held():
+    g = {"targets": [101, 102], "cuts": [1], "open": 0}
+    w = FakeW([])
+    r = C.run_submit([g], {102: FA}, [], set(), False, w, locked={102})   # his game has started
+    assert w.adds == [(102, 1)] and r["sent"] == [] and pairs(r["held"]) == [(101, 102)]
+    assert C.split_held([{"add": 1, "drop": 2}, {"add": 3, "drop": None}], {2}) == ([{"add": 3, "drop": None}], [{"add": 1, "drop": 2}])
 
 
 def test_target_not_in_pool():
@@ -334,7 +347,7 @@ def test_run_submit_readback_failure_keeps_the_record():
                 raise RuntimeError("ESPN 503: down")
             return super().pending_claims()
 
-    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    g = [{"targets": [102, 101, 103], "cuts": [1, 2], "open": 0}]
     w = W([])
     r = C.run_submit(g, {102: "FREEAGENT"}, w.pending_claims(), set(), False, w)
     assert r["error"] and "read-back" in r["error"] and r["match"] is False and r["pending"] == []
@@ -342,7 +355,7 @@ def test_run_submit_readback_failure_keeps_the_record():
 
 
 def test_consume_free_agent_row():
-    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    g = [{"targets": [102, 101, 103], "cuts": [1, 2], "open": 0}]
     assert C.consume(g, [{"group": 0, "add": 102, "drop": 1}]) == [{"targets": [101, 103], "cuts": [2], "open": 0}]
     assert g[0]["cuts"] == [1, 2]   # input untouched
 

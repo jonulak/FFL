@@ -367,6 +367,8 @@ function SubmitState() {
   if (!data.last_submit) return fade("unsent", <Badge variant="muted">not sent</Badge>);
   if (data.edited_since_submit) return fade("edited", <Badge variant="warn">edited since submit</Badge>);
   if (!data.on_espn) return fade("differs", <Badge variant="warn">differs from {who}</Badge>);
+  // the rest went; these wait for their drop to unlock (the rollover), and a Submit then sends them
+  if (data.held.length) return fade("held", <Badge variant="warn">{data.held.length} held till the rollover</Badge>);
   // an empty plan was sent (a refused instant add also records nothing sent, but its group stays in the plan)
   if (data.groups.length === 0 && data.last_submit.claims.length === 0 && data.last_submit.now.length === 0)
     return fade("withdrawn", <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />withdrawn <Clock iso={data.last_submit.at} /></Badge>);

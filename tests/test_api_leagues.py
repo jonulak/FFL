@@ -542,7 +542,7 @@ def test_espn_rolling_its_week_drops_that_leagues_pages_and_rebuilds_them(client
     assert api.cache_for(other).has("roster") and refreshed == []
     monkeypatch.setattr(fake, "period", 8)
     api.cache_for(other)._d["roster"].fn = lambda: {"week": 8}
-    assert api.rollover_pass(ref=other) == {"week": 8, "rolled_from": 7}
+    assert api.rollover_pass(ref=other) == {"week": 8, "rolled_from": 7, "held": 0}
     api.cache_for(other).join()
     assert api.cache_for(other).peek("roster") == {"week": 8}, "rebuilt behind, never the old week again"
     assert api.cache_for(home_league()).peek("roster") == {"week": 7}, "the other league's week did not move"

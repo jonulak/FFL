@@ -732,9 +732,12 @@ def _players(groups, data):
     return {str(i): {k: (rows.get(i) or roster.get(i)).get(k) for k in keys} for i in want if rows.get(i) or roster.get(i)}
 
 
-def _locked(roster) -> set:
-    """My players whose game has started: a claim-only cut (no instant add can drop him)."""
-    return {p["player_id"] for p in roster if p.get("locked")}
+def _locked(roster, data) -> set:
+    """Players whose game has started: my locked ones (a claim-only cut no instant add can drop), and the pool's past
+    kickoff, locked the moment a Submit adds him. ESPN takes no claim dropping either until the rollover."""
+    now = datetime.now(timezone.utc)
+    started = {i for i, r in _pool_rows(data).items() if r.get("kickoff") and datetime.fromisoformat(r["kickoff"]) <= now}
+    return {p["player_id"] for p in roster if p.get("locked")} | started
 
 
 def _claims_roster(data, *, ref: LeagueRef):
@@ -755,8 +758,9 @@ def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S, *, ref: Lea
     roster, status = _claims_roster(data, ref=ref), _status(data) if status is None else status
     last = plan["submits"][-1] if plan["submits"] else None
     ids = set(last["ids"]) if last else set()
-    locked = _locked(roster)
-    now, expansion = claims_mod.plan_now(plan["groups"], status, locked), claims_mod.expand(plan["groups"], status, locked=locked)
+    locked = _locked(roster, data)
+    now = claims_mod.plan_now(plan["groups"], status, locked)
+    expansion, held = claims_mod.split_held(claims_mod.expand(plan["groups"], status, now), locked)
     try:
         pending, perr = espn_write.pending_state(max_age, ref=ref)[0], None
     except espn_write.WriteError as e:
@@ -767,7 +771,7 @@ def _claims_payload(plan, data, status=None, max_age=CLAIMS_REUSE_S, *, ref: Lea
     # and only when ESPN numbered them: an unnumbered claim (priority None) means its order is unknown
     on_espn = (bool(last) and perr is None and all(c.get("priority", 0) is not None for c in pending)
                and claims_mod.matches(expansion, [c for c in pending if c["id"] in ids]))
-    return {"week": plan["week"], "groups": plan["groups"], "now": now, "claims": expansion,
+    return {"week": plan["week"], "groups": plan["groups"], "now": now, "claims": expansion, "held": held,
             "errors": _validate(plan, roster, data, status, ref=ref),
             "warnings": claims_mod.cap_warnings(plan["groups"], roster, _positions(data), _limits(ref=ref)),
             "open_spots": claims_mod.open_spots(roster, _roster_size(ref=ref)),
@@ -857,7 +861,7 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
         plan, roster = _load_plan(data["week"], ref=ref), _claims_roster(data, ref=ref)
         status = _fresh_status(data, ref=ref)
         # the dialog showed an "Add now" list from its own read: instant adds can't be undone, so any other is a 409
-        locked = _locked(roster)
+        locked = _locked(roster, data)
         now = claims_mod.plan_now(plan["groups"], status, locked)
         if now != [m.model_dump() for m in body.expect_now]:
             raise HTTPException(409, {"error": "statuses changed — review again", "now": now})
@@ -892,7 +896,8 @@ def _claims_submit(body: SubmitIn, ref: LeagueRef):
         else:
             ids = [c["id"] for c in res["pending"] if c["id"] in sent_ids or c["id"] in last_ids]
         plan["submits"].append({"at": datetime.now().isoformat(timespec="seconds"), "now": [strip(m) for m in res["now"]],
-                                "claims": [strip(c) for c in res["sent"]], "ids": ids, "match": res["match"]})
+                                "claims": [strip(c) for c in res["sent"]], "held": [strip(c) for c in res["held"]],
+                                "ids": ids, "match": res["match"]})
         submitted = plan["groups"]
         plan["groups"] = claims_mod.consume(submitted, res["now"])  # landed adds are on the roster now
         _save_plan(plan, ref=ref)
@@ -960,7 +965,7 @@ def roster_add(body: AddIn, ref: LeagueRef = Depends(open_league)):
         # locks and droppable from this read; slots as the claims see them (the fake's overlay included)
         roster = [{**p, **{k: v for k, v in flags.get(p["player_id"], {}).items() if k in ("locked", "droppable")}}
                   for p in _claims_roster(data, ref=ref)]
-        if body.drop is not None and body.drop in _locked(roster):
+        if body.drop is not None and body.drop in _locked(roster, data):
             raise HTTPException(409, {"error": LOCKED_DROP})
         spots = claims_mod.open_spots(roster, _roster_size(ref=ref))
         if body.drop is None and not spots:
@@ -2010,7 +2015,21 @@ def rollover_pass(*, ref: LeagueRef) -> dict:
         return {"week": period}
     espn_season.refresh_league()
     on_new_rows([], ref=ref)
-    return {"week": period, "rolled_from": seen}
+    return {"week": period, "rolled_from": seen, "held": held_notices(espn_season.league_period(period, ref=ref), ref=ref)}
+
+
+def held_notices(week: int, *, ref: LeagueRef) -> int:
+    """At the rollover: a push to each member whose last submit held claims (their drops were locked), now that ESPN
+    takes them. The plan is last week's until it is saved again (_load_plan)."""
+    n = 0
+    for m in leagues.members(ref.key):
+        plan = db.claim_plan(week, ref=m) or db.claim_plan(week - 1, ref=m)
+        held = plan and plan["groups"] and plan["submits"] and plan["submits"][-1].get("held")
+        if held:
+            n += db.add_notices([{"key": f"held:{week}", "kind": "waivers", "title": "Held claims can go now",
+                                  "body": f"The week rolled over: submit your claims to send the {len(held)} held to ESPN.",
+                                  "url": "/players", "created_at": notify.now()}], ref=m)
+    return n
 
 
 def _tick_steps(out: dict, steps) -> None:

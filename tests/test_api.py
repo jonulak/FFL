@@ -683,9 +683,34 @@ def test_a_locked_cut_never_goes_for_a_free_agent(claims_env, monkeypatch):
     assert g["now"] == [] and g["claims"] == [] and "game has started" in g["errors"][0]["reason"]
     assert claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": []}).status_code == 422
     assert api.espn_write._fake(home_league()).adds == [] and api.espn_write._fake(home_league()).claims == []
-    # as a waiver target, the same locked cut is a claim
+    # as a waiver target, the same locked cut makes a claim, held until he unlocks
     claims_env.pool["WR"][1]["status"] = "WAIVERS"
-    assert claims_env.get("/claims").json()["claims"] == [{"group": 0, "add": 102, "drop": 1}]
+    g = claims_env.get("/claims").json()
+    assert g["claims"] == [] and g["held"] == [{"group": 0, "add": 102, "drop": 1}]
+
+
+def test_a_free_agent_past_kickoff_holds_the_claim_that_drops_him(claims_env):
+    claims_env.pool["WR"][1]["status"] = "FREEAGENT"
+    claims_env.pool["WR"][1]["kickoff"] = "2020-01-01T13:00:00+00:00"   # locked the moment he is added
+    claims_env.post("/claims", json={"groups": [{"targets": [101, 102], "cuts": [1], "open": 0}]})
+    g = claims_env.get("/claims").json()
+    assert g["now"] == [{"group": 0, "add": 102, "drop": 1}] and g["claims"] == []
+    assert g["held"] == [{"group": 0, "add": 101, "drop": 102}]
+    r = claims_env.post("/claims/submit", json={"replace_outside": False, "expect_now": g["now"]}).json()
+    assert r["sent"] == [] and r["held"] == g["held"] and api.espn_write._fake(home_league()).claims == []
+    after = claims_env.get("/claims").json()
+    assert after["groups"] == [{"targets": [101], "cuts": [102], "open": 0}]   # he stays as 101's drop
+
+
+def test_the_rollover_pushes_held_claims_once(claims_env):
+    ref = home_league()
+    sub = {"at": "2026-11-01T13:00:00", "now": [], "claims": [], "ids": [], "held": [{"group": 0, "add": 101, "drop": 102}]}
+    db.put_claim_plan({"week": 6, "groups": [{"targets": [101], "cuts": [102], "open": 0}], "submits": [sub]}, ref=ref)
+    assert api.held_notices(7, ref=ref) == 1, "last week's plan carries over the rollover"
+    assert api.held_notices(7, ref=ref) == 0, "one push a week"
+    assert [n["title"] for n in db.unsent_notices(ref=ref)] == ["Held claims can go now"]
+    db.put_claim_plan({"week": 7, "groups": [], "submits": [sub]}, ref=ref)
+    assert api.held_notices(8, ref=ref) == 0, "nothing left in the plan"
 
 
 @pytest.fixture

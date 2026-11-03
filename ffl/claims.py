@@ -4,13 +4,14 @@ ESPN has no K-of-N claim. A claim is one transaction, an add plus at most one dr
 its drop is gone (seen in a real waiver run). So claims that share a drop exclude each other: every (target,
 row) pair in rank order lands each target at most once and uses each row at most once; K = rows = cuts + open spots.
 A free agent needs no claim: he is added on Submit, in rank order, taking the group's next row, and the claims get
-the rows left; a waiver target ranked above him holds a row back for his claims (a locked one first, which no free
-agent can use). A no-drop claim lands while the roster has room, so open spots belong to one group and it takes all
+the rows left. A waiver target ranked above a free agent who landed claims him as a drop, after the group's own rows:
+"get 1 of [W, FA]" adds FA now and claims W for FA. A no-drop claim lands while the roster has room, so open spots belong to one group and it takes all
 of them; otherwise another group's no-drop claim could fill a spot this group counted on. A roster player may be a cut
 in several groups: claims sharing a drop exclude each other anyway, so it reads "drop him for group 1, else for group
 2"; once a free-agent add has dropped him he is gone from every group's rows. A locked cut (his game has started)
 is for waiver claims only: ESPN never drops him for a free agent, so free agents skip his row on Submit, and a group
-whose free agents have only locked cuts is an error."""
+whose free agents have only locked cuts is an error. ESPN takes no claim with a locked drop either, so such a claim
+is held (`split_held`): the plan keeps it, and a Submit after the rollover unlocks him sends it."""
 from __future__ import annotations
 
 from collections import Counter
@@ -41,34 +42,15 @@ def free_targets(group, status):
     return [t for t in group["targets"] if status.get(t) == FREE]
 
 
-def fa_rows(group, status, gone, locked):
-    """The rows a group's free agents may take (unlocked, not gone), and each free agent in rank order with how many of
-    those rows the waiver targets ranked above him hold back. The k-th free agent added takes row k + held."""
-    left = [d for d in rooms(group) if d not in gone]
-    free = [d for d in left if d not in locked]
-    spare, out, above = len(left) - len(free), [], 0  # locked rows go to waiver targets first
-    for t in group["targets"]:
-        if status.get(t) == FREE:
-            out.append((t, max(0, above - spare)))
-        else:
-            above += 1
-    return free, out
-
-
 def plan_now(groups, status, locked=frozenset()):
-    """Instant adds: free agents in rank order taking their group's unlocked rows, after the rows held for waiver
-    targets ranked above them (a cut an earlier add dropped is gone)."""
+    """Instant adds: free agents taking their group's first unlocked rows, in rank order (a cut an earlier add dropped
+    is gone)."""
     out, gone = [], set()
     for gi, g in enumerate(groups):
-        free, fas = fa_rows(g, status, gone, locked)
-        n = 0
-        for t, held in fas:
-            if n + held >= len(free):
-                break
-            d = free[n + held]
+        for t, d in zip(free_targets(g, status), [d for d in rooms(g) if d not in gone and d not in locked]):
             out.append({"group": gi, "add": t, "drop": d})
-            n += 1
-        gone |= {m["drop"] for m in out if m["drop"] is not None}
+            if d is not None:
+                gone.add(d)
     return out
 
 
@@ -77,7 +59,8 @@ def expand(groups, status, now=None, locked=frozenset()):
     claim (ESPN blocks one for a locked drop); `locked` only shapes the default `now`.
 
     now: the instant adds that landed (run_submit's: a refused one gives its row back); defaults to plan_now. A group
-    loses the open spots its own adds took and every cut any add dropped.
+    loses the open spots its own adds took and every cut any add dropped, and gains as a last row, for each waiver
+    target ranked above him, a free agent of its own who landed.
     """
     if now is None:
         now = plan_now(groups, status, locked)
@@ -86,11 +69,12 @@ def expand(groups, status, now=None, locked=frozenset()):
     for gi, g in enumerate(groups):
         taken = sum(1 for m in now if m["group"] == gi and m["drop"] is None)
         left = [None] * max(0, g.get("open", 0) - taken) + [c for c in g["cuts"] if c not in gone]
-        for t in g["targets"]:
+        landed = {m["add"] for m in now if m["group"] == gi}
+        for i, t in enumerate(g["targets"]):
             if status.get(t) == FREE:
                 continue
             seen_open = False
-            for d in left:
+            for d in left + [f for f in g["targets"][i + 1:] if f in landed]:
                 # One no-drop claim per target is enough; open spots (None) are valuable.
                 if d is None:
                     if seen_open:
@@ -98,6 +82,11 @@ def expand(groups, status, now=None, locked=frozenset()):
                     seen_open = True
                 out.append({"group": gi, "add": t, "drop": d})
     return out
+
+
+def split_held(claims, locked):
+    """(claims ESPN takes now, claims held): a claim whose drop is locked waits until he unlocks (the rollover)."""
+    return [c for c in claims if c["drop"] not in locked], [c for c in claims if c["drop"] in locked]
 
 
 INSTANT_OFF = "instant adds are switched off (FFL_INSTANT_ADDS=0)"
@@ -264,25 +253,23 @@ def matches(claims, pending):
 
 
 def run_submit(groups, status, pending, last_ids, replace_outside, writer, locked=frozenset()):
-    """Free agents first (instant, rank order, each on the group's next row not held for a higher waiver target; a refused add leaves its row for the next),
+    """Free agents first (instant, rank order, each on the group's next row; a refused add leaves its row for the next),
     then clear and repost the whole claim list over the rows left, so a retry after any failure is the same call. Stops
     the claims at the first failed write and still reads ESPN back: the page shows what ESPN holds, never what we hoped."""
     now, now_failed = [], []
     for gi, g in enumerate(groups):
         gone = {m["drop"] for m in now if m["drop"] is not None}  # a cut an earlier group's add dropped
-        r, fas = fa_rows(g, status, gone, locked)
-        n = 0
-        for t, held in fas:
-            if n + held >= len(r):
+        r, n = [d for d in rooms(g) if d not in gone and d not in locked], 0
+        for t in free_targets(g, status):
+            if n >= len(r):
                 break
-            d = r[n + held]
             try:
-                writer.add_free_agent(t, d)
-                now.append({"group": gi, "add": t, "drop": d})
+                writer.add_free_agent(t, r[n])
+                now.append({"group": gi, "add": t, "drop": r[n]})
                 n += 1
             except Exception as e:  # noqa: BLE001 — taken or refused: his row goes to the next target
-                now_failed.append({"group": gi, "add": t, "drop": d, "error": str(e)})
-    claims = expand(groups, status, now, locked)
+                now_failed.append({"group": gi, "add": t, "drop": r[n], "error": str(e)})
+    claims, held = split_held(expand(groups, status, now, locked), locked)
     # outside claims (filed on ESPN, not by this app) kept on purpose run ahead of ours
     kept_outside = [] if replace_outside else [c["id"] for c in pending if c["id"] not in last_ids]
     sent, error = [], None
@@ -306,7 +293,7 @@ def run_submit(groups, status, pending, last_ids, replace_outside, writer, locke
     # order is unknown, so it is never a match
     ours = [c for c in after if c["id"] not in set(kept_outside)]
     numbered = all(c.get("priority", 0) is not None for c in after)
-    return {"now": now, "now_failed": now_failed, "sent": sent, "pending": after,
+    return {"now": now, "now_failed": now_failed, "sent": sent, "held": held, "pending": after,
             "match": error is None and numbered and matches(claims, ours), "error": error, "readback_failed": readback_failed}
 
 
@@ -334,12 +321,18 @@ def taken_out(groups, add, drop):
 
 def consume(groups, now):
     """The plan minus what instant adds already did: a landed target and its row leave their group (a no-drop row is an
-    open spot), and a group with no targets left is dropped. `now` indexes the groups as submitted."""
+    open spot), and a group with no targets left is dropped. A landed free agent with targets left ranked above him
+    becomes the group's last cut, as expand claimed him. `now` indexes the groups as submitted."""
     out = [{**g, "targets": list(g["targets"]), "cuts": list(g["cuts"])} for g in groups]
+    landed = {m["add"] for m in now}
     for m in now:
         g = out[m["group"]]
         if m["add"] in g["targets"]:
+            above = [t for t in g["targets"][:g["targets"].index(m["add"])] if t not in landed]
             g["targets"].remove(m["add"])
+            # shortcut: a target ranked below him may then claim him too; split the group if that ever matters
+            if above:
+                g["cuts"].append(m["add"])
         if m["drop"] is None:
             g["open"] = max(0, g["open"] - 1)
         for o in out:  # he is off the roster: gone from every group that cut him
