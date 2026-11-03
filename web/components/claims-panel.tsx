@@ -786,7 +786,7 @@ export function ClaimsPanel() {
         <Button variant="ghost" className="mx-auto flex h-12 w-full max-w-5xl justify-between px-3" onClick={() => setSheet(true)}>
           <span className="font-display text-base font-semibold uppercase tracking-[0.1em]">
             Claims
-            <span className="text-muted-foreground"> · <Swap>{groups.length ? `${groups.length} group${groups.length > 1 ? "s" : ""} · ${n} move${n === 1 ? "" : "s"}` : "none yet"}</Swap></span>
+            <span className="text-muted-foreground"> · <Swap>{groups.length ? `${groups.length} group${groups.length > 1 ? "s" : ""} · ${n} move${n === 1 ? "" : "s"}${data.held.length ? ` · ${data.held.length} held` : ""}` : "none yet"}</Swap></span>
           </span>
           <ChevronUp aria-hidden className="size-5" />
         </Button>
