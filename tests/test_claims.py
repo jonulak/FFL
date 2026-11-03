@@ -96,6 +96,29 @@ def test_never_more_than_k_and_best_first():
         assert got == avail[:C.capacity(g)], (miss, got)
 
 
+def test_free_agents_and_waiver_targets_in_any_order_keep_the_best_k():
+    # W 1, 2 and FA 11, 12 in every rank order, with 1-3 cuts: the free agents are added now, then whichever waiver
+    # targets ESPN awards, the roster ends with the best K still available, and the plan saved after the submit
+    # (consume) makes exactly the claims that were sent
+    from itertools import permutations
+    st = {11: FA, 12: FA}
+    for order in permutations([1, 2, 11, 12]):
+        for cuts in ([91], [91, 92], [91, 92, 93]):
+            g = {"targets": list(order), "cuts": cuts, "open": 0}
+            now = C.plan_now([g], st)
+            claims = C.expand([g], st)
+            after = C.consume([g], now)
+            assert [(c["add"], c["drop"]) for c in C.expand(after, {})] == [(c["add"], c["drop"]) for c in claims], (order, cuts)
+            roster = [c for c in cuts if c not in {m["drop"] for m in now}] + [m["add"] for m in now]
+            for lost in product([False, True], repeat=2):
+                taken = {w for w, x in zip((1, 2), lost) if x}
+                got = simulate(claims, taken, roster, 0)
+                dropped = {c["drop"] for c in got}
+                mine = [m["add"] for m in now if m["add"] not in dropped] + [c["add"] for c in got]
+                best = [t for t in order if t not in taken][:len(cuts)]
+                assert sorted(mine) == sorted(best), (order, cuts, lost, mine)
+
+
 def test_cap_holds_with_free_agents():
     g = {"targets": [102, 104, 101, 103], "cuts": [1, 2], "open": 0}
     st = {102: FA, 104: FA}
