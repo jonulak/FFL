@@ -97,26 +97,31 @@ def test_never_more_than_k_and_best_first():
 
 
 def test_free_agents_and_waiver_targets_in_any_order_keep_the_best_k():
-    # W 1, 2 and FA 11, 12 in every rank order, with 1-3 cuts: the free agents are added now, then whichever waiver
-    # targets ESPN awards, the roster ends with the best K still available, and the plan saved after the submit
-    # (consume) makes exactly the claims that were sent
+    # W 1, 2 and FA 11, 12 in every rank order, over 0-2 open spots and 0-3 cuts (at least one row): the free agents are
+    # added now, then whichever waiver targets ESPN awards, the roster ends with the best K still available, and the
+    # plan saved after the submit (consume) makes exactly the claims that were sent
     from itertools import permutations
     st = {11: FA, 12: FA}
     for order in permutations([1, 2, 11, 12]):
-        for cuts in ([91], [91, 92], [91, 92, 93]):
-            g = {"targets": list(order), "cuts": cuts, "open": 0}
+        for open_, cuts in product(range(3), ([], [91], [91, 92], [91, 92, 93])):
+            if not open_ and not cuts:
+                continue
+            g = {"targets": list(order), "cuts": cuts, "open": open_}
+            case = (order, open_, cuts)
             now = C.plan_now([g], st)
             claims = C.expand([g], st)
             after = C.consume([g], now)
-            assert [(c["add"], c["drop"]) for c in C.expand(after, {})] == [(c["add"], c["drop"]) for c in claims], (order, cuts)
+            assert [(c["add"], c["drop"]) for c in C.expand(after, {})] == [(c["add"], c["drop"]) for c in claims], case
+            assert sum(x["open"] for x in after) <= open_, case
             roster = [c for c in cuts if c not in {m["drop"] for m in now}] + [m["add"] for m in now]
+            open_left = open_ - sum(1 for m in now if m["drop"] is None)
             for lost in product([False, True], repeat=2):
                 taken = {w for w, x in zip((1, 2), lost) if x}
-                got = simulate(claims, taken, roster, 0)
+                got = simulate(claims, taken, roster, open_left)
                 dropped = {c["drop"] for c in got}
                 mine = [m["add"] for m in now if m["add"] not in dropped] + [c["add"] for c in got]
-                best = [t for t in order if t not in taken][:len(cuts)]
-                assert sorted(mine) == sorted(best), (order, cuts, lost, mine)
+                best = [t for t in order if t not in taken][:open_ + len(cuts)]
+                assert sorted(mine) == sorted(best), (case, lost, mine)
 
 
 def test_cap_holds_with_free_agents():
