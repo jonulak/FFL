@@ -5,9 +5,10 @@ anything else), `subject:<pid>` (the item reports on him, not a passing mention;
 (▲ up / ▼ down / ● none, the step on his status ladder), `fresh:<pid>` (his status moved; if not his effect is ●) and
 `kind:<pid>`; with stories in the window, `story` (which one it reads like, or `new`) and `retract` (does it say an earlier
 report was wrong). The story pick is a proposal: the item joins only through a shared player with the same kind of news
-(`_joins`; role and depth count as one, `_same_kind`). Failing that, a player the item moves (▲/▼) threads it into his
-newest story of the same kind updated within THREAD_HOURS, one he leads (`_lead`: its founding item's surest mover) and is
-▲/▼ on (`_thread`): doubtful, out and IR are steps of one situation, not three stories. Otherwise it starts its own story.
+(`_joins`; role and depth count as one, `_same_kind`; an item moving nobody needs no kind match). Failing that, a player the
+item moves (▲/▼), or with nobody moved one it repeats a status for, threads it into his newest story of the same kind live
+within THREAD_HOURS, one he leads (`_lead`: its founding item's surest mover) and is ▲/▼ on (`_thread`): doubtful, out and IR
+are steps of one situation, not three stories, and a second source saying "out" is not a second story. Otherwise it starts its own story.
 An attached item that moves a player's status bumps the story's rev, so it is written and pushed again. A player row's
 `prob` is the rule's: the push cutoff reads it.
 
@@ -90,12 +91,19 @@ def _same_kind(a: str | None, b: str | None) -> bool:
     return a is not None and KIND_FAMILY.get(a, a) == KIND_FAMILY.get(b, b)
 
 
-def _joins(story: dict, kept: list[dict], prob: float | None) -> bool:
+def _joins(story: dict, kept: list[dict], prob: float | None, title: str = "") -> bool:
     """The tagger's story pick is a proposal; it stands only when it is sure enough and the story shares a player
     the item is about, with the same kind of news for him. An injury report never sinks into a game recap:
-    a merged story hides the news, a duplicate does not."""
+    a merged story hides the news, a duplicate does not. An item that moves nobody hides nothing, it only adds a source,
+    and a line with no status word has no real kind ("no update on his foot"), so any kind will do; only a stat line
+    stays out of a story on his injury."""
     on = {p["player_id"]: p["kind"] for p in story["players"]}
-    return (prob or 0) >= STORY_ATTACH_PROB and any(_same_kind(on.get(p["player_id"]), p["kind"]) for p in kept)
+    if (prob or 0) < STORY_ATTACH_PROB or not any(p["player_id"] in on for p in kept):
+        return False
+    if any(_same_kind(on.get(p["player_id"]), p["kind"]) for p in kept):
+        return True
+    hurt = any(k in ("injury", "return") for k in on.values())
+    return not _moved(kept) and not (hurt and rules.STATLINE.search(title))
 
 
 def _lead(story: dict) -> int | None:
@@ -121,15 +129,20 @@ def _thread(cands: list[dict], kept: list[dict], now: datetime, answers: dict | 
     since = (now - timedelta(hours=THREAD_HOURS)).isoformat()
 
     def his(c: dict, p: dict) -> bool:
-        return (c["updated_at"] >= since and _lead(c) == p["player_id"]
+        # latest_at: a source that only repeats him moves no updated_at, yet the story is still live
+        return (max(c["updated_at"], c.get("latest_at") or "") >= since and _lead(c) == p["player_id"]
                 and any(r["player_id"] == p["player_id"] and r["effect"] != "none" and _same_kind(r["kind"], p["kind"])
                         for r in c["players"]))
 
-    for p in sorted((p for p in kept if p["effect"] != "none"), key=lambda p: p["prob"], reverse=True):
+    # an item moving nobody that repeats a status he is at ("ruled out", again) is the same news: a source on his story
+    movers = [p for p in kept if p["effect"] != "none"] or [p for p in kept if f"status:{p['player_id']}" in (answers or {})]
+    for p in sorted(movers, key=lambda p: p["prob"], reverse=True):
         story = next((c for c in cands if his(c, p)), None)  # cands: newest first
         if story:
-            behind = [q for q in kept if (answers or {}).get(f"chart:{q['player_id']}", {}).get("behind") == p["player_id"]]
-            return story, [p, *behind]  # his next man moves with his step
+            # his next man moves with his step: by the chart, or named to start in the item that says he is out
+            behind = [q for q in kept if q is not p and ((answers or {}).get(f"chart:{q['player_id']}", {}).get("behind") == p["player_id"]
+                      or (p["effect"] == "down" and q["effect"] == "up" and (answers or {}).get(f"status:{q['player_id']}", {}).get("status") == "starter"))]
+            return story, [p, *behind]
     return None
 
 
@@ -193,7 +206,7 @@ def _tag(item: dict, index: Index, answer, now: datetime, out: dict) -> None:
         return
     chosen = next((c for c in cands if c["id"] == got["story"]), None)
     # an item moving two players is a roundup: picked into one's story it would put the other's arrow there too
-    if chosen and (not _joins(chosen, kept, got["story_prob"]) or sum(p["effect"] != "none" for p in kept) > 1):
+    if chosen and (not _joins(chosen, kept, got["story_prob"], item["title"] or "") or sum(p["effect"] != "none" for p in kept) > 1):
         chosen = None
     rows, threaded = kept, False
     if chosen is not None:  # a player with a story of his own keeps his arrow there, not on another's it reads like

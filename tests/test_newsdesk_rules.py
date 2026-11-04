@@ -106,6 +106,32 @@ def test_practice_report_wording_moves_him_down(title):
     assert said(title)[0] == "down"
 
 
+@pytest.mark.parametrize("title,status", [
+    ("Seahawks RB Kyren Williams is going to be out Sunday vs. the Cardinals due to a quad injury", "out"),
+    ("Kyren Williams out Week 9 with quad injury, Blake Corum in line to start", "out"),
+    ("Williams (ankle) out Sunday against the Cardinals", "out"),
+    ("Sources: Rams RB Kyren Williams (turf toe) to miss rest of 2026 season", "ir"),
+    ("Kyren Williams Named Rams Starting Running Back", "starter"),
+    ("Williams will be removed from the starting role", "benched"),
+])
+def test_shorthand_for_a_status_reads_as_that_status(title, status):
+    assert (rules.answer(item(title), [WILLIAMS], []).get(f"status:{WILLIAMS['player_id']}") or {}).get("status") == status
+
+
+@pytest.mark.parametrize("title", [
+    "Kyren Williams: I don't want to be out there if I am not the best option",
+    "Kyren Williams worked out Sunday with the rookies",
+    "The Rams haven't officially named Kyren Williams this week's starter",
+])
+def test_words_near_a_status_are_not_that_status(title):
+    assert said(title)[0] == "none"
+
+
+def test_a_title_of_several_sentences_keeps_each_mans_status_apart():
+    title = "Sean McVay said Puka Nacua hurt his quad and is out this week. Says he's week to week. Kyren Williams will start this week."
+    assert said(title)[0] == "up"
+
+
 def test_a_clause_after_as_is_still_cut_when_it_is_someone_else():
     assert said("Kyren Williams ran hard as Puka Nacua left the game with a hamstring injury", players=[WILLIAMS, NACUA])[0] == "none"
 

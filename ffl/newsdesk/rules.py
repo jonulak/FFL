@@ -37,11 +37,11 @@ LIMITED = STATUS["limited"][0]
 PATTERNS = [
     ("active", r"\b(from|off) (the )?(IR\b|injured reserve|reserve/injured|PUP\b|NFI\b)|\bdesignated (\w+ )?(to|for) return"),
     ("ir", r"\b(be|being) placed on\b|(placed|placing|put|landed|going|goes|headed|moved?|moving|lands?) (\w+ ){0,3}(on|to) (the )?(IR\b|injured reserve|reserve/injured|PUP\b|NFI\b)"
-           r"|\bon (IR\b|injured reserve)|season.ending|out for the (season|year)|miss the (rest of the )?(season|year)|\b(torn|tore) (his |an? )?(ACL|achilles|MCL|pec)"),
+           r"|\bon (IR\b|injured reserve)|season.ending|out for the (season|year)|miss the (season|year)|miss(ing)? (the )?(rest|remainder) of (the |his |\d{4} )?(season|year)|\b(torn|tore) (his |an? )?(ACL|achilles|MCL|pec)"),
     ("released", r"\b(released?|releasing|waived?|waiving|cut by|parted ways|part ways)\b"),
     ("out", r"\brule[sd]? (\w+ ){0,3}out\b|\bout \d+(-\d+)? (weeks|months)\b|\bwill(?: not|n'?t) play\b|\bwon'?t play\b|\binactive\b|\bout (for |on |against |vs\.? )(sunday|monday|thursday|saturday|week|the game)"
-            r"|\b(will|set to|expected to|going to|likely to) miss\b|\bdid(?: not|n'?t) return\b|\bwon'?t return\b|\bcarted\b|\bis out\b(?! of)"),
-    ("benched", r"\b(benched|demoted|lost (his|the) (starting|job))\b"),
+            r"|\b(will|set to|expected to|going to|likely to) miss\b|\bdid(?: not|n'?t) return\b|\bwon'?t return\b|\bcarted\b|\bis out\b(?! of)|\bbe out\b(?! of| there| here| come)|(?-i:[A-Z])[\w'’.-]+(?: \([\w/ -]+\))? out (this |next )?(week|sunday|monday|thursday|saturday)\b"),
+    ("benched", r"\b(benched|demoted|lost (his|the) (starting|job)|removed from (his |the )?starting)\b"),
     ("doubtful", r"\bdoubtful\b"),
     ("dnp", r"\bneither\b.* will practice\b|\b(did(?: not|n'?t)|won'?t|will not|not expected to|isn'?t expected to|unable to) (practice|participate|take part)|\bnon.?participant\b|\bno sign of\b.*\bpractice\b|\bnot practic|\bnot seen\b|\bDNP\b|\bmiss(es|ed)? (\w+ )?practice|\bsat out\b|\bno reps\b"),
     ("hurt", r"\b(left|exited) (the game|sunday|monday|thursday|saturday|with|early)|\bsuffered\b|\bsustained\b|\baggravated\b|\bmedical tent\b|\binjury tent\b"
@@ -50,7 +50,7 @@ PATTERNS = [
     ("full", r"\bfull(y)? (participant|practices?|go)\b|\bpracticed (fully|in full)\b|\bno limitations\b"),
     ("active", r"\bactive\b(?! roster)|\b(activated|activate|reinstated|designated (\w+ )?to return)\b|\breturn(s|ed)? to (\w+ )?practice\b|\b(back at|will|expected to) practice\b|\bcleared\b"
                r"|\b(off|removed from) (the )?injury report\b|\bno injury designation\b|\b(expected|set|slated|ready) to (play|return)\b|\bwill (play|return)\b"),
-    ("starter", r"\bgets? the start\b|\b(named|will|to) (the )?start(er|ing)?\b|\bwill start\b|\btakes? over\b|\blead back\b|\bstarting job\b|\bpromoted\b|\bNo\. 1\b"),
+    ("starter", r"\bgets? the start\b|\b(named|will|to) (the )?start(er|ing)?\b|\bwill start\b|\btakes? over\b|\blead back\b|\bstarting job\b|\bnam(ed|ing)\b[^,;]{0,40}\bstart(er|ing)\b|\bpromoted\b|\bNo\. 1\b"),
     ("signed", r"\b(signs?(?! of)|signed|signing|re-signed|re-signing|adds?|added)\b"),
 ]
 PATTERNS = [(s, re.compile(p, re.I)) for s, p in PATTERNS]
@@ -60,7 +60,7 @@ GAMEDAY = re.compile(r"\b(is|are|listed as|officially) active\b|\bwill play\b|\b
 TAGGED = {"limited", "doubtful", "out", "dnp", "hurt"}  # statuses a start/sit call hung on
 TAG_WORD = re.compile(r"\b(questionable|doubtful|game.time)\b", re.I)
 # not this news: it did not happen, might not, or is his past
-UNREAL = re.compile(r"\b(no|not|isn'?t|out of the|unlikely|back from|again|whether|possibl\w+|optimistic|remains?|still|avoid\w*|without|never|if|unless|could|may|might|after|since|last (week|season|year)|previous|earlier|before|despite|in 20\d\d)\b[^,;]{0,40}$", re.I)
+UNREAL = re.compile(r"\b(no|not|isn'?t|hasn'?t|haven'?t|out of the|unlikely|back from|again|whether|possibl\w+|optimistic|remains?|still|avoid\w*|without|never|if|unless|could|may|might|after|since|last (week|season|year)|previous|earlier|before|despite|in 20\d\d)\b[^,;]{0,40}$", re.I)
 ROUNDUP = re.compile(r"\b(takeaways?|recap|preview|film|top plays|highlights|inactives|by the numbers|observations|things to (watch|know)|quick hits|mailbag|power rankings|"
                      r"notebook|what we learned|winners and losers|transcript|press conference|postgame|interviews?|podcast|updates?\b.*quarter|\d+,? \w+ \d+)\b", re.I)
 STATLINE = re.compile(r"\b(rushed|caught|carried|completed|brought in|hauled in|finished with|receptions?|yards)\b", re.I)
@@ -84,8 +84,8 @@ def surname(name: str) -> str:
 
 
 def _sentences(text: str) -> list[str]:
-    # no split after an initial or an abbreviation: "A.J. Brown", "vs. Arizona"
-    return [s.strip() for s in re.split(r"(?<![A-Z])(?<!\bvs)(?<!\bNo)[.!?]+[\"”']?\s+|\n+", text or "") if s.strip()]
+    # no split after an initial or an abbreviation: "A.J. Brown", "vs. Arizona", "Mike Evans Jr. out"
+    return [s.strip() for s in re.split(r"(?<![A-Z])(?<!\bvs)(?<!\bNo)(?<!\bJr)(?<!\bSr)[.!?]+[\"”']?\s+|\n+", text or "") if s.strip()]
 
 
 class _Named:
@@ -130,7 +130,7 @@ def scope(item: dict, player: dict, others: list[dict]) -> list[str]:
     rest = [_named(o["name"]) for o in others if o["player_id"] != player["player_id"]]
     out: list[str] = []
     mine = False
-    for s in [item.get("title") or "", *_sentences(item.get("text") or "")]:
+    for s in [*_sentences(item.get("title") or ""), *_sentences(item.get("text") or "")]:  # a post's title is all of it
         if me.search(s):
             mine = True
             # a clause that is only his name ("A, B return to practice") takes its verb from the next one

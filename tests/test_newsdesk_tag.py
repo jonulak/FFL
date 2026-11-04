@@ -190,6 +190,16 @@ def test_attach_needs_same_kind():
     assert got["new"] == 1 and got["attached"] == 0 and db.story(recap)["items"] == []
 
 
+@pytest.mark.parametrize("title,joins", [("Vrabel has no update on Kyren Williams' foot", True),
+                                         ("Kyren Williams rushed 11 times for 53 yards", False)])
+def test_an_item_moving_nobody_joins_whatever_its_kind_but_a_stat_line_stays_off_an_injury(title, joins):
+    hurt = story(kind="injury")
+    item("a", title)
+    got = tag.run(INDEX, answer=fake(story=f"s{hurt}", effect="none", kind="other"), now=NOW)
+    assert got["attached"] == int(joins) and len(db.story(hurt)["items"]) == int(joins)
+    assert rows(hurt)[1]["effect"] == "down" and db.story(hurt)["rev"] == 1
+
+
 def test_role_and_depth_are_one_kind_of_news():
     """A signing is called role by one source and depth by the next (Dalton to Atlanta, 2026-10-19: five stories).
     Both count as the same news for joining, through the tagger's pick and through his thread."""
@@ -343,6 +353,54 @@ def test_a_threaded_step_carries_his_next_man():
     item("a", "Kyren Williams on IR")
     tag.run(INDEX, answer=ask, now=NOW)
     assert rows(sid)[2]["effect"] == "up" and rows(sid)[2]["kind"] == "depth"
+
+
+def _repeat(status="out", kind="injury"):
+    base = fake(effect="none", kind=kind, fresh=0.0)
+
+    def ask(item, players, cands, **k):
+        out = base(item, players, cands, **k)
+        if status:
+            out["status:1"] = {"type": "status", "status": status}
+        return out
+
+    return ask
+
+
+def test_a_repeat_of_his_status_is_a_source_on_his_story():
+    first = item("first", "Kyren Williams ruled out", at="2026-10-19T10:00:00+00:00")
+    sid = story(first_item=first)
+    db.tag_item(first, [1], fake(effect="down")(None, [{"player_id": 1}], []), sid, AT)
+    item("a", "Rams say Kyren Williams will not play")
+    got = tag.run(INDEX, answer=_repeat(), now=NOW)
+    assert got["attached"] == 1 and got["new"] == 0 and len(db.story(sid)["items"]) == 2
+    assert rows(sid)[1]["effect"] == "down" and db.story(sid)["rev"] == 1  # no rewrite, nothing to push
+
+
+@pytest.mark.parametrize("status,kind", [(None, "injury"), ("out", "other")])
+def test_a_repeat_stays_off_a_story_without_a_status_or_of_another_kind(status, kind):
+    first = item("first", "Kyren Williams ruled out", at="2026-10-19T10:00:00+00:00")
+    sid = story(first_item=first)
+    db.tag_item(first, [1], fake(effect="down")(None, [{"player_id": 1}], []), sid, AT)
+    item("a", "Kyren Williams talks about his foundation")
+    got = tag.run(INDEX, answer=_repeat(status, kind), now=NOW)
+    assert got["new"] == 1 and len(db.story(sid)["items"]) == 1
+
+
+@pytest.mark.parametrize("status,carried", [("starter", True), ("active", False)])
+def test_a_threaded_step_carries_the_man_named_to_start_for_him(status, carried):
+    sid = story(players=(1,))
+    base = fake(effect="down")
+
+    def ask(*a, **k):
+        out = base(*a, **k)
+        out["effect:2"] = {"type": "choice", "choice": "up", "probabilities": {"up": 0.6}, "confidence": 0.6}
+        out["status:2"] = {"type": "status", "status": status}
+        return out
+
+    item("a", "Kyren Williams out Week 9, Puka Nacua in line to start")
+    tag.run(INDEX, answer=ask, now=NOW)
+    assert (2 in rows(sid)) == carried
 
 
 def test_earlier_item_becomes_first():
