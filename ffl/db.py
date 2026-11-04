@@ -2397,6 +2397,13 @@ def ask_reword(story_id: int, season: int = SEASON) -> None:
         c.execute(sa.update(t).where(t.c.season == season, t.c.id == story_id).values(reword=t.c.reword + 1))
 
 
+def set_story_flag(story_id: int, player_id: int, flag: bool, season: int = SEASON) -> None:
+    """Whether the check doubts the row's arrow (`newsdesk.check`): a flagged row never pushes."""
+    p = news_story_players
+    with _write() as c:
+        c.execute(sa.update(p).where(p.c.season == season, p.c.story_id == story_id, p.c.player_id == player_id).values(flag=flag))
+
+
 def unwritten_stories(limit: int | None = None, season: int = SEASON) -> list[dict]:
     """Stories whose rev moved past their words, or whose headline the tagger found stale; the newest news first, so the
     freshest is written (and can push) before a backlog's."""

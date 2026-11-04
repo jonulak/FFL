@@ -173,7 +173,8 @@ refuses any other without `--live`. `data/` is gitignored caches.
   decides what is rewritten.
 - **News desk** (`ffl/newsdesk/`): collect -> tag (rules, no model: `rules.py`, a status ladder per player; Sleeper's
   chart adds the next man up behind an out starter, under the push cutoff) -> write (Haiku via `claude -p`: headline,
-  overview, a line per player it moves) -> notices. Each stage runs alone; `POST /news/run` starts a run.
+  overview, a line per player it moves) -> check (Haiku, not told the arrow, reads the report behind each arrow that could
+  push; a different answer flags it, a failed call holds the push) -> notices. Each stage runs alone; `POST /news/run` starts a run.
 - **Push.** Detectors write a `notices` outbox (deduped by key); the tick flushes it per user (quiet hours, switches)
   as Declarative Web Push, because iOS often never fires `notificationclick` for a Home Screen app (WebKit 268797).
 - **ESPN writes.** `POST /lineup`, `/roster/sit`, `/claims*` re-read ESPN's roster, take a per-league lock, validate,

@@ -32,6 +32,7 @@ def stages(monkeypatch):
     monkeypatch.setattr(pipeline.media, "run_all", stub("media", {"new": 0}))
     monkeypatch.setattr(pipeline.tag, "run", stub("tag", {"tagged": 0}))
     monkeypatch.setattr(pipeline.write, "run", stub("write", lambda: {"written": len(written), "written_ids": list(written)}))
+    monkeypatch.setattr(pipeline.check, "run", lambda ids, index: {"checked_ids": list(ids)})
     monkeypatch.setattr(pipeline, "owners", lambda *, ref: ({1: {"team_id": ME}}, ME))
     return calls, written
 
@@ -180,6 +181,41 @@ def test_a_rev_waiting_in_quiet_hours_is_replaced_by_the_next(stages):
     written[:] = [(sid, 2)]
     pipeline.run()
     assert keys() == [f"news:{sid}:2"]
+
+
+def test_a_revision_the_check_holds_does_not_push(stages, monkeypatch):
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+    monkeypatch.setattr(pipeline.check, "run", lambda ids, index: {"checked_ids": [], "waiting": 1})
+    pipeline.run()
+    assert keys() == []
+    monkeypatch.setattr(pipeline.check, "run", lambda ids, index: {"checked_ids": [(sid, 1)]})
+    written.clear()
+    pipeline.run()
+    assert keys() == [f"news:{sid}:1"]
+
+
+def test_one_of_mine_cleared_for_the_game_pushes_even_past_the_dedupe(stages):
+    _, written = stages
+    a = make([(1, "down", "injury")])
+    written[:] = [(a, 1)]
+    pipeline.run()
+    flushed()
+    b = make([(1, "up", "return")], headline="Hurts is active")
+    with db._write() as conn:
+        conn.execute(db.news_items_table.update().where(db.news_items_table.c.story_id == b).values(jev={"ready:1": {"type": "ready"}}))
+    written[:] = [(b, 1)]
+    pipeline.run()
+    assert keys() == [f"news:{b}:1"]
+
+
+def test_one_of_mine_up_without_being_cleared_stays_quiet(stages):
+    _, written = stages
+    sid = make([(1, "up", "return")])
+    written[:] = [(sid, 1)]
+    pipeline.run()
+    assert keys() == []
 
 
 def _free_agent_up(monkeypatch, owned, chart=None):
@@ -370,7 +406,7 @@ def test_stale_headline_rewrites_without_push(stages):
 
     def haiku(prompt, **kw):
         return {"stories": [{"id": sid, "headline": f"New headline {sid}", "overview": "Now.",
-                             "players": [{"player_id": p, "reason": "Still.", "disagree": False} for p in (1, 3)]}
+                             "players": [{"player_id": p, "reason": "Still."} for p in (1, 3)]}
                             for sid in (sent, waiting)]}
 
     out = write_run(INDEX, run_cli=haiku)

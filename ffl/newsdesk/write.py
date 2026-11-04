@@ -1,8 +1,8 @@
 """Haiku writes each story's headline, overview and a line per player it moves (▲/▼) explaining the tagger's arrow;
 a player it only names (●) gets no line.
 
-The tagger decides the effect (▲ up / ▼ down / ● none); Haiku only words it, from the sources, and says when
-the sources do not support the arrow (`disagree`, stored as the player's flag). A story is a situation that
+The tagger decides the effect (▲ up / ▼ down / ● none); Haiku only words it, from the sources (`check.py` then judges
+the arrow, asked apart without being told it). A story is a situation that
 develops (limps off, doubtful, out, on IR), so Haiku reads every source in full, newest first, and the headline
 says where it stands now. The story is written from the rev it was read at: one that moved on meanwhile is
 dropped at the write and read again next run. A headline refresh (the tagger found the written headline stale, the rev
@@ -31,8 +31,8 @@ SCHEMA = {"type": "object", "required": ["stories"], "properties": {"stories": {
     "type": "object", "required": ["id", "headline", "overview", "players"], "properties": {
         "id": {"type": "integer"}, "headline": {"type": "string"}, "overview": {"type": "string"},
         "players": {"type": "array", "items": {
-            "type": "object", "required": ["player_id", "reason", "disagree"], "properties": {
-                "player_id": {"type": "integer"}, "reason": {"type": "string"}, "disagree": {"type": "boolean"}}}}}}}}}
+            "type": "object", "required": ["player_id", "reason"], "properties": {
+                "player_id": {"type": "integer"}, "reason": {"type": "string"}}}}}}}}}
 
 INSTRUCTIONS = f"""You write the news desk's cards for a fantasy football app. A story is often a situation that
 develops over several reports (limps off, then doubtful, then out, then on injured reserve). Its sources are listed
@@ -43,11 +43,10 @@ For each story below, give:
 - overview: at most two sentences, carrying how it got there.
 - players: for every listed player, one line of at most {LINE} characters explaining why the model's effect on
   that player's fantasy value is what it is, as things stand now. The effect is the model's call; explain it, from
-  the sources only. Do not invent facts, dates or numbers that the sources lack. `disagree: true` when the sources
-  do not support that effect (say why in the line); otherwise false. A story with no players listed takes an
-  empty list.
+  the sources only. Do not invent facts, dates or numbers that the sources lack; if the sources are thin, say so in the
+  line. A story with no players listed takes an empty list.
 A player listed as next on the depth chart behind a teammate moves up because that teammate is out: the sources need
-not name him, and that alone is no reason for `disagree`. Say he is next in line; invent no role beyond that.
+not name him. Say he is next in line; invent no role beyond that.
 A story whose status is corrected or retracted must say so plainly in both the headline and the overview
 (for example "Correction: ..." or "Report withdrawn: ..."), naming the status note's source when given.
 Answer for every story id given.
@@ -139,7 +138,7 @@ def _put(s: dict, w: dict | None) -> bool:
     if w is None:
         return False
     moved = {p["player_id"] for p in _moved(s)}
-    lines = {int(x["player_id"]): (_trim(x["reason"], LINE), bool(x["disagree"]))
+    lines = {int(x["player_id"]): (_trim(x["reason"], LINE), False)
              for x in w.get("players") or [] if int(x["player_id"]) in moved}
     headline, overview = _trim(w["headline"], HEADLINE), (w["overview"] or "").strip()
     if not headline or not overview or any(not (lines.get(pid) or ("",))[0] for pid in moved):

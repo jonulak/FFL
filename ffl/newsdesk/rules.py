@@ -56,6 +56,9 @@ PATTERNS = [
 PATTERNS = [(s, re.compile(p, re.I)) for s, p in PATTERNS]
 FROM_IR = PATTERNS[0][1]
 AGAIN = re.compile(r"\b(again|second|third|fourth|another|straight|consecutive)\b", re.I)  # right after a status: no new step
+GAMEDAY = re.compile(r"\b(is|are|listed as|officially) active\b|\bwill play\b|\b(expected|set|cleared) to play\b", re.I)
+TAGGED = {"limited", "doubtful", "out", "dnp", "hurt"}  # statuses a start/sit call hung on
+TAG_WORD = re.compile(r"\b(questionable|doubtful|game.time)\b", re.I)
 # not this news: it did not happen, might not, or is his past
 UNREAL = re.compile(r"\b(no|not|isn'?t|out of the|unlikely|back from|again|whether|possibl\w+|optimistic|remains?|still|avoid\w*|without|never|if|unless|could|may|might|after|since|last (week|season|year)|previous|earlier|before|despite|in 20\d\d)\b[^,;]{0,40}$", re.I)
 ROUNDUP = re.compile(r"\b(takeaways?|recap|preview|film|top plays|highlights|inactives|by the numbers|observations|things to (watch|know)|quick hits|mailbag|power rankings|"
@@ -218,6 +221,16 @@ def arrow(status: str | None, last: str | None) -> tuple[str, bool]:
     return ("up" if rank > was else "down"), True
 
 
+def ready(item: dict, player: dict, lines: list[str], status: str | None, last: str | None) -> bool:
+    """A player who carried an injury tag is cleared for the game: news for whoever has to set a lineup, even though most
+    ▲ pushes are for free agents. The tag is his last status, the report's own word, or "(ankle)" after his name."""
+    if status != "active" or not any(GAMEDAY.search(s) for s in lines):
+        return False
+    injury = re.compile(rf"{re.escape(surname(player['name']))}\s*\([a-z/ -]+\)", re.I)
+    text = f"{item.get('title') or ''} {item.get('text') or ''}"
+    return last in TAGGED or bool(TAG_WORD.search(text) or injury.search(text))
+
+
 def kind_of(status: str | None, effect: str, lines: list[str]) -> str:
     if status is not None:
         kind = STATUS[status][2]
@@ -315,6 +328,8 @@ def answer(item: dict, players: list[dict], candidates: list[dict], index=None, 
         out[f"kind:{pid}"] = _choice(kind_of(status, effect, lines), prob)
         if status is not None and not media:
             out[f"status:{pid}"] = {"type": "status", "status": status}
+        if effect == "up" and fresh and ready(item, p, [s for part in arrow_lines(item, p, players) for s in part], status, last):
+            out[f"ready:{pid}"] = {"type": "ready"}
         if effect == "down" and status in GONE and is_about and is_subject:
             lifts.append(p)
     if candidates:

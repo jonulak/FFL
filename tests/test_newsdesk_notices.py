@@ -122,6 +122,20 @@ def test_urgent_reads_the_newest_source():
     assert notices.urgent({"players": [], "items": []}) == set()
 
 
+def test_a_clearing_counts_only_on_the_newest_source():
+    s = {"players": [{"player_id": 1, "effect": "up"}],
+         "items": [{"id": 1, "published_at": "2026-10-19T01:00:00+00:00", "jev": {"ready:1": {"type": "ready"}}},
+                   {"id": 2, "published_at": "2026-10-19T02:00:00+00:00", "jev": {}}]}
+    assert notices.ready(s) == set() and notices.urgent(s) == set()
+    s["items"][1]["jev"] = {"ready:1": {"type": "ready"}}
+    assert notices.ready(s) == {1} and notices.urgent(s) == {1}
+
+
+def test_ready_pushes_only_for_my_own_player():
+    assert push({**row(1, "up"), "ready": True}) is not None  # mine
+    assert push(row(1, "up")) is None
+
+
 def test_a_free_agent_matters_by_ownership_or_the_chart():
     assert notices.matters({}) and notices.matters({"owned": 5.0}) and notices.matters({"owned": 0.1, "starter": True})
     assert not notices.matters({"owned": 4.9})

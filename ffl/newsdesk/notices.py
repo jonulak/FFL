@@ -1,14 +1,15 @@
 """News pushes, pure: which written stories reach the phone, and what they say.
 
-A player row pushes when it moves my roster down (▼ on a player I hold) or a free agent who matters up (▲ on one at
-MIN_OWNED percent owned, or first on his club's chart: a no-name off IR is no news), the tagger is sure of it
-(NEWS_PUSH_PROB), Haiku wrote him a line and did not disagree with the arrow, and he is not muted. A kicker or defense
+A player row pushes when it moves my roster down (▼ on a player I hold), clears one of mine for the game (▲ with `ready`: a
+tagged player now active, for the lineup call), or moves a free agent who matters up (▲ on one at MIN_OWNED percent owned,
+or first on his club's chart: a no-name off IR is no news); and the tagger is sure of it (NEWS_PUSH_PROB), Haiku wrote him a
+line, `check.py` reached the same arrow (`flag`), and he is not muted. A kicker or defense
 (`pos`, off the player index) pushes only as a ▼ on my roster that is an injury or his club letting him go (QUIET_POS:
 The tagger has no kind for a release, so it is read off Haiku's line, RELEASED). One push per story
 revision (`news:<id>:<rev>`); a correction or retraction pushes once more (`news:<id>:<status>`), only when the
 story pushed before. At most one push per player in DEDUPE, across the user's leagues: `recent` is what was queued in
-that time (sent or waiting), off the notices table and the stories' rows; only a fresh drop to out or IR (`urgent`) gets
-past it, so a practice week's steps are one push. Only news still new pushes: the story's newest source (a status push: its
+that time (sent or waiting), off the notices table and the stories' rows; only a fresh drop to out or IR or being cleared
+for the game (`urgent`) gets past it, so a practice week's steps are one push. Only news still new pushes: the story's newest source (a status push: its
 status change) at most NEWS_PUSH_MAX_AGE old, so the first run's three days of items, or a catch-up after a stretch at
 Haiku's limit, stays in the feed without pushing.
 """
@@ -42,7 +43,8 @@ def _pushes(p: dict, owners: dict[int, dict], me: int, muted: set[int], recent: 
     if p["effect"] == "down":
         ours = (owners.get(pid) or {}).get("team_id") == me
     elif p["effect"] == "up":
-        ours = pid not in owners and matters(p)
+        mine = (owners.get(pid) or {}).get("team_id") == me
+        ours = (mine and bool(p.get("ready"))) or (pid not in owners and matters(p))
     else:
         return False
     if p.get("pos") in QUIET_POS and not (p["effect"] == "down" and (
@@ -140,10 +142,22 @@ def recent(queued: list[dict], stories: dict[int, dict], t: datetime) -> set[int
     return out
 
 
-def urgent(story: dict) -> set[int]:
-    """The players the story's newest source just dropped to out or IR (rules.GONE, a fresh step): past the dedupe."""
+def _newest(story: dict) -> dict:
+    """The answers of the story's newest live source."""
     items = [i for i in story.get("items") or [] if not i.get("withdrawn_at")]
-    jev = (max(items, key=lambda i: (i["published_at"], i["id"])).get("jev") or {}) if items else {}
-    return {p["player_id"] for p in story["players"] if p["effect"] == "down"
-            and (jev.get(f"status:{p['player_id']}") or {}).get("status") in GONE
-            and (jev.get(f"fresh:{p['player_id']}") or {}).get("noul")}
+    return (max(items, key=lambda i: (i["published_at"], i["id"])).get("jev") or {}) if items else {}
+
+
+def ready(story: dict) -> set[int]:
+    """The players its newest source clears for the game (`rules.ready`)."""
+    jev = _newest(story)
+    return {p["player_id"] for p in story["players"] if p["effect"] == "up" and f"ready:{p['player_id']}" in jev}
+
+
+def urgent(story: dict) -> set[int]:
+    """The players past the dedupe: its newest source just dropped them to out or IR (rules.GONE, a fresh step), or
+    cleared them for the game."""
+    jev = _newest(story)
+    return ready(story) | {p["player_id"] for p in story["players"] if p["effect"] == "down"
+                           and (jev.get(f"status:{p['player_id']}") or {}).get("status") in GONE
+                           and (jev.get(f"fresh:{p['player_id']}") or {}).get("noul")}

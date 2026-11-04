@@ -1,5 +1,5 @@
 """One news run (`POST /news/run`, launchd/com.jonulak.ffl-news every 10 minutes): seed, index, collect, recheck,
-media, tag, write, notices, embed, health. Each stage is tried on its own and a failure is reported, the rest still run,
+media, tag, write, check, notices, embed, health. Each stage is tried on its own and a failure is reported, the rest still run,
 like notify.tick; the stages that need the player index are skipped without one. The stage dict is kept as state
 `news_last_run` for `GET /news/status`.
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .. import db, news, notify, watch
-from . import collect, embed, health, media, notices, players, seed, tag, write
+from . import check, collect, embed, health, media, notices, players, seed, tag, write
 
 PENDING = "news_to_notify"
 
@@ -111,8 +111,10 @@ def _notify_member(pending: list, who: dict[int, dict], index: players.Index, *,
         s = db.story(sid)
         if s is None or s["rev"] != rev or s["written_rev"] != rev:
             continue
+        cleared = notices.ready(s)
         for p in s["players"]:
             info = index.info(p["player_id"])
+            p["ready"] = p["player_id"] in cleared
             p["name"], p["pos"] = (index.by_id.get(p["player_id"]) or {}).get("name"), info.get("pos")
             p["owned"] = index.owned.get(p["player_id"])
             if p["effect"] == "up" and not notices.matters(p):  # the chart's read is cached, and only needed here
@@ -187,6 +189,8 @@ def run() -> dict:
     stage("tag", lambda: tag.run(index, now=now), needs_index=True)
     stage("write", lambda: write.run(index), needs_index=True)
     written = out["write"].get("written_ids", []) if isinstance(out["write"], dict) else []
+    stage("check", lambda: check.run(written, index), needs_index=True)  # what it holds waits in its own queue
+    written = out["check"].get("checked_ids", []) if isinstance(out["check"], dict) else []
     stage("notices", lambda: notify_written(written, index), needs_index=True)  # its revisions wait for the index
     stage("embed", embed.run)  # after the pushes: a backfill's minute never delays one, and a model failure costs neither
     stage("health", _health)

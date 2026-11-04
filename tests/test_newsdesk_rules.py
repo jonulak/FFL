@@ -163,6 +163,20 @@ def test_a_list_gives_him_his_own_status_not_the_next_mans():
     assert got["status:1"]["status"] == "limited" and got["effect:1"]["confidence"] < 0.8
 
 
+@pytest.mark.parametrize("title,text,last,cleared", [
+    ("Williams (ankle) is active for Sunday's game", "", None, True),
+    ("Kyren Williams will play Sunday", "He was listed as questionable.", None, True),
+    ("Kyren Williams will play Sunday", "", "limited", True),
+    ("Kyren Williams will play Sunday", "", None, False),  # no tag on record: nothing hung on it
+    ("Rams activate Kyren Williams off injured reserve", "He was questionable.", None, False),  # a roster move, no game call
+    ("Kyren Williams returned to practice", "He was questionable.", None, False),
+    ("Kyren Williams returns to practice", "Williams is expected to play Sunday. He was questionable.", None, False),  # the body's word
+])
+def test_a_tagged_player_cleared_for_the_game(title, text, last, cleared):
+    cands = [{"id": 9, "items": [{"published_at": "2026-10-19T01:00:00+00:00", "jev": {"status:1": {"status": last}}}]}] if last else []
+    assert ("ready:1" in rules.answer(item(title, text), [WILLIAMS], cands)) is cleared
+
+
 def test_retract_and_story_pick():
     prior = {"id": 7, "items": [{"title": "Kyren Williams hamstring injury sidelines Rams back",
                                  "text": "", "player_ids": [1], "published_at": "2026-10-19T01:00:00+00:00"}]}
@@ -251,4 +265,4 @@ def test_the_writer_is_told_a_lifted_player_comes_from_the_chart():
              "players": [{"player_id": 1, "effect": "down", "kind": "injury"}, {"player_id": 4, "effect": "up", "kind": "depth"}]}
     p = write.prompt([story], INDEX)
     assert "Blake Corum, RB, LAR; effect up (▲), kind depth; next on the depth chart behind Kyren Williams" in p
-    assert "no reason for `disagree`" in p
+    assert "disagree" not in p
