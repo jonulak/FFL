@@ -123,6 +123,23 @@ def test_media_is_never_an_arrow():
     assert said("Kyren Williams ruled out", source="yt:LAR")[:2] == ("none", 0.0)
 
 
+def test_a_media_excerpt_keeps_its_own_player_whatever_it_calls_him():
+    excerpt = item("Sean McVay press conference", "Kyren was sharp today, he had a great week.", source="yt:LAR")
+    excerpt["ext_id"] = "vid#1"
+    got = rules.answer(excerpt, [WILLIAMS, NACUA], [])
+    assert (got["about:1"]["noul"], got["subject:1"]["noul"]) == (True, True) and got["effect:1"]["choice"] == "none"
+    assert got["about:2"]["noul"] == 0.0
+
+
+@pytest.mark.parametrize("title", ["Kyren Williams again ruled out for Week 7", "Kyren Williams will miss a second straight game"])
+def test_a_repeat_of_old_news_is_not_a_new_step(title):
+    assert said(title)[0] == "none"
+
+
+def test_a_suffix_after_a_bare_surname_is_still_him():
+    assert said("Robinson Jr. ruled out for Sunday", player={"player_id": 8, "name": "Brian Robinson Jr.", "pos": "RB", "team": "ATL"})[0] == "down"
+
+
 def test_retract_and_story_pick():
     prior = {"id": 7, "items": [{"title": "Kyren Williams hamstring injury sidelines Rams back",
                                  "text": "", "player_ids": [1], "published_at": "2026-10-19T01:00:00+00:00"}]}

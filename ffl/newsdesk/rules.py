@@ -21,7 +21,8 @@ LEAD_CHARS = 300  # the opening of an item: a player named here is what it is ab
 SHARE = 1 / 3  # of its sentences naming him, past which an item is about him wherever he is first named
 # word overlap over which an item reports the same development as a source. Bge-small vectors did no better against
 # Haiku's stories (0.42 precision at words 0.15, 0.44 at cosine 0.85, recall 0.23 both), and need no model at tag time
-SIMILAR = 0.2
+SIMILAR = 0.2  # 0.47 of the picks over it were Haiku's story too: `tag._joins` is what keeps a wrong one out
+AGAIN_CHARS = 25
 CHART_PROB = 0.75  # no chart history to measure it on: under the push cutoff until real weeks are checked (issue #120)
 CHART_HOURS = 48  # the chart is today's: a lift only for news this recent
 GONE = {"ir", "out", "released"}  # the statuses that open a job
@@ -53,8 +54,9 @@ PATTERNS = [
     ("signed", r"\b(signs?|signed|signing|re-signed|re-signing|adds?|added)\b"),
 ]
 PATTERNS = [(s, re.compile(p, re.I)) for s, p in PATTERNS]
+AGAIN = re.compile(r"\b(again|second|third|fourth|another|straight|consecutive)\b", re.I)  # right after a status: no new step
 # not this news: it did not happen, might not, or is his past
-UNREAL = re.compile(r"\b(no|not|whether|possibl\w+|optimistic|remains?|still|avoid\w*|without|never|if|unless|could|may|might|after|since|last (week|season|year)|previous|earlier|before|despite|in 20\d\d)\b[^,;]{0,40}$", re.I)
+UNREAL = re.compile(r"\b(no|not|again|whether|possibl\w+|optimistic|remains?|still|avoid\w*|without|never|if|unless|could|may|might|after|since|last (week|season|year)|previous|earlier|before|despite|in 20\d\d)\b[^,;]{0,40}$", re.I)
 ROUNDUP = re.compile(r"\b(takeaways?|recap|preview|film|top plays|highlights|inactives|by the numbers|observations|things to (watch|know)|quick hits|mailbag|power rankings|"
                      r"notebook|what we learned|winners and losers|transcript|press conference|postgame|interviews?|podcast|updates?\b.*quarter|\d+,? \w+ \d+)\b", re.I)
 STATLINE = re.compile(r"\b(rushed|caught|carried|completed|brought in|hauled in|finished with|receptions?|yards)\b", re.I)
@@ -100,6 +102,8 @@ class _Named:
             return True
         if prev and prev[0].isupper() and not prev.isupper() and prev[-1] not in ",:;.'’s":
             return False  # someone else's first name, or a team name standing where his would
+        if after and after[0].rstrip(".,;:").lower() in SUFFIX:
+            return True
         return not (after and after[0][0].isupper() and after[0][0].isalpha() and m.end() < len(line) and line[m.end()] == " "
                     and not after[0].isupper())
 
@@ -150,7 +154,7 @@ def status_of(lines: list[str]) -> str | None:
     for name, pat in PATTERNS:
         for line in lines:
             for m in pat.finditer(line):
-                if not UNREAL.search(line[:m.start()]):
+                if not UNREAL.search(line[:m.start()]) and not AGAIN.search(line[m.end():m.end() + AGAIN_CHARS]):
                     return name
     return None
 
@@ -289,7 +293,9 @@ def answer(item: dict, players: list[dict], candidates: list[dict], index=None, 
         effect, fresh = arrow(status, last)
         if media:
             effect, fresh = "none", False
-        is_about, is_subject = about(item, p), subject(item, p, lines, status)
+        # spoken, he goes by his first name: the excerpt was cut for its owner (media.py), so it is about him whatever it says
+        mine = media and (item.get("ext_id") or "").rpartition("#")[2] == str(pid)
+        is_about, is_subject = mine or about(item, p), mine or subject(item, p, lines, status)
         prob = 1.0 if effect == "none" else PROB[status]
         out[f"about:{pid}"] = _noul(float(is_about))
         out[f"subject:{pid}"] = _noul(float(is_subject))
