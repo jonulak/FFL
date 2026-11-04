@@ -183,6 +183,9 @@ def run() -> dict:
     stage("notices", lambda: notify_written(written, index), needs_index=True)  # its revisions wait for the index
     stage("embed", embed.run)  # after the pushes: a backfill's minute never delays one, and a model failure costs neither
     stage("health", _health)
+    # last: an episode is minutes of the stt container's time, and every stage above has run (the run holds the news
+    # lock); what it stores is tagged on the next run
+    stage("transcribe", lambda: media.transcribe_pending(index, now), needs_index=True)
     try:
         db.put_state("news_last_run", {"at": notify.now(), "stages": out})
     except db.DBError as e:

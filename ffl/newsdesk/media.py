@@ -31,6 +31,7 @@ read: after a failed transcript fetch the next poll takes the whole feed again.
 """
 from __future__ import annotations
 
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -104,10 +105,11 @@ def parse_podcast_feed(xml: str | bytes, source: dict) -> list[dict]:
         found = {t.get("type"): t.get("url") for t in it.findall(_POD + "transcript") if t.get("url")}
         kind = next((t for t in TRANSCRIPT_TYPES if t in found), next(iter(found), None))
         enclosure = it.find("enclosure")
-        url = (it.findtext("link") or "").strip() or (enclosure.get("url") if enclosure is not None else "")
+        audio = enclosure.get("url") if enclosure is not None else None
+        url = (it.findtext("link") or "").strip() or audio or ""
         out.append({"guid": guid, "title": (it.findtext("title") or "").strip(),
                     "published_at": collect._utc(parsedate_to_datetime(when.strip())), "url": url,
-                    "transcript_url": found.get(kind), "transcript_type": kind})
+                    "transcript_url": found.get(kind), "transcript_type": kind, "audio_url": audio})
     return out
 
 
@@ -225,6 +227,66 @@ def _err(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"[:300]
 
 
+STT_PER_RUN = 1  # episodes a run: a 30-minute show took 150 s on an M-series CPU (12x realtime), measured 2026-11-04
+STT_BUDGET_S = 300  # the news lock is held for the whole run and cron fires every ten minutes
+STT_TIMEOUT_S = 900
+STT_TRIES = 3  # an episode the service keeps failing on is dropped
+
+
+def stt_url() -> str | None:
+    """The stt service (FFL_STT_URL, the compose stack's `stt` profile); None keeps no-transcript episodes out."""
+    return os.environ.get("FFL_STT_URL") or None
+
+
+def transcribe_pending(index: Index, now: datetime | None = None) -> dict:
+    """The queued episodes without a transcript (run_all's `news_pending_audio`), newest first, STT_PER_RUN a run
+    within STT_BUDGET_S, each through the stt service and stored like a transcript it shipped with. The service
+    unreachable (the profile off, the container down) leaves the queue as it is: `off`. An episode the service
+    answers an error for is tried STT_TRIES times, then dropped; one older than three days is dropped unread."""
+    now = now or datetime.now(timezone.utc)
+    at = now.astimezone(timezone.utc).isoformat(timespec="seconds")
+    cutoff = collect._utc(now - collect.MAX_AGE)
+    queue: dict[str, dict] = db.get_state("news_pending_audio", {}) or {}
+    queue = {g: e for g, e in queue.items()
+             if e["published_at"] >= cutoff and e.get("tries", 0) < STT_TRIES and db.news_media(g) is None}
+    url = stt_url()
+    out = {"transcribed": 0, "new": 0, "pending": len(queue), "failed": [], "off": url is None}
+    started = time.monotonic()
+    errors: dict[str, str] = {}
+    for guid, ep in sorted(queue.items(), key=lambda kv: kv[1]["published_at"], reverse=True)[:STT_PER_RUN]:
+        if url is None or time.monotonic() - started > STT_BUDGET_S:
+            break
+        ep["tries"] = ep.get("tries", 0) + 1
+        try:
+            r = requests.post(url.rstrip("/") + "/transcribe", json={"url": ep["audio_url"]}, timeout=STT_TIMEOUT_S,
+                              headers={"x-ffl-job": os.environ.get("FFL_JOB_TOKEN", "")})
+            reply = r.json() if r.status_code == 200 else {"error": f"stt answered {r.status_code}"}
+        except requests.ConnectionError:  # the service is not there: nothing is wrong with the episode
+            out["off"] = True
+            ep["tries"] -= 1
+            break
+        except (requests.RequestException, ValueError) as e:
+            errors[ep["source_id"]] = _err(e)
+            continue
+        if not reply.get("ok"):
+            errors[ep["source_id"]] = f"stt: {reply.get('error')}"[:300]
+            continue
+        row = {"id": guid, "source_id": ep["source_id"], "url": ep["url"], "title": ep["title"],
+               "published_at": ep["published_at"]}
+        try:
+            out["new"] += _store(row, reply["segs"], index, ep["club"], at)
+        except (db.DBError, KeyError, TypeError) as e:
+            errors[ep["source_id"]] = _err(e)
+            continue
+        out["transcribed"] += 1
+        queue.pop(guid)
+    db.put_state("news_pending_audio", queue)
+    for sid, err in errors.items():
+        print(f"news stt: {sid}: {err}")
+    out.update(pending=len(queue), failed=sorted(errors))
+    return out
+
+
 def run_all(index: Index, now: datetime | None = None) -> dict:
     """Every active media source: presser videos and podcast episodes of the last three days not yet
     stored, each stored whole and split per player. Marks each source's health."""
@@ -247,11 +309,16 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
     def fresh(rows: list[dict], key: str) -> list[dict]:
         return [r for r in rows if r["published_at"] >= cutoff and db.news_media(r[key]) is None]
 
+    queue: dict[str, dict] = db.get_state("news_pending_audio", {}) or {}
     for source in sources:
         if source["kind"] != "podcast" or source["id"] in errors:
             continue
         for ep in fresh(polled[source["id"]], "guid"):
             if not ep["transcript_url"]:
+                # no transcript in the feed: the audio waits for the stt service (transcribe_pending), when there is one
+                if ep.get("audio_url") and stt_url() and ep["guid"] not in queue:
+                    queue[ep["guid"]] = {"source_id": source["id"], "club": source["club"], "title": ep["title"],
+                                         "url": ep["url"], "audio_url": ep["audio_url"], "published_at": ep["published_at"]}
                 continue
             try:
                 r = _get(ep["transcript_url"])
@@ -267,6 +334,7 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
             kept = got[source["id"]][1] if source["id"] not in errors else {}
             last_poll[source["id"]] = {"at": at, **(kept or {})}
     db.put_state("news_podcast_polled", last_poll)
+    db.put_state("news_pending_audio", queue)
 
     pending: dict[str, str] = db.get_state("news_pending_media", {}) or {}
     tried: dict[str, str] = db.get_state("news_pending_tried", {}) or {}

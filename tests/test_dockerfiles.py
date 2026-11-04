@@ -22,6 +22,22 @@ def test_runner_dockerfile_and_service():
     assert svc["api"]["environment"]["FFL_RUNNER_URL"] == "http://runner:8310"
 
 
+def test_stt_dockerfile_and_service():
+    """The transcriber: stt.py alone beside a baked model, the `stt` profile only, no published port."""
+    import yaml
+
+    from ffl import stt
+    text = (ROOT / "Dockerfile.stt").read_text()
+    assert f"onnx_asr.load_model('{stt.MODEL}'" in text and "COPY ffl/__init__.py ffl/stt.py" in text
+    assert "--require-hashes" in text and "HF_HUB_OFFLINE=1" in text
+    assert "onnx-asr" in (ROOT / "deploy/stt/requirements.txt").read_text()
+    svc = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
+    assert svc["stt"]["profiles"] == ["stt"] and "ports" not in svc["stt"] and "env_file" not in svc["stt"]
+    assert svc["api"]["environment"]["FFL_STT_URL"] == f"http://stt:{stt.PORT}"
+    assert "stt" not in svc["api"].get("depends_on", {}), "the profile may be off"
+    assert "# COMPOSE_PROFILES=stt" in (ROOT / "deploy/env.example").read_text()
+
+
 def test_crontab_has_the_six_jobs():
     text = (ROOT / "deploy/crontab").read_text()
     lines = [l for l in text.splitlines() if l.strip() and not l.startswith("#")]

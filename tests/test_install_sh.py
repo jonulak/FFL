@@ -12,9 +12,9 @@ echo "$*" >> "$DOCKER_LOG"
 """
 
 
-def run(tmp_path, path):
+def run(tmp_path, path, **extra):
     env = {"PATH": path, "HOME": str(tmp_path), "FFL_HOME": str(tmp_path / "ffl"),
-           "FFL_INSTALL_BASE": f"file://{REPO}", "DOCKER_LOG": str(tmp_path / "docker.log")}
+           "FFL_INSTALL_BASE": f"file://{REPO}", "DOCKER_LOG": str(tmp_path / "docker.log"), **extra}
     return subprocess.run(["/bin/sh", str(REPO / "install.sh")], env=env, capture_output=True, text=True)
 
 
@@ -46,6 +46,18 @@ def test_install_fills_env_and_starts(tmp_path, stub_path):
     assert _val(tmp_path, "FFL_PORT") == "3300"
     assert "Open http://localhost:3300" in r.stdout
 
+    assert run(tmp_path, stub_path).returncode == 0
+    assert (tmp_path / "ffl" / ".env").read_text() == env
+
+
+def test_install_with_stt_writes_the_profile_once(tmp_path, stub_path):
+    """FFL_STT=1 adds COMPOSE_PROFILES=stt to .env (the transcriber), a re-run keeps it, and a kept .env is never
+    given it unasked."""
+    assert run(tmp_path, stub_path, FFL_STT="1").returncode == 0
+    env = (tmp_path / "ffl" / ".env").read_text()
+    assert env.splitlines().count("COMPOSE_PROFILES=stt") == 1 and env.endswith("COMPOSE_PROFILES=stt\n")
+    assert run(tmp_path, stub_path, FFL_STT="1").returncode == 0
+    assert (tmp_path / "ffl" / ".env").read_text() == env
     assert run(tmp_path, stub_path).returncode == 0
     assert (tmp_path / "ffl" / ".env").read_text() == env
 

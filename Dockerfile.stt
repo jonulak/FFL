@@ -1,0 +1,30 @@
+# Speech to text for podcast episodes without a transcript (ffl/stt.py): NVIDIA Parakeet TDT 0.6B v2 over onnx-asr on
+# the CPU, the model baked in so production never downloads it. Only the api reaches it (compose's internal network,
+# the x-ffl-job secret). The `stt` compose profile starts it: it needs about 3 GB of memory the base stack does not.
+FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+# images.yml sets it (a constant) so the build is reproducible: useradd dates /etc/shadow with it
+ARG SOURCE_DATE_EPOCH
+
+# libsndfile reads the mp3 (soundfile's wheel bundles one on x86_64; the distro's covers arm64 too)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates libsndfile1 \
+ && rm -rf /var/lib/apt/lists/* /var/log/apt/* /var/log/dpkg.log /var/log/alternatives.log /var/cache/ldconfig/aux-cache \
+ && useradd -m stt && mkdir -p /app/models && chown stt /app/models
+ENV PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+# Pinned with hashes (deploy/stt/requirements.in); bytecode compiled in one process so the layer is the same each build
+COPY deploy/stt/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --no-compile --require-hashes -r /tmp/requirements.txt \
+ && python -m compileall -q -j1 --invalidation-mode checked-hash /usr/local/lib/python3.12/site-packages \
+ && find /tmp -mindepth 1 -delete
+
+USER stt
+WORKDIR /app
+# The model and the VAD by the names ffl/stt.py loads (tests/test_dockerfiles.py holds them equal): ~650 MB, int8.
+# The cleanup drops the hub's lock files and download logs, onnxruntime's telemetry id and /tmp, all new each build.
+ENV HF_HOME=/app/models
+RUN python -c "import onnx_asr; onnx_asr.load_model('nemo-parakeet-tdt-0.6b-v2', quantization='int8'); onnx_asr.load_vad('silero')" \
+ && find /app/models -name "*.lock" -delete && rm -rf /app/models/.locks /home/stt/.cache && find /tmp -mindepth 1 -delete
+ENV HF_HUB_OFFLINE=1
+COPY ffl/__init__.py ffl/stt.py ffl/
+EXPOSE 8320
+CMD ["python", "-m", "ffl.stt"]

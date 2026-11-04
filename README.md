@@ -7,7 +7,9 @@ on an install has their own login; a household or a few league-mates can share o
 - **Roster**: a start/sit call per player, one-tap lineup swaps, and a written outlook (injury, usage, depth) per player.
 - **Players**: free agents and rostered players priced on rest-of-season projections from five sources, with filters
   and saved views; claims and free adds from the table.
-- **News**: stories grouped per player from beat writers, team sites and transcripts, each marked up or down.
+- **News**: stories grouped per player from beat writers, team sites, press conferences and podcasts (the clubs'
+  own shows, and with the optional transcriber every Locked On show and the national fantasy shows), each marked up
+  or down.
 - **Push notifications**: injuries to your starters, waiver results, league moves, news on your players.
 - **Decisions**: every roster move recorded with its reason, so the season can be reviewed.
 - **Draft tools** (command line): a live draft assistant and practice-draft simulator.
@@ -16,7 +18,7 @@ It runs as four Docker containers (Postgres, the API, the web app, a cron jobs c
 outlooks and news write-ups use `claude -p` with your Claude subscription token or an Anthropic API key.
 
 You need an ESPN account in the leagues, a Claude subscription or API key, and a machine with Docker and about 2 GB of
-memory.
+memory (about 5 GB and a few CPU cores with the optional podcast transcriber, below).
 
 ## Install
 
@@ -90,6 +92,34 @@ Advanced, unset by default (add a line to `.env` to use one):
 | `FFL_SOURCES_OFF` | Projection or news sources to skip, comma separated. Some refuse cloud hosts: on a VPS, `sharks,youtube_captions`. |
 | `FFL_OUTLOOK_WORKERS` | Outlooks written at once (20). Use 3 on a 2 GB machine. |
 
+## Podcast transcription (optional)
+
+The news desk reads the clubs' official podcasts because their feeds carry transcripts. The shows the week's analysis
+is argued on (Locked On, one a day per club; Fantasy Footballers, Fantasy Football Today, Establish The Run, the
+Ringer, PFF and the rest) ship none, so an optional `stt` container transcribes them on your own machine with NVIDIA's
+Parakeet model: nothing leaves the machine, and no key is needed. It costs about 3 GB of memory and, on a desktop
+CPU, a minute or two per half-hour episode (about 30 hours of audio a day across every show; measured 2026-11-04 on
+an M-series Mac in Docker: 84 s for a 32-minute show, 2.7 GB resident).
+
+Turn it on with a line in `~/ffl/.env`, then restart the stack:
+
+```
+COMPOSE_PROFILES=stt
+```
+
+```
+docker compose up -d
+```
+
+Or install with it from the start: `curl -fsSL ... | FFL_STT=1 sh`. `docker compose logs stt` shows the model loading
+and `docker compose logs api` each episode as the news desk sends it (one per news run, newest first). Without the
+container the shows are still polled, and their episodes wait; nothing fails.
+
+On a Mac, Docker runs the model on the CPU of its Linux VM, with no access to the Apple silicon's accelerators. A
+native process (for example `parakeet-mlx`) serving the same contract (`POST /transcribe {url}` with the `x-ffl-job`
+header, answering `{ok, segs: [{start, text}]}`, see `ffl/stt.py`) is a drop-in: point the api at it with
+`FFL_STT_URL` in a `docker-compose.override.yml` and leave the profile off.
+
 ## Troubleshooting
 
 - **The page does not load:** `docker compose ps` shows which container is down, and `docker compose logs api` shows why. A failed database migration appears there.
@@ -99,6 +129,7 @@ Advanced, unset by default (add a line to `.env` to use one):
   address, and a device turned on in Settings. `docker compose logs api` shows each failed push with the push
   service's reason.
 - **Jobs not running:** `docker compose logs jobs` shows each scheduled run and its answer.
+- **Podcasts without a transcript are not in the news:** the transcriber is off (`COMPOSE_PROFILES=stt` in `.env`, then `docker compose up -d`) or down (`docker compose logs stt`). `GET /news/status` (signed in as an admin) shows the last run's stages: `transcribe` says `off` while the news desk cannot reach it.
 
 ## Backups
 
