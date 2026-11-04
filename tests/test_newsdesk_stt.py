@@ -1,10 +1,8 @@
 """Podcast episodes without a transcript: queued by media.run_all for the stt service (ffl/stt.py), transcribed in
 the pipeline's last stage (media.transcribe_pending) and stored like a transcript the feed shipped."""
-import json
+import json as js
 import re
 from datetime import datetime, timedelta, timezone
-
-import pytest
 
 from ffl import db
 from ffl.newsdesk import media
@@ -27,7 +25,7 @@ def _post(monkeypatch, reply, posts=None):
             posts.append((url, json, headers))
         if isinstance(reply, Exception):
             raise reply
-        return Resp(globals()["json"].dumps(reply).encode())
+        return Resp(js.dumps(reply).encode())
     monkeypatch.setattr(media.requests, "post", post)
 
 
@@ -104,5 +102,5 @@ def test_a_feed_with_transcripts_never_queues(monkeypatch):
     serve(monkeypatch, {POD["url"]: fix("omny.xml"), **{e["transcript_url"]: srt for e in eps}})
     assert media.run_all(INDEX, now=NOW)["media"] == 1
     assert db.get_state("news_pending_audio") == {}
-    with pytest.raises(AssertionError):
-        _post(monkeypatch, {"ok": True}); assert media.transcribe_pending(INDEX, now=NOW)["pending"] == 1
+    _post(monkeypatch, {"ok": True})
+    assert media.transcribe_pending(INDEX, now=NOW) == {"transcribed": 0, "new": 0, "pending": 0, "failed": [], "off": False}
