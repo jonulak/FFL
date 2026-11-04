@@ -40,23 +40,24 @@ PATTERNS = [
            r"|\bon (IR\b|injured reserve)|season.ending|out for the (season|year)|miss the (rest of the )?(season|year)|\b(torn|tore) (his |an? )?(ACL|achilles|MCL|pec)"),
     ("released", r"\b(released?|releasing|waived?|waiving|cut by|parted ways|part ways)\b"),
     ("out", r"\brule[sd]? (\w+ ){0,3}out\b|\bout \d+(-\d+)? (weeks|months)\b|\bwill(?: not|n'?t) play\b|\bwon'?t play\b|\binactive\b|\bout (for |on |against |vs\.? )(sunday|monday|thursday|saturday|week|the game)"
-            r"|\b(will|set to|expected to|going to|likely to) miss\b|\bdid(?: not|n'?t) return\b|\bwon'?t return\b|\bcarted\b|\bis out\b"),
+            r"|\b(will|set to|expected to|going to|likely to) miss\b|\bdid(?: not|n'?t) return\b|\bwon'?t return\b|\bcarted\b|\bis out\b(?! of)"),
     ("benched", r"\b(benched|demoted|lost (his|the) (starting|job))\b"),
     ("doubtful", r"\bdoubtful\b"),
-    ("dnp", r"\b(did(?: not|n'?t)|won'?t|will not|not expected to|unable to) (practice|participate)|\bnot practic|\bnot seen\b|\bDNP\b|\bmiss(es|ed)? (\w+ )?practice|\bsat out\b|\bno reps\b"),
+    ("dnp", r"\bneither\b.* will practice\b|\b(did(?: not|n'?t)|won'?t|will not|not expected to|isn'?t expected to|unable to) (practice|participate)|\bnot practic|\bnot seen\b|\bDNP\b|\bmiss(es|ed)? (\w+ )?practice|\bsat out\b|\bno reps\b"),
     ("hurt", r"\b(left|exited) (the game|sunday|monday|thursday|saturday|with|early)|\bsuffered\b|\bsustained\b|\baggravated\b|\bmedical tent\b|\binjury tent\b"
              r"|\blimp(ed|ing)\b|\bsprain|\bfractur|\bsurgery\b|\bhospital\b|\bwalking boot\b|\bconcussion protocol\b"),
     ("limited", r"\blimited\b|\bquestionable\b"),
     ("full", r"\bfull(y)? (participant|practices?|go)\b|\bpracticed (fully|in full)\b|\bno limitations\b"),
-    ("active", r"\bis active\b|\blisted as active\b|\b(activated|activate|reinstated|designated (\w+ )?to return)\b|\breturn(s|ed)? to (full )?practice\b|\b(back at|will) practice\b|\bcleared\b"
+    ("active", r"\bactive\b(?! roster)|\b(activated|activate|reinstated|designated (\w+ )?to return)\b|\breturn(s|ed)? to (\w+ )?practice\b|\b(back at|will|expected to) practice\b|\bcleared\b"
                r"|\b(off|removed from) (the )?injury report\b|\bno injury designation\b|\b(expected|set|slated|ready) to (play|return)\b|\bwill (play|return)\b"),
     ("starter", r"\bgets? the start\b|\b(named|will|to) (the )?start(er|ing)?\b|\bwill start\b|\btakes? over\b|\blead back\b|\bstarting job\b|\bpromoted\b|\bNo\. 1\b"),
     ("signed", r"\b(signs?|signed|signing|re-signed|re-signing|adds?|added)\b"),
 ]
 PATTERNS = [(s, re.compile(p, re.I)) for s, p in PATTERNS]
+FROM_IR = PATTERNS[0][1]
 AGAIN = re.compile(r"\b(again|second|third|fourth|another|straight|consecutive)\b", re.I)  # right after a status: no new step
 # not this news: it did not happen, might not, or is his past
-UNREAL = re.compile(r"\b(no|not|again|whether|possibl\w+|optimistic|remains?|still|avoid\w*|without|never|if|unless|could|may|might|after|since|last (week|season|year)|previous|earlier|before|despite|in 20\d\d)\b[^,;]{0,40}$", re.I)
+UNREAL = re.compile(r"\b(no|not|isn'?t|out of the|unlikely|back from|again|whether|possibl\w+|optimistic|remains?|still|avoid\w*|without|never|if|unless|could|may|might|after|since|last (week|season|year)|previous|earlier|before|despite|in 20\d\d)\b[^,;]{0,40}$", re.I)
 ROUNDUP = re.compile(r"\b(takeaways?|recap|preview|film|top plays|highlights|inactives|by the numbers|observations|things to (watch|know)|quick hits|mailbag|power rankings|"
                      r"notebook|what we learned|winners and losers|transcript|press conference|postgame|interviews?|podcast|updates?\b.*quarter|\d+,? \w+ \d+)\b", re.I)
 STATLINE = re.compile(r"\b(rushed|caught|carried|completed|brought in|hauled in|finished with|receptions?|yards)\b", re.I)
@@ -70,7 +71,7 @@ RETRACT = re.compile(r"\b(retract\w*|walk(ed|ing)? back|correction|corrected|ear
 WORD = re.compile(r"[a-z0-9']+")
 STOP = {"the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "at", "by", "with", "from", "is", "was", "are", "were", "be", "has",
         "had", "have", "he", "his", "him", "it", "its", "that", "this", "as", "not", "but", "will", "after", "said", "says", "reports"}
-CLAUSE = re.compile(r"[,;:]|\b(?:and|but|while|with|as|behind|after|following|because|in the wake of|replac\w+)\b")
+CLAUSE = re.compile(r"[,;:]|\band\b(?= [A-Z])|\b(?:but|while|with|as|behind|after|following|because|in the wake of|replac\w+)\b")
 
 
 def surname(name: str) -> str:
@@ -122,7 +123,13 @@ def scope(item: dict, player: dict, others: list[dict]) -> list[str]:
     for s in [item.get("title") or "", *_sentences(item.get("text") or "")]:
         if me.search(s):
             mine = True
-            out += [c for c in CLAUSE.split(s) if me.search(c)]
+            # a clause that is only his name ("A, B return to practice") takes its verb from the next one
+            parts = CLAUSE.split(s)
+            for i, c in enumerate(parts):
+                if me.search(c):
+                    next_part = parts[i + 1] if i + 1 < len(parts) and len(c.split()) <= len(player["name"].split()) else ""
+                    start = s.index(c)  # the line's own text: `arrow_lines` finds it in the title by substring
+                    out.append(s[start:s.index(next_part, start) + len(next_part)] if next_part else c)
         elif mine and re.match(r"(he|his)\b", s, re.I) and not any(r.search(s) for r in rest):
             out.append(s)
         else:
@@ -131,9 +138,9 @@ def scope(item: dict, player: dict, others: list[dict]) -> list[str]:
 
 
 def arrow_lines(item: dict, player: dict, others: list[dict]) -> list[list[str]]:
-    """Where his status may be read, in order: the title if it names him, then the lead's sentences naming him. A status
-    deep in an article or in a roundup is rarely today's news about him, so neither gives an arrow; a roster-move list
-    is the exception, every line of it is news."""
+    """Where his status may be read: the title if it names him, else the lead's sentences he opens. A status deep in an
+    article or in a roundup is rarely today's news about him, so neither gives an arrow; a roster-move list is the
+    exception, every line of it is news."""
     title = item.get("title") or ""
     if ROUNDUP.search(title) or STATLINE.search(title):
         return []
@@ -141,18 +148,22 @@ def arrow_lines(item: dict, player: dict, others: list[dict]) -> list[list[str]]
     if MOVES.search(title):
         return [lines]
     me = _named(player["name"])
-    in_title = bool(me.search(title))
-    if not in_title and any(_named(o["name"]).search(title) for o in others if o["player_id"] != player["player_id"]):
+    if me.search(title):  # the title says what the news is: its body's lead is often how he got here
+        return [[s for s in lines if s in title]]
+    if any(_named(o["name"]).search(title) for o in others if o["player_id"] != player["player_id"]):
         return []  # a note on another player
     lead = (item.get("text") or "")[:LEAD_CHARS]
     # in the body he must open the sentence: its subject, not someone it mentions
-    return [[s for s in lines if s in title], [s for s in lines if s in lead and me.search(" ".join(s.split()[:SUBJECT_WORDS]))]]
+    return [[s for s in lines if s in lead and me.search(" ".join(s.split()[:SUBJECT_WORDS]))]]
 
 
 def status_of(lines: list[str]) -> str | None:
-    """The worst status his lines report as real and current."""
+    """The worst status his lines report as real and current. A line about coming off IR is never one about going on
+    it, even when it only hopes to ("optimistic he'll be activated from injured reserve")."""
     for name, pat in PATTERNS:
         for line in lines:
+            if name == "ir" and FROM_IR.search(line):
+                continue
             for m in pat.finditer(line):
                 if not UNREAL.search(line[:m.start()]) and not AGAIN.search(line[m.end():m.end() + AGAIN_CHARS]):
                     return name

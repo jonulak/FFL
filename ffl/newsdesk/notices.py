@@ -1,13 +1,14 @@
 """News pushes, pure: which written stories reach the phone, and what they say.
 
-A player row pushes when it moves my roster down (▼ on a player I hold) or a free agent up (▲), the tagger is sure of it
+A player row pushes when it moves my roster down (▼ on a player I hold) or a free agent who matters up (▲ on one at
+MIN_OWNED percent owned, or first on his club's chart: a no-name off IR is no news), the tagger is sure of it
 (NEWS_PUSH_PROB), Haiku wrote him a line and did not disagree with the arrow, and he is not muted. A kicker or defense
 (`pos`, off the player index) pushes only as a ▼ on my roster that is an injury or his club letting him go (QUIET_POS:
 The tagger has no kind for a release, so it is read off Haiku's line, RELEASED). One push per story
 revision (`news:<id>:<rev>`); a correction or retraction pushes once more (`news:<id>:<status>`), only when the
-story pushed before. At most one push per player and kind of news in DEDUPE: `recent` is what was queued in that
-time (sent or waiting), off the notices table and the stories' rows; a story whose earlier revision pushed is a
-material update (`is_update`) and skips it. Only news still new pushes: the story's newest source (a status push: its
+story pushed before. At most one push per player in DEDUPE, across the user's leagues: `recent` is what was queued in
+that time (sent or waiting), off the notices table and the stories' rows; only a fresh drop to out or IR (`urgent`) gets
+past it, so a practice week's steps are one push. Only news still new pushes: the story's newest source (a status push: its
 status change) at most NEWS_PUSH_MAX_AGE old, so the first run's three days of items, or a catch-up after a stretch at
 Haiku's limit, stays in the feed without pushing.
 """
@@ -17,10 +18,12 @@ import re
 from datetime import datetime, timedelta
 
 from ..notify import BODY_MAX
+from .rules import GONE
 
 NEWS_PUSH_PROB = 0.8
 NEWS_PUSH_MAX_AGE = timedelta(hours=6)
-DEDUPE = timedelta(hours=24)
+DEDUPE = timedelta(hours=48)
+MIN_OWNED = 5.0  # percent: under it ESPN's players are mostly depth; 1% still let through what no one rosters
 ARROW = {"down": "▼", "up": "▲"}
 QUIET_POS = {"K", "D/ST"}  # no free-agent pushes; mine only for an injury or a release
 RELEASED = re.compile(r"\b(releas|waiv|cut)", re.I)
@@ -29,23 +32,27 @@ STATUS_TITLE = {"corrected": "Corrected", "retracted": "Retracted"}
 STATUS_BODY = {"corrected": "The report was corrected.", "retracted": "Every source withdrew the report."}
 
 
-def _pushes(p: dict, owners: dict[int, dict], me: int, muted: set[int], recent: set[tuple[int, str]]) -> bool:
+def matters(p: dict) -> bool:
+    """A player worth a free-agent push. `owned` unknown (no reading) counts as worth it."""
+    return p.get("owned") is None or p["owned"] >= MIN_OWNED or bool(p.get("starter"))
+
+
+def _pushes(p: dict, owners: dict[int, dict], me: int, muted: set[int], recent: set[int]) -> bool:
     pid = p["player_id"]
     if p["effect"] == "down":
         ours = (owners.get(pid) or {}).get("team_id") == me
     elif p["effect"] == "up":
-        ours = pid not in owners
+        ours = pid not in owners and matters(p)
     else:
         return False
     if p.get("pos") in QUIET_POS and not (p["effect"] == "down" and (
             p["kind"] == "injury" or RELEASED.search(p.get("reason") or ""))):
         return False
     return (ours and p["prob"] >= NEWS_PUSH_PROB and not p.get("flag") and bool((p.get("reason") or "").strip())
-            and pid not in muted and (pid, p["kind"]) not in recent)
+            and pid not in muted and pid not in recent)
 
 
-def _qualifying(story: dict, owners: dict[int, dict], me: int, muted: set[int],
-                recent: set[tuple[int, str]]) -> list[dict]:
+def _qualifying(story: dict, owners: dict[int, dict], me: int, muted: set[int], recent: set[int]) -> list[dict]:
     """The rows that push, ▼ first, then by prob; none for a story Haiku gave no headline."""
     if not (story.get("headline") or "").strip():
         return []
@@ -53,10 +60,9 @@ def _qualifying(story: dict, owners: dict[int, dict], me: int, muted: set[int],
     return sorted(rows, key=lambda p: (p["effect"] != "down", -p["prob"]))
 
 
-def rows(story: dict, owners: dict[int, dict], me: int, muted: set[int],
-         recent: set[tuple[int, str]] = frozenset()) -> list[tuple[int, str]]:
-    """(player, kind) of the rows the push carries: what the day's dedupe counts after it."""
-    return [(p["player_id"], p["kind"]) for p in _qualifying(story, owners, me, muted, recent)]
+def rows(story: dict, owners: dict[int, dict], me: int, muted: set[int], recent: set[int] = frozenset()) -> list[int]:
+    """The players the push carries: what the dedupe counts after it."""
+    return [p["player_id"] for p in _qualifying(story, owners, me, muted, recent)]
 
 
 def _more(n: int) -> str:
@@ -82,7 +88,7 @@ def _new(when: str | None, at: str) -> bool:
 
 
 def for_story(story: dict, owners: dict[int, dict], me: int, muted: set[int], at: str,
-              recent: set[tuple[int, str]] = frozenset()) -> dict | None:
+              recent: set[int] = frozenset()) -> dict | None:
     """The push for a written story revision, or None when no row qualifies or its newest source is too old to be
     news. A row's name is `name` (the pipeline dresses the rows from the player index)."""
     if not _new(max((i["published_at"] for i in story.get("items") or []), default=None), at):
@@ -117,11 +123,11 @@ def rev_key(key: str) -> tuple[int, int] | None:
     return None
 
 
-def recent(queued: list[dict], stories: dict[int, dict], t: datetime) -> set[tuple[int, str]]:
-    """(player, kind) of every row that could have pushed (▲/▼, at NEWS_PUSH_PROB, a line, unflagged) on a story pushed
-    (sent, or queued and waiting) in the last DEDUPE. Owners decided which of them went out and are not kept, so this
-    may hold a little more than the push carried."""
-    out: set[tuple[int, str]] = set()
+def recent(queued: list[dict], stories: dict[int, dict], t: datetime) -> set[int]:
+    """Every player whose row could have pushed (▲/▼, at NEWS_PUSH_PROB, a line, unflagged) on a story pushed (sent, or
+    queued and waiting) in the last DEDUPE. Owners decided which of them went out and are not kept, so this may hold a
+    little more than the push carried."""
+    out: set[int] = set()
     for n in queued:
         if n["outcome"] not in (None, "sent") or t - datetime.fromisoformat(n["created_at"]) > DEDUPE:
             continue
@@ -130,10 +136,14 @@ def recent(queued: list[dict], stories: dict[int, dict], t: datetime) -> set[tup
         for p in (s or {}).get("players", []):
             if (p["effect"] in ARROW and p["prob"] >= NEWS_PUSH_PROB and not p.get("flag")
                     and (p.get("reason") or "").strip()):
-                out.add((p["player_id"], p["kind"]))
+                out.add(p["player_id"])
     return out
 
 
-def is_update(story: dict, pushed: list[str]) -> bool:
-    """A material update: an earlier revision of this story was pushed."""
-    return any((sr := rev_key(k)) and sr[0] == story["id"] and sr[1] < story["rev"] for k in pushed)
+def urgent(story: dict) -> set[int]:
+    """The players the story's newest source just dropped to out or IR (rules.GONE, a fresh step): past the dedupe."""
+    items = [i for i in story.get("items") or [] if not i.get("withdrawn_at")]
+    jev = (max(items, key=lambda i: (i["published_at"], i["id"])).get("jev") or {}) if items else {}
+    return {p["player_id"] for p in story["players"] if p["effect"] == "down"
+            and (jev.get(f"status:{p['player_id']}") or {}).get("status") in GONE
+            and (jev.get(f"fresh:{p['player_id']}") or {}).get("noul")}

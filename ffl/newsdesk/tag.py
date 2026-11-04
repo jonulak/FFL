@@ -192,9 +192,14 @@ def _tag(item: dict, index: Index, answer, now: datetime, out: dict) -> None:
         out["updated"] += bumped
         return
     chosen = next((c for c in cands if c["id"] == got["story"]), None)
-    if chosen and not _joins(chosen, kept, got["story_prob"]):
+    # an item moving two players is a roundup: picked into one's story it would put the other's arrow there too
+    if chosen and (not _joins(chosen, kept, got["story_prob"]) or sum(p["effect"] != "none" for p in kept) > 1):
         chosen = None
     rows, threaded = kept, False
+    if chosen is not None:  # a player with a story of his own keeps his arrow there, not on another's it reads like
+        on = {r["player_id"] for r in chosen["players"]}
+        led = {_lead(c) for c in cands if c["id"] != chosen["id"]}
+        rows = [p for p in kept if p["player_id"] in on or p["effect"] == "none" or p["player_id"] not in led]
     if chosen is None and (thread := _thread(cands, kept, now, answers)):
         (chosen, rows), threaded = thread, True
     if chosen is None:

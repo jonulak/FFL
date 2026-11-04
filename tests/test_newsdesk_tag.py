@@ -136,15 +136,42 @@ def test_new_story_when_new():
 def test_attach_when_story_chosen():
     sid = story()
     i = item("a", "Kyren Williams limited again", text="Puka Nacua full")
-    ask = fake(story=f"s{sid}")
+    base = fake(story=f"s{sid}")
+
+    def ask(*a, **k):
+        out = base(*a, **k)
+        out["effect:1"] = {"type": "choice", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9}
+        return out
+
     got = tag.run(INDEX, answer=ask, now=NOW)
     assert got["new"] == 0 and got["attached"] == 1
     s = db.story(sid)
     assert [x["id"] for x in s["items"]] == [i]
-    assert rows(sid)[1]["effect"] == "up"  # an arrow is a step from his last status: his row follows it
+    assert rows(sid)[1]["effect"] == "down"  # no step for him: his row stands
     assert rows(sid)[2]["effect"] == "up"  # a player new to the story gets his row
     # and his arrow is news: the story is rewritten (his line) and may push
     assert (s["rev"], s["updated_at"], got["updated"]) == (2, AT, 1)
+
+
+def test_a_roundup_moving_two_players_is_not_picked_into_ones_story():
+    sid = story(players=(1,), at=OLD)  # past THREAD_HOURS: only the pick could join it
+    item("a", "Kyren Williams and Puka Nacua ruled out")
+    got = tag.run(INDEX, answer=fake(story=f"s{sid}", effect="down"), now=NOW)
+    assert got["new"] == 1 and db.story(sid)["items"] == [] and set(rows(sid)) == {1}
+
+
+def test_a_player_with_his_own_story_keeps_his_arrow_there():
+    mine, his = story(players=(1,)), story(players=(2,), kind="injury")
+    base = fake(story=f"s{mine}", effect="none")
+
+    def ask(*a, **k):
+        out = base(*a, **k)
+        out["effect:2"] = {"type": "choice", "choice": "down", "probabilities": {"down": 0.9}, "confidence": 0.9}
+        return out
+
+    item("a", "Kyren Williams and Puka Nacua on the report")
+    tag.run(INDEX, answer=ask, now=NOW)
+    assert 2 not in rows(mine) and set(rows(his)) == {2}
 
 
 def test_new_player_without_an_arrow_does_not_bump():

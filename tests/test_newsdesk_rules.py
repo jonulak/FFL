@@ -140,6 +140,29 @@ def test_a_suffix_after_a_bare_surname_is_still_him():
     assert said("Robinson Jr. ruled out for Sunday", player={"player_id": 8, "name": "Brian Robinson Jr.", "pos": "RB", "team": "ATL"})[0] == "down"
 
 
+@pytest.mark.parametrize("title,text,effect", [
+    ("Rams star Kyren Williams returns to Rams practice", "Williams did not practice last week.", "up"),
+    ("Kyren Williams, Puka Nacua return to practice", "", "up"),
+    ("Kyren Williams active, Puka Nacua inactive for Rams-Raiders", "", "up"),
+    ("Kyren Williams Available, Puka Nacua ruled out", "", "none"),
+    ("Kyren Williams, Puka Nacua questionable, Blake Corum ruled out", "", "down"),  # limited, not out
+    ("Coach said Kyren Williams isn't expected to practice Wednesday", "", "down"),
+    ("Neither Kyren Williams nor Puka Nacua will practice today", "", "down"),
+    ("Kyren Williams is out of the medical tent", "", "none"),
+    ("A deep shot to Kyren Williams on his first play back from the hospital", "", "none"),
+    ("Monken said he's optimistic that Williams will be activated from injured reserve", "", "none"),
+    ("Kyren Williams is expected to practice Wednesday", "He suffered a concussion.", "up"),
+    ("Kyren Williams is expected to be held out and miss the rest of the season", "", "down"),
+])
+def test_phrasing_that_once_read_the_wrong_way(title, text, effect):
+    assert said(title, text)[0] == effect
+
+
+def test_a_list_gives_him_his_own_status_not_the_next_mans():
+    got = rules.answer(item("Kyren Williams, Puka Nacua questionable, Blake Corum ruled out"), [WILLIAMS], [])
+    assert got["status:1"]["status"] == "limited" and got["effect:1"]["confidence"] < 0.8
+
+
 def test_retract_and_story_pick():
     prior = {"id": 7, "items": [{"title": "Kyren Williams hamstring injury sidelines Rams back",
                                  "text": "", "player_ids": [1], "published_at": "2026-10-19T01:00:00+00:00"}]}

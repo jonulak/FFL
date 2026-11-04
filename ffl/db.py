@@ -2183,11 +2183,12 @@ def notice_keys(prefix: str, season: int = SEASON, *, ref) -> list[str]:
 
 
 def notices_since(prefix: str, since: str, season: int = SEASON, *, ref) -> list[dict]:
-    """{key, created_at, outcome} of the notices starting with `prefix` queued at or after `since`, any outcome (None
-    = still waiting). Compared as text, so the caller passes a margin and re-checks the times."""
+    """{key, created_at, outcome} of the notices starting with `prefix` queued at or after `since`, in any of the
+    member's leagues, any outcome (None = still waiting). Compared as text, so the caller passes a margin and re-checks
+    the times."""
     t = notices
     q = (sa.select(t.c.key, t.c.created_at, t.c.outcome)
-         .where(_notices_of(ref, season), t.c.created_at >= since,
+         .where(t.c.user_id == _member(ref)[0], t.c.season == season, t.c.created_at >= since,
                 t.c.key.startswith(prefix, autoescape=True)).order_by(t.c.key))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]

@@ -39,7 +39,7 @@ def test_for_story_gates():
     assert push(row(1, "none")) is None
     assert notices.for_story(story(row(1, "down")), OWNERS, ME, {1}, AT) is None   # muted
     assert notices.for_story(story(row(1, "down"), headline=""), OWNERS, ME, set(), AT) is None
-    assert push(row(1, "down"), recent={(1, "injury")}) is None           # pushed for him today
+    assert push(row(1, "down"), recent={1}) is None           # pushed for him today
     assert push(row(1, "down"), recent={(1, "trade")}) is not None
     n = push(row(1, "down"), row(2, "down"), row(3, "up"))
     assert n == {"key": "news:5:1", "kind": "news", "title": "Something happened", "body": "▼ P1: A reason. · ▲ P3: A reason.",
@@ -61,7 +61,7 @@ def test_kicker_and_defense_push_only_as_my_injury_or_release():
 def test_body_order_down_first_then_prob():
     n = push(row(3, "up", prob=0.95), row(1, "down", prob=0.81), row(4, "up", prob=0.99))
     assert n["body"] == "▼ P1: A reason. · ▲ P4: A reason. · ▲ P3: A reason."
-    assert notices.rows(story(row(3, "up"), row(1, "down")), OWNERS, ME, set()) == [(1, "injury"), (3, "injury")]
+    assert notices.rows(story(row(3, "up"), row(1, "down")), OWNERS, ME, set()) == [1, 3]
 
 
 def test_body_whole_lines_with_more_suffix():
@@ -97,9 +97,9 @@ def test_status_push_only_if_original_pushed():
     assert notices.for_status(story(row(1, "down"), sid=9), ["news:9:1"], AT) is None   # live: no status push
 
 
-def test_recent_keeps_a_day_of_queued_and_sent():
+def test_recent_keeps_the_window_of_queued_and_sent():
     t = datetime.fromisoformat(AT)
-    old = (t - timedelta(hours=25)).isoformat()
+    old = (t - timedelta(hours=49)).isoformat()
     sent = [{"key": "news:1:1", "created_at": AT, "outcome": "sent"},
             {"key": "news:2:1", "created_at": AT, "outcome": None},          # queued, not yet flushed
             {"key": "news:3:1", "created_at": AT, "outcome": "off"},
@@ -108,14 +108,23 @@ def test_recent_keeps_a_day_of_queued_and_sent():
     stories = {1: story(row(1, "down"), row(6, "up", prob=0.79), row(7, "up", flag=True), sid=1),
                2: story(row(3, "up", kind="trade"), sid=2),
                3: story(row(8, "up"), sid=3), 4: story(row(9, "up"), sid=4)}
-    assert notices.recent(sent, stories, t) == {(1, "injury"), (3, "trade")}
+    assert notices.recent(sent, stories, t) == {1, 3}
 
 
-def test_material_update_detected_by_an_earlier_rev_pushed():
-    assert notices.is_update(story(sid=5, rev=2), ["news:5:1"])
-    assert not notices.is_update(story(sid=5, rev=2), [])
-    assert not notices.is_update(story(sid=5, rev=1), ["news:5:1"])
-    assert not notices.is_update(story(sid=5, rev=2), ["news:55:1", "news:5:retracted"])
+def test_urgent_reads_the_newest_source():
+    s = {"players": [{"player_id": 1, "effect": "down"}, {"player_id": 2, "effect": "up"}],
+         "items": [{"id": 1, "published_at": "2026-10-19T01:00:00+00:00", "jev": {}},
+                   {"id": 2, "published_at": "2026-10-19T02:00:00+00:00",
+                    "jev": {"status:1": {"status": "ir"}, "fresh:1": {"noul": 1.0}, "status:2": {"status": "active"}, "fresh:2": {"noul": 1.0}}}]}
+    assert notices.urgent(s) == {1}
+    s["items"][1]["jev"]["fresh:1"]["noul"] = 0.0
+    assert notices.urgent(s) == set()
+    assert notices.urgent({"players": [], "items": []}) == set()
+
+
+def test_a_free_agent_matters_by_ownership_or_the_chart():
+    assert notices.matters({}) and notices.matters({"owned": 5.0}) and notices.matters({"owned": 0.1, "starter": True})
+    assert not notices.matters({"owned": 4.9})
 
 
 def test_old_news_does_not_push():
