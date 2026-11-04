@@ -78,8 +78,8 @@ PODCASTS = {  # club -> (show, program/playlist)
 }
 ESPN_TEAM_IDS = {abbrev: tid for tid, abbrev in PRO_TEAM_MAP.items() if abbrev in SITES}
 
-# Shows with no transcript in their feed, transcribed by the stt service (ffl/stt.py) when an install runs it; without
-# one their episodes queue and nothing is read. Locked On, one daily show per club (feed paths off iTunes' search,
+# Shows with no transcript in their feed (STT_ONLY), transcribed by the stt container (ffl/stt.py) while Settings › App
+# has transcription on; off, they are not polled. Locked On, one daily show per club (feed paths off iTunes' search,
 # checked 2026-11-04: every one published that week), and the national fantasy shows the week's analysis is argued
 # on. A national show has no club, so only a full name matches a player in it (split.by_player).
 LOCKED_ON = "https://rss.pdrl.fm/{}/feeds.simplecast.com/{}"
@@ -185,6 +185,10 @@ SOURCES = (
     + [{"id": f"pod:national/{slug}", "kind": "podcast", "club": None, "name": show, "url": url}
        for slug, show, url in NATIONAL_PODCASTS]
 )
+
+# the shows whose feed never carries a transcript: nothing to read from them without the stt container
+STT_ONLY = frozenset({f"pod:{club}/lockedon" for club in LOCKED_ON_PATHS}
+                     | {f"pod:national/{slug}" for slug, _, url in NATIONAL_PODCASTS if "omnycontent.com" not in url})
 
 
 def ensure() -> int:

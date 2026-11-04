@@ -14,11 +14,11 @@ on an install has their own login; a household or a few league-mates can share o
 - **Decisions**: every roster move recorded with its reason, so the season can be reviewed.
 - **Draft tools** (command line): a live draft assistant and practice-draft simulator.
 
-It runs as four Docker containers (Postgres, the API, the web app, a cron jobs container) on your own machine. The
+It runs as six Docker containers (Postgres, the API, the agent runner, the podcast transcriber, the web app, a cron jobs container) on your own machine. The
 outlooks and news write-ups use `claude -p` with your Claude subscription token or an Anthropic API key.
 
 You need an ESPN account in the leagues, a Claude subscription or API key, and a machine with Docker and about 2 GB of
-memory (about 5 GB and a few CPU cores with the optional podcast transcriber, below).
+memory (about 5 GB and a few CPU cores with podcast transcription turned on, below).
 
 ## Install
 
@@ -96,29 +96,18 @@ Advanced, unset by default (add a line to `.env` to use one):
 
 The news desk reads the clubs' official podcasts because their feeds carry transcripts. The shows the week's analysis
 is argued on (Locked On, one a day per club; Fantasy Footballers, Fantasy Football Today, Establish The Run, the
-Ringer, PFF and the rest) ship none, so an optional `stt` container transcribes them on your own machine with NVIDIA's
-Parakeet model: nothing leaves the machine, and no key is needed. It costs about 3 GB of memory and, on a desktop
-CPU, a minute or two per half-hour episode (about 30 hours of audio a day across every show; measured 2026-11-04 on
-an M-series Mac in Docker: 84 s for a 32-minute show, 2.7 GB resident).
-
-Turn it on with a line in `~/ffl/.env`, then restart the stack:
-
-```
-COMPOSE_PROFILES=stt
-```
-
-```
-docker compose up -d
-```
-
-Or install with it from the start: `curl -fsSL ... | FFL_STT=1 sh`. `docker compose logs stt` shows the model loading
-and `docker compose logs api` each episode as the news desk sends it (one per news run, newest first). Without the
-container the shows are still polled, and their episodes wait; nothing fails.
+Ringer, PFF and the rest) ship none, so the stack's `stt` container can transcribe them on your own machine with
+NVIDIA's Parakeet model: nothing leaves the machine, and no key is needed. Turn it on in **Settings › App › Podcast
+transcription**. While it is on the container holds the model, about 3 GB of memory, and spends a minute or two of CPU
+per half-hour episode (about 30 hours of audio a day across every show; measured 2026-11-04 on an M-series Mac in
+Docker: 84 s for a 32-minute show, 2.7 GB resident). Off, the container idles at a few dozen MB and those shows are
+not read. `docker compose logs stt` shows the model loading and each episode as the news desk sends it (one per news
+run, newest first).
 
 On a Mac, Docker runs the model on the CPU of its Linux VM, with no access to the Apple silicon's accelerators. A
 native process (for example `parakeet-mlx`) serving the same contract (`POST /transcribe {url}` with the `x-ffl-job`
 header, answering `{ok, segs: [{start, text}]}`, see `ffl/stt.py`) is a drop-in: point the api at it with
-`FFL_STT_URL` in a `docker-compose.override.yml` and leave the profile off.
+`FFL_STT_URL` in a `docker-compose.override.yml`.
 
 ## Troubleshooting
 
@@ -129,7 +118,7 @@ header, answering `{ok, segs: [{start, text}]}`, see `ffl/stt.py`) is a drop-in:
   address, and a device turned on in Settings. `docker compose logs api` shows each failed push with the push
   service's reason.
 - **Jobs not running:** `docker compose logs jobs` shows each scheduled run and its answer.
-- **Podcasts without a transcript are not in the news:** the transcriber is off (`COMPOSE_PROFILES=stt` in `.env`, then `docker compose up -d`) or down (`docker compose logs stt`). `GET /news/status` (signed in as an admin) shows the last run's stages: `transcribe` says `off` while the news desk cannot reach it.
+- **Podcasts without a transcript are not in the news:** transcription is off in Settings › App, or the `stt` container is down (`docker compose logs stt`). `GET /news/status` (signed in as an admin) shows the last run's stages: `transcribe` says `off` while the news desk cannot reach it.
 
 ## Backups
 

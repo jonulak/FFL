@@ -63,7 +63,7 @@ def server(monkeypatch):
 
 
 def test_server_health_secret_and_answer(server):
-    assert httpx.get(server + "/health").json() == {"ok": True, "model": stt.MODEL}
+    assert httpx.get(server + "/health").json() == {"ok": True, "model": stt.MODEL, "loaded": False}
     assert httpx.get(server + "/nope").status_code == 404
     assert httpx.post(server + "/transcribe", json={"url": "https://x/ep.mp3"}).status_code == 403
     h = {"x-ffl-job": "job-secret"}
@@ -77,3 +77,14 @@ def test_server_health_secret_and_answer(server):
 def test_server_will_not_start_without_a_secret():
     with pytest.raises(SystemExit):
         stt.serve("", port=0)
+
+
+def test_model_is_dropped_after_idling(monkeypatch):
+    """The container is always in the stack: the model loads on the first request and leaves after IDLE_S."""
+    monkeypatch.setattr(stt, "_MODEL", None)
+    monkeypatch.setattr(stt, "_USED", [0.0])
+    assert stt.unload_idle() is False  # nothing loaded
+    monkeypatch.setattr(stt, "_MODEL", object())
+    stt._USED[0] = stt.time.monotonic()
+    assert stt.unload_idle() is False and stt._MODEL is not None  # just used
+    assert stt.unload_idle(stt.time.monotonic() + stt.IDLE_S + 1) is True and stt._MODEL is None

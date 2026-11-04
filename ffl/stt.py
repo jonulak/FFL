@@ -1,8 +1,9 @@
 """Speech to text for podcast episodes that ship no transcript: NVIDIA Parakeet TDT 0.6B v2 over onnx-asr, on the CPU.
 
 The `stt` image (Dockerfile.stt) copies this file alone beside the model; the news desk reaches it over HTTP
-(`python -m ffl.stt`, POST /transcribe, FFL_STT_URL), one episode at a time. Off by default: the compose profile
-`stt` starts it, and with FFL_STT_URL unreachable the news desk leaves its episodes queued. The contract:
+(`python -m ffl.stt`, POST /transcribe, FFL_STT_URL), one episode at a time, and only while Settings › App has
+transcription on. The container is always in the stack and cheap when unused: the model (about 2.5 GB resident)
+loads on the first request and is dropped after IDLE_S without one. The contract:
 
   in   {url}                                          (the episode's audio enclosure)
   out  {ok: true, segs: [{start, text}], seconds, took}  |  {ok: false, error}
@@ -27,17 +28,35 @@ PORT = 8320
 MAX_BYTES = 200 * 1024 * 1024  # an hour-long show is 60 MB
 DOWNLOAD_TIMEOUT_S = 120
 USER_AGENT = "ffl-stt/1 (+https://github.com/jonulak/FFL)"
+IDLE_S = 1800  # the model is dropped after this long without a request (Settings › App may have switched it off)
 LOCK = threading.Lock()  # one episode at a time: the model is the whole CPU
 _MODEL = None
+_USED = [0.0]  # monotonic time of the last request
 
 
 def load():
-    """The model with silero VAD in front (an episode is minutes; the model takes seconds at a time), once."""
+    """The model with silero VAD in front (an episode is minutes; the model takes seconds at a time), loaded on
+    the first call after a start or an unload."""
     global _MODEL
+    _USED[0] = time.monotonic()
     if _MODEL is None:
         import onnx_asr
         _MODEL = onnx_asr.load_model(MODEL, quantization="int8").with_vad(onnx_asr.load_vad("silero"))
+        print(f"ffl stt: {MODEL} loaded", flush=True)
     return _MODEL
+
+
+def unload_idle(now: float | None = None) -> bool:
+    """Drop the model after IDLE_S without a request; True when it did."""
+    global _MODEL
+    with LOCK:
+        if _MODEL is None or (now or time.monotonic()) - _USED[0] < IDLE_S:
+            return False
+        _MODEL = None
+    import gc
+    gc.collect()
+    print("ffl stt: model dropped after idling", flush=True)
+    return True
 
 
 def fetch(url: str, dest) -> int:
@@ -99,7 +118,9 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):  # noqa: N802
-        self._send(200, {"ok": True, "model": MODEL}) if self.path == "/health" else self._send(404, {"error": "not_found"})
+        if self.path != "/health":
+            return self._send(404, {"error": "not_found"})
+        self._send(200, {"ok": True, "model": MODEL, "loaded": _MODEL is not None})
 
     def do_POST(self):  # noqa: N802
         if self.path != "/transcribe":
@@ -128,8 +149,13 @@ def serve(token: str, port: int = PORT, host: str = "0.0.0.0") -> ThreadingHTTPS
 
 def main() -> None:
     srv = serve(os.environ.get("FFL_JOB_TOKEN", ""), int(os.environ.get("FFL_STT_PORT") or PORT))
-    load()  # before the first request: the model takes seconds to load, and a failure should end the container
-    print(f"ffl stt ({MODEL}) on :{srv.server_address[1]}", flush=True)
+
+    def reaper():
+        while True:
+            time.sleep(60)
+            unload_idle()
+    threading.Thread(target=reaper, daemon=True).start()
+    print(f"ffl stt ({MODEL}, loaded on the first request) on :{srv.server_address[1]}", flush=True)
     srv.serve_forever()
 
 

@@ -4,8 +4,8 @@ import json as js
 import re
 from datetime import datetime, timedelta, timezone
 
-from ffl import db
-from ffl.newsdesk import media
+from ffl import appconf, db
+from ffl.newsdesk import media, seed
 from tests.test_newsdesk_media import INDEX, POD, Resp, fix, items_of, serve  # noqa: F401 — the _offline fixture too
 
 NOW = datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc)  # the fixture's newer episode is a day old, the older a week
@@ -29,14 +29,15 @@ def _post(monkeypatch, reply, posts=None):
     monkeypatch.setattr(media.requests, "post", post)
 
 
-def test_episode_without_transcript_queues_only_with_an_stt(monkeypatch):
+def test_episode_without_transcript_queues_only_with_transcription_on(monkeypatch):
     db.put_news_sources([POD])
     ep = _fresh_ep()
     assert ep["transcript_url"] is None and ep["audio_url"].startswith("https://podtrac.com/")
     serve(monkeypatch, {POD["url"]: _no_transcript()})
-    assert media.run_all(INDEX, now=NOW)["media"] == 0
-    assert db.get_state("news_pending_audio", {}) == {}  # no FFL_STT_URL: the episode is skipped as before
     monkeypatch.setenv("FFL_STT_URL", "http://stt:8320")
+    assert media.run_all(INDEX, now=NOW)["media"] == 0
+    assert db.get_state("news_pending_audio", {}) == {}  # Settings › App has transcription off: skipped as before
+    appconf.put(appconf.TRANSCRIBE, "1")
     media.run_all(INDEX, now=NOW + timedelta(hours=2))
     queue = db.get_state("news_pending_audio")
     assert list(queue) == [ep["guid"]]  # the older episode is past three days
@@ -50,6 +51,7 @@ def test_transcribe_pending_stores_the_episode_like_a_transcript(monkeypatch):
     ep = _fresh_ep()
     monkeypatch.setenv("FFL_STT_URL", "http://stt:8320/")
     monkeypatch.setenv("FFL_JOB_TOKEN", "job-secret")
+    appconf.put(appconf.TRANSCRIBE, "1")
     serve(monkeypatch, {POD["url"]: _no_transcript()})
     media.run_all(INDEX, now=NOW)
     segs = [{"start": 7.93, "text": "Matthew Stafford was sharp."}, {"start": 20.0, "text": "Agreed."}]
@@ -75,11 +77,12 @@ def test_transcribe_pending_service_off_errors_and_expiry(monkeypatch):
                                         "old": {**entry, "published_at": "2026-10-01T22:59:00+00:00"}})
     posts = []
     _post(monkeypatch, {"ok": True, "segs": [], "seconds": 1.0, "took": 1.0}, posts)
-    # no FFL_STT_URL: nothing is sent; the stale entry is dropped
+    monkeypatch.setenv("FFL_STT_URL", "http://stt:8320")
+    # transcription off in Settings › App: nothing is sent; the stale entry is dropped
     assert media.transcribe_pending(INDEX, now=NOW) == {"transcribed": 0, "new": 0, "pending": 1, "failed": [], "off": True}
     assert posts == [] and list(db.get_state("news_pending_audio")) == ["new"]
-    # the service is not there (the profile is off): the episode waits, and that costs it no try
-    monkeypatch.setenv("FFL_STT_URL", "http://stt:8320")
+    # the service is not there (the container is down): the episode waits, and that costs it no try
+    appconf.put(appconf.TRANSCRIBE, "1")
     _post(monkeypatch, media.requests.ConnectionError("refused"))
     assert media.transcribe_pending(INDEX, now=NOW)["off"] is True
     assert db.get_state("news_pending_audio")["new"].get("tries", 0) == 0
@@ -97,6 +100,7 @@ def test_a_feed_with_transcripts_never_queues(monkeypatch):
     """An Omny episode with its transcript takes the old path even with an stt: no audio is sent anywhere."""
     db.put_news_sources([POD])
     monkeypatch.setenv("FFL_STT_URL", "http://stt:8320")
+    appconf.put(appconf.TRANSCRIBE, "1")
     eps = media.parse_podcast_feed(fix("omny.xml"), POD)
     srt = b"1\n00:00:01,000 --> 00:00:02,000\nHello.\n"
     serve(monkeypatch, {POD["url"]: fix("omny.xml"), **{e["transcript_url"]: srt for e in eps}})
@@ -104,3 +108,18 @@ def test_a_feed_with_transcripts_never_queues(monkeypatch):
     assert db.get_state("news_pending_audio") == {}
     _post(monkeypatch, {"ok": True})
     assert media.transcribe_pending(INDEX, now=NOW) == {"transcribed": 0, "new": 0, "pending": 0, "failed": [], "off": False}
+
+
+def test_shows_without_transcripts_are_not_polled_while_off(monkeypatch):
+    """Locked On and the national shows (seed.STT_ONLY) have nothing to read without the transcriber: off, no poll."""
+    lo = {"id": "pod:BUF/lockedon", "kind": "podcast", "club": "BUF", "name": "Locked On BUF", "url": "https://lo.test/rss"}
+    assert lo["id"] in seed.STT_ONLY and "pod:national/late-round" not in seed.STT_ONLY and POD["id"] not in seed.STT_ONLY
+    db.put_news_sources([POD, lo])
+    monkeypatch.setenv("FFL_STT_URL", "http://stt:8320")
+    serve(monkeypatch, {POD["url"]: _no_transcript()})  # lo's feed is never fetched
+    assert media.run_all(INDEX, now=NOW)["failed"] == []
+    assert "pod:BUF/lockedon" not in db.get_state("news_podcast_polled")
+    appconf.put(appconf.TRANSCRIBE, "1")
+    serve(monkeypatch, {POD["url"]: _no_transcript(), lo["url"]: _no_transcript()})
+    media.run_all(INDEX, now=NOW + timedelta(hours=2))
+    assert "pod:BUF/lockedon" in db.get_state("news_podcast_polled")

@@ -67,8 +67,9 @@ Draft pipeline: settings -> players -> adp -> browser + draft_watch. Every draft
 migrates then starts uvicorn on :8300; no Node, no agent CLI), `runner` (`ghcr.io/jonulak/ffl-runner`, `Dockerfile.runner`:
 the standalone `claude` binary behind `ffl/harness.py`, stdlib only, :8310 on the internal network, no published port,
 `x-ffl-job` required), `stt` (`ghcr.io/jonulak/ffl-stt`, `Dockerfile.stt`: Parakeet speech to text behind `ffl/stt.py`,
-:8320, only with the `stt` compose profile, `COMPOSE_PROFILES=stt` in `.env`; the news desk queues no-transcript podcast
-episodes and sends one a run to `FFL_STT_URL`, leaving them queued while it is unreachable), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
+:8320, the model loaded on the first request and dropped when idle; used only while Settings › App › Podcast
+transcription is on (`appconf.TRANSCRIBE`): the news desk then polls the no-transcript shows (`seed.STT_ONLY`), queues
+their episodes and sends one a run to `FFL_STT_URL`, leaving them queued while it is unreachable), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
 and `jobs` (the api image under busybox crond, `deploy/crontab`: the tick every 15 min, news every 10, outlooks at :05,
 transactions at :35, calibration Wednesdays, a nightly backup). HTTPS is a reverse proxy in front of the web port, with
 the app's address (Settings › App) set to the https URL (push and the Secure cookie need it). Images are built by `.github/workflows/images.yml`

@@ -2232,12 +2232,14 @@ class AppSettingsIn(BaseModel):
     app_url: str | None = None
     push_contact: str | None = None
     youtube_key: str | None = None
+    transcribe_podcasts: bool | None = None
 
 
 def _app_settings() -> dict:
     """The install's settings (never a key's value: only whether it is set)."""
     return {"app_url": appconf.get(appconf.APP_URL), "push_contact": appconf.get(appconf.PUSH_CONTACT),
-            "youtube_key_set": bool(appconf.get(appconf.YOUTUBE_KEY))}
+            "youtube_key_set": bool(appconf.get(appconf.YOUTUBE_KEY)),
+            "transcribe_podcasts": appconf.get(appconf.TRANSCRIBE) == "1"}
 
 
 @app.get("/app/settings")
@@ -2256,6 +2258,8 @@ def app_settings_set(body: AppSettingsIn, user: dict = Depends(auth.require_admi
                  (appconf.YOUTUBE_KEY, key)):
         if v is not None:
             appconf.put(k, v)
+    if body.transcribe_podcasts is not None:
+        appconf.put(appconf.TRANSCRIBE, "1" if body.transcribe_podcasts else None)
     return _app_settings()
 
 

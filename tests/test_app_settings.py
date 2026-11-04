@@ -16,14 +16,23 @@ def c():
 
 
 def test_settings_round_trip_without_the_keys_value(c):
-    assert c.get("/app/settings").json() == {"app_url": None, "push_contact": None, "youtube_key_set": False}
+    assert c.get("/app/settings").json() == {"app_url": None, "push_contact": None, "youtube_key_set": False,
+                                             "transcribe_podcasts": False}
     r = c.post("/app/settings", json={"app_url": "https://ffl.example.com/", "push_contact": "mailto:me@example.com",
                                       "youtube_key": " AIza-secret "})
-    assert r.json() == {"app_url": "https://ffl.example.com", "push_contact": "me@example.com", "youtube_key_set": True}
+    assert r.json() == {"app_url": "https://ffl.example.com", "push_contact": "me@example.com", "youtube_key_set": True,
+                        "transcribe_podcasts": False}
     assert db.get_secret(appconf.YOUTUBE_KEY) == "AIza-secret" and "AIza" not in c.get("/app/settings").text
     # a field left out is kept; an empty one is cleared
     assert c.post("/app/settings", json={"youtube_key": ""}).json() == {
-        "app_url": "https://ffl.example.com", "push_contact": "me@example.com", "youtube_key_set": False}
+        "app_url": "https://ffl.example.com", "push_contact": "me@example.com", "youtube_key_set": False,
+        "transcribe_podcasts": False}
+    # the transcriber switch is a setting too (never .env): on, off, left out
+    assert c.post("/app/settings", json={"transcribe_podcasts": True}).json()["transcribe_podcasts"] is True
+    assert appconf.get(appconf.TRANSCRIBE) == "1"
+    assert c.post("/app/settings", json={"app_url": "https://ffl.example.com"}).json()["transcribe_podcasts"] is True
+    assert c.post("/app/settings", json={"transcribe_podcasts": False}).json()["transcribe_podcasts"] is False
+    assert appconf.get(appconf.TRANSCRIBE) is None
 
 
 @pytest.mark.parametrize("body", [{"app_url": "ffl.example.com"}, {"app_url": "ftp://x"},

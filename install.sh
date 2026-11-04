@@ -61,10 +61,6 @@ main() {
     set_env .env.new POSTGRES_PASSWORD "$pg"
     mv .env.new .env
   fi
-  # FFL_STT=1: the podcast transcriber too (the `stt` profile); a kept .env keeps whatever it says
-  if [ "${FFL_STT:-}" = 1 ] && ! grep -q '^COMPOSE_PROFILES=' .env; then
-    printf 'COMPOSE_PROFILES=stt\n' >> .env
-  fi
 
   docker compose pull
 

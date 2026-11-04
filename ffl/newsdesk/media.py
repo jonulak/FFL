@@ -44,7 +44,7 @@ from youtube_transcript_api import (NoTranscriptFound, RequestBlocked, Transcrip
                                     YouTubeRequestFailed, YouTubeTranscriptApi)
 
 from .. import appconf, config, db
-from . import collect, split
+from . import collect, seed, split
 from .players import Index
 
 YT_FEED = "https://www.youtube.com/feeds/videos.xml?channel_id={id}"
@@ -234,8 +234,9 @@ STT_TRIES = 3  # an episode the service keeps failing on is dropped
 
 
 def stt_url() -> str | None:
-    """The stt service (FFL_STT_URL, the compose stack's `stt` profile); None keeps no-transcript episodes out."""
-    return os.environ.get("FFL_STT_URL") or None
+    """The stt service (FFL_STT_URL, the compose stack's `stt` container) while Settings › App has transcription on;
+    None keeps no-transcript episodes, and the shows that only have those (seed.STT_ONLY), out."""
+    return (os.environ.get("FFL_STT_URL") or None) if appconf.get(appconf.TRANSCRIBE) == "1" else None
 
 
 def transcribe_pending(index: Index, now: datetime | None = None) -> dict:
@@ -299,7 +300,9 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
         seen = last_poll.get(s["id"])
         return s["kind"] != "podcast" or not seen or now - datetime.fromisoformat(seen["at"]) >= PODCAST_EVERY
 
-    sources = [s for s in db.news_sources() if s["kind"] in collect.MEDIA_KINDS and due(s)]
+    stt = stt_url()
+    sources = [s for s in db.news_sources() if s["kind"] in collect.MEDIA_KINDS and due(s)
+               and (stt or s["id"] not in seed.STT_ONLY)]  # a show with no transcripts is not even polled while off
     with ThreadPoolExecutor(collect.WORKERS) as pool:
         got = dict(zip([s["id"] for s in sources], pool.map(lambda s: _poll(s, last_poll.get(s["id"])), sources)))
     errors = {sid: _err(g) for sid, g in got.items() if isinstance(g, Exception)}
@@ -316,7 +319,7 @@ def run_all(index: Index, now: datetime | None = None) -> dict:
         for ep in fresh(polled[source["id"]], "guid"):
             if not ep["transcript_url"]:
                 # no transcript in the feed: the audio waits for the stt service (transcribe_pending), when there is one
-                if ep.get("audio_url") and stt_url() and ep["guid"] not in queue:
+                if ep.get("audio_url") and stt and ep["guid"] not in queue:
                     queue[ep["guid"]] = {"source_id": source["id"], "club": source["club"], "title": ep["title"],
                                          "url": ep["url"], "audio_url": ep["audio_url"], "published_at": ep["published_at"]}
                 continue

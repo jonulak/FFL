@@ -50,18 +50,6 @@ def test_install_fills_env_and_starts(tmp_path, stub_path):
     assert (tmp_path / "ffl" / ".env").read_text() == env
 
 
-def test_install_with_stt_writes_the_profile_once(tmp_path, stub_path):
-    """FFL_STT=1 adds COMPOSE_PROFILES=stt to .env (the transcriber), a re-run keeps it, and a kept .env is never
-    given it unasked."""
-    assert run(tmp_path, stub_path, FFL_STT="1").returncode == 0
-    env = (tmp_path / "ffl" / ".env").read_text()
-    assert env.splitlines().count("COMPOSE_PROFILES=stt") == 1 and env.endswith("COMPOSE_PROFILES=stt\n")
-    assert run(tmp_path, stub_path, FFL_STT="1").returncode == 0
-    assert (tmp_path / "ffl" / ".env").read_text() == env
-    assert run(tmp_path, stub_path).returncode == 0
-    assert (tmp_path / "ffl" / ".env").read_text() == env
-
-
 def test_no_docker_exits_2(tmp_path):
     (tmp_path / "empty").mkdir()
     r = run(tmp_path, str(tmp_path / "empty"))
