@@ -51,6 +51,20 @@ function MoveLine({ m, n }: { m: Pick<Claim, "add" | "drop">; n?: number }) {
   );
 }
 
+// Claims ESPN won't take yet: each drops a player whose game has started. The plan keeps them, and a
+// Submit once the week rolls over (Tuesday) sends them.
+function Held({ held }: { held: Pick<Claim, "add" | "drop">[] }) {
+  return (
+    <section className="space-y-1.5">
+      <h3 className={SUB}>Held · send after the rollover</h3>
+      <ol>{held.map((m) => <MoveLine key={`${m.add}:${m.drop}`} m={m} />)}</ol>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        ESPN takes no claim that drops a player whose game has started. These stay in the plan: submit again once the week rolls over on Tuesday.
+      </p>
+    </section>
+  );
+}
+
 function Verdict({ ok, children }: { ok: boolean; children: ReactNode }) {
   const Icon = ok ? Check : TriangleAlert;
   return (
@@ -117,6 +131,7 @@ function Outcome({ r, verdict, name, writes }: { r: SubmitResult; verdict: { ok:
           <p className="text-muted-foreground">Check the claims {writes ? "on ESPN's site" : `held by ${who}`}, or review and send again: a resend cancels what this app sent before.</p>
         )}
       </section>
+      {r.held.length > 0 && <Held held={r.held} />}
     </div>
   );
 }
@@ -166,11 +181,14 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
   const withdrawal = data.now.length === 0 && data.claims.length === 0;
   const withdrawn = withdrawal ? fromApp.length + (replaceOutside ? outside.length : 0) : 0;
   const blocked = data.errors.length > 0 || (withdrawal && withdrawn === 0);
+  const holding = data.held.length ? `, hold ${data.held.length}` : "";
   const title = withdrawal
-    ? `Withdraw ${plural(withdrawn, "claim")}${writes ? " from ESPN" : ""}`
+    ? withdrawn === 0 && data.held.length
+      ? `Hold ${plural(data.held.length, "claim")}`
+      : `Withdraw ${plural(withdrawn, "claim")}${writes ? " from ESPN" : ""}${holding}`
     : data.now.length
-      ? `Add ${data.now.length} now, send ${plural(data.claims.length, "claim")}`
-      : `Send ${plural(data.claims.length, "claim")}${writes ? " to ESPN" : ""}`;
+      ? `Add ${data.now.length} now, send ${plural(data.claims.length, "claim")}${holding}`
+      : `Send ${plural(data.claims.length, "claim")}${writes ? " to ESPN" : ""}${holding}`;
 
   // The plan as it stood when Send was pressed: the title, the claim count the verdict is judged
   // against, and the outside claims kept. The plan refreshes after a send (landed adds leave it),
@@ -300,6 +318,7 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
             {atMost(groups, pos) && <p className="text-xs text-muted-foreground">{atMost(groups, pos)}.</p>}
           </section>
         )}
+        {!result && data.held.length > 0 && <Held held={data.held} />}
         {/* ESPN's answer rises into the room the review leaves */}
         {result && verdict && <div className="log-in"><Outcome r={result} verdict={verdict} name={name} writes={writes} /></div>}
         {/* the read on open can turn up problems the panel didn't have (a status moved): Send waits for a fix */}
@@ -315,7 +334,9 @@ export function ReviewBody({ onClose, onBack, phone = false, titled = true }: { 
           </Alert>
         )}
         {!result && !loading && withdrawal && withdrawn === 0 && (
-          <p className="text-muted-foreground">Nothing to withdraw: no claim sent from here is pending.</p>
+          <p className="text-muted-foreground">
+            {data.held.length ? "Nothing to send yet: every claim is held." : "Nothing to withdraw: no claim sent from here is pending."}
+          </p>
         )}
         {why && <div className="log-in" style={{ "--i": 1 } as CSSProperties}><ClaimsWhy targets={why.rows.promise} presets={presets} /></div>}
         {recovering && (

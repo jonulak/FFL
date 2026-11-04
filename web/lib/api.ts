@@ -268,7 +268,8 @@ export type ClaimPlayer = {
 export type PositionCap = { pos: string; n: number; limit: number };
 // warnings: a group whose wins could pass a position cap (ESPN refuses the claim that would); they do not block a send.
 export type Claims = {
-  week: number; groups: ClaimGroup[]; now: Claim[]; claims: Claim[]; errors: ClaimErr[]; warnings: ClaimErr[]; open_spots: number;
+  // held: claims ESPN won't take yet (the drop's game has started); the plan keeps them for a Submit after the rollover
+  week: number; groups: ClaimGroup[]; now: Claim[]; claims: Claim[]; held: Claim[]; errors: ClaimErr[]; warnings: ClaimErr[]; open_spots: number;
   position_caps: PositionCap[];
   status: Record<string, PoolStatus>; pending: PendingClaim[]; pending_error: string | null; last_submit: ClaimSubmit | null;
   // on_espn: ESPN's pending list, less the claims filed there directly, is this plan's claims in order (false unsent)
@@ -280,7 +281,7 @@ export type Claims = {
 // POST /claims/submit. readback_failed: ESPN's list could not be read after sending, so `pending`
 // is empty for that reason, not because ESPN holds nothing.
 export type SubmitResult = {
-  now: Claim[]; now_failed: (Claim & { error: string })[]; sent: (Claim & { id: string })[];
+  now: Claim[]; now_failed: (Claim & { error: string })[]; sent: (Claim & { id: string })[]; held: Claim[];
   pending: { id: string; add: number; drop: number | null; priority?: number | null }[]; match: boolean; error: string | null; readback_failed: boolean; decisions?: DecisionRef[];
 };
 // A fantasy team as the League page shows it; `owner` is its manager's real name ("" when ESPN has

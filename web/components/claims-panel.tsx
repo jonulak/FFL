@@ -20,9 +20,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import type { ClaimErr, ClaimGroup, ClaimPlayer, PoolStatus } from "@/lib/api";
+import type { ClaimErr, ClaimGroup, ClaimPlayer } from "@/lib/api";
 import {
-  addCut, capacity, cutBlock, displayTargets, groupHasFA, groupPos, holder, moveGroup, newGroup, place, processDay, prune,
+  addCut, capacity, cutBlock, displayTargets, groupPos, holder, moveGroup, newGroup, place, processDay, prune,
   regroupKeys, removeFrom, removeGroup, setOpen, statusTag,
 } from "@/lib/claims";
 import { pts, signed } from "@/lib/format";
@@ -128,12 +128,13 @@ function targetFace(player: Lookup, id: number, now: boolean, rank: number): Fac
     value: pl?.add != null ? <>add <span className="font-display text-sm font-semibold text-foreground">{signed(pl.add)}</span></> : null,
   };
 }
-function cutFace(player: Lookup, id: number, hasFA: boolean, rank: number): Face {
+function cutFace(player: Lookup, id: number, rank: number): Face {
   const pl = player(id);
-  const block = pl ? cutBlock(pl, hasFA) : null;
+  const block = pl ? cutBlock(pl) : null;
   return {
     pid: id, rank, tone: "text-out",
-    tags: block && <span className="text-xs text-destructive">{block}</span>,
+    tags: block ? <span className="text-xs text-destructive">{block}</span>
+      : pl?.locked && <span className="text-xs text-muted-foreground" title="his game has started: ESPN drops him only for a waiver claim, never for a free agent">waiver claims only</span>,
     value: pl?.ros_adj != null ? `ROS ${pts(pl.ros_adj)}` : null,
   };
 }
@@ -182,11 +183,11 @@ function EmptySlot({ fx, open, rest, drop }: { fx: string; open: boolean; rest: 
 }
 
 // The roster picker under "make room": weakest first by adjusted ROS, every player listed; one
-// who cannot go (undroppable, on IR, his game started in a group that adds a free agent now) is
-// shown disabled with the reason, so his absence from the cuts is explained.
-function CutPicker({ gi, roster, used, hasFA, disabled }: { gi: number; roster: [number, ClaimPlayer][]; used: Set<number>; hasFA: boolean; disabled: boolean }) {
+// who cannot go (undroppable, on IR) is shown disabled with the reason, so his absence from the cuts
+// is explained; one whose game has started can go, for waiver claims only.
+function CutPicker({ gi, roster, used, disabled }: { gi: number; roster: [number, ClaimPlayer][]; used: Set<number>; disabled: boolean }) {
   const { groups, setGroups } = useClaims();
-  const items = roster.filter(([id]) => !used.has(id)).map(([id, p]) => ({ id, p, block: cutBlock(p, hasFA) }));
+  const items = roster.filter(([id]) => !used.has(id)).map(([id, p]) => ({ id, p, block: cutBlock(p) }));
   type Item = (typeof items)[number];
   return (
     <Combobox<Item> items={items} value={null} disabled={disabled}
@@ -200,7 +201,7 @@ function CutPicker({ gi, roster, used, hasFA, disabled }: { gi: number; roster: 
             <ComboboxItem key={i.id} value={i} disabled={!!i.block}>
               <span className="min-w-0 flex-1 truncate">{i.p.name}</span>
               <span className="text-xs tabular-nums text-muted-foreground">
-                {i.block ?? `${i.p.pos} · ROS ${pts(i.p.ros_adj)}`}
+                {i.block ?? `${i.p.pos} · ROS ${pts(i.p.ros_adj)}${i.p.locked ? " · waiver claims only" : ""}`}
               </span>
             </ComboboxItem>
           )}
@@ -254,8 +255,8 @@ function LiftedGroup({ g, gi }: { g: ClaimGroup; gi: number }) {
   );
 }
 
-// One group: "get K of N", the targets best first (free agents on top: they are added the moment
-// you submit), then the rows that make room, first to go first. Its grip reorders the groups; a
+// One group: "get K of N", the targets best first (a free agent is added the moment you submit, on
+// the rows the waiver targets above him leave), then the rows that make room, first to go first. Its grip reorders the groups; a
 // target's or a cut's grip moves him within the group or into another one. `g` is the group as
 // the drag shows it, `dragging` the list a row is being dragged in, `landing` the group a dragged
 // row has moved into, `cutId` the drag id of each of its cuts. While a group is dragged the list
@@ -269,13 +270,12 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
   const { groups, setGroups, status, player, data, submitting } = useClaims();
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: `g${gkey}`, disabled: submitting || settling });
   const shown = displayTargets(g, status);
-  const fa = shown.filter((t) => t.now);
-  const waiting = shown.filter((t) => !t.now);
-  const hasFA = groupHasFA(g, status);
+  // "now" is the server's word: a free agent with no unlocked row is not added (the plan shows the error)
+  const added = new Set(data.now.map((m) => m.add));
   const name = (id: number) => player(id)?.name ?? `player ${id}`;
 
   const targetLine = (t: { id: number; now: boolean }, rank: number) => (
-    <Line key={t.id} id={`t${t.id}`} name={name(t.id)} disabled={submitting} {...targetFace(player, t.id, t.now, rank)}
+    <Line key={t.id} id={`t${t.id}`} name={name(t.id)} disabled={submitting} {...targetFace(player, t.id, t.now && added.has(t.id), rank)}
       onRemove={() => setGroups(removeFrom(groups, gi, "targets", t.id))} removeLabel={`Remove ${name(t.id)} from group ${gi + 1}`} />
   );
 
@@ -298,11 +298,8 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
           {g.targets.length === 0 && (
             <EmptySlot fx={`t${gkey}`} open={dragging === "t"} rest="Pick targets with the claim button on any row" drop="Drop to move him into this group" />
           )}
-          <SortableContext id={`fa${gi}`} items={fa.map((t) => `t${t.id}`)} strategy={verticalListSortingStrategy}>
-            <ol>{fa.map((t, i) => targetLine(t, i + 1))}</ol>
-          </SortableContext>
-          <SortableContext id={`w${gi}`} items={waiting.map((t) => `t${t.id}`)} strategy={verticalListSortingStrategy}>
-            <ol>{waiting.map((t, i) => targetLine(t, fa.length + i + 1))}</ol>
+          <SortableContext id={`t${gi}`} items={shown.map((t) => `t${t.id}`)} strategy={verticalListSortingStrategy}>
+            <ol>{shown.map((t, i) => targetLine(t, i + 1))}</ol>
           </SortableContext>
         </Zone>
 
@@ -327,13 +324,13 @@ function GroupCard({ g, gi, gkey, roster, dragging, landing, reveal, settling, c
           <SortableContext id={`cuts${gi}`} items={g.cuts.map(cutId)} strategy={verticalListSortingStrategy}>
             <ol>
               {g.cuts.map((c, i) => (
-                <Line key={c} id={cutId(c)} name={name(c)} disabled={submitting} {...cutFace(player, c, hasFA, g.open + i + 1)}
+                <Line key={c} id={cutId(c)} name={name(c)} disabled={submitting} {...cutFace(player, c, g.open + i + 1)}
                   onRemove={() => setGroups(removeFrom(groups, gi, "cuts", c))} removeLabel={`Remove ${name(c)} from the cuts`} />
               ))}
             </ol>
           </SortableContext>
         </Zone>
-        <div data-slide="pick"><CutPicker gi={gi} roster={roster} used={new Set(g.cuts)} hasFA={hasFA} disabled={submitting} /></div>
+        <div data-slide="pick"><CutPicker gi={gi} roster={roster} used={new Set(g.cuts)} disabled={submitting} /></div>
         {data.open_spots > 0 && (
           <Label data-slide="open" className="mt-2.5 text-xs font-normal text-foreground/80">
             <Checkbox checked={g.open > 0} disabled={submitting}
@@ -370,6 +367,8 @@ function SubmitState() {
   if (!data.last_submit) return fade("unsent", <Badge variant="muted">not sent</Badge>);
   if (data.edited_since_submit) return fade("edited", <Badge variant="warn">edited since submit</Badge>);
   if (!data.on_espn) return fade("differs", <Badge variant="warn">differs from {who}</Badge>);
+  // the rest went; these wait for their drop to unlock (the rollover), and a Submit then sends them
+  if (data.held.length) return fade("held", <Badge variant="warn">{data.held.length} held till the rollover</Badge>);
   // an empty plan was sent (a refused instant add also records nothing sent, but its group stays in the plan)
   if (data.groups.length === 0 && data.last_submit.claims.length === 0 && data.last_submit.now.length === 0)
     return fade("withdrawn", <Badge variant="muted"><Check aria-hidden className="stroke-[2.5]" />withdrawn <Clock iso={data.last_submit.at} /></Badge>);
@@ -397,9 +396,8 @@ function RosterBlock() {
   );
 }
 
-// A group's list in the order the panel shows it: targets FA block first, cuts as stored.
-const order = (g: ClaimGroup, list: "targets" | "cuts", status: Record<string, PoolStatus>) =>
-  list === "targets" ? displayTargets(g, status).map((t) => t.id) : g.cuts;
+// A group's list in the order the panel shows it: as stored.
+const order = (g: ClaimGroup, list: "targets" | "cuts") => g[list];
 
 // The panel's body, shared by the docked column and the phone's sheet. `heading` is the title
 // element each host needs (an h2, or the sheet's labelled title).
@@ -569,14 +567,14 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     const onRow = kindOf(over.id) !== "z";
     const to = !onRow ? numOf(over.id) : k === "c" ? keys.indexOf(cutKey(over.id)) : holder(drag.preview, list, numOf(over.id));
     if (to == null || to < 0 || to === drag.at) return;
-    const rows = order(drag.preview[to], list, status);
+    const rows = order(drag.preview[to], list);
     let i = rows.length;
     if (onRow) {
       const r = active.rect.current.translated;
       i = rows.indexOf(numOf(over.id)) + (r && r.top + r.height / 2 > over.rect.top + over.rect.height / 2 ? 1 : 0);
     }
     capture();
-    setDrag({ ...drag, at: to, preview: place(drag.preview, status, list, id, to, i, drag.at) });
+    setDrag({ ...drag, at: to, preview: place(drag.preview, list, id, to, i, drag.at) });
   };
 
   // A group's drop: the cards hold folded while the lifted one flies home, then open around it.
@@ -611,7 +609,7 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     if (over && kindOf(over.id) === k && over.id !== active.id) {
       const gi = d.at;
       const og = k === "c" ? keys.indexOf(cutKey(over.id)) : holder(next, list, numOf(over.id));
-      if (gi === og) next = place(next, status, list, id, gi, order(next[gi], list, status).indexOf(numOf(over.id)), gi);
+      if (gi === og) next = place(next, list, id, gi, order(next[gi], list).indexOf(numOf(over.id)), gi);
     }
     if (JSON.stringify(next) !== JSON.stringify(d.before)) setGroups(prune(d.before, next));
   };
@@ -629,10 +627,10 @@ function PanelBody({ heading, onReview, sheet = false }: { heading: (text: strin
     }
     if (!rowKind || dragged == null || drag?.at == null) return null;
     const g = shown[drag.at];
-    const i = order(g, listOf(rowKind), status).indexOf(dragged);
+    const i = order(g, listOf(rowKind)).indexOf(dragged);
     return rowKind === "t"
       ? <Lifted {...targetFace(player, dragged, status[String(dragged)] === "FREEAGENT", i + 1)} />
-      : <Lifted {...cutFace(player, dragged, groupHasFA(g, status), g.open + i + 1)} />;
+      : <Lifted {...cutFace(player, dragged, g.open + i + 1)} />;
   };
 
   return (
@@ -788,7 +786,7 @@ export function ClaimsPanel() {
         <Button variant="ghost" className="mx-auto flex h-12 w-full max-w-5xl justify-between px-3" onClick={() => setSheet(true)}>
           <span className="font-display text-base font-semibold uppercase tracking-[0.1em]">
             Claims
-            <span className="text-muted-foreground"> · <Swap>{groups.length ? `${groups.length} group${groups.length > 1 ? "s" : ""} · ${n} move${n === 1 ? "" : "s"}` : "none yet"}</Swap></span>
+            <span className="text-muted-foreground"> · <Swap>{groups.length ? `${groups.length} group${groups.length > 1 ? "s" : ""} · ${n} move${n === 1 ? "" : "s"}${data.held.length ? ` · ${data.held.length} held` : ""}` : "none yet"}</Swap></span>
           </span>
           <ChevronUp aria-hidden className="size-5" />
         </Button>
