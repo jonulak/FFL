@@ -12,9 +12,9 @@ echo "$*" >> "$DOCKER_LOG"
 """
 
 
-def run(tmp_path, path):
+def run(tmp_path, path, **extra):
     env = {"PATH": path, "HOME": str(tmp_path), "FFL_HOME": str(tmp_path / "ffl"),
-           "FFL_INSTALL_BASE": f"file://{REPO}", "DOCKER_LOG": str(tmp_path / "docker.log")}
+           "FFL_INSTALL_BASE": f"file://{REPO}", "DOCKER_LOG": str(tmp_path / "docker.log"), **extra}
     return subprocess.run(["/bin/sh", str(REPO / "install.sh")], env=env, capture_output=True, text=True)
 
 

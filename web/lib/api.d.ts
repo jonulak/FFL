@@ -1685,6 +1685,8 @@ export interface components {
             push_contact?: string | null;
             /** Youtube Key */
             youtube_key?: string | null;
+            /** Transcribe Podcasts */
+            transcribe_podcasts?: boolean | null;
         };
         /** DecisionEdit */
         DecisionEdit: {

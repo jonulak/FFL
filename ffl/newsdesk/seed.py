@@ -78,6 +78,41 @@ PODCASTS = {  # club -> (show, program/playlist)
 }
 ESPN_TEAM_IDS = {abbrev: tid for tid, abbrev in PRO_TEAM_MAP.items() if abbrev in SITES}
 
+# Shows with no transcript in their feed (STT_ONLY), transcribed by the stt container (ffl/stt.py) while Settings › App
+# has transcription on; off, they are not polled. Locked On, one daily show per club (feed paths off iTunes' search,
+# checked 2026-11-04: every one published that week), and the national fantasy shows the week's analysis is argued
+# on. A national show has no club, so only a full name matches a player in it (split.by_player).
+LOCKED_ON = "https://rss.pdrl.fm/{}/feeds.simplecast.com/{}"
+LOCKED_ON_PATHS = {
+    "ARI": "21b2e1/SRxnlfNZ", "ATL": "d31f4c/l96cnojt", "BAL": "e33f24/CxbuJ6nL", "BUF": "8c06ff/LIaoLB9Y",
+    "CAR": "c2438b/3JTeh8Y2", "CHI": "16e145/yvyasWU5", "CIN": "8b4258/J1A29rxl", "CLE": "bc2558/KHgFdYZS",
+    "DAL": "3e3416/4NoEmSg7", "DEN": "ed7d56/f6CBcmwn", "DET": "a0cc13/ASw0G4io", "GB": "5b095f/FkBDUQLt",
+    "HOU": "de6246/eO87ZWbO", "IND": "9766e6/PpDN4Fbf", "JAX": "5b6f8d/BgZ7Brxt", "KC": "194e78/9czLVzrJ",
+    "LV": "427f18/FW_wEF1P", "LAC": "d1cedf/A8M6ytRb", "LAR": "3fd73b/a4Q6EDeU", "MIA": "781205/f8EFrtWR",
+    "MIN": "dbd095/sa0QprVo", "NE": "b4173b/wbru9pmV", "NO": "83ac39/aKgoC4uX", "NYG": "da64a7/Iu3ZtP7n",
+    "NYJ": "118578/x5WGS9vX", "PHI": "32c77c/yy6iqCPY", "PIT": "cd1f3b/y_l5uReM", "SF": "f9f75c/P83yLSb_",
+    "SEA": "099859/nxLgqRTF", "TB": "ca31e9/mOWpQkH2", "TEN": "54f99a/ZHgqzawD", "WSH": "7c3048/psq7p3Ar",
+}
+NATIONAL_PODCASTS = [  # (slug, show, feed); The Late-Round show is an Omny feed with transcripts: no stt needed
+    ("fantasy-footballers", "Fantasy Footballers", "https://feeds.simplecast.com/sw7PGWfw"),
+    ("fantasy-football-today", "Fantasy Football Today",
+     "https://rss.amperwave.net/v2/feed/audacynetwork/38ad78ba12adc2acec34b47b1a455b85"),
+    ("yahoo-fantasy-forecast", "Yahoo Fantasy Forecast with Matt Harmon", "https://feeds.simplecast.com/s3ulbOAs"),
+    ("establish-the-run", "Establish The Run Fantasy Football", "https://anchor.fm/s/60e53980/podcast/rss"),
+    ("the-audible", "The Audible (Footballguys)", "https://theaudible.libsyn.com/rss"),
+    ("ringer-fantasy-football", "The Ringer Fantasy Football Show",
+     "https://feeds.megaphone.fm/ringer-fantasy-football-show"),
+    ("pff-nfl", "The PFF NFL Podcast", "https://feeds.simplecast.com/U644ZfMt"),
+    ("reception-perception", "Reception Perception: The Show",
+     "https://rss.amperwave.net/v2/feed/audacynetwork/reception-perception-the-show"),
+    ("fantasy-focus", "Fantasy Focus Football", "https://feeds.megaphone.fm/ESP7699980268"),
+    ("late-round", "The Late-Round Fantasy Football Podcast",
+     OMNY.format("0a233618-d694-4c81-a139-b34e00f98fb1/5747cc82-33a9-497c-8353-b34e00f98fbe")),
+    ("rotoworld", "Rotoworld Football Show",
+     "https://www.omnycontent.com/d/playlist/006cbbeb-1b7a-4729-b380-b3df0127e8db/78bf40ca-35a9-4977-bef5-b3df0134b699/"
+     "170962aa-f18f-494e-a969-b3df0134b6a2/podcast.rss"),
+]
+
 # (handle, club or None for a national reporter, name)
 BLUESKY = [
     ("rapsheet.bsky.social", None, "Ian Rapoport"),
@@ -144,7 +179,16 @@ SOURCES = (
         "url": f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}"} for club, cid in YOUTUBE.items()]
     + [{"id": f"pod:{club}", "kind": "podcast", "club": club, "name": show, "url": OMNY.format(path)}
        for club, (show, path) in PODCASTS.items()]
+    # the `pod:` prefix is what the tagger keys a transcript item's own player on (tag.MEDIA)
+    + [{"id": f"pod:{club}/lockedon", "kind": "podcast", "club": club, "name": f"Locked On {club}",
+        "url": LOCKED_ON.format(*path.split("/"))} for club, path in LOCKED_ON_PATHS.items()]
+    + [{"id": f"pod:national/{slug}", "kind": "podcast", "club": None, "name": show, "url": url}
+       for slug, show, url in NATIONAL_PODCASTS]
 )
+
+# the shows whose feed never carries a transcript: nothing to read from them without the stt container
+STT_ONLY = frozenset({f"pod:{club}/lockedon" for club in LOCKED_ON_PATHS}
+                     | {f"pod:national/{slug}" for slug, _, url in NATIONAL_PODCASTS if "omnycontent.com" not in url})
 
 
 def ensure() -> int:

@@ -17,7 +17,9 @@ export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; ne
 // GET /llm/token (admins): whether the CLI has a login (the stored row); never the value.
 export type LlmToken = { set: boolean; source: "db" | null };
 // GET/POST /app/settings (admins): the install's own settings; the YouTube key's value never comes back.
-export type AppSettings = { app_url: string | null; push_contact: string | null; youtube_key_set: boolean };
+export type AppSettings = {
+  app_url: string | null; push_contact: string | null; youtube_key_set: boolean; transcribe_podcasts: boolean;
+};
 // GET /llm/usage: what `claude -p` cost, one row per (UTC day, kind) over the last `days` days.
 export type LlmUsage = { days: number; rows: { day: string; kind: string; calls: number; input: number; output: number; cost_usd: number }[] };
 export type NotifyConfig = { public_key: string | null; enabled: boolean; prefs: NotifyPrefs; devices: number };
