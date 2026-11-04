@@ -95,6 +95,46 @@ def test_another_man_with_the_name_is_not_him(name, title):
     assert said(title, player=p)[4] == 0.0 or said(title, player=p)[0] == "none"
 
 
+@pytest.mark.parametrize("title", [
+    "Williams (hamstring/ankle) was listed as a limited participant in Tuesday's practice.",
+    "The Rams listed Williams (hamstring) as a limited participant on Wednesday's estimated practice report",
+    "Williams (hamstring) didn't take part in Wednesday's practice and instead was seen working on the side",
+    "Williams went down as a non-participant on Tuesday's injury report",
+    "No sign of starting RB Kyren Williams (foot) at the media-access portion of Wednesday's practice",
+])
+def test_practice_report_wording_moves_him_down(title):
+    assert said(title)[0] == "down"
+
+
+def test_a_clause_after_as_is_still_cut_when_it_is_someone_else():
+    assert said("Kyren Williams ran hard as Puka Nacua left the game with a hamstring injury", players=[WILLIAMS, NACUA])[0] == "none"
+
+
+@pytest.mark.parametrize("title", [
+    "Took 28 minutes, but we have a sign of life from the Rams offense. Kyren Williams into the end zone",
+    "3 Stats to Know: Another Sign of Kyren Williams' growth",
+])
+def test_a_sign_of_something_is_no_signing(title):
+    assert said(title)[0] == "none"
+
+
+def test_a_bare_surname_after_another_man_of_that_name_is_not_his():
+    text = "Doug Williams, who was MVP of Super Bowl 22, is among five candidates.\n\nWilliams, the first Black quarterback to start in a Super Bowl, is joined by others."
+    assert said("Hall of Fame names Doug Williams, Robert Kraft among 5 candidates", text)[0] == "none"
+    assert said("Rams update", "Doug Williams praised the back.\n\nKyren Williams will start Sunday.")[0] == "up"
+
+
+def test_a_bare_surname_two_players_share_is_the_owner_of_the_note():
+    brian = {"player_id": 4, "name": "Brian Robinson Jr.", "pos": "RB", "team": "ATL"}
+    bijan = {"player_id": 5, "name": "Bijan Robinson", "pos": "RB", "team": "ATL"}
+    note = item("Robinson (hamstring) won't practice Wednesday", "Bijan Robinson should see more work.", source="rotowire") | {"url": "https://x/id/4"}
+    got = rules.answer(note, [brian, bijan], [])
+    assert got["effect:4"]["choice"] == "down" and got["effect:5"]["choice"] == "none"
+    # no owner to go by: neither, unless the title spells him out
+    assert said("Robinson (hamstring) won't practice Wednesday", player=bijan, players=[brian, bijan])[0] == "none"
+    assert said("Bijan Robinson (hamstring) won't practice Wednesday", player=bijan, players=[brian, bijan])[0] == "down"
+
+
 def test_a_position_that_is_not_his_is_not_him():
     assert said("Rams WR Williams caught two passes", player=TAYLOR | {"name": "Kyren Williams"})[4] == 0.0
 

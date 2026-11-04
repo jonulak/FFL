@@ -59,10 +59,10 @@ def _players(item: dict, index: Index) -> list[dict]:
     clubs = (item["club"],) if item["club"] else ()
     pids: list[int] = []
     media = item["source_id"].startswith(MEDIA) and "#" in item["ext_id"]
-    if media:
-        own = item["ext_id"].rsplit("#", 1)[1]
-        if own.isdigit():
-            pids.append(int(own))
+    # a Rotowire note is one player's too, by its URL: a bare "Brown" or "Love" in it may match nobody
+    own = item["ext_id"].rsplit("#", 1)[1] if media else item["url"].rsplit("/", 1)[1] if item["source_id"] == "rotowire" else ""
+    if own.isdigit():
+        pids.append(int(own))
     text = item["text"] if media else f"{item['title']}\n{item['text']}"
     pids += [p for p in match(text or "", index, clubs) if p not in pids]
     return [{"player_id": p, **index.by_id[p]} for p in pids if p in index.by_id]

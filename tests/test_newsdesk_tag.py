@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ffl import db
+from ffl import db, news
 from ffl.newsdesk import tag
 from ffl.newsdesk.players import Index
 
@@ -19,8 +19,8 @@ INDEX = Index(by_id={1: {"name": "Kyren Williams", "pos": "RB", "team": "LAR"},
               by_full={"kyren williams": [1], "puka nacua": [2], "roschon johnson": [3]})
 
 
-def item(ext, title, text="", source="site:LAR", at="2026-10-19T12:00:00+00:00", club="LAR"):
-    [i] = db.add_news_items([{"source_id": source, "ext_id": ext, "url": f"https://x/{ext}", "published_at": at,
+def item(ext, title, text="", source="site:LAR", at="2026-10-19T12:00:00+00:00", club="LAR", url=None):
+    [i] = db.add_news_items([{"source_id": source, "ext_id": ext, "url": url or f"https://x/{ext}", "published_at": at,
                               "fetched_at": at, "title": title, "text": text, "club": club, "hash": f"h{ext}"}])
     return i
 
@@ -437,6 +437,14 @@ def test_media_item_player_from_ext_id():
     assert {p["player_id"] for p in ask.calls[0][1]} == {1, 2}
     [s] = db.recent_stories([2], "2026-10-01")
     assert set(rows(s["id"])) == {1, 2} and s["items"][0]["id"] == i
+
+
+def test_rotowire_note_is_on_the_player_whose_feed_it_came_from():
+    """A bare "Brown" fits two men on a club, and Rotowire's text may name only his teammates: its URL says whose note it is."""
+    item("n1", "He won't practice Wednesday", "Kyren Williams should see more work.", source="rotowire", url=news.PLAYER_PAGE.format(pid=2))
+    ask = fake()
+    tag.run(INDEX, answer=ask, now=NOW)
+    assert [p["player_id"] for p in ask.calls[0][1]] == [2, 1]
 
 
 def test_untagged_newest_first():

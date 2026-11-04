@@ -43,7 +43,7 @@ PATTERNS = [
             r"|\b(will|set to|expected to|going to|likely to) miss\b|\bdid(?: not|n'?t) return\b|\bwon'?t return\b|\bcarted\b|\bis out\b(?! of)"),
     ("benched", r"\b(benched|demoted|lost (his|the) (starting|job))\b"),
     ("doubtful", r"\bdoubtful\b"),
-    ("dnp", r"\bneither\b.* will practice\b|\b(did(?: not|n'?t)|won'?t|will not|not expected to|isn'?t expected to|unable to) (practice|participate)|\bnot practic|\bnot seen\b|\bDNP\b|\bmiss(es|ed)? (\w+ )?practice|\bsat out\b|\bno reps\b"),
+    ("dnp", r"\bneither\b.* will practice\b|\b(did(?: not|n'?t)|won'?t|will not|not expected to|isn'?t expected to|unable to) (practice|participate|take part)|\bnon.?participant\b|\bno sign of\b.*\bpractice\b|\bnot practic|\bnot seen\b|\bDNP\b|\bmiss(es|ed)? (\w+ )?practice|\bsat out\b|\bno reps\b"),
     ("hurt", r"\b(left|exited) (the game|sunday|monday|thursday|saturday|with|early)|\bsuffered\b|\bsustained\b|\baggravated\b|\bmedical tent\b|\binjury tent\b"
              r"|\blimp(ed|ing)\b|\bsprain|\bfractur|\bsurgery\b|\bhospital\b|\bwalking boot\b|\bconcussion protocol\b"),
     ("limited", r"\blimited\b|\bquestionable\b"),
@@ -51,7 +51,7 @@ PATTERNS = [
     ("active", r"\bactive\b(?! roster)|\b(activated|activate|reinstated|designated (\w+ )?to return)\b|\breturn(s|ed)? to (\w+ )?practice\b|\b(back at|will|expected to) practice\b|\bcleared\b"
                r"|\b(off|removed from) (the )?injury report\b|\bno injury designation\b|\b(expected|set|slated|ready) to (play|return)\b|\bwill (play|return)\b"),
     ("starter", r"\bgets? the start\b|\b(named|will|to) (the )?start(er|ing)?\b|\bwill start\b|\btakes? over\b|\blead back\b|\bstarting job\b|\bpromoted\b|\bNo\. 1\b"),
-    ("signed", r"\b(signs?|signed|signing|re-signed|re-signing|adds?|added)\b"),
+    ("signed", r"\b(signs?(?! of)|signed|signing|re-signed|re-signing|adds?|added)\b"),
 ]
 PATTERNS = [(s, re.compile(p, re.I)) for s, p in PATTERNS]
 FROM_IR = PATTERNS[0][1]
@@ -74,7 +74,8 @@ RETRACT = re.compile(r"\b(retract\w*|walk(ed|ing)? back|correction|corrected|ear
 WORD = re.compile(r"[a-z0-9']+")
 STOP = {"the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "at", "by", "with", "from", "is", "was", "are", "were", "be", "has",
         "had", "have", "he", "his", "him", "it", "its", "that", "this", "as", "not", "but", "will", "after", "said", "says", "reports"}
-CLAUSE = re.compile(r"[,;:]|\band\b(?= [A-Z])|\b(?:but|while|with|as|behind|after|following|because|in the wake of|replac\w+)\b")
+# "as" opens a new clause unless it carries his status ("listed as a limited participant")
+CLAUSE = re.compile(r"[,;:]|\band\b(?= [A-Z])|\b(?:but|while|with|as(?! (?:an? |limited|questionable|doubtful|full|out\b|inactive|active))|behind|after|following|because|in the wake of|replac\w+)\b")
 
 
 def surname(name: str) -> str:
@@ -110,6 +111,12 @@ class _Named:
             return True
         return not (after and after[0][0].isupper() and after[0][0].isalpha() and m.end() < len(line) and line[m.end()] == " "
                     and not after[0].isupper())
+
+    def only_another(self, text: str) -> bool:
+        """Another man of this surname is named and he never is in full, so a bare one is theirs ("Doug Williams ... Williams, the MVP")."""
+        hits = list(self.pat.finditer(text))
+        full = any(text[:m.start()].split()[-1:] == [self.first] for m in hits)
+        return not full and not all(self._his(text, m) for m in hits)
 
 
 def _named(name: str) -> _Named:
@@ -147,6 +154,10 @@ def arrow_lines(item: dict, player: dict, others: list[dict]) -> list[list[str]]
     title = item.get("title") or ""
     if ROUNDUP.search(title) or STATLINE.search(title):
         return []
+    name = surname(player["name"])
+    if (any(surname(o["name"]) == name for o in others if o["player_id"] != player["player_id"])
+            and player["name"] not in title and not (item["source_id"] == "rotowire" and item.get("url", "").endswith(f"/{player['player_id']}"))):
+        return []  # two players share the surname: a bare one is the note's owner, if it has one
     lines = scope(item, player, others)
     if MOVES.search(title):
         return [lines]
@@ -155,6 +166,8 @@ def arrow_lines(item: dict, player: dict, others: list[dict]) -> list[list[str]]
         return [[s for s in lines if s in title]]
     if any(_named(o["name"]).search(title) for o in others if o["player_id"] != player["player_id"]):
         return []  # a note on another player
+    if me.only_another(f"{title}\n{item.get('text') or ''}"):
+        return []
     lead = (item.get("text") or "")[:LEAD_CHARS]
     # in the body he must open the sentence: its subject, not someone it mentions
     return [[s for s in lines if s in lead and me.search(" ".join(s.split()[:SUBJECT_WORDS]))]]
