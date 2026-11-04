@@ -1987,10 +1987,7 @@ def test_news_status(client):
     assert [s["id"] for s in body["sources"]] == ["pft", "site:DAL"]
     assert set(body["sources"][0]) == {"id", "name", "kind", "active", "ok_at", "error", "failing_since"}
     assert body["last_run"]["stages"] == {"seed": 2}
-    assert "haiku_usage" not in body and body["tag_usage"] == {}   # the writer's cost is /llm/usage
-    db.put_state("news_tag_usage", {"2026-10-19": {"input": 9, "output": 2, "calls": 3}})
-    body = client.get("/news/status").json()
-    assert body["tag_usage"]["2026-10-19"]["calls"] == 3
+    assert "haiku_usage" not in body and "tag_usage" not in body   # the writer's cost is /llm/usage
 
 
 def test_llm_usage_is_for_admins_only(client):

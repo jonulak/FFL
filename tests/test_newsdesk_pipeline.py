@@ -141,7 +141,7 @@ def test_material_update_pushes_again(stages):
     written[:] = [(sid, 1)]
     pipeline.run()
     flushed()
-    with db._write() as conn:  # tag.weigh: a material fact bumps the rev
+    with db._write() as conn:  # a status step bumps the rev (tag._moved)
         db._bump_story(conn, sid, db.SEASON)
     db.put_story_words(sid, 2, "Hurts out longer", "Overview.", {1: ("Out four weeks now.", False)})
     written[:] = [(sid, 2)]

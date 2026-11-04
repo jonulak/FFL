@@ -1,121 +1,37 @@
-"""The tagger (`classify.py`, Haiku through `claude -p`) tags each player an item names and groups the item into a story.
+"""The tagger (`rules.py`, no model) tags each player an item names and groups the item into a story.
 
-One call an item: per matched player, `about:<pid>` (is the text about him, not a coach or another
-player with his name; under ABOUT he is dropped before anything else), `subject:<pid>` (the text reports on him,
-not a passing mention in a list, recap, preview or roundup; under SUBJECT he is dropped too), `effect:<pid>` (▲ up / ▼ down /
-● none for his fantasy value), `fresh:<pid>` (new information about him, not a passing mention of news
-already known; under FRESH his effect is forced to ●, so a preview naming an old injury never pushes)
-and `kind:<pid>`; with stories in the window, `story` (which one this
-item reports, or `new`) and `retract` (does it say an earlier report was wrong). The story pick is a
-proposal: the item joins only at STORY_ATTACH_PROB, through a shared player with the same kind of news
-(`_joins`; role and depth count as one, `_same_kind`). Failing that, a player the item moves (▲/▼) threads it into his newest story of the same kind
-updated within THREAD_HOURS, one he leads (`_lead`: its founding item's surest mover) and is ▲/▼ on (`_thread`):
-doubtful, out and IR are steps of one situation, not three stories. Otherwise it starts its own story. An attached item that
-adds a material fact (`changed`, a second call) bumps the story's rev, so it is written and pushed
-again. The same call asks, of a story with written words, whether its headline still sums it up (`headline`): under
-HEADLINE_OK the story is rewritten at the same rev, so the headline follows the news without a push. A player row's
-`prob` is the probability of the chosen effect: the push cutoff (Task 8) reads it.
+Per matched player: `about:<pid>` (the name is his, not a coach's or another player's; if not he is dropped before
+anything else), `subject:<pid>` (the item reports on him, not a passing mention; if not he is dropped too), `effect:<pid>`
+(▲ up / ▼ down / ● none, the step on his status ladder), `fresh:<pid>` (his status moved; if not his effect is ●) and
+`kind:<pid>`; with stories in the window, `story` (which one it reads like, or `new`) and `retract` (does it say an earlier
+report was wrong). The story pick is a proposal: the item joins only through a shared player with the same kind of news
+(`_joins`; role and depth count as one, `_same_kind`). Failing that, a player the item moves (▲/▼) threads it into his
+newest story of the same kind updated within THREAD_HOURS, one he leads (`_lead`: its founding item's surest mover) and is
+▲/▼ on (`_thread`): doubtful, out and IR are steps of one situation, not three stories. Otherwise it starts its own story.
+An attached item that moves a player's status bumps the story's rev, so it is written and pushed again. A player row's
+`prob` is the rule's: the push cutoff reads it.
 
-A media item (a transcript excerpt, ext_id `<media id>#<pid>`) is already one player's: he comes from
-the suffix, and the excerpt is matched only to add the others it names, all under the same `about`.
-An edited item (tagged_at cleared by the collectors' recheck) is tagged again against its own story; one that is
-now about none of its players is withdrawn from it, so a story it was the last source of is retracted.
+A media item (a transcript excerpt, ext_id `<media id>#<pid>`) is already one player's: he comes from the suffix, and the
+excerpt is matched only to add the others it names, all under the same `about`. An edited item (tagged_at cleared by the
+collectors' recheck) is tagged again against its own story; one that is now about none of its players is withdrawn from
+it, so a story it was the last source of is retracted.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
 from .. import db
-from .. import claude_cli
-from . import classify, usage
-from .classify import ClassifyError
+from . import rules
 from .players import Index, match
 
 WINDOW = timedelta(days=3)  # a story takes new items while it was updated this recently
 ABOUT = 0.5
-# under SUBJECT he is only named in passing (a roundup, recap, preview): dropped from the story as under ABOUT. Bench
-# 2026-10-17..20 (5,626 readings): 79% under 0.3, 10% over 0.8, 0.4-0.6 the trough; Mayfield in a Bucs recap 0.05
-# (about 0.51), Freiermuth in his own calf note 0.95. It cut item rows from 4,645 to 811 and stories from 1,240 to 570
-SUBJECT = 0.5
+SUBJECT = 0.5  # under it he is only named in passing (a roundup, recap, preview): dropped from the story as under ABOUT
 RETRACT = 0.5
-CHANGED = 0.5
-HEADLINE_OK = 0.5  # under it the written headline no longer sums the story up: rewritten, not pushed
-# under FRESH the item only mentions known news about him: his row is ● whatever `effect` said. Set from Hurts
-# week (2026-10-19): the IR and blood-clot reports read 0.73-0.93; previews, recaps and the inactives list
-# repeating them read 0.55-0.65
-FRESH = 0.7
-STORY_ATTACH_PROB = 0.6  # the tagger's story pick is a proposal: below this the item starts its own story
-THREAD_HOURS = 48  # a player's ▲/▼ news joins his story of the same kind updated this recently, whatever the tagger picked
-MAX_OPTIONS = 254  # options a choice, plus `new`: a bound on the prompt
-MAX_TEXT = 60_000  # chars (~15k input tokens): bounds what one item's call costs
-FACT_TEXT = 1500  # chars of each earlier source shown to `changed`
+FRESH = 0.7  # under it the item only repeats what is known about him: his row is ● whatever `effect` said
+STORY_ATTACH_PROB = 0.6  # the story pick is a proposal: below this the item starts its own story
+THREAD_HOURS = 48  # a player's ▲/▼ news joins his story of the same kind updated this recently, whatever was picked
 MEDIA = ("yt:", "pod:")
-TAG_MAX_TRIES = 5  # an item failing this many runs is tagged with no story: it must not head the queue for good
-TRIES = "news_tag_tries"  # state: {item id: failed runs}
-TAG_BUDGET = 40  # items a run tags at most (one `claude -p` call each, two with `changed`); the rest wait for the next
-KINDS = {"injury": "he is hurt, limited, or listed on an injury report",
-         "return": "he is coming back from injury, suspension or a reserve list",
-         "role": "his playing time, targets, carries or job changes",
-         "depth": "a teammate's move or injury changes the depth chart around him",
-         "other": "anything else: contract, off-field, a quote, a recap mention"}
-# Kept as "the same specific development": asked about "the same ongoing development" (2026-10-19), the tagger let game
-# recaps, previews and podcast excerpts into a player's story (a 31-item Hurts story); `_thread` joins the steps instead
-STORY_Q = ("Which earlier story reports the same specific development as this text: the same injury, the same "
-           "transaction, the same change in a player's role or status? Sharing a game, a week or a team is not "
-           "enough. `new` if none of them does.")
-RETRACT_Q = "This text says an earlier report was wrong or has been withdrawn."
-CHANGED_Q = ("Does this text report a new fact about the development in `story` that changes it: a new status, "
-             "diagnosis, timeline or role, beyond what `story` already says? More detail, quotes or reaction "
-             "about the same facts is not a change.")
-HEADLINE_Q = ("Is the `headline` in `story` still an accurate summary of the story once this new text is included? "
-              "A headline that gives an earlier step (doubtful when he is now out or on injured reserve) "
-              "is not.")
-
-
-def _who(p: dict) -> str:
-    return f"{p['name']}, the {p['team']} {p['pos']}"
-
-
-def _state(item: dict) -> dict:
-    return {"title": item["title"], "text": (item["text"] or "")[:MAX_TEXT], "club": item["club"]}
-
-
-def _label(c: dict) -> str:
-    title = c.get("headline") or next((i["title"] for i in c.get("items") or []), "")
-    # the headline and titles are scraped (or written from scraped text): fenced in the prompt
-    return claude_cli.data_block("source", f"{(c.get('first_at') or '')[:10]} {title} — {', '.join(c.get('names') or [])}",
-                                 role="option")
-
-
-def questions(item: dict, players: list[dict], candidates: list[dict]) -> dict:
-    """`players`: {player_id, name, pos, team}. `candidates`: stories (newest kept when over MAX_OPTIONS),
-    each dressed with `names`. `new` leads the story options: the tagger leans to the first option, and a
-    duplicate story is the cheaper mistake than a wrong merge."""
-    qs: dict[str, dict] = {}
-    for p in players:
-        pid, who, name = p["player_id"], _who(p), p["name"]
-        qs[f"about:{pid}"] = {"type": "noul", "instructions":
-                              f"This text is about {who}, not someone else with that name (a coach, a different player)."}
-        qs[f"subject:{pid}"] = {"type": "noul", "instructions":
-                                f"This text is about {who} as a subject: it reports on him, his status, role or "
-                                "situation; not a passing mention in a list, recap, preview or roundup."}
-        qs[f"fresh:{pid}"] = {"type": "noul", "instructions":
-                              f"This text reports new information about {name} (a new injury, status, role, transaction "
-                              "or return date), not a passing reference to news already known (a recap, preview or "
-                              "roundup mentioning it in passing)."}
-        qs[f"effect:{pid}"] = {"type": "choice", "instructions":
-                               f"What does this news mean for {who}'s fantasy value over the coming weeks?",
-                               "criteria": {"up": f"{name} should score more fantasy points or play a bigger role than before",
-                                            "down": f"{name} should score fewer fantasy points, miss time, or lose work",
-                                            "none": f"no real change to {name}'s fantasy value, or he is only mentioned"}}
-        qs[f"kind:{pid}"] = {"type": "choice", "instructions": f"What kind of news is this about {who}?", "criteria": KINDS}
-    if candidates:
-        newest = sorted(candidates, key=lambda c: (c["updated_at"], c["id"]), reverse=True)[:MAX_OPTIONS]
-        qs["story"] = {"type": "choice", "instructions": STORY_Q,
-                       "criteria": {"new": "none of these stories; this is news of its own",
-                                    **{f"s{c['id']}": _label(c) for c in newest}}}
-        qs["retract"] = {"type": "noul", "instructions": RETRACT_Q}
-    return qs
 
 
 def read(answers: dict, players: list[dict]) -> dict:
@@ -139,38 +55,6 @@ def read(answers: dict, players: list[dict]) -> dict:
             "retract": (answers.get("retract") or {}).get("noul")}
 
 
-def _facts(story: dict, item_id: int | None) -> dict:
-    """What the story already says: its written words and its other sources."""
-    facts = {k: story[k] for k in ("headline", "overview") if story.get(k)}
-    others = [{"title": i["title"], "text": (i["text"] or "")[:FACT_TEXT]}
-              for i in story.get("items") or [] if i["id"] != item_id]
-    if others:
-        facts["sources"] = others
-    return facts
-
-
-def weigh(story: dict, item: dict, ask=classify.ask) -> tuple[bool, bool]:
-    """(Does the item add a material fact to the story, is the story's written headline stale with it?) A story with
-    nothing on record yet is unwritten anyway, so it counts as changed without a call; one whose words Haiku has not
-    written has no headline to judge."""
-    facts = _facts(story, item.get("id"))
-    if not facts:
-        return True, False
-    q = {"changed": {"type": "noul", "instructions": {"story": facts, "question": CHANGED_Q}}}
-    if story.get("written_rev") and story.get("headline"):
-        q["headline"] = {"type": "noul", "instructions": {
-            "story": facts, "question": HEADLINE_Q}}  # the headline itself is in the fenced facts
-    got = ask(_state(item), q)
-    return got["changed"]["noul"] >= CHANGED, "headline" in q and got["headline"]["noul"] < HEADLINE_OK
-
-
-def _reword(story: dict, stale: bool, bumped: bool, out: dict) -> None:
-    """A stale headline on a story whose rev did not move: rewritten at the same rev (a bump rewrites it anyway)."""
-    if stale and not bumped:
-        db.ask_reword(story["id"])
-        out["reworded"] += 1
-
-
 def _players(item: dict, index: Index) -> list[dict]:
     clubs = (item["club"],) if item["club"] else ()
     pids: list[int] = []
@@ -184,11 +68,13 @@ def _players(item: dict, index: Index) -> list[dict]:
     return [{"player_id": p, **index.by_id[p]} for p in pids if p in index.by_id]
 
 
-def _candidates(pids: list[int], index: Index, now: datetime) -> list[dict]:
-    out = db.recent_stories(pids, (now - WINDOW).isoformat())
-    for c in out:
-        c["names"] = [index.by_id[p["player_id"]]["name"] for p in c["players"] if p["player_id"] in index.by_id]
-    return out
+def _candidates(pids: list[int], now: datetime) -> list[dict]:
+    return db.recent_stories(pids, (now - WINDOW).isoformat())
+
+
+def _lifted(answers: dict) -> list[dict]:
+    """The players the depth chart added: on the story, but not among those the item names (`player_ids`)."""
+    return [{"player_id": int(k.split(":")[1])} for k in answers if k.startswith("chart:")]
 
 
 def _kind(kept: list[dict]) -> str:
@@ -227,11 +113,11 @@ def _lead(story: dict) -> int | None:
     return max(moved, key=lambda r: r["prob"])["player_id"] if moved else None
 
 
-def _thread(cands: list[dict], kept: list[dict], now: datetime) -> tuple[dict, list[dict]] | None:
+def _thread(cands: list[dict], kept: list[dict], now: datetime, answers: dict | None = None) -> tuple[dict, list[dict]] | None:
     """The story of a player's developing situation: one he leads (`_lead`), ▲/▼ on it with the same kind of news.
     Only his row is written, so a roundup's other players never land on someone else's story; and a roundup's other
     movers do not pull their own news into the roundup's story. With stories for several of its players, the item
-    goes to the one of the player the tagger is surest of (effect prob)."""
+    goes to the one of the player it is surest of (effect prob)."""
     since = (now - timedelta(hours=THREAD_HOURS)).isoformat()
 
     def his(c: dict, p: dict) -> bool:
@@ -242,7 +128,8 @@ def _thread(cands: list[dict], kept: list[dict], now: datetime) -> tuple[dict, l
     for p in sorted((p for p in kept if p["effect"] != "none"), key=lambda p: p["prob"], reverse=True):
         story = next((c for c in cands if his(c, p)), None)  # cands: newest first
         if story:
-            return story, [p]
+            behind = [q for q in kept if (answers or {}).get(f"chart:{q['player_id']}", {}).get("behind") == p["player_id"]]
+            return story, [p, *behind]  # his next man moves with his step
     return None
 
 
@@ -274,7 +161,12 @@ def _untag(item: dict, answers: dict | None, at: str) -> None:
         db.withdraw_item(item["id"], at)
 
 
-def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
+def _moved(kept: list[dict]) -> bool:
+    """An item adds a material fact when it moves someone: `rules.arrow` gives an arrow only for a step from his last status."""
+    return any(p["effect"] != "none" for p in kept)
+
+
+def _tag(item: dict, index: Index, answer, now: datetime, out: dict) -> None:
     at = now.isoformat()
     players = _players(item, index)
     if not players:
@@ -282,20 +174,20 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
         out["tagged"] += 1
         return
     own = db.story(item["story_id"]) if item["story_id"] is not None else None
-    cands = [] if own else _candidates([p["player_id"] for p in players], index, now)
-    answers = ask(_state(item), questions(item, players, cands))
-    got = read(answers, players)
+    cands = [own] if own else _candidates([p["player_id"] for p in players], now)
+    answers = answer(item, players, cands, index=index, now=now)
+    lifted = _lifted(answers)
+    got = read(answers, players + lifted)
     kept = got["players"]
-    pids = [p["player_id"] for p in kept]
-    if not kept:
+    off = {p["player_id"] for p in lifted}
+    pids = [p["player_id"] for p in kept if p["player_id"] not in off]
+    if not pids:
         _untag(item, answers, at)
         out["tagged"] += 1
         return
-    if own:  # an edit: its own story only, bumped when the new text says something new
-        change, stale = weigh(own, item, ask)
-        bumped = _attach(item, own, kept, change, False, at)
+    if own:  # an edit: its own story only, bumped when the new text moves someone
+        bumped = _attach(item, own, kept, _moved(kept), False, at)
         db.tag_item(item["id"], pids, answers, own["id"], at)
-        _reword(own, stale, bumped, out)
         out["tagged"] += 1
         out["updated"] += bumped
         return
@@ -303,7 +195,7 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
     if chosen and not _joins(chosen, kept, got["story_prob"]):
         chosen = None
     rows, threaded = kept, False
-    if chosen is None and (thread := _thread(cands, kept, now)):
+    if chosen is None and (thread := _thread(cands, kept, now, answers)):
         (chosen, rows), threaded = thread, True
     if chosen is None:
         sid = db.add_story({"first_item_id": item["id"], "first_at": item["published_at"], "updated_at": at,
@@ -316,83 +208,29 @@ def _tag(item: dict, index: Index, ask, now: datetime, out: dict) -> None:
     # Items are tagged newest first, so a backlog's older item can join a story its newer news already made: it is
     # a source, never a change or a correction of what came after it.
     older = any(i["published_at"] > item["published_at"] for i in chosen["items"] if not i.get("withdrawn_at"))
-    # a retraction names the report it takes back: the tagger did not pick a threaded story, so it cannot be corrected
+    # a retraction names the report it takes back: a threaded story was not picked, so it cannot be corrected
     corrected = not older and not threaded and (got["retract"] or 0) >= RETRACT
-    change, stale = weigh(chosen, item, ask) if not older and not corrected else (False, False)
+    change = _moved(rows) if not older and not corrected else False
     bumped = _attach(item, chosen, rows, change, corrected, at)
     db.tag_item(item["id"], pids, answers, chosen["id"], at)
-    _reword(chosen, stale, bumped, out)
     out["tagged"] += 1
     out["attached"] += 1
     out["updated"] += bumped
 
 
-def _down(e: Exception) -> bool:
-    """The service failed, not this item: no answer came at all (the CLI failing, a timeout). An unusable answer
-    (status 422) is the item's; the account (no login or token, out of quota) stops the run apart."""
-    return isinstance(e, ClassifyError) and not e.account and e.status is None
-
-
-def run(index: Index, ask=classify.ask, now: datetime | None = None, budget: int = TAG_BUDGET) -> dict:
-    """Tag untagged items, newest first, at most `budget` of them (tagged or failed; `left` is the rest, for the next
-    run). An item that fails on its own (an answer in a shape `read` cannot take, or no answer once the tagger has
-    answered this run) is skipped and left untagged, and after TAG_MAX_TRIES failed runs tagged with no story
-    (`given_up`). The tagger down (two failed calls before any answer: the first may be the item's own), the account
-    failing (no login or token, out of quota: ClassifyError.account) or a DB error stops the run (`error`); the rest
-    wait, uncounted. `usage` is what the tagger read and answered this run, added to the day's in state
-    `news_tag_usage`."""
+def run(index: Index, answer=rules.answer, now: datetime | None = None) -> dict:
+    """Tag every untagged item, newest first. An item that raises is skipped, left untagged and listed in `failed`, for
+    the next run; a DB error stops the run (`error`)."""
     now = now or datetime.now(timezone.utc)
-    out = {"tagged": 0, "new": 0, "attached": 0, "updated": 0, "reworded": 0, "failed": [], "given_up": [],
-           "error": None, "left": 0, "usage": usage.zero()}
-    up = False  # the tagger answered this run, so a failed call is the item's
-    early: list[int] = []  # items a failed call stopped before any answer: counted only once the tagger is seen up
-
-    def asked(state, qs):
-        nonlocal up
-        got = ask(state, qs)
-        up = True
-        bill = getattr(got, "usage", None) or {}
-        usage.add(out["usage"], bill.get("input_tokens", 0), bill.get("output_tokens", 0))
-        return got
-
+    out = {"tagged": 0, "new": 0, "attached": 0, "updated": 0, "failed": [], "error": None}
     try:
-        tries: dict[str, int] = db.get_state(TRIES, {}) or {}
-        items = db.untagged_items()
-        done = 0  # items attempted
-        for item in items[:budget]:
-            done += 1
+        for item in db.untagged_items():
             try:
-                _tag(item, index, asked, now, out)
+                _tag(item, index, answer, now, out)
             except db.DBError:
                 raise
-            except Exception as e:  # noqa: BLE001 — anything else is this item's (KeyError/TypeError: an odd answer)
-                if isinstance(e, ClassifyError) and e.account:
-                    # the login or its quota: every item would fail the same, so none is counted towards giving up
-                    out["error"] = str(e)
-                    done -= 1
-                    break
-                if _down(e) and not up:
-                    if early:
-                        out["error"] = str(e)
-                        done -= 1
-                        break
-                    early.append(item["id"])
-                    continue
-                up = up or not _down(e)  # the tagger answered, if only unusably
+            except Exception:  # noqa: BLE001 — one odd item never holds up the news behind it
                 out["failed"].append(item["id"])
-            else:
-                tries.pop(str(item["id"]), None)
-        out["left"] = len(items) - done + (0 if up else len(early))  # an unconfirmed failure waits too
-        out["failed"] = sorted(out["failed"] + (early if up else []))
-        at = now.isoformat()
-        for iid in out["failed"]:
-            n = tries[str(iid)] = tries.get(str(iid), 0) + 1
-            if n >= TAG_MAX_TRIES:
-                db.tag_item(iid, [], None, None, at)
-                out["given_up"].append(iid)
-                del tries[str(iid)]
-        db.put_state(TRIES, tries)
-        usage.record(usage.TAG, out["usage"], now)
     except db.DBError as e:
         out["error"] = f"db: {e}"
     return out

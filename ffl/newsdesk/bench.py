@@ -8,9 +8,9 @@ read-only, into the Postgres database `ffl_bench` on the same server, with the p
 `bench_index` table, so a later index change never moves a result. A run
 makes `ffl_bench_run` from that (CREATE DATABASE ... TEMPLATE) and replays it as production would have seen it:
 each item released at its published time
-+ DELAY, `tag.run` at every TICK (and `write.run` after it with --write). The tagger's and Haiku's answers are kept in
-`tag-cache.sqlite` keyed by a hash of the question, so a rerun costs nothing and a changed question pays only for
-its own calls (--refresh asks again). The replay is then checked against bench_cases.CASES and diffed against the
++ DELAY, `tag.run` at every TICK (and `write.run` after it with --write). Haiku's answers are kept in
+`tag-cache.sqlite` keyed by a hash of the prompt, so a rerun costs nothing and a changed prompt pays only for
+its own calls (--refresh asks again). The replay never reads a depth chart: today's says nothing of a frozen week. The replay is then checked against bench_cases.CASES and diffed against the
 last run of the same scope (the cache's `last_runs` table, in the stdlib SQLite `tag-cache.sqlite`). Nothing but
 those two bench databases and that file is written; production never reads any of it.
 """
@@ -25,6 +25,7 @@ import time
 from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 
 import sqlalchemy as sa
@@ -32,7 +33,7 @@ import sqlalchemy as sa
 from .. import claude_cli, db
 from ..adp import norm_name
 from ..config import DATA
-from . import bench_cases, classify, tag, write
+from . import bench_cases, rules, tag, write
 from .players import Index
 
 BENCH = DATA / "bench"
@@ -48,12 +49,12 @@ TOP = 5
 # --- saved answers -----------------------------------------------------------------------------------------------
 
 class Cache:
-    """The tagger's and Haiku's answers on disk, keyed by a hash of what was asked. A hit returns the saved answer with no
-    usage (it cost nothing); a miss asks for real and saves. `stats`: hits and misses per model this run."""
+    """Haiku's answers on disk, keyed by a hash of what was asked. A hit returns the saved answer with no usage (it cost
+    nothing); a miss asks for real and saves. `stats`: hits and misses this run."""
 
-    def __init__(self, path: Path = CACHE, refresh: bool = False, ask=classify.ask, run_cli=claude_cli.run):
-        self.path, self.refresh, self._ask, self._run_cli = path, refresh, ask, run_cli
-        self.stats = {"tag": {"hits": 0, "misses": 0}, "haiku": {"hits": 0, "misses": 0}}
+    def __init__(self, path: Path = CACHE, refresh: bool = False, run_cli=claude_cli.run):
+        self.path, self.refresh, self._run_cli = path, refresh, run_cli
+        self.stats = {"haiku": {"hits": 0, "misses": 0}}
         self.missed: list[str] = []  # the first few misses' question keys: why a rerun was not free
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(path)) as c, c:
@@ -93,20 +94,6 @@ class Cache:
         self.stats[model]["misses"] += 1
         if len(self.missed) < 5:
             self.missed.append(f"{model}: {what}")
-
-    def ask(self, state, questions: dict) -> classify.Answers:
-        """classify.ask, saved."""
-        key = self._key(classify.MODEL, state, questions)
-        saved = self._get(key)
-        if saved is not None:
-            self.stats["tag"]["hits"] += 1
-            got = classify.Answers(saved)
-            got.usage = {}
-            return got
-        got = self._ask(state, questions)
-        self._miss("tag", ",".join(sorted(questions))[:120])
-        self._put(key, classify.MODEL, dict(got), getattr(got, "usage", None) or {})
-        return got
 
     def run_cli(self, prompt: str, *, model: str, schema: dict, tools: str, cwd: Path, timeout: int, **ledger):
         """claude_cli.run, saved."""
@@ -287,13 +274,14 @@ def replay(index: Index, cache: Cache, selected: set[int] | None = None, do_writ
             c.execute(sa.text("update news_items set text = coalesce(text, '') || :x where id = :id"),
                       {"x": "\n\n" + bench_cases.INJECTED, "id": planted})
     due = sorted((_at(i["published_at"]) + DELAY, i["id"]) for i in items)
-    out = {"items": len(items), "ticks": 0, "tagged": 0, "new": 0, "attached": 0, "updated": 0, "reworded": 0,
-           "failed": 0, "given_up": 0, "error": None, "written": 0, "write_missing": 0,
-           "tag_usage": {"input": 0, "output": 0, "calls": 0}, "haiku_usage": {"input": 0, "output": 0, "calls": 0}}
+    out = {"items": len(items), "ticks": 0, "tagged": 0, "new": 0, "attached": 0, "updated": 0,
+           "failed": 0, "error": None, "written": 0, "write_missing": 0,
+           "haiku_usage": {"input": 0, "output": 0, "calls": 0}}
     if not due:
         return out
-    tick, at, left = _ceil(due[0][0]), 0, tag.TAG_MAX_TRIES + 1
-    while at < len(due) or left > 0:
+    tick, at = _ceil(due[0][0]), 0
+    answer = partial(rules.answer, chart=dict)
+    while at < len(due):
         n = at
         while at < len(due) and due[at][0] <= tick:
             at += 1
@@ -303,14 +291,11 @@ def replay(index: Index, cache: Cache, selected: set[int] | None = None, do_writ
                           {"ids": [i for _, i in due[n:at]]})
             waiting = c.execute(sa.text("select count(*) from news_items where tagged_at is null")).scalar()
         if waiting:
-            got = tag.run(index, ask=cache.ask, now=tick)
+            got = tag.run(index, answer=answer, now=tick)
             out["ticks"] += 1
-            for k in ("tagged", "new", "attached", "updated", "reworded"):
+            for k in ("tagged", "new", "attached", "updated"):
                 out[k] += got[k]
             out["failed"] += len(got["failed"])
-            out["given_up"] += len(got["given_up"])
-            for k in got["usage"]:
-                out["tag_usage"][k] += got["usage"][k]
             if got["error"]:
                 out["error"] = got["error"]
                 break
@@ -323,8 +308,6 @@ def replay(index: Index, cache: Cache, selected: set[int] | None = None, do_writ
                 if w["error"]:
                     out["error"] = f"write: {w['error']}"
                     break
-        if at >= len(due) and not (waiting and got["left"]):  # what a run's budget left is no retry
-            left = left - 1 if waiting else 0
         tick += TICK
     return out
 
@@ -446,18 +429,17 @@ def run(selected_names: list[str], do_write: bool, refresh: bool, cases: list = 
     for r in results:
         print(f"{r['status']:<4}  {r['id']:<18} {r['detail']}")
     print(f"\n{summ['stories']} stories from {tot['items']} items over {tot['ticks']} ticks; {tot['updated']} rev bumps, "
-          f"{tot['reworded']} headline refreshes, {tot['failed']} failed, {tot['given_up']} given up"
+          f"{tot['failed']} failed"
           + (f", {tot['written']} written" if do_write else ""))
     if tot["error"]:
         print(f"stopped: {tot['error']}")
     for t in summ["top"]:
         print(f"  #{t['id']:<5} {t['items']:>3} items  {t['lead']:<22} {(t['headline'] or '')[:70]}")
-    j, h = cache.stats["tag"], cache.stats["haiku"]
-    print(f"\ntag: {j['hits']} hits, {j['misses']} misses, {tot['tag_usage']['input']} input / "
-          f"{tot['tag_usage']['output']} output tokens"
-          + (f"; haiku: {h['hits']} hits, {h['misses']} misses, {tot['haiku_usage']['input']} input / "
-             f"{tot['haiku_usage']['output']} output tokens" if do_write else ""))
-    if cache.missed and (j["hits"] or h["hits"]):
+    h = cache.stats["haiku"]
+    if do_write:
+        print(f"\nhaiku: {h['hits']} hits, {h['misses']} misses, {tot['haiku_usage']['input']} input / "
+              f"{tot['haiku_usage']['output']} output tokens")
+    if cache.missed and h["hits"]:
         print("  first misses: " + " | ".join(cache.missed))
     scope = _scope(selected, do_write)
     print(f"\nsince the last {scope} run: " + "; ".join(_diff(cache.last_runs().get(scope), results, summ)))
@@ -477,6 +459,6 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="python -m ffl.newsdesk bench")
     ap.add_argument("--player", nargs="+", default=[], metavar="NAME|ID")
     ap.add_argument("--write", action="store_true", help="also write the stories with Haiku")
-    ap.add_argument("--refresh", action="store_true", help="ask the tagger and Haiku again, ignoring the saved answers")
+    ap.add_argument("--refresh", action="store_true", help="ask Haiku again, ignoring the saved answers")
     a = ap.parse_args(argv)
     return run(a.player, a.write, a.refresh)

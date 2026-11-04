@@ -46,6 +46,8 @@ For each story below, give:
   the sources only. Do not invent facts, dates or numbers that the sources lack. `disagree: true` when the sources
   do not support that effect (say why in the line); otherwise false. A story with no players listed takes an
   empty list.
+A player listed as next on the depth chart behind a teammate moves up because that teammate is out: the sources need
+not name him, and that alone is no reason for `disagree`. Say he is next in line; invent no role beyond that.
 A story whose status is corrected or retracted must say so plainly in both the headline and the overview
 (for example "Correction: ..." or "Report withdrawn: ..."), naming the status note's source when given.
 Answer for every story id given.
@@ -101,6 +103,11 @@ def _sources(s: dict, sources: dict[str, dict]) -> tuple[list[str], dict[int, li
     return out, naming
 
 
+def _chart_behind(s: dict, pid: int) -> int | None:
+    """The player a depth-chart arrow moved him up behind (rules.lifted), from the item that added it."""
+    return next((j[f"chart:{pid}"]["behind"] for i in s["items"] if f"chart:{pid}" in (j := i.get("jev") or {})), None)
+
+
 def _story(s: dict, index: Index, sources: dict[str, dict]) -> str:
     note = f"; note: {s['status_note']}" if s.get("status_note") else ""
     lines, naming = _sources(s, sources)
@@ -109,6 +116,8 @@ def _story(s: dict, index: Index, sources: dict[str, dict]) -> str:
     for p in _moved(s):
         info = index.info(p["player_id"])
         where = f"; named in source {', '.join(map(str, naming[p['player_id']]))}" if naming.get(p["player_id"]) else ""
+        if (behind := _chart_behind(s, p["player_id"])) is not None:
+            where = f"; next on the depth chart behind {index.info(behind).get('name', '?')}"
         out.append(f"- player_id {p['player_id']}: {info.get('name', '?')}, {info.get('pos', '?')}, {info.get('team') or 'no club'}; "
                    f"effect {ARROW.get(p['effect'], p['effect'])}, kind {p['kind']}{where}")
     return "\n".join(out)
@@ -140,7 +149,7 @@ def _put(s: dict, w: dict | None) -> bool:
 
 def run(index: Index, run_cli=claude_cli.run) -> dict:
     """`written_ids`: the (story, rev) written for a new rev, which may push; `refreshed`: the stories written again at
-    the same rev only because the tagger found the headline stale, which never do. `usage` is what Haiku read and wrote this run (each
+    the same rev only because their headline was asked to be rewritten, which never do. `usage` is what Haiku read and wrote this run (each
     call's cost is its llm_calls row)."""
     out = {"written": 0, "written_ids": [], "refreshed": 0, "missing": 0, "failed": False, "error": None,
            "usage": usage.zero()}

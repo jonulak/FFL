@@ -95,7 +95,7 @@ users and reset passwords under `/admin/users` (single-use set-password links). 
 header = `FFL_JOB_TOKEN`, sent by the jobs container. Two test servers on one host set distinct
 `FFL_SESSION_COOKIE=ffl_session_<web port>` on their API and web.
 
-**Claude token.** `claude -p` (outlooks, the news tagger and writer) runs on the token stored in Settings › App › Claude
+**Claude token.** `claude -p` (outlooks, the news writer) runs on the token stored in Settings › App › Claude
 (`ffl/claude_cli.py`; never the environment's). The API resolves the
 token and sends the call (prompt, schema, model, credential) to the runner at `FFL_RUNNER_URL`; with it unset (dev on
 the Mac, tests) `claude_cli` calls `harness.call` in process, so a local `claude` on PATH is all dev needs. The
@@ -171,8 +171,9 @@ refuses any other without `--live`. `data/` is gitignored caches.
   `(season, week, player_id)`), written by `claude -p` from a fact sheet (no projections, no call). Only the hourly job
   (`POST /outlook/refresh`, job token only) writes; GETs never generate. Pending players go in batches; a fact hash
   decides what is rewritten.
-- **News desk** (`ffl/newsdesk/`): collect -> tag (Haiku via `claude -p`, `TAG_BUDGET` items a run) -> write
-  (headline, overview, a line per player it moves) -> notices. Each stage runs alone; `POST /news/run` starts a run.
+- **News desk** (`ffl/newsdesk/`): collect -> tag (rules, no model: `rules.py`, a status ladder per player; Sleeper's
+  chart adds the next man up behind an out starter, under the push cutoff) -> write (Haiku via `claude -p`: headline,
+  overview, a line per player it moves) -> notices. Each stage runs alone; `POST /news/run` starts a run.
 - **Push.** Detectors write a `notices` outbox (deduped by key); the tick flushes it per user (quiet hours, switches)
   as Declarative Web Push, because iOS often never fires `notificationclick` for a Home Screen app (WebKit 268797).
 - **ESPN writes.** `POST /lineup`, `/roster/sit`, `/claims*` re-read ESPN's roster, take a per-league lock, validate,
