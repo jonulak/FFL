@@ -70,6 +70,34 @@ The API migrates the database on start; a failed migration shows only in `docker
 until it succeeds). `FFL_VERSION` in `.env` pins an image tag instead of `latest`, and the installer then fetches that release's compose file. It re-fetches
 `docker-compose.yml`, so put local changes in a `docker-compose.override.yml` beside it.
 
+Settings › App › Version shows whether a new release is out.
+
+### Automatic upgrades
+
+Off by default. Turn them on once, on the machine FFL runs on:
+
+```
+curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh -s -- --auto-on
+```
+
+This adds a launchd job on a Mac or a cron entry on Linux that checks every 5 minutes (`--auto-off` removes it). When
+a new release is out, it waits for any live games to end, dumps the database into `/backups/pre-upgrade` and upgrades
+the way the installer does. It leaves a stopped stack stopped and an install pinned by `FFL_VERSION` alone. The log is
+`upgrade.log` beside the compose file.
+
+A release that fails to start is not retried until a newer one appears. Going back is a restore, because an older image
+refuses a newer database. `upgrade.log` names the commit you came from: set `FFL_VERSION=sha-<its first 7 characters>`
+in `.env` (a pinned install is left alone from then on), then from the install's folder:
+
+```
+docker compose stop api
+docker compose exec jobs sh -c 'uv run --no-sync python -m ffl.db restore /backups/pre-upgrade --url "$FFL_DB_URL" --yes'
+docker compose up -d
+```
+
+Turning this on means running code from this repository on your machine, unattended, every time a release is
+published. Leave it off if you would rather read each release first.
+
 ## Configuration
 
 An admin sets the app in **Settings › App**: the app's address, the push contact email, the Claude token and the

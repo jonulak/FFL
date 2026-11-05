@@ -13,7 +13,7 @@ def test_images_workflow():
     assert "pull_request" in on
     assert on["push"]["branches"] == ["main"] and on["push"]["tags"] == ["v*"]
     jobs = doc["jobs"]
-    assert set(jobs) == {"build", "publish"}
+    assert set(jobs) == {"build", "publish", "release"}
     build = yaml.safe_dump(jobs["build"])
     assert "push: true" not in build and "login-action" not in build
     assert jobs["build"]["if"] == "github.event_name == 'pull_request'"
@@ -33,8 +33,16 @@ def test_no_deploy_workflow_left():
     assert "deploy.yml" not in header
 
 
-def test_latest_from_main():
-    """`is_default_branch` is develop here, and the workflow runs on main: latest must name main itself."""
-    text = (WF / "images.yml").read_text()
-    rule = next(l for l in text.splitlines() if "value=latest" in l)
-    assert "enable=${{ github.ref == 'refs/heads/main' }}" in rule
+def test_a_release_moves_only_after_every_image_and_from_main():
+    """An install must never see a mix: publish tags sha-<short> alone, and the release job, which `needs` all of it,
+    moves latest and then the tag. `is_default_branch` is develop here, so it names main itself."""
+    jobs = yaml.safe_load((WF / "images.yml").read_text())["jobs"]
+    assert "value=latest" not in yaml.safe_dump(jobs["publish"])
+    release = jobs["release"]
+    assert release["needs"] == "publish"
+    assert release["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    assert release["permissions"]["contents"] == "write"
+    run = next(s["run"] for s in release["steps"] if "run" in s)
+    assert run.index(":latest") < run.index("git push -f origin refs/tags/release")
+    for image in ("ffl-api", "ffl-runner", "ffl-stt", "ffl-web"):
+        assert image in run

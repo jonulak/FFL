@@ -2,8 +2,10 @@ name: Images
 
 # The Docker images: a PR builds all four (amd64 only, nothing pushed, no login) so a broken Dockerfile fails
 # before it merges; a push to main or a v* tag builds them for amd64 + arm64 and publishes them to GHCR as
-# ghcr.io/jonulak/ffl-api, ffl-runner, ffl-stt and ffl-web, tagged latest, sha-<short> and (on a tag) the tag name.
-# web/Dockerfile's FFL_API_URL default (http://api:8300) is the compose stack's, so no build-args.
+# ghcr.io/jonulak/ffl-api, ffl-runner, ffl-stt and ffl-web, tagged sha-<short> and (on a tag) the tag name. Only once
+# all four are out does the release job, on main, move `latest` and then the `release` git tag: install.sh takes its
+# compose file from that tag, and a scheduled upgrade (install.sh --auto) starts when it moves.
+# web/Dockerfile's FFL_API_URL default (http://api:8300) is the compose stack's, so no build-arg for it.
 
 on:
   pull_request:
@@ -65,7 +67,6 @@ jobs:
         with:
           images: ${{ matrix.image.name }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
             type=ref,event=tag
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -78,8 +79,36 @@ jobs:
           # Reproducible: unchanged inputs give byte-identical layers even after a cache miss, so an install's upgrade
           # pulls only the layers whose contents changed. The epoch is a constant, not the commit time: every new
           # file is stamped with it, so a per-commit value would change every layer on every push.
-          build-args: SOURCE_DATE_EPOCH=0
+          # FFL_COMMIT is only an ENV, in the API image's config: it writes no layer.
+          build-args: |
+            SOURCE_DATE_EPOCH=0
+            FFL_COMMIT=${{ github.sha }}
           outputs: type=image,push=true,rewrite-timestamp=true
           # the cache only makes builds faster now
           cache-from: type=gha,scope=${{ matrix.image.file }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.file }}
+
+  # `needs` skips this when any image failed, so an install never sees a mix of old and new.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move latest, then the release tag
+        run: |
+          short=${GITHUB_SHA::7}  # as metadata-action's sha-<short>
+          for image in ffl-api ffl-runner ffl-stt ffl-web; do
+            docker buildx imagetools create -t "ghcr.io/jonulak/$image:latest" "ghcr.io/jonulak/$image:sha-$short"
+          done
+          git tag -f release HEAD
+          git push -f origin refs/tags/release
