@@ -1,6 +1,7 @@
 import { ErrorCard } from "@/components/error-card";
 import { PositionCaps } from "@/components/position-caps";
 import { RosterLive } from "@/components/roster-live";
+import { ShareButton } from "@/components/share-button";
 import { StaleBadge } from "@/components/stale-badge";
 import { apiGet, type Roster } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
@@ -22,6 +23,7 @@ export default async function Page() {
           <span className="ml-2.5 font-semibold text-muted-foreground">Week {data.week}</span>
         </h1>
         <StaleBadge since={data.stale_since} />
+        <ShareButton kind="roster" week={data.week} className="ml-auto" />
         <PositionCaps caps={data.position_caps} className="basis-full" />
       </div>
       <RosterLive initial={data} />

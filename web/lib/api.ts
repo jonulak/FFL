@@ -436,6 +436,11 @@ export async function apiGet<T>(path: string): Promise<T> {
   return handle<T>(r);
 }
 
+// A GET's raw answer, for what is not JSON (a club's mark). Rejects when the API is unreachable or past `ms`.
+export async function apiResponse(path: string, ms: number): Promise<Response> {
+  return fetch(`${API_BASE}${await leagued(path)}`, { headers: await session(), cache: "no-store", signal: AbortSignal.timeout(ms) });
+}
+
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   let r: Response;
   try {
