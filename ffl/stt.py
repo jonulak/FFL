@@ -2,8 +2,8 @@
 
 The `stt` image (Dockerfile.stt) copies this file alone beside the model; the news desk reaches it over HTTP
 (`python -m ffl.stt`, POST /transcribe, FFL_STT_URL), one episode at a time, and only while Settings › App has
-transcription on. The container is always in the stack and cheap when unused: the model (about 2.5 GB resident)
-loads on the first request and is dropped after IDLE_S without one. The contract:
+transcription on. The container is always in the stack and cheap when unused: the model (up to 4 GB with an episode
+going through it) loads on the first request and is dropped after IDLE_S without one. The contract:
 
   in   {url}                                          (the episode's audio enclosure)
   out  {ok: true, segs: [{start, text}], seconds, took}  |  {ok: false, error}
@@ -28,6 +28,8 @@ PORT = 8320
 MAX_BYTES = 200 * 1024 * 1024  # an hour-long show is 60 MB
 DOWNLOAD_TIMEOUT_S = 120
 USER_AGENT = "ffl-stt/1 (+https://github.com/jonulak/FFL)"
+CHUNK_S = 300  # audio decoded at a time: a whole 64-minute episode passed 5 GiB; in chunks it fits in 4 GiB
+OVERLAP_S = 30  # longer than a segment can be (onnx_asr's VAD stops one at 20 s), so one chunk always hears it whole
 IDLE_S = 1800  # the model is dropped after this long without a request (Settings › App may have switched it off)
 LOCK = threading.Lock()  # one episode at a time: the model is the whole CPU
 _MODEL = None
@@ -72,11 +74,28 @@ def fetch(url: str, dest) -> int:
     return size
 
 
-def decode(path: str):
-    """(mono float32 samples, sample rate) of an audio file: libsndfile reads mp3; m4a it does not."""
+def recognize(model, path: str) -> tuple[list[dict], float]:
+    """(segs, seconds) of an audio file, CHUNK_S read at a time: libsndfile reads mp3; m4a it does not. A chunk keeps
+    the segments that start before its last OVERLAP_S, which it hears whole, and the next opens where the last one
+    kept ended: nothing is heard twice to be matched up afterwards (VAD merges a repeat into the next speech)."""
+    import numpy as np
     import soundfile as sf
-    audio, rate = sf.read(path, dtype="float32", always_2d=True)
-    return audio.mean(axis=1), rate
+    segs, at, tail = [], 0.0, np.empty(0, dtype="float32")
+    with sf.SoundFile(path) as a:
+        rate, size = a.samplerate, CHUNK_S * a.samplerate
+        while True:
+            block = a.read(size, dtype="float32", always_2d=True).mean(axis=1)
+            audio, last = np.concatenate((tail, block)), len(block) < size
+            end = at + len(audio) / rate
+            resume = max(at, end - OVERLAP_S)
+            for r in model.recognize(audio, sample_rate=rate) if len(audio) else ():
+                if last or at + float(r.start) < end - OVERLAP_S:
+                    segs.append({"start": round(at + float(r.start), 3), "text": " ".join(r.text.split())})
+                    resume = max(resume, at + float(r.end))
+            if last:
+                return [s for s in segs if s["text"]], end
+            tail = audio[int((resume - at) * rate):].copy()
+            at = resume
 
 
 def transcribe(url: str) -> dict:
@@ -84,11 +103,9 @@ def transcribe(url: str) -> dict:
     with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
         fetch(url, f)
         f.flush()
-        audio, rate = decode(f.name)
-    with LOCK:
-        results = load().recognize(audio, sample_rate=rate)
-        segs = [{"start": round(float(r.start), 3), "text": " ".join(r.text.split())} for r in results]
-    return {"segs": [s for s in segs if s["text"]], "seconds": round(len(audio) / rate, 1)}
+        with LOCK:
+            segs, seconds = recognize(load(), f.name)
+    return {"segs": segs, "seconds": round(seconds, 1)}
 
 
 def call(req: dict) -> dict:

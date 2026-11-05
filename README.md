@@ -59,45 +59,76 @@ Run the installer again:
 curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh
 ```
 
-It keeps your `.env`, fetches the current `docker-compose.yml`, pulls the images and restarts what changed (set
-`FFL_HOME` first if the install is not in `~/ffl`). Don't upgrade with `docker compose pull` alone: it keeps the old
-`docker-compose.yml`, and a new release may need a new one (a new service, a new database image).
+It keeps your `.env`, fetches the latest release's `docker-compose.yml`, pulls the images, restarts what changed, waits
+up to 10 minutes for the stack to report healthy, then removes the images it replaced. If the stack does not come up
+healthy it says so and exits with an error, keeping those images. Set `FFL_HOME` first if the install is not in
+`~/ffl`. Don't upgrade with `docker compose pull` alone: it keeps the old `docker-compose.yml`, and a new release may
+need a new one (a new service, a new database image).
+
+Run by hand, an upgrade starts right away, even during a game, and takes no dump first. Automatic upgrades (below) do
+both.
 
 An upgrade replaces the containers, never the volumes: your settings, logins and history live in the database (the
 `pgdata` volume) and stay put. Never run `docker compose down -v`, which deletes the volumes and everything in them.
 
 The API migrates the database on start; a failed migration shows only in `docker compose logs api` (the api restarts
-until it succeeds). `FFL_VERSION` in `.env` pins an image tag instead of `latest`, and the installer then fetches that release's compose file. It re-fetches
-`docker-compose.yml`, so put local changes in a `docker-compose.override.yml` beside it.
+until it succeeds). `FFL_VERSION` in `.env` pins an image tag instead of `latest`, and the installer then fetches that
+release's compose file. It re-fetches `docker-compose.yml`, so put local changes in a `docker-compose.override.yml`
+beside it.
 
-Settings › App › Version shows whether a new release is out.
+Settings › App › Version shows the commit you are running, whether a new release is out, and the commands below.
 
-### Automatic upgrades
+### Installer options
 
-Off by default. Turn them on once, on the machine FFL runs on:
+Pass an option after `sh -s --`:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh -s -- --auto-on
 ```
 
-This adds a launchd job on a Mac or a cron entry on Linux that checks every 5 minutes (`--auto-off` removes it). When
-a new release is out, it waits for any live games to end, dumps the database into `/backups/pre-upgrade` (the last 14
-days, one dump a day: a second upgrade that day replaces the first's) and upgrades the way the installer does. It
-leaves a stopped stack stopped and an install pinned by `FFL_VERSION` alone. The log is `upgrade.log` beside the
-compose file.
+| Option | What it does |
+|---|---|
+| (none) | Installs FFL, or upgrades an existing install. |
+| `--auto-on` | Turns on automatic upgrades. Needs an existing install. |
+| `--auto-off` | Turns them off. Leaves the stack, `.env` and `upgrade.log` as they are. |
+| `--auto` | One check, upgrading if a new release is out. This is what the schedule runs; you don't need to run it yourself. |
 
-A release that fails to start is not retried until a newer one appears. Going back is a restore, because an older image
-refuses a newer database. `upgrade.log` names the commit you came from: set `FFL_VERSION=sha-<its first 7 characters>`
-in `.env` (a pinned install is left alone from then on), then from the install's folder:
+If the install is not in `~/ffl`, run `export FFL_HOME=<its folder>` first.
+
+### Automatic upgrades
+
+Off by default. Turn them on once with `--auto-on`, on the machine FFL runs on and from a shell where `docker` works:
+the job keeps that shell's `PATH` and `FFL_HOME`. If Docker moves later, run `--auto-on` again.
+
+This adds a launchd job on a Mac or a cron entry on Linux that checks every 5 minutes. When a new release is out, it
+waits for any live games to end, dumps the database into `/backups/pre-upgrade` (the last 14 days, one dump a day: a
+second upgrade that day replaces the first's) and upgrades the way the installer does. It leaves a stopped stack
+stopped and an install pinned by `FFL_VERSION` alone. The log is `upgrade.log` beside the compose file. On a Mac the job
+runs only while you are logged in and the Mac is awake.
+
+The first check after `--auto-on` always runs through an upgrade, even if you are already on the latest release, because
+nothing has recorded your commit yet. With nothing new to pull, your containers should stay up, but it does replace that
+day's pre-upgrade dump.
+
+A failed pull or dump is retried at the next check. A release that fails to start is not retried until a newer one
+appears; to try it again sooner, delete `.upgrade-last` beside the compose file.
+
+Going back is a restore, because an older image refuses a newer database. `upgrade.log` names the commit you came from:
+set `FFL_VERSION=sha-<its first 7 characters>` in `.env` (a pinned install is left alone from then on), then from the
+install's folder restore the newest pre-upgrade dump into an empty database and run the installer, which fetches that
+commit's compose file and starts it:
 
 ```
-docker compose stop api
-docker compose exec jobs sh -c 'uv run --no-sync python -m ffl.db restore /backups/pre-upgrade --url "$FFL_DB_URL" --yes'
-docker compose up -d
+docker compose stop api jobs
+docker compose exec db sh -c 'dropdb -U ffl --force ffl && createdb -U ffl ffl'
+docker compose run --rm --no-deps api sh -c 'uv run --no-sync python -m ffl.db restore /backups/pre-upgrade --url "$FFL_DB_URL" --yes'
+curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh
 ```
 
-Turning this on means running code from this repository on your machine, unattended, every time a release is
-published. Leave it off if you would rather read each release first.
+This loses anything the app recorded since that dump. To follow new releases again, set `FFL_VERSION=latest`.
+
+Turning automatic upgrades on means running code from this repository on your machine, unattended, every time a release
+is published. Leave them off if you would rather read each release first.
 
 ## Configuration
 
@@ -111,7 +142,7 @@ change. `install.sh` fills the secrets.
 |---|---|
 | `FFL_PORT` | The host port the web app listens on (3300). |
 | `TZ` | The timezone for the jobs' schedule and quiet hours. |
-| `FFL_VERSION` | The image tag to run (`latest`). |
+| `FFL_VERSION` | The image tag to run: `latest`, or a pin such as `sha-<7 characters of a commit>`. A pin stops automatic upgrades. |
 | `FFL_SECRET_KEYS`, `FFL_JOB_TOKEN`, `POSTGRES_PASSWORD` | Generated secrets. Do not change them on a running install. |
 
 Advanced, unset by default (add a line to `.env` to use one):
@@ -127,9 +158,9 @@ The news desk reads the clubs' official podcasts because their feeds carry trans
 is argued on (Locked On, one a day per club; Fantasy Footballers, Fantasy Football Today, Establish The Run, the
 Ringer, PFF and the rest) ship none, so the stack's `stt` container can transcribe them on your own machine with
 NVIDIA's Parakeet model: nothing leaves the machine, and no key is needed. Turn it on in **Settings › App › Podcast
-transcription**. While it is on the container holds the model, about 3 GB of memory, and spends a minute or two of CPU
-per half-hour episode (about 30 hours of audio a day across every show; measured 2026-11-04 on an M-series Mac in
-Docker: 84 s for a 32-minute show, 2.7 GB resident). Off, the container idles at a few dozen MB and those shows are
+transcription**. While it is on the container holds the model, up to 4 GB of memory, and spends a minute or two of CPU
+per half-hour episode (about 30 hours of audio a day across every show; measured on an M-series Mac in Docker: 84 s
+for a 32-minute show, and a 64-minute show fits in a 4 GiB limit). Off, the container idles at a few dozen MB and those shows are
 not read. `docker compose logs stt` shows the model loading and each episode as the news desk sends it (one per news
 run, newest first).
 
@@ -147,6 +178,7 @@ header, answering `{ok, segs: [{start, text}]}`, see `ffl/stt.py`) is a drop-in:
   address, and a device turned on in Settings. `docker compose logs api` shows each failed push with the push
   service's reason.
 - **Jobs not running:** `docker compose logs jobs` shows each scheduled run and its answer.
+- **An automatic upgrade has not happened:** Settings › App › Version says whether you are behind, and `upgrade.log` beside the compose file shows each attempt. It logs nothing while it has nothing to do or is waiting: during a live game, with the stack stopped, or on an install pinned by `FFL_VERSION`.
 - **Podcasts without a transcript are not in the news:** transcription is off in Settings › App, or the `stt` container is down (`docker compose logs stt`). `GET /news/status` (signed in as an admin) shows the last run's stages: `transcribe` says `off` while the news desk cannot reach it.
 
 ## Backups
@@ -161,7 +193,8 @@ docker compose run --rm --no-deps api sh -c 'uv run --no-sync python -m ffl.db r
 docker compose up -d
 ```
 
-To copy dumps off the machine: `docker compose cp jobs:/backups ./backups`.
+To copy dumps off the machine: `docker compose cp jobs:/backups ./backups`. Automatic upgrades keep their own dumps in
+`/backups/pre-upgrade`, which that copies too.
 
 ## HTTPS
 
@@ -264,9 +297,13 @@ uv run pytest -q
 
 ### Publishing images
 
-A push to `main` (or a `v*` tag) builds `ghcr.io/jonulak/ffl-api` and `ffl-web`
-(`.github/workflows/images.yml`). Packages pushed with `GITHUB_TOKEN` start private: after the first publish, make
-both public once (each package's Package settings › Change visibility), or installs cannot pull them.
+A push to `main` (or a `v*` tag) builds `ghcr.io/jonulak/ffl-api`, `ffl-runner`, `ffl-stt` and `ffl-web`
+(`.github/workflows/images.yml`), tagged `sha-<short commit>` and, on a tag, the tag's name. A push to `main` is a
+release: once all four images are out, the workflow moves `latest` and then the `release` git tag, and installs with
+automatic upgrades take it from there. A `v*` tag releases nothing; only an install pinned to it runs it.
+
+Packages pushed with `GITHUB_TOKEN` start private: after the first publish, make all four public once (each package's
+Package settings › Change visibility), or installs cannot pull them.
 
 ## License
 
