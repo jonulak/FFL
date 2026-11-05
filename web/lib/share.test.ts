@@ -5,11 +5,14 @@ const q = (s: string) => new URLSearchParams(s);
 
 describe("parseShare", () => {
   it("reads a roster and a league game", () => {
-    expect(parseShare(q("kind=roster&week=9"))).toEqual({ kind: "roster", week: 9, team: null });
-    expect(parseShare(q("kind=matchup&week=9&team=4"))).toEqual({ kind: "matchup", week: 9, team: 4 });
+    expect(parseShare(q("kind=roster&week=9"))).toEqual({ kind: "roster", week: 9, team: null, teams: true });
+    expect(parseShare(q("kind=matchup&week=9&team=4"))).toEqual({ kind: "matchup", week: 9, team: 4, teams: true });
+  });
+  it("leaves the teams out only on teams=0", () => {
+    expect(parseShare(q("kind=roster&week=9&teams=0"))?.teams).toBe(false);
   });
   it("refuses anything that is not a kind and positive integers", () => {
-    for (const s of ["", "kind=other&week=9", "kind=roster", "kind=roster&week=0", "kind=roster&week=1.5", "kind=roster&week=9/../x", "kind=matchup&week=9&team=", "kind=matchup&week=9&team=x"]) {
+    for (const s of ["", "kind=other&week=9", "kind=roster", "kind=roster&week=0", "kind=roster&week=1.5", "kind=roster&week=9/../x", "kind=matchup&week=9&team=", "kind=matchup&week=9&team=x", "kind=roster&week=9&teams=1", "kind=roster&week=9&teams="]) {
       expect(parseShare(q(s))).toBeNull();
     }
   });
@@ -36,7 +39,7 @@ describe("mixHex", () => {
 
 describe("shareHref", () => {
   it("is what parseShare reads back", () => {
-    for (const want of [{ kind: "roster", week: 9, team: null }, { kind: "matchup", week: 3, team: 4 }] as const) {
+    for (const want of [{ kind: "roster", week: 9, team: null, teams: true }, { kind: "matchup", week: 3, team: 4, teams: false }] as const) {
       expect(parseShare(new URLSearchParams(shareHref(want).split("?")[1]))).toEqual(want);
     }
   });

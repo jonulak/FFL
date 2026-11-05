@@ -21,7 +21,7 @@ async function mark(side: Side | null | undefined): Promise<string | null> {
   }
 }
 
-// GET /share?kind=roster|matchup&week=N[&team=T]: the PNG the Share button hands to the share sheet. apiGet's session
+// GET /share?kind=roster|matchup&week=N[&team=T][&teams=0]: the PNG the Share button hands to the share sheet. apiGet's session
 // and league make it the visitor's own view. A signed-out read redirects to sign in (apiGet), which the button sees as not an image.
 export async function GET(request: NextRequest) {
   const want = parseShare(request.nextUrl.searchParams);
@@ -36,6 +36,6 @@ export async function GET(request: NextRequest) {
   const players: Player[] = want.kind === "matchup"
     ? [...data.me.lineup, ...(data.opp?.lineup ?? [])]
     : [...data.me.lineup, ...data.me.bench, ...data.me.ir];
-  const [me, opp, art] = await Promise.all([mark(data.me), want.kind === "matchup" ? mark(data.opp) : null, loadArt(players)]);
-  return shareImage(want.kind, data, { me, opp }, art, Date.now());
+  const [me, opp, art] = await Promise.all([want.teams ? mark(data.me) : null, want.teams && want.kind === "matchup" ? mark(data.opp) : null, loadArt(players)]);
+  return shareImage(want.kind, data, { me, opp }, art, Date.now(), want.teams);
 }
