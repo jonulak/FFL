@@ -48,5 +48,9 @@ COPY scripts scripts
 COPY deploy deploy
 COPY deploy/crontab /etc/crontabs/root
 
+# The commit this image is (GET /app/version). Last, and an ENV writes no layer: an upgrade still pulls only what changed.
+ARG FFL_COMMIT
+ENV FFL_COMMIT=$FFL_COMMIT
+
 EXPOSE 8300
 CMD ["/app/deploy/entrypoint.sh"]

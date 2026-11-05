@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ClientError, clientPost } from "@/app/api-client";
+import { useEffect, useState } from "react";
+import { ClientError, clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { AppSettings } from "@/lib/api";
+import { versionLine, type AppVersion } from "@/lib/version";
 import { PHONE_ACTION } from "./claims-submit";
 import { CredentialSteps, Out, Ui } from "./credential-steps";
 import { Spinner, Swap } from "./motion";
@@ -60,7 +61,53 @@ export function AppSettingsCards({ initial, optionalOnly = false, onSaved }: {
       <PushContactCard settings={settings} onSaved={saved} />
       <YoutubeCard settings={settings} onSaved={saved} />
       <TranscribeCard settings={settings} onSaved={saved} />
+      {!optionalOnly && <VersionCard />}
     </>
+  );
+}
+
+const INSTALL = "curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh";
+
+// A shell command to copy: a tap selects the whole of it, and it wraps anywhere rather than scroll on a phone.
+function Command({ children }: { children: string }) {
+  return <code className="block select-all rounded-sm bg-foreground/5 px-3 py-2 font-mono text-xs leading-relaxed break-all">{children}</code>;
+}
+
+// Read on the client, not with the page's settings: it may ask GitHub, which is not worth holding Settings for.
+function VersionCard() {
+  const [version, setVersion] = useState<AppVersion | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    clientGet<AppVersion>("/app/version").then(setVersion, (e) => setFailed(e instanceof Error ? e.message : String(e)));
+  }, []);
+  return (
+    <Card>
+      <CardHeader><CardTitle>Version</CardTitle></CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {failed ? <FieldError>Couldn&apos;t read the version: {failed}</FieldError>
+          : <p role="status"><Swap>{version ? versionLine(version) : "Checking for a new version…"}</Swap></p>}
+        {version?.behind && (
+          <div className="space-y-2">
+            <p className="text-muted-foreground">
+              With automatic upgrades on, this one arrives by itself once any live games end. To take it now, run this
+              where FFL is installed:
+            </p>
+            <Command>{INSTALL}</Command>
+          </div>
+        )}
+        {version?.commit && !version.pinned && (
+          <div className="space-y-2">
+            <p className="text-muted-foreground">
+              To upgrade automatically, run this once where FFL is installed. It checks every 5 minutes, waits for live
+              games to end and backs up first. A release that fails to start is left until a newer one, with the reason
+              in <span className="font-mono text-xs">upgrade.log</span>;{" "}
+              <span className="font-mono text-xs whitespace-nowrap">--auto-off</span> stops it.
+            </p>
+            <Command>{`${INSTALL} -s -- --auto-on`}</Command>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -2,7 +2,7 @@
 # FFL in one line: curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh
 # Puts docker-compose.yml and a filled .env in $FFL_HOME (default ~/ffl) and starts the stack. Safe to re-run: .env is kept.
 # Re-running it is also the upgrade: a bare `docker compose pull` keeps the old docker-compose.yml, which a new image
-# may not run against (a new service, a new db image).
+# may not run against (a new service, a new db image). `... | sh -s -- --auto-on` upgrades by itself, `--auto-off` stops.
 set -eu
 
 fetch() {  # fetch <repo path> <dest>
@@ -29,8 +29,100 @@ free_port() {  # free_port KEY: move the port KEY names in .env up past anything
   fi
 }
 
+start() {  # The images this upgrade replaced, now untagged, go only after a healthy start: not worth failing it over.
+  docker compose up -d --wait --wait-timeout 600 || {
+    echo "FFL did not start healthy; see: docker compose logs api" >&2
+    exit 1
+  }
+  docker image prune -f >/dev/null || echo "could not remove old images; try: docker image prune -f" >&2
+}
+
+# One scheduled check. Quiet unless it upgrades; a job's run of nothing to do exits 0.
+auto() {
+  cd "${FFL_HOME:-$HOME/ffl}" 2>/dev/null && [ -f .env ] || exit 0
+  case $(sed -n 's/^FFL_VERSION=//p' .env) in ""|latest) ;; *) exit 0 ;; esac
+  command -v docker >/dev/null || { echo "$(date): docker is not on this job's PATH; run --auto-on again" >&2; exit 0; }
+  # A stack someone stopped stays stopped; so does one Docker is not up for.
+  [ -n "$(docker compose ps -q --status running 2>/dev/null)" ] || exit 0
+  commit=$(curl -fsSL --max-time 20 "https://api.github.com/repos/jonulak/FFL/git/ref/tags/release" \
+    | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p')
+  [ -n "$commit" ] || exit 0
+  [ "$commit" != "$(cat .upgrade-last 2>/dev/null || true)" ] || exit 0
+  # Wait out live games. An API that cannot answer does not hold: a new release may be its fix.
+  # shellcheck disable=SC2016  # $FFL_JOB_TOKEN is the container's
+  if docker compose exec -T api sh -c 'curl -fsS --max-time 10 -H "x-ffl-job: $FFL_JOB_TOKEN" http://127.0.0.1:8300/upgrade/hold' 2>/dev/null \
+    | grep -q '"hold":true'; then
+    exit 0
+  fi
+  # cron can start a run on top of a slow one; a lock this old was left by a killed run.
+  find .upgrade-lock -maxdepth 0 -mmin +60 -exec rmdir {} \; 2>/dev/null || true
+  mkdir .upgrade-lock 2>/dev/null || exit 0
+  trap 'rmdir .upgrade-lock' EXIT
+  echo "$(date): upgrading from $(cat .upgrade-last 2>/dev/null || echo unknown) to $commit"
+  # The commit, not the tag: raw.githubusercontent serves a moved tag's old files for minutes.
+  BASE=https://raw.githubusercontent.com/jonulak/FFL/$commit
+  fetch docker-compose.yml docker-compose.yml
+  docker compose pull
+  # In jobs, the api's image: it is up even while a bad release has the api restarting.
+  docker compose exec -T jobs uv run --no-sync python -m ffl.db backup /backups/pre-upgrade
+  # Marked before the start: a release that will not start is not retried until a newer one, each try restarts the app.
+  echo "$commit" > .upgrade-last
+  start
+  echo "$(date): upgraded to $commit"
+}
+
+# What the schedule runs: the released script, so the upgrader upgrades with the app.
+AUTO_CMD="curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/release/install.sh | sh -s -- --auto"
+AUTO_LABEL=com.jonulak.ffl.auto-upgrade
+
+auto_off() {
+  if [ "$(uname)" = Darwin ]; then
+    launchctl bootout "gui/$(id -u)/$AUTO_LABEL" 2>/dev/null || true
+    rm -f "$HOME/Library/LaunchAgents/$AUTO_LABEL.plist"
+  else
+    { crontab -l 2>/dev/null | grep -v "# $AUTO_LABEL" || true; } | crontab -
+  fi
+}
+
+auto_on() {
+  home=${FFL_HOME:-$HOME/ffl}
+  [ -f "$home/.env" ] || { echo "no install in $home: install FFL first, or set FFL_HOME" >&2; exit 2; }
+  auto_off
+  # A scheduled job has neither this shell's PATH (docker and its credential helper) nor FFL_HOME, so both are kept.
+  if [ "$(uname)" = Darwin ]; then
+    plist=$HOME/Library/LaunchAgents/$AUTO_LABEL.plist
+    mkdir -p "$(dirname "$plist")"
+    cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$AUTO_LABEL</string>
+  <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>$AUTO_CMD</string></array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>$PATH</string>
+    <key>FFL_HOME</key><string>$home</string>
+  </dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>StandardOutPath</key><string>$home/upgrade.log</string>
+  <key>StandardErrorPath</key><string>$home/upgrade.log</string>
+</dict></plist>
+EOF
+    launchctl bootstrap "gui/$(id -u)" "$plist"
+  else
+    { crontab -l 2>/dev/null || true
+      echo "*/5 * * * * export PATH='$PATH' FFL_HOME='$home'; { $AUTO_CMD; } >> '$home/upgrade.log' 2>&1 # $AUTO_LABEL"
+    } | crontab -
+  fi
+  echo "Automatic upgrades are on: every 5 minutes, waiting out live games. A log is kept in $home/upgrade.log"
+}
+
 # Everything runs from main, called on the last line: a download cut short runs nothing.
 main() {
+  case ${1:-} in
+    --auto) auto; exit 0 ;;
+    --auto-on) auto_on; exit 0 ;;
+    --auto-off) auto_off; echo "Automatic upgrades are off."; exit 0 ;;
+  esac
   { command -v docker && docker compose version; } >/dev/null 2>&1 || {
     echo "FFL runs in Docker with the compose plugin, which is not installed: https://docs.docker.com/get-docker/" >&2
     exit 2
@@ -41,10 +133,12 @@ main() {
   umask 077  # .env holds the secrets
   mkdir -p "$FFL_HOME"
   cd "$FFL_HOME"
-  # A pinned FFL_VERSION (an image tag such as v1.2.0, which is also its git tag) takes that release's compose file
+  # A pinned FFL_VERSION (an image tag such as v1.2.0, which is also its git tag) takes that release's compose file;
+  # else `release`, the tag images.yml moves once all four images are out (main's file can be ahead of them).
   version=$( [ -f .env ] && sed -n 's/^FFL_VERSION=//p' .env || true)
   case ${version:-latest} in
-    latest) ref=main ;;
+    latest) ref=release ;;
+    sha-*) ref=${version#sha-} ;;  # images.yml's commit tag, the pin a rollback uses
     *) ref=$version ;;
   esac
   BASE=${FFL_INSTALL_BASE:-https://raw.githubusercontent.com/jonulak/FFL/$ref}
@@ -68,9 +162,7 @@ main() {
   if [ -z "$(docker compose ps -q --status running)" ]; then
     free_port FFL_PORT
   fi
-  docker compose up -d
-  # The images this upgrade replaced, now untagged: only after a good start, and they are not worth failing it over.
-  docker image prune -f >/dev/null || echo "could not remove old images; try: docker image prune -f" >&2
+  start
 
   FFL_PORT=$(sed -n 's/^FFL_PORT=//p' .env)
   echo "Open http://localhost:${FFL_PORT:-3300}"

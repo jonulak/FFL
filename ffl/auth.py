@@ -35,7 +35,7 @@ PUBLIC_PREFIXES: tuple[tuple[str, str], ...] = (("POST", "/auth/setup/"),)
 # The timers' routes: the job token only (signed in without it is 403, signed out 401).
 JOB_ONLY: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"), ("POST", "/refresh"),
-    ("POST", "/outlook/refresh")})
+    ("POST", "/outlook/refresh"), ("GET", "/upgrade/hold")})
 
 SIGNED_OUT = {"error": "signed_out"}
 JOB_ONLY_BODY = {"error": "job_only"}

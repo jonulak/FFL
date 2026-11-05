@@ -283,7 +283,7 @@ GLOBAL_ROUTES = {
     "/outlook/{player_id:int}", "/refresh",
     "/transactions/sync", "/notify/subscribe", "/notify/unsubscribe", "/notify/test", "/trace",
     "/notify/tick", "/news/run", "/news/search", "/news/mute/{player_id}", "/news/status", "/llm/usage", "/llm/token",
-    "/llm/token/delete", "/app/settings",
+    "/llm/token/delete", "/app/settings", "/app/version", "/upgrade/hold",
 }
 
 

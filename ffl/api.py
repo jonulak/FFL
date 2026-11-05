@@ -2260,6 +2260,41 @@ def app_settings_set(body: AppSettingsIn, user: dict = Depends(auth.require_admi
     return _app_settings()
 
 
+RELEASE_TTL_S = 900
+_RELEASE: dict = {}  # the last good answer: {"sha", "at"}
+
+
+def _release_commit() -> str | None:
+    """The commit of the `release` tag images.yml moves; None when GitHub cannot say (not worth failing Settings over)."""
+    if _RELEASE and time.monotonic() - _RELEASE["at"] < RELEASE_TTL_S:
+        return _RELEASE["sha"]
+    try:
+        r = requests.get("https://api.github.com/repos/jonulak/FFL/git/ref/tags/release", timeout=5)
+        r.raise_for_status()
+        _RELEASE.update(sha=r.json()["object"]["sha"], at=time.monotonic())
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return None
+    return _RELEASE["sha"]
+
+
+@app.get("/app/version")
+def app_version(user: dict = Depends(auth.require_admin)):
+    """What this install runs against the latest release. A dev build has no commit; a pinned install asks nothing."""
+    commit = os.environ.get("FFL_COMMIT") or None
+    pinned = os.environ.get("FFL_VERSION", "latest")
+    pinned = None if pinned in ("", "latest") else pinned
+    latest = None if pinned else _release_commit()
+    return {"commit": commit, "latest": latest, "behind": bool(commit and latest and commit != latest), "pinned": pinned}
+
+
+@app.get("/upgrade/hold")
+def upgrade_hold():
+    """Whether install.sh --auto should wait: a game is in progress. Only a connected feed counts: a dropped one's last
+    word is stale, and a stale "in" would hold upgrades forever."""
+    s = live.STATE
+    return {"hold": s.connected and any(g.get("status") == "in" for g in s.games.values())}
+
+
 def correction_pass(*, ref: LeagueRef) -> dict:
     """The tick's stat-correction step for a league (espn_season.correct_boxes): a
     starter's corrected points go to his week's play feed (the runner's store when that is the week it holds, so
