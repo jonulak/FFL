@@ -25,6 +25,7 @@ import { GameLink } from "./game-link";
 import { GameLine } from "./local-time";
 import { PlayFeedStrip } from "./play-feed";
 import { ProjectionTrigger, Spread } from "./projection";
+import { ShareButton } from "./share-button";
 import { StaleBadge } from "./stale-badge";
 import { StatLine } from "./stat-line";
 import { TeamLink } from "./team-link";
@@ -521,6 +522,7 @@ export function MatchupView({ data, now, back }: { data: Week; now: number; back
         </h1>
         <LiveChip on={gameOn([...data.me.lineup, ...(data.opp?.lineup ?? [])])} />
         <StaleBadge since={data.stale_since} />
+        <ShareButton kind="matchup" week={data.week} team={data.mine === false ? data.me.team_id : null} className="ml-auto" />
       </div>
       <Scorebug data={data} now={now} />
       {/* The feed only earns its place once something has happened; before kickoff it stays out of the way. */}
