@@ -81,9 +81,10 @@ curl -fsSL https://raw.githubusercontent.com/jonulak/FFL/main/install.sh | sh -s
 ```
 
 This adds a launchd job on a Mac or a cron entry on Linux that checks every 5 minutes (`--auto-off` removes it). When
-a new release is out, it waits for any live games to end, dumps the database into `/backups/pre-upgrade` and upgrades
-the way the installer does. It leaves a stopped stack stopped and an install pinned by `FFL_VERSION` alone. The log is
-`upgrade.log` beside the compose file.
+a new release is out, it waits for any live games to end, dumps the database into `/backups/pre-upgrade` (the last 14
+days, one dump a day: a second upgrade that day replaces the first's) and upgrades the way the installer does. It
+leaves a stopped stack stopped and an install pinned by `FFL_VERSION` alone. The log is `upgrade.log` beside the
+compose file.
 
 A release that fails to start is not retried until a newer one appears. Going back is a restore, because an older image
 refuses a newer database. `upgrade.log` names the commit you came from: set `FFL_VERSION=sha-<its first 7 characters>`

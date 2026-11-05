@@ -158,7 +158,8 @@ cp "$REPO/${url#*/FFL/*/}" "$out"
 """
 
 
-@pytest.mark.parametrize("version, ref", [("latest", "release"), ("v1.2.0", "v1.2.0")])
+@pytest.mark.parametrize("version, ref", [("latest", "release"), ("v1.2.0", "v1.2.0"),
+                                          ("sha-abc1234", "abc1234")])  # the rollback's pin: an image tag, not a git ref
 def test_compose_file_comes_from_the_pinned_release(tmp_path, stub_path, version, ref):
     """With no FFL_INSTALL_BASE the files come over curl (a stub serving the repo's): from the tag FFL_VERSION pins,
     else `release`, the tag images.yml moves once all four images are out (main's file can be ahead of them)."""
@@ -282,6 +283,13 @@ def test_auto_leaves_a_pinned_install_alone(tmp_path, auto):
     env.write_text(re.sub(r"^FFL_VERSION=.*$", "FFL_VERSION=v1.2.0", env.read_text(), flags=re.M))
     assert auto().returncode == 0
     assert not _upgraded(tmp_path) and _last(tmp_path) == OLD
+
+
+def test_auto_says_so_when_the_schedule_cannot_find_docker(tmp_path, auto):
+    """A PATH that lost docker would otherwise read as a stack stopped on purpose: an empty log, forever."""
+    (tmp_path / "bin" / "docker").unlink()
+    r = auto(PATH=str(tmp_path / "bin") + ":/usr/bin:/bin")
+    assert r.returncode == 0 and "docker" in r.stderr
 
 
 def test_auto_does_nothing_when_github_cannot_say(tmp_path, auto):

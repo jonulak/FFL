@@ -41,6 +41,7 @@ start() {  # The images this upgrade replaced, now untagged, go only after a hea
 auto() {
   cd "${FFL_HOME:-$HOME/ffl}" 2>/dev/null && [ -f .env ] || exit 0
   case $(sed -n 's/^FFL_VERSION=//p' .env) in ""|latest) ;; *) exit 0 ;; esac
+  command -v docker >/dev/null || { echo "$(date): docker is not on this job's PATH; run --auto-on again" >&2; exit 0; }
   # A stack someone stopped stays stopped; so does one Docker is not up for.
   [ -n "$(docker compose ps -q --status running 2>/dev/null)" ] || exit 0
   commit=$(curl -fsSL --max-time 20 "https://api.github.com/repos/jonulak/FFL/git/ref/tags/release" \
@@ -137,6 +138,7 @@ main() {
   version=$( [ -f .env ] && sed -n 's/^FFL_VERSION=//p' .env || true)
   case ${version:-latest} in
     latest) ref=release ;;
+    sha-*) ref=${version#sha-} ;;  # images.yml's commit tag, the pin a rollback uses
     *) ref=$version ;;
   esac
   BASE=${FFL_INSTALL_BASE:-https://raw.githubusercontent.com/jonulak/FFL/$ref}
