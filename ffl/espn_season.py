@@ -1687,6 +1687,8 @@ def _build_league_pool(week, size, sources, season, injuries, snaps, *, ref: lea
         status = {}
     return {"week": week, "ros_week": rw, "week_over": rw > week, "settings": settings, "rostered": rostered,
             "teams": teams, "frees": frees, "status": status, "owners": _owners(lg, week, ref=ref),
+            # ESPN-wide rostered % of each free agent (-1: ESPN sent none); outlook.wanted reads it
+            "owned": {bp.playerId: getattr(bp, "percent_owned", -1) for pos in POSITIONS for bp in fetched[(pos, week)]},
             "enrich": enrich, "ros_source": ros_source(seas)}
 
 
@@ -1884,8 +1886,7 @@ def outlook_cards(*, ref: leagues.LeagueRef) -> tuple[list[dict], int]:
     watched: set[int] = set()
     for m in leagues.members(ref.key):
         watched |= set(db.watched_ids(ref=m))
-    free_ids = [p["player_id"] for pos, ps in pool["frees"].items() if pos in outlook.POSITIONS for p in ps]
-    cards = outlook.wanted(pool, outlook.recent_up(free_ids, date.today()), watched)
+    cards = outlook.wanted(pool, watched)
     # a man the pool has is already judged by wanted(); D/ST ids are negative
     have = {p["player_id"] for p in pool["rostered"]} | {p["player_id"] for ps in pool["frees"].values() for p in ps}
     missing = sorted(pid for pid in watched if pid not in have and pid > 0)

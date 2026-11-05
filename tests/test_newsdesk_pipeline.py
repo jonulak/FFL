@@ -30,6 +30,7 @@ def stages(monkeypatch):
     monkeypatch.setattr(pipeline.collect, "run_all", stub("collect", {"new": 0}))
     monkeypatch.setattr(pipeline.collect, "recheck", stub("recheck", {"edited": 0}))
     monkeypatch.setattr(pipeline.media, "run_all", stub("media", {"new": 0}))
+    monkeypatch.setattr(pipeline.media, "transcribe_pending", stub("transcribe", {"transcribed": 0}))
     monkeypatch.setattr(pipeline.tag, "run", stub("tag", {"tagged": 0}))
     monkeypatch.setattr(pipeline.write, "run", stub("write", lambda: {"written": len(written), "written_ids": list(written)}))
     monkeypatch.setattr(pipeline.check, "run", lambda ids, index: {"checked_ids": list(ids)})
@@ -69,7 +70,7 @@ def test_pipeline_stage_failure_reported_rest_run(stages, monkeypatch):
     monkeypatch.setattr(pipeline.collect, "run_all", boom)
     out = pipeline.run()
     assert out["collect"] == {"error": "RuntimeError: feeds down"}
-    assert calls == ["seed", "index", "recheck", "media", "tag", "write"]
+    assert calls == ["seed", "index", "recheck", "media", "tag", "write", "transcribe"]  # transcribe last
     assert out["tag"] == {"tagged": 0} and out["notices"]["leagues"][HOME_KEY] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0} and out["health"] == 0
     assert db.get_state("news_last_run")["stages"]["collect"] == {"error": "RuntimeError: feeds down"}
 

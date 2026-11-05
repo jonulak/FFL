@@ -14,6 +14,7 @@ VAPID_PRIVATE = "vapid_private"
 PUSH_CONTACT = "push_contact"
 APP_URL = "app_url"
 YOUTUBE_KEY = "youtube_api_key"
+TRANSCRIBE = "transcribe_podcasts"  # "1": the news desk sends no-transcript podcast episodes to the stt container
 
 TTL_S = 60
 _CACHE: dict[str, tuple[str | None, float]] = {}

@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { AppSettings } from "@/lib/api";
 import { PHONE_ACTION } from "./claims-submit";
 import { CredentialSteps, Out, Ui } from "./credential-steps";
-import { Spinner } from "./motion";
+import { Spinner, Swap } from "./motion";
 
 type Msg = { ok: boolean; text: string } | null;
-type Body = Partial<{ app_url: string; push_contact: string; youtube_key: string }>;
+type Body = Partial<{ app_url: string; push_contact: string; youtube_key: string; transcribe_podcasts: boolean }>;
 
 const INPUT = "max-lg:h-12 max-lg:text-base";
 
@@ -57,7 +59,36 @@ export function AppSettingsCards({ initial, optionalOnly = false, onSaved }: {
       {!optionalOnly && <AppUrlCard settings={settings} onSaved={setSettings} />}
       <PushContactCard settings={settings} onSaved={saved} />
       <YoutubeCard settings={settings} onSaved={saved} />
+      <TranscribeCard settings={settings} onSaved={saved} />
     </>
+  );
+}
+
+// The podcast transcriber (the stack's stt container, ffl/stt.py): a switch, since it needs no key. The Decisions
+// card's row shape: label and hint on the left, the switch at the end, 48px tall on the phone.
+function TranscribeCard({ settings, onSaved }: { settings: AppSettings; onSaved: (s: AppSettings) => void }) {
+  const { busy, msg, save } = useSave(onSaved);
+  const on = settings.transcribe_podcasts;
+  return (
+    <Card>
+      <CardHeader><CardTitle>Podcast transcription</CardTitle></CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          The shows the week&apos;s analysis is argued on (Locked On, one a day per club, and the national fantasy
+          shows) publish no transcript. On, this machine transcribes them itself, about a minute of CPU and 3 GB of
+          memory per half-hour episode, and nothing leaves it. Off, those shows are not read.
+        </p>
+        <Label className="flex min-h-12 items-center justify-between gap-4">
+          <span>
+            <span className="font-medium">Transcribe podcasts</span>
+            <span className="block text-xs text-muted-foreground"><Swap>{on ? "On: new episodes are read within the hour." : "Off"}</Swap></span>
+          </span>
+          <Switch checked={on} disabled={busy !== null}
+                  onCheckedChange={(v) => save("transcribe", { transcribe_podcasts: v }, v ? "On." : "Off.")} />
+        </Label>
+        <Status msg={msg} />
+      </CardContent>
+    </Card>
   );
 }
 

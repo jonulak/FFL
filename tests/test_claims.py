@@ -40,7 +40,7 @@ def test_dst_negative_ids():
 
 
 def test_free_agents_now_then_claims():
-    g = {"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}
+    g = {"targets": [102, 101, 103], "cuts": [1, 2], "open": 0}
     st = {102: FA, 101: W, 103: W}
     assert pairs(C.plan_now([g], st)) == [(102, 1)]
     assert pairs(C.expand([g], st)) == [(101, 2), (103, 2)]
@@ -96,8 +96,36 @@ def test_never_more_than_k_and_best_first():
         assert got == avail[:C.capacity(g)], (miss, got)
 
 
+def test_free_agents_and_waiver_targets_in_any_order_keep_the_best_k():
+    # W 1, 2 and FA 11, 12 in every rank order, over 0-2 open spots and 0-3 cuts (at least one row): the free agents are
+    # added now, then whichever waiver targets ESPN awards, the roster ends with the best K still available, and the
+    # plan saved after the submit (consume) makes exactly the claims that were sent
+    from itertools import permutations
+    st = {11: FA, 12: FA}
+    for order in permutations([1, 2, 11, 12]):
+        for open_, cuts in product(range(3), ([], [91], [91, 92], [91, 92, 93])):
+            if not open_ and not cuts:
+                continue
+            g = {"targets": list(order), "cuts": cuts, "open": open_}
+            case = (order, open_, cuts)
+            now = C.plan_now([g], st)
+            claims = C.expand([g], st)
+            after = C.consume([g], now)
+            assert [(c["add"], c["drop"]) for c in C.expand(after, {})] == [(c["add"], c["drop"]) for c in claims], case
+            assert sum(x["open"] for x in after) <= open_, case
+            roster = [c for c in cuts if c not in {m["drop"] for m in now}] + [m["add"] for m in now]
+            open_left = open_ - sum(1 for m in now if m["drop"] is None)
+            for lost in product([False, True], repeat=2):
+                taken = {w for w, x in zip((1, 2), lost) if x}
+                got = simulate(claims, taken, roster, open_left)
+                dropped = {c["drop"] for c in got}
+                mine = [m["add"] for m in now if m["add"] not in dropped] + [c["add"] for c in got]
+                best = [t for t in order if t not in taken][:open_ + len(cuts)]
+                assert sorted(mine) == sorted(best), (case, lost, mine)
+
+
 def test_cap_holds_with_free_agents():
-    g = {"targets": [101, 102, 103, 104], "cuts": [1, 2], "open": 0}
+    g = {"targets": [102, 104, 101, 103], "cuts": [1, 2], "open": 0}
     st = {102: FA, 104: FA}
     now = C.plan_now([g], st)
     used_rows = {m["drop"] for m in now}
@@ -144,11 +172,53 @@ def test_undroppable_cut_rejected():
     assert any("undroppable" in r for r in errs([{"targets": [101], "cuts": [16], "open": 0}], roster=roster))
 
 
-def test_locked_cut_only_matters_for_instant_adds():
+def test_locked_cut_is_a_valid_cut():
     roster = ROSTER[:-2] + [R(16, locked=True), R(99, "IR")]
     g = [{"targets": [101], "cuts": [16], "open": 0}]
-    assert errs(g, roster=roster) == []                                        # a Wednesday claim: fine
+    assert errs(g, roster=roster) == []                                        # a Wednesday claim
+    # ESPN blocks a free agent for a locked drop: with no unlocked row it is an error, never a claim
     assert any("game has started" in r for r in errs(g, roster=roster, status={101: FA}))
+    assert errs([{**g[0], "cuts": [16, 1]}], roster=roster, status={101: FA}) == []
+
+
+def test_locked_cut_is_for_waiver_claims_only():
+    # 102 (FA) skips locked 1 and takes 2; 103 (FA) is left with only locked 1: no add, no claim; 101 (W) claims 1,
+    # held: ESPN takes no claim with a locked drop until the rollover
+    g = {"targets": [102, 103, 101], "cuts": [1, 2], "open": 0}
+    st = {102: FA, 103: FA}
+    assert pairs(C.plan_now([g], st, {1})) == [(102, 2)]
+    assert pairs(C.expand([g], st, locked={1})) == [(101, 1)]
+    w = FakeW([])
+    r = C.run_submit([g], st, [], set(), False, w, locked={1})
+    assert w.adds == [(102, 2)] and r["sent"] == [] and pairs(r["held"]) == [(101, 1)]
+
+
+def test_waiver_target_ranked_above_a_free_agent_claims_him():
+    # get 1 of [101 (W), 102 (FA)] with one cut: 102 now for 1, then 101 claimed for 102
+    g = {"targets": [101, 102], "cuts": [1], "open": 0}
+    st = {102: FA}
+    assert pairs(C.plan_now([g], st)) == [(102, 1)]
+    assert pairs(C.expand([g], st)) == [(101, 102)]
+    w = FakeW([])
+    r = C.run_submit([g], st, [], set(), False, w)
+    assert w.adds == [(102, 1)] and pairs(r["sent"]) == [(101, 102)]
+    # the plan keeps him as 101's cut, so the next expand makes the same claim
+    after = C.consume([g], r["now"])
+    assert after == [{"targets": [101], "cuts": [102], "open": 0}] and pairs(C.expand(after, {})) == [(101, 102)]
+    # two rows: 101 claims the group's own row first, then 102
+    two = {**g, "cuts": [1, 2]}
+    assert pairs(C.plan_now([two], st)) == [(102, 1)] and pairs(C.expand([two], st)) == [(101, 2), (101, 102)]
+    # ranked below him, 101 never claims him; his add failing means no claim on him
+    assert pairs(C.expand([{**g, "targets": [102, 101]}], st)) == []
+    assert C.expand([g], st, now=[]) == [{"group": 0, "add": 101, "drop": 1}]
+
+
+def test_a_claim_dropping_a_locked_free_agent_is_held():
+    g = {"targets": [101, 102], "cuts": [1], "open": 0}
+    w = FakeW([])
+    r = C.run_submit([g], {102: FA}, [], set(), False, w, locked={102})   # his game has started
+    assert w.adds == [(102, 1)] and r["sent"] == [] and pairs(r["held"]) == [(101, 102)]
+    assert C.split_held([{"add": 1, "drop": 2}, {"add": 3, "drop": None}], {2}) == ([{"add": 3, "drop": None}], [{"add": 1, "drop": 2}])
 
 
 def test_target_not_in_pool():
@@ -196,7 +266,7 @@ def test_empty_group_rejected():
 
 def test_decision_row_and_free_adds():
     names = {101: "Addison", 102: "Mims", 103: "Doubs", 1: "Shaheed", 2: "Lockett"}
-    r = C.decision_row([{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}], names, {102: FA}, 6, 2)
+    r = C.decision_row([{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}], names, [{"group": 0, "add": 102, "drop": 1}], 6, 2)
     assert (r["kind"], r["title"], r["week"], r["rationale"]) == ("claims", "Week 6 waiver claims", 6, None)
     assert r["decision"] == "(1) get 2 of 3: Addison, Mims (FA, added now), Doubs; cut Shaheed, Lockett"
     assert r["facts"]["submits"] == 2 and r["player_ids"] == [101, 102, 103, 1, 2]
@@ -272,7 +342,7 @@ def test_submit_order_mismatch():
 
 
 def test_run_submit_free_agent_now_then_claims():
-    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    g = [{"targets": [102, 101, 103], "cuts": [1, 2], "open": 0}]
     w = FakeW([])
     r = C.run_submit(g, {102: "FREEAGENT"}, [], set(), False, w)
     assert w.adds == [(102, 1)] and [(c["add"], c["drop"]) for c in r["pending"]] == [(101, 2), (103, 2)] and r["match"]
@@ -305,7 +375,7 @@ def test_run_submit_readback_failure_keeps_the_record():
                 raise RuntimeError("ESPN 503: down")
             return super().pending_claims()
 
-    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    g = [{"targets": [102, 101, 103], "cuts": [1, 2], "open": 0}]
     w = W([])
     r = C.run_submit(g, {102: "FREEAGENT"}, w.pending_claims(), set(), False, w)
     assert r["error"] and "read-back" in r["error"] and r["match"] is False and r["pending"] == []
@@ -313,7 +383,7 @@ def test_run_submit_readback_failure_keeps_the_record():
 
 
 def test_consume_free_agent_row():
-    g = [{"targets": [101, 102, 103], "cuts": [1, 2], "open": 0}]
+    g = [{"targets": [102, 101, 103], "cuts": [1, 2], "open": 0}]
     assert C.consume(g, [{"group": 0, "add": 102, "drop": 1}]) == [{"targets": [101, 103], "cuts": [2], "open": 0}]
     assert g[0]["cuts"] == [1, 2]   # input untouched
 

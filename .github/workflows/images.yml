@@ -1,8 +1,8 @@
 name: Images
 
-# The Docker images: a PR builds all three (amd64 only, nothing pushed, no login) so a broken Dockerfile fails
+# The Docker images: a PR builds all four (amd64 only, nothing pushed, no login) so a broken Dockerfile fails
 # before it merges; a push to main or a v* tag builds them for amd64 + arm64 and publishes them to GHCR as
-# ghcr.io/jonulak/ffl-api, ffl-runner and ffl-web, tagged latest, sha-<short> and (on a tag) the tag name.
+# ghcr.io/jonulak/ffl-api, ffl-runner, ffl-stt and ffl-web, tagged latest, sha-<short> and (on a tag) the tag name.
 # web/Dockerfile's FFL_API_URL default (http://api:8300) is the compose stack's, so no build-args.
 
 on:
@@ -23,6 +23,7 @@ jobs:
         image:
           - { name: ffl-api, context: ., file: Dockerfile }
           - { name: ffl-runner, context: ., file: Dockerfile.runner }
+          - { name: ffl-stt, context: ., file: Dockerfile.stt }
           - { name: ffl-web, context: web, file: web/Dockerfile }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -48,6 +49,7 @@ jobs:
         image:
           - { name: ghcr.io/jonulak/ffl-api, context: ., file: Dockerfile }
           - { name: ghcr.io/jonulak/ffl-runner, context: ., file: Dockerfile.runner }
+          - { name: ghcr.io/jonulak/ffl-stt, context: ., file: Dockerfile.stt }
           - { name: ghcr.io/jonulak/ffl-web, context: web, file: web/Dockerfile }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

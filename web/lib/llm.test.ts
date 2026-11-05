@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { tokenError, wizardStart } from "./llm";
 
-const NONE = { app_url: "https://ffl.example", push_contact: null, youtube_key_set: false };
+const NONE = { app_url: "https://ffl.example", push_contact: null, youtube_key_set: false, transcribe_podcasts: false };
 
 describe("wizardStart", () => {
   it("opens on Claude for an admin with no token", () => {

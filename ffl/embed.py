@@ -6,7 +6,10 @@ and `tokens`.
 """
 from __future__ import annotations
 
+import ctypes
+import gc
 import os
+import sys
 import threading
 
 MODEL = "BAAI/bge-small-en-v1.5"
@@ -27,6 +30,17 @@ def _load():
     return _model
 
 
+def unload() -> None:
+    """Give the model's memory back (about 350 MB); the next call loads it again. Each news run ends with this, as it
+    runs every 10 minutes and a search is rare. A call in progress keeps its own reference and finishes."""
+    global _model, _tokenizer
+    with _lock:
+        _model = _tokenizer = None
+    gc.collect()
+    if sys.platform == "linux":
+        ctypes.CDLL("libc.so.6").malloc_trim(0)  # freed is not returned: glibc holds on to 60 MB of it otherwise
+
+
 def passages(texts: list[str]) -> list[list[float]]:
     """The stored side: one vector per text."""
     # batch 8, not fastembed's 256: on ~450-token pieces 256 peaked at 5 GB and ran slower (57 vs 34 ms a piece, #112)
@@ -42,10 +56,11 @@ def tokens(text: str) -> int:
     """How many tokens the model reads `text` as, its two markers included, never truncated: a piece over MAX_TOKENS
     would lose its end."""
     global _tokenizer
-    if _tokenizer is None:
+    tok = _tokenizer  # a local: unload() may clear the global from another thread
+    if tok is None:
         from tokenizers import Tokenizer  # fastembed's own dependency
         tok = Tokenizer.from_file(str(_load().model._model_dir / "tokenizer.json"))  # its copy truncates at 512
         tok.no_truncation()
         tok.no_padding()
         _tokenizer = tok
-    return len(_tokenizer.encode(text).ids)
+    return len(tok.encode(text).ids)

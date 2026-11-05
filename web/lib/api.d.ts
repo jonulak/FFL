@@ -629,6 +629,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/roster/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Roster Add
+         * @description Add one free agent now, dropping `drop` (None: into an open spot): the quick path beside the claims sheet.
+         *     Statuses and locks are re-read here, and the add runs the claims' own checks as a one-group plan.
+         */
+        post: operations["roster_add_roster_add_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/lineup": {
         parameters: {
             query?: never;
@@ -1641,6 +1662,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddIn */
+        AddIn: {
+            /** Add */
+            add: number;
+            /** Drop */
+            drop?: number | null;
+        };
         /** AdminFlagIn */
         AdminFlagIn: {
             /** Is Admin */
@@ -1657,6 +1685,8 @@ export interface components {
             push_contact?: string | null;
             /** Youtube Key */
             youtube_key?: string | null;
+            /** Transcribe Podcasts */
+            transcribe_podcasts?: boolean | null;
         };
         /** DecisionEdit */
         DecisionEdit: {
@@ -2749,6 +2779,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    roster_add_roster_add_post: {
+        parameters: {
+            query?: {
+                league?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

@@ -122,21 +122,10 @@ export function atMost(groups: ClaimGroup[], pos: Map<number, string>): string {
 
 const isFA = (id: number, status: Status) => status[String(id)] === "FREEAGENT";
 
-export const groupHasFA = (g: ClaimGroup, status: Status): boolean => g.targets.some((t) => isFA(t, status));
-
-// The order the panel shows: free agents first (they are added on Submit, ahead of any claim), then
-// the waiver targets, each block in rank order. Unknown status counts as waivers.
+// The targets in rank order, each flagged `now` when a free agent (added on Submit, not claimed; a waiver
+// target ranked above him keeps his row). Unknown status counts as waivers.
 export function displayTargets(g: ClaimGroup, status: Status): { id: number; now: boolean }[] {
-  const fa = g.targets.filter((t) => isFA(t, status));
-  const w = g.targets.filter((t) => !isFA(t, status));
-  return [...fa.map((id) => ({ id, now: true })), ...w.map((id) => ({ id, now: false }))];
-}
-
-// A drag inside one block (free agents, or waiver targets) rebuilds the stored order as FA block + waiver block.
-export function reorderTargets(g: ClaimGroup, status: Status, faBlock: boolean, from: number, to: number): number[] {
-  const fa = g.targets.filter((t) => isFA(t, status));
-  const w = g.targets.filter((t) => !isFA(t, status));
-  return faBlock ? [...arrayMove(fa, from, to), ...w] : [...fa, ...arrayMove(w, from, to)];
+  return g.targets.map((id) => ({ id, now: isFA(id, status) }));
 }
 
 // The group whose list holds him, or null.
@@ -146,16 +135,13 @@ export function holder(groups: ClaimGroup[], list: List, id: number): number | n
 }
 
 // A drag's edit: take him out of the group he is dragged from and put him in group `gi` at `at`, a
-// position in the order the panel shows (for targets, the FA block then the waiver block). Inside
+// position in the group's list. Inside
 // one group it is an array move. A target is in one group, so he leaves whichever holds him; a cut
 // may stand in several, so only `from` loses him (and a group that already cuts him keeps one row).
-// A target is re-sorted into his own block after, so a free agent dropped among the waiver targets
-// lands at the foot of the FA block. Emptied groups are kept: see prune.
-export function place(groups: ClaimGroup[], status: Status, list: List, id: number, gi: number, at: number, from?: number): ClaimGroup[] {
+// Emptied groups are kept: see prune.
+export function place(groups: ClaimGroup[], list: List, id: number, gi: number, at: number, from?: number): ClaimGroup[] {
   const out = copy(groups).map((g, i) => (list === "cuts" && from != null && i !== from && i !== gi ? g : { ...g, [list]: g[list].filter((x) => x !== id) }));
-  const shown = list === "targets" ? displayTargets(out[gi], status).map((t) => t.id) : out[gi].cuts;
-  shown.splice(Math.max(0, Math.min(at, shown.length)), 0, id);
-  out[gi][list] = list === "targets" ? [...shown.filter((t) => isFA(t, status)), ...shown.filter((t) => !isFA(t, status))] : shown;
+  out[gi][list].splice(Math.max(0, Math.min(at, out[gi][list].length)), 0, id);
   return out;
 }
 
@@ -167,12 +153,11 @@ export function statusTag(p: { status: PoolStatus | null; waiver_date: number | 
   return p.waiver_date ? `W·${new Date(p.waiver_date).toLocaleDateString("en-US", { weekday: "short" })}` : "W";
 }
 
-// Why a roster player cannot be a cut, or null. A locked cut (his game started) only blocks an
-// instant add; a claim processes after the games.
-export function cutBlock(p: ClaimPlayer, groupHasFA: boolean): string | null {
+// Why a roster player cannot be a cut, or null. A locked one (his game started) can: no instant add
+// drops him (ESPN blocks a free agent for him), so he goes for waiver claims only.
+export function cutBlock(p: ClaimPlayer): string | null {
   if (p.slot === "IR") return "on IR";
   if (p.droppable === false) return "undroppable";
-  if (groupHasFA && p.locked) return "game started";
   return null;
 }
 

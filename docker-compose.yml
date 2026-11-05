@@ -24,6 +24,7 @@ services:
       FFL_DB_URL: postgresql+psycopg://ffl:${POSTGRES_PASSWORD}@db:5432/ffl
       FFL_DATA_DIR: /var/lib/ffl/data
       FFL_RUNNER_URL: http://runner:8310
+      FFL_STT_URL: http://stt:8320
     volumes:
       - data:/var/lib/ffl/data
       - backups:/backups
@@ -38,6 +39,14 @@ services:
     image: ghcr.io/jonulak/ffl-runner:${FFL_VERSION:-latest}
     restart: unless-stopped
     environment:  # the shared secret alone, not .env: the runner needs no key ring or database (the api sends the token)
+      FFL_JOB_TOKEN: ${FFL_JOB_TOKEN}
+
+  # Speech to text for podcast episodes without a transcript (ffl/stt.py), used only while Settings › App has
+  # transcription on: idle it holds no model (a few dozen MB); transcribing, about 3 GB. No published port.
+  stt:
+    image: ghcr.io/jonulak/ffl-stt:${FFL_VERSION:-latest}
+    restart: unless-stopped
+    environment:
       FFL_JOB_TOKEN: ${FFL_JOB_TOKEN}
 
   web:
