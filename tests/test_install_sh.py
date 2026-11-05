@@ -287,9 +287,9 @@ def test_auto_leaves_a_pinned_install_alone(tmp_path, auto):
 
 def test_auto_says_so_when_the_schedule_cannot_find_docker(tmp_path, auto):
     """A PATH that lost docker would otherwise read as a stack stopped on purpose: an empty log, forever."""
-    (tmp_path / "bin" / "docker").unlink()
-    r = auto(PATH=str(tmp_path / "bin") + ":/usr/bin:/bin")
-    assert r.returncode == 0 and "docker" in r.stderr
+    (tmp_path / "empty").mkdir()  # no /usr/bin: a CI runner has a real docker there
+    r = auto(PATH=str(tmp_path / "empty"))
+    assert r.returncode == 0 and "docker is not on this job's PATH" in r.stderr
 
 
 def test_auto_does_nothing_when_github_cannot_say(tmp_path, auto):
