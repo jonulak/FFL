@@ -48,7 +48,7 @@ services:
       FFL_JOB_TOKEN: ${FFL_JOB_TOKEN}
 
   # Speech to text for podcast episodes without a transcript (ffl/stt.py), used only while Settings › App has
-  # transcription on: idle it holds no model (a few dozen MB); transcribing, about 3 GB. No published port.
+  # transcription on: idle it holds no model (a few dozen MB); transcribing, up to 4 GB. No published port.
   stt:
     image: ghcr.io/jonulak/ffl-stt:${FFL_VERSION:-latest}
     restart: unless-stopped
