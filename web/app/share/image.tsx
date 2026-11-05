@@ -28,6 +28,8 @@ const TONE = { ok: MUTED, warn: WARN, bad: BAD };
 
 const TITLE_H = 104;
 const BUG_H = 300;
+const BUG_TEAM_H = 150; // the scorebug's name, logo and record, gone when the image leaves the teams out
+const ROSTER_HEAD_H = 136;
 const ROW_H = 84;
 const LABEL_H = 64;
 const CARD_PAD = 16;
@@ -158,18 +160,22 @@ const Title = ({ title, week }: { title: string; week: number }) => (
   </div>
 );
 
-function Total({ side, mark, now, opp = false }: { side: Side; mark: string | null; now: number; opp?: boolean }) {
+const bugHeight = (teams: boolean) => (teams ? BUG_H : BUG_H - BUG_TEAM_H);
+
+function Total({ side, mark, now, teams, opp = false }: { side: Side; mark: string | null; now: number; teams: boolean; opp?: boolean }) {
   const on = started(side, now);
   const left = on ? toPlay(side.lineup, isIdle, now) : 0;
   return (
     <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: opp ? "flex-end" : "flex-start" }}>
-      <div style={{ width: "100%", height: 150, display: "flex", flexDirection: opp ? "row-reverse" : "row", gap: 16 }}>
-        <Mark src={mark} abbrev={side.abbrev} size={88} />
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: opp ? "flex-end" : "flex-start" }}>
-          <span style={{ fontSize: 40, fontWeight: 600, lineHeight: 1.05, color: INK, textAlign: opp ? "right" : "left", lineClamp: 2, display: "block" }}>{side.team}</span>
-          <span style={{ marginTop: 8, fontSize: 28, fontWeight: 600, color: MUTED }}>{record(side)}</span>
+      {teams && (
+        <div style={{ width: "100%", height: BUG_TEAM_H, display: "flex", flexDirection: opp ? "row-reverse" : "row", gap: 16 }}>
+          <Mark src={mark} abbrev={side.abbrev} size={88} />
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: opp ? "flex-end" : "flex-start" }}>
+            <span style={{ fontSize: 40, fontWeight: 600, lineHeight: 1.05, color: INK, textAlign: opp ? "right" : "left", lineClamp: 2, display: "block" }}>{side.team}</span>
+            <span style={{ marginTop: 8, fontSize: 28, fontWeight: 600, color: MUTED }}>{record(side)}</span>
+          </div>
         </div>
-      </div>
+      )}
       <div style={{ display: "flex", alignItems: "baseline", flexDirection: opp ? "row-reverse" : "row", gap: 12 }}>
         <span style={{ fontSize: 96, fontWeight: 700, lineHeight: 1, letterSpacing: -1, color: INK }}>{pts(on ? side.actual_total : side.proj_total)}</span>
         <span style={{ fontSize: 28, fontWeight: 600, letterSpacing: 2, color: MUTED }}>{!on ? "PROJ" : left > 0 ? `${left} TO PLAY` : "FINAL"}</span>
@@ -178,16 +184,16 @@ function Total({ side, mark, now, opp = false }: { side: Side; mark: string | nu
   );
 }
 
-function Matchup({ data, marks, art, now }: { data: Week; marks: Marks; art: Art; now: number }) {
+function Matchup({ data, marks, art, now, teams }: { data: Week; marks: Marks; art: Art; now: number; teams: boolean }) {
   const rows = pairStarters(data.slots, data.me.lineup, data.opp?.lineup ?? []);
   return (
     <Stack>
       <Title title="Matchup" week={data.week} />
-      <div style={{ height: BUG_H - 16, display: "flex", alignItems: "center", gap: 24, padding: "0 24px", marginBottom: 16, background: PANEL, borderRadius: 14 }}>
-        <Total side={data.me} mark={marks.me} now={now} />
+      <div style={{ height: bugHeight(teams) - 16, display: "flex", alignItems: "center", gap: 24, padding: "0 24px", marginBottom: 16, background: PANEL, borderRadius: 14 }}>
+        <Total side={data.me} mark={marks.me} now={now} teams={teams} />
         {data.opp && <span style={{ alignSelf: "flex-end", marginBottom: 48, fontSize: 30, fontWeight: 600, letterSpacing: 4, color: MUTED }}>VS</span>}
         {data.opp
-          ? <Total side={data.opp} mark={marks.opp} now={now} opp />
+          ? <Total side={data.opp} mark={marks.opp} now={now} teams={teams} opp />
           : <span style={{ flex: 1, textAlign: "right", justifyContent: "flex-end", display: "flex", fontSize: 32, fontWeight: 600, color: MUTED }}>No opponent this week</span>}
       </div>
       <Board>
@@ -217,17 +223,19 @@ function Section({ title, players, now, art, slots }: { title: string; players: 
   );
 }
 
-function RosterImage({ data, mark, art, now }: { data: Week; mark: string | null; art: Art; now: number }) {
+function RosterImage({ data, mark, art, now, teams }: { data: Week; mark: string | null; art: Art; now: number; teams: boolean }) {
   const me = data.me;
   return (
     <Stack>
-      <div style={{ height: 136, display: "flex", alignItems: "flex-start", gap: 20 }}>
-        <Mark src={mark} abbrev={me.abbrev} size={104} />
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <span style={{ fontSize: 64, fontWeight: 700, lineHeight: 1, letterSpacing: -1, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{me.team}</span>
-          <span style={{ marginTop: 8, fontSize: 32, fontWeight: 600, color: MUTED }}>{`${record(me)} · Week ${data.week}`}</span>
+      {teams ? (
+        <div style={{ height: ROSTER_HEAD_H, display: "flex", alignItems: "flex-start", gap: 20 }}>
+          <Mark src={mark} abbrev={me.abbrev} size={104} />
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+            <span style={{ fontSize: 64, fontWeight: 700, lineHeight: 1, letterSpacing: -1, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{me.team}</span>
+            <span style={{ marginTop: 8, fontSize: 32, fontWeight: 600, color: MUTED }}>{`${record(me)} · Week ${data.week}`}</span>
+          </div>
         </div>
-      </div>
+      ) : <Title title="Roster" week={data.week} />}
       <Board>
         <Section title="Starters" players={me.lineup} now={now} art={art} slots />
         {me.bench.length > 0 && <Section title="Bench" players={me.bench} now={now} art={art} slots={false} />}
@@ -238,20 +246,20 @@ function RosterImage({ data, mark, art, now }: { data: Week; mark: string | null
 }
 
 // Satori needs the image's height up front, so it is the sum of what the kind stacks.
-function height(kind: ShareKind, data: Week): number {
+function height(kind: ShareKind, data: Week, teams: boolean): number {
   const frame = 2 * MARGIN + 2 * CARD_PAD;
   if (kind === "matchup") {
-    return frame + TITLE_H + BUG_H + ROW_H * pairStarters(data.slots, data.me.lineup, data.opp?.lineup ?? []).length;
+    return frame + TITLE_H + bugHeight(teams) + ROW_H * pairStarters(data.slots, data.me.lineup, data.opp?.lineup ?? []).length;
   }
   const { lineup, bench, ir } = data.me;
-  return frame + 136 + ROW_H * (lineup.length + bench.length + ir.length) + LABEL_H * (1 + Number(bench.length > 0) + Number(ir.length > 0));
+  return frame + (teams ? ROSTER_HEAD_H : TITLE_H) + ROW_H * (lineup.length + bench.length + ir.length) + LABEL_H * (1 + Number(bench.length > 0) + Number(ir.length > 0));
 }
 
-export async function shareImage(kind: ShareKind, data: Week, marks: Marks, art: Art, now: number): Promise<ImageResponse> {
+export async function shareImage(kind: ShareKind, data: Week, marks: Marks, art: Art, now: number, teams: boolean): Promise<ImageResponse> {
   return new ImageResponse(
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", padding: MARGIN, background: FIELD, color: INK, fontFamily: "Barlow Condensed" }}>
-      {kind === "matchup" ? <Matchup data={data} marks={marks} art={art} now={now} /> : <RosterImage data={data} mark={marks.me} art={art} now={now} />}
+      {kind === "matchup" ? <Matchup data={data} marks={marks} art={art} now={now} teams={teams} /> : <RosterImage data={data} mark={marks.me} art={art} now={now} teams={teams} />}
     </div>,
-    { width: WIDTH, height: height(kind, data), fonts: await fonts, headers: { "cache-control": "no-store" } },
+    { width: WIDTH, height: height(kind, data, teams), fonts: await fonts, headers: { "cache-control": "no-store" } },
   );
 }

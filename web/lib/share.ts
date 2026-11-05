@@ -1,20 +1,22 @@
 // The share image's request and sources, pure so the route (app/share/route.tsx) can trust them.
 export type ShareKind = "roster" | "matchup";
-export type ShareRequest = { kind: ShareKind; week: number; team: number | null };
+// `teams`: whether the image names the fantasy teams (name, logo, record).
+export type ShareRequest = { kind: ShareKind; week: number; team: number | null; teams: boolean };
 
 const positive = (raw: string | null): number | null => {
   const n = Number(raw);
   return raw && Number.isInteger(n) && n > 0 ? n : null;
 };
 
-// `?kind=&week=[&team=]` back as values; null when any is malformed. They go into an API path.
+// `?kind=&week=[&team=][&teams=0]` back as values; null when any is malformed. They go into an API path.
 export function parseShare(q: URLSearchParams): ShareRequest | null {
   const kind = q.get("kind");
   const week = positive(q.get("week"));
   const raw = q.get("team");
   const team = positive(raw);
-  if ((kind !== "roster" && kind !== "matchup") || week == null || (raw != null && team == null)) return null;
-  return { kind, week, team };
+  const teams = q.get("teams");
+  if ((kind !== "roster" && kind !== "matchup") || week == null || (raw != null && team == null) || (teams != null && teams !== "0")) return null;
+  return { kind, week, team, teams: teams == null };
 }
 
 // Where the server may fetch a club's mark: its own API, or ESPN's image CDN. A league owner can set any URL as a
@@ -35,8 +37,8 @@ export function mixHex(a: string, b: string, share: number): string {
   return `#${[1, 3, 5].map((i) => Math.round(ch(a, i) * share + ch(b, i) * (1 - share)).toString(16).padStart(2, "0")).join("")}`;
 }
 
-export function shareHref({ kind, week, team }: ShareRequest): string {
-  return `/share?kind=${kind}&week=${week}${team ? `&team=${team}` : ""}`;
+export function shareHref({ kind, week, team, teams }: ShareRequest): string {
+  return `/share?kind=${kind}&week=${week}${team ? `&team=${team}` : ""}${teams ? "" : "&teams=0"}`;
 }
 
 type Sharer = { canShare?: (d: ShareData) => boolean; share?: (d: ShareData) => Promise<void> };
