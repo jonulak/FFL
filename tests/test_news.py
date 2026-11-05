@@ -104,11 +104,14 @@ def test_gather_reads_the_desk_for_him_and_his_hurt_teammates_only(monkeypatch):
         78: {"name": "Matthew Stafford", "pos": "QB", "team": "LAR", "last_news": None}})
     monkeypatch.setattr(es, "fetch_injuries", lambda: {})
     desk = {}
-    monkeypatch.setattr(news, "fetch_desk", lambda pids, today: desk.update(pids=pids) or
-                        {1: [{"id": 9}], 77: [{"id": i} for i in range(1, 6)]})
+    monkeypatch.setattr(news, "fetch_desk", lambda names, today: desk.update(names=names) or
+                        {1: {"stories": [{"id": 9}], "lines": [{"id": 10}]},
+                         77: {"stories": [{"id": i} for i in range(1, 6)], "lines": [{"id": 6}]}})
     got = news.gather([c("Tyler Higbee", "TE", team="LAR", pid=1)], 7)
     mates = {m["name"]: m for m in got[1]["teammates"]}
-    assert desk["pids"] == [1, 77] and got[1]["stories"] == [{"id": 9}]
+    assert desk["names"] == {1: "Tyler Higbee", 77: "Terrance Ferguson"}
+    assert got[1]["stories"] == [{"id": 9}] and got[1]["lines"] == [{"id": 10}]
+    assert "lines" not in mates["Terrance Ferguson"]
     assert mates["Terrance Ferguson"]["stories"] == [{"id": 1}, {"id": 2}, {"id": 3}], "a hurt teammate's newest three"
     assert "stories" not in mates["Matthew Stafford"], "a healthy teammate's news is not read"
 
@@ -122,6 +125,8 @@ def test_has_news():
     assert not news.has_news(c("X", "WR"), {"teammates": []}, today)
     assert news.has_news(c("X", "WR"), {**quiet, "stories": [{"published": "2026-09-30T10:00:00+00:00"}]}, today)
     assert not news.has_news(c("X", "WR"), {**quiet, "stories": [{"published": "2026-09-01T10:00:00+00:00"}]}, today)
+    assert news.has_news(c("X", "WR"), {**quiet, "lines": [{"published": "2026-09-30T10:00:00+00:00"}]}, today), \
+        "a player with only a passing mention still has news"
 
 def desk_item(i, at, withdrawn=None, text="body"):
     return {"id": i, "source_id": "bsky:x", "url": f"https://x/{i}", "published_at": at, "title": f"title {i}",
@@ -148,18 +153,30 @@ def test_fetch_desk_reads_the_window_and_degrades_to_empty(monkeypatch):
     monkeypatch.setattr(news.db, "player_stories", lambda pids, since: asked.update(since=since) or
                         {1: [desk_story(1, [desk_item(1, "2026-10-18T10:00:00")])]})
     monkeypatch.setattr(news.db, "news_sources", lambda active_only=True: [{"id": "bsky:x", "name": "Beat Writer"}])
-    got = news.fetch_desk([1], date(2026, 10, 20))
-    assert asked["since"] == "2026-10-10" and got[1][0]["sources"][0]["site"] == "Beat Writer"
+    got = news.fetch_desk({1: "Lamar Jackson"}, date(2026, 10, 20))
+    assert asked["since"] == "2026-10-10" and got[1]["stories"][0]["sources"][0]["site"] == "Beat Writer"
     def boom(pids, since):
         raise news.db.DBError("locked")
     monkeypatch.setattr(news.db, "player_stories", boom)
-    assert news.fetch_desk([1], date(2026, 10, 20)) == {}
+    assert news.fetch_desk({1: "Lamar Jackson"}, date(2026, 10, 20)) == {}
+
+def test_fetch_desk_splits_stories_from_lines(monkeypatch):
+    him = {"player_id": 1, "effect": "none", "reason": None}
+    mine = desk_story(1, [{**desk_item(1, "2026-10-18T10:00:00"), "ext_id": "1"}], headline="Lamar Jackson hurt", players=(him,))
+    other = desk_story(2, [{**desk_item(2, "2026-10-19T10:00:00", text="Ravens said that Lamar Jackson has a thumb injury."),
+                            "ext_id": "2"}], headline="Ravens sign a QB", players=(him,))
+    monkeypatch.setattr(news.db, "player_stories", lambda pids, since: {1: [other, mine]})
+    monkeypatch.setattr(news.db, "news_sources", lambda active_only=True: [{"id": "bsky:x", "name": "Beat Writer"}])
+    got = news.fetch_desk({1: "Lamar Jackson"}, date(2026, 10, 20))[1]
+    assert [s["id"] for s in got["stories"]] == [1]
+    assert got["lines"] == [{"id": 2, "text": "Ravens said that Lamar Jackson has a thumb injury.", "published": "2026-10-19T10:00:00",
+                             "sources": [{"site": "Beat Writer", "published": "2026-10-19T10:00:00", "url": "https://x/2"}]}]
 
 def test_gather_builds_every_card_and_survives_dead_sources(monkeypatch):
     import ffl.espn_season as es
     monkeypatch.setattr(news, "fetch_depth", lambda: {})
     monkeypatch.setattr(news, "fetch_news_index", lambda week: {})
     monkeypatch.setattr(es, "fetch_injuries", lambda: {})
-    monkeypatch.setattr(news, "fetch_desk", lambda pids, today: {})
+    monkeypatch.setattr(news, "fetch_desk", lambda names, today: {})
     got = news.gather([c("A", "WR", pid=1), c("Bengals D/ST", "D/ST", pid=-16004)], 5)
-    assert set(got) == {1, -16004} and got[1] == {"depth": None, "teammates": [], "stories": []}
+    assert set(got) == {1, -16004} and got[1] == {"depth": None, "teammates": [], "stories": [], "lines": []}

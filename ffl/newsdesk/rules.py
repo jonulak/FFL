@@ -105,6 +105,8 @@ class _Named:
         prev = before[-1] if before else ""
         if prev.rstrip(".") == self.first.rstrip("."):
             return True
+        if line[m.end():].startswith(" of Fame"):
+            return False
         if prev and prev[0].isupper() and not prev.isupper() and prev[-1] not in ",:;.'’s":
             return False  # someone else's first name, or a team name standing where his would
         if after and after[0].rstrip(".,;:").lower() in SUFFIX:

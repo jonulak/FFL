@@ -32,9 +32,7 @@ DEFAULT_POS = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K"}
 OFFENSE = {"QB", "RB", "WR", "TE", "K"}
 _DEPTH: list = []  # [expires_at, chart]
 _INDEX: list = []  # [expires_at, index]
-# the news desk's stories naming him, newest first, and a hurt teammate's (where his return is written)
-DESK_KEEP = 6
-DESK_MATE_KEEP = 3
+DESK_MATE_KEEP = 3  # a hurt teammate's newest stories on the sheet (where his return is written); his own: newsdesk.sheet
 DESK_SOURCES = 4  # a story's newest sources cited
 DESK_TEXT = 600  # characters of its first item when the desk has not written the story up yet
 
@@ -184,25 +182,40 @@ def shape_stories(stories: list[dict], pid: int, sources: dict[str, dict]) -> li
     return out
 
 
-def fetch_desk(pids: list[int], today: date) -> dict[int, list[dict]]:
-    """Each player's news desk stories from the last RECENT_DAYS, shaped; empty when the DB cannot be read."""
+def _shape_line(line: dict, sources: dict[str, dict]) -> dict:
+    """A story that only names him as the fact sheet reads it: his sentences and the one source they came from."""
+    i = line["item"]
+    return {"id": line["id"], "text": line["text"], "published": i["published_at"],
+            "sources": [{"site": (sources.get(i["source_id"]) or {}).get("name") or i["source_id"],
+                         "published": i["published_at"], "url": i["url"]}]}
+
+
+def fetch_desk(names: dict[int, str], today: date) -> dict[int, dict]:
+    """Player id -> name in; each player's {stories, lines} from the last RECENT_DAYS out, chosen by newsdesk.sheet and
+    shaped; empty when the DB cannot be read."""
+    from .newsdesk import sheet  # its rules import this module
+
     since = (today - timedelta(days=RECENT_DAYS)).isoformat()
     try:
-        stories = db.player_stories(pids, since)
+        stories = db.player_stories(sorted(names), since)
         sources = {s["id"]: s for s in db.news_sources(active_only=False)} if stories else {}
     except db.DBError:
         return {}
-    return {pid: shape_stories(ss, pid, sources)[:DESK_KEEP] for pid, ss in stories.items()}
+    out = {}
+    for pid, ss in stories.items():
+        full, lines = sheet.choose(ss, pid, names[pid])
+        out[pid] = {"stories": shape_stories(full, pid, sources), "lines": [_shape_line(ln, sources) for ln in lines]}
+    return out
 
 
 def has_news(card: dict, ctx: dict, today: date) -> bool:
     """Whether a bye-week card is worth an outlook: he is hurt, a teammate in scope is, or the news desk has a
-    story of him in the last RECENT_DAYS."""
+    story or a line of him in the last RECENT_DAYS."""
     if (card.get("injury") or "ACTIVE") != "ACTIVE":
         return True
     if any(_hurt(m.get("status")) for m in ctx["teammates"]):
         return True
-    return any(_recent(s.get("published"), today) for s in ctx.get("stories") or [])
+    return any(_recent(s.get("published"), today) for s in [*(ctx.get("stories") or []), *(ctx.get("lines") or [])])
 
 
 def gather(cards: list[dict], week: int) -> dict[int, dict]:
@@ -213,9 +226,10 @@ def gather(cards: list[dict], week: int) -> dict[int, dict]:
     out = {c["player_id"]: context(c, chart, index, injuries) for c in cards}
     # a hurt teammate's own news is where his return week is written ("eligible to return in Week 8")
     hurt = [m for ctx in out.values() for m in ctx["teammates"] if m["player_id"] is not None and _hurt(m["status"])]
-    desk = fetch_desk(sorted({c["player_id"] for c in cards} | {m["player_id"] for m in hurt}), date.today())
+    desk = fetch_desk({m["player_id"]: m["name"] for m in hurt} | {c["player_id"]: c["name"] for c in cards}, date.today())
     for pid, ctx in out.items():
-        ctx["stories"] = desk.get(pid, [])
+        his = desk.get(pid, {})
+        ctx["stories"], ctx["lines"] = his.get("stories", []), his.get("lines", [])
     for m in hurt:
-        m["stories"] = desk.get(m["player_id"], [])[:DESK_MATE_KEEP]
+        m["stories"] = desk.get(m["player_id"], {}).get("stories", [])[:DESK_MATE_KEEP]
     return out

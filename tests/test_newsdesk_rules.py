@@ -144,6 +144,14 @@ def test_a_sign_of_something_is_no_signing(title):
     assert said(title)[0] == "none"
 
 
+def test_the_hall_of_fame_is_not_a_player_named_hall():
+    me = rules._named("Breece Hall")
+    assert not me.search("The rookie joined Hall of Fame LB Brian Urlacher")
+    assert not me.search("Hall of Famers praised the Jets")
+    assert me.search("Hall (quad) was limited")
+    assert me.search("Breece Hall of the Jets was limited")
+
+
 def test_a_bare_surname_after_another_man_of_that_name_is_not_his():
     text = "Doug Williams, who was MVP of Super Bowl 22, is among five candidates.\n\nWilliams, the first Black quarterback to start in a Super Bowl, is joined by others."
     assert said("Hall of Fame names Doug Williams, Robert Kraft among 5 candidates", text)[0] == "none"

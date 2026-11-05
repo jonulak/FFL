@@ -112,7 +112,8 @@ def card_hash(card: dict) -> str:
 
 def fact_hash(card: dict, ctx: dict) -> str:
     """card_hash plus the news (his depth, the teammates' status and stories, his own stories) and the voice rule,
-    so a changed prompt reaches the cards written under the old one. No date: same facts, same outlook."""
+    so a changed prompt reaches the cards written under the old one. No date: same facts, same outlook. His lines are
+    left out: each passing mention would rewrite him, and his next story or game brings them in."""
     mates = [[m.get("name"), m.get("status"), m.get("note"), _story_keys(m)] for m in ctx.get("teammates") or []]
     return _sha([card_hash(card), ctx.get("depth"), mates, _story_keys(ctx), VOICE])
 
@@ -208,9 +209,11 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date) -> str:
         f"Teammates whose news matters to him, and every hurt teammate at his position with his news desk news "
         f"(source: ESPN injury report, {INJURY_REPORT}):",
         *([_mate_text(m) for m in ctx.get("teammates") or []] or ["  none in scope"]),
-        "News desk stories naming him, newest first (▲ helps him, ▼ hurts him, ● only names him; each cites its "
+        "News desk stories about him, newest first (▲ helps him, ▼ hurts him, ● moves neither way; each cites its "
         "own sources):",
         *([f"  {_story_text(s)}" for s in ctx.get("stories") or []] or ["  none"]),
+        *(["Other reports that mention him, newest first (only the sentences naming him):",
+           *[f"  {_story_text(s)}" for s in ctx["lines"]]] if ctx.get("lines") else []),
         "",
         VOICE,
     ]
