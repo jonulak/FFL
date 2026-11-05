@@ -44,8 +44,8 @@ def _echo_app() -> FastAPI:
     def ran(request: Request):
         return {"user": request.scope["state"].get("user")}
 
-    for _, path in auth.JOB_ONLY:
-        app.add_api_route(path, ran, methods=["POST"])
+    for method, path in auth.JOB_ONLY:
+        app.add_api_route(path, ran, methods=[method])
     app.add_api_route("/me", who, methods=["GET"])
     return app
 
@@ -184,7 +184,7 @@ def test_the_tables_are_the_briefs():
                            ("POST", "/espn/pair/start"), ("POST", "/espn/pair/poll"), ("POST", "/espn/cookies")}
     assert auth.PUBLIC_PREFIXES == (("POST", "/auth/setup/"),)
     assert auth.JOB_ONLY == {("POST", "/notify/tick"), ("POST", "/news/run"), ("POST", "/transactions/sync"),
-                             ("POST", "/refresh"), ("POST", "/outlook/refresh")}
+                             ("POST", "/refresh"), ("POST", "/outlook/refresh"), ("GET", "/upgrade/hold")}
 
 
 def test_head_health_is_public():

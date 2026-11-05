@@ -11,6 +11,7 @@ DEV_ONLY = {
     "FFL_DB_URL", "FFL_TEST_PG",
     "FFL_RUNNER_URL", "FFL_RUNNER_PORT", "FFL_STT_URL", "FFL_STT_PORT",  # set by docker-compose.yml, not .env
     "FFL_SOURCES_OFF", "FFL_OUTLOOK_WORKERS",  # advanced knobs, in the README only: a fresh .env leaves them unset
+    "FFL_COMMIT",  # baked into the image by images.yml
 }
 
 
