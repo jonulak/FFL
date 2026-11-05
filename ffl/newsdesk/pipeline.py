@@ -1,5 +1,5 @@
 """One news run (`POST /news/run`, launchd/com.jonulak.ffl-news every 10 minutes): seed, index, collect, recheck,
-media, tag, write, notices, embed, health. Each stage is tried on its own and a failure is reported, the rest still run,
+media, tag, write, check, notices, embed, health. Each stage is tried on its own and a failure is reported, the rest still run,
 like notify.tick; the stages that need the player index are skipped without one. The stage dict is kept as state
 `news_last_run` for `GET /news/status`.
 
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from .. import db, notify, watch
-from . import collect, embed, health, media, notices, players, seed, tag, write
+from .. import db, news, notify, watch
+from . import check, collect, embed, health, media, notices, players, seed, tag, write
 
 PENDING = "news_to_notify"
 
@@ -39,7 +39,7 @@ def _queue(written: list, *, ref) -> list[list]:
 
 
 def _queued(t: datetime, *, ref) -> tuple[list[dict], dict[int, dict]]:
-    """A league's news notices of the dedupe window and the stories they name."""
+    """The user's news notices of the dedupe window, in any league, and the stories they name."""
     since = (t - notices.DEDUPE * 2).isoformat(timespec="seconds")  # a margin over text order; recent() re-checks
     queued = db.notices_since("news:", since, ref=ref)
     sids = {sr[0] for n in queued if (sr := notices.rev_key(n["key"]))}
@@ -82,9 +82,14 @@ def _notify_league(written: list, index: players.Index, *, ref) -> dict:
     return out
 
 
+def _first_on_chart(p: dict, info: dict) -> bool:
+    depth = news.own_depth({"team": info.get("team"), "pos": info.get("pos"), "name": p["name"] or ""}, news.fetch_depth())
+    return bool(depth) and depth["order"] == 1
+
+
 def _notify_member(pending: list, who: dict[int, dict], index: players.Index, *, ref) -> dict:
     """One member's pushes for the league's pending revisions: framed on their team (`ref.team_id`), their mutes,
-    their watchlist and their own queue of earlier news notices."""
+    their watchlist and their own earlier news notices, in any league."""
     me = ref.team_id if ref.team_id is not None else -1
     muted = {int(p) for p in db.get_state("news_mutes", [], user_id=ref.user_id) or []}
     pushed = db.notice_keys("news:", ref=ref)
@@ -92,7 +97,7 @@ def _notify_member(pending: list, who: dict[int, dict], index: players.Index, *,
     at, t = notify.now(), datetime.now().astimezone()
     queued, stories = _queued(t, ref=ref)
     sources = {s["id"]: s for s in db.news_sources(active_only=False)}
-    added: set[tuple[int, str]] = set()  # rows pushed by this run
+    added: set[int] = set()  # players pushed by this run
     out, superseded = [], []
     try:
         watched = set(db.watched_ids(ref=ref))
@@ -106,9 +111,14 @@ def _notify_member(pending: list, who: dict[int, dict], index: players.Index, *,
         s = db.story(sid)
         if s is None or s["rev"] != rev or s["written_rev"] != rev:
             continue
+        cleared = notices.ready(s)
         for p in s["players"]:
             info = index.info(p["player_id"])
+            p["ready"] = p["player_id"] in cleared
             p["name"], p["pos"] = (index.by_id.get(p["player_id"]) or {}).get("name"), info.get("pos")
+            p["owned"] = index.owned.get(p["player_id"])
+            if p["effect"] == "up" and not notices.matters(p):  # the chart's read is cached, and only needed here
+                p["starter"] = _first_on_chart(p, info)
         own = f"news:{sid}:"
         mine = [k for k in pushed if k.startswith(own)]
         stale = [k for k in waiting if k.startswith(own)]
@@ -118,15 +128,14 @@ def _notify_member(pending: list, who: dict[int, dict], index: players.Index, *,
                                           and f"{own}corrected" not in pushed):
             n = notices.for_status(s, mine, at, sources)
         else:
-            if notices.is_update(s, mine):
-                skip = set()
-            else:
-                skip = added | notices.recent([n for n in queued if not n["key"].startswith(own)], stories, t)
+            # its own push still waiting is being replaced (superseded below), so it holds back nothing
+            earlier = notices.recent([n for n in queued if not (n["key"].startswith(own) and n["outcome"] is None)], stories, t)
+            skip = added | (earlier - notices.urgent(s))
             n = notices.for_story(s, who, me, muted, at, skip)
             if n:
-                rows = notices.rows(s, who, me, muted, skip)
-                added |= set(rows)
-                carried |= {pid for pid, _ in rows}
+                carried_now = notices.rows(s, who, me, muted, skip)
+                added |= set(carried_now)
+                carried |= set(carried_now)
         # news still new, like the regular push: a catch-up run's old stories stay in the feed
         fresh = notices._new(max((i["published_at"] for i in s.get("items") or []), default=None), at)
         found += [sig for p in s["players"] if fresh and s["status"] != "retracted" and p["player_id"] in watched
@@ -180,6 +189,8 @@ def run() -> dict:
     stage("tag", lambda: tag.run(index, now=now), needs_index=True)
     stage("write", lambda: write.run(index), needs_index=True)
     written = out["write"].get("written_ids", []) if isinstance(out["write"], dict) else []
+    stage("check", lambda: check.run(written, index), needs_index=True)  # what it holds waits in its own queue
+    written = out["check"].get("checked_ids", []) if isinstance(out["check"], dict) else []
     stage("notices", lambda: notify_written(written, index), needs_index=True)  # its revisions wait for the index
     stage("embed", embed.run)  # after the pushes: a backfill's minute never delays one, and a model failure costs neither
     stage("health", _health)

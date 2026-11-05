@@ -33,6 +33,7 @@ def stages(monkeypatch):
     monkeypatch.setattr(pipeline.media, "transcribe_pending", stub("transcribe", {"transcribed": 0}))
     monkeypatch.setattr(pipeline.tag, "run", stub("tag", {"tagged": 0}))
     monkeypatch.setattr(pipeline.write, "run", stub("write", lambda: {"written": len(written), "written_ids": list(written)}))
+    monkeypatch.setattr(pipeline.check, "run", lambda ids, index: {"checked_ids": list(ids)})
     monkeypatch.setattr(pipeline, "owners", lambda *, ref: ({1: {"team_id": ME}}, ME))
     return calls, written
 
@@ -100,7 +101,7 @@ def test_written_story_pushes_once(stages):
     assert pipeline.run()["notices"]["leagues"][HOME_KEY] == {"stories": 0, "queued": 0, "superseded": 0, "watch": 0}
 
 
-def test_dedupe_one_push_per_player_kind_per_day(stages):
+def test_dedupe_one_push_per_player(stages):
     _, written = stages
     a = make([(1, "down", "injury")])
     written[:] = [(a, 1)]
@@ -110,7 +111,7 @@ def test_dedupe_one_push_per_player_kind_per_day(stages):
     c = make([(1, "down", "trade")], headline="Hurts traded")
     written[:] = [(b, 1), (c, 1)]
     pipeline.run()
-    assert keys() == [f"news:{c}:1"]  # same player, same kind inside a day: no second push; another kind pushes
+    assert keys() == []  # the same player inside the window: no second push, whatever the kind
 
 
 def test_dedupe_counts_a_push_still_queued(stages):
@@ -121,12 +122,12 @@ def test_dedupe_counts_a_push_still_queued(stages):
     assert keys() == [f"news:{a}:1"]
 
 
-def test_dedupe_lapses_after_a_day(stages):
+def test_dedupe_lapses_after_the_window(stages):
     _, written = stages
     a = make([(1, "down", "injury")])
     written[:] = [(a, 1)]
     pipeline.run()
-    old = (datetime.now().astimezone() - timedelta(hours=25)).isoformat(timespec="seconds")
+    old = (datetime.now().astimezone() - timedelta(hours=49)).isoformat(timespec="seconds")
     db.mark_notices(keys(), "sent", old, ref=home_league())
     with db._write() as conn:
         conn.execute(db.notices.update().values(created_at=old))
@@ -136,26 +137,103 @@ def test_dedupe_lapses_after_a_day(stages):
     assert keys() == [f"news:{b}:1"]
 
 
-def test_material_update_pushes_again(stages):
+def _second_rev(sid, status, fresh=1.0):
+    """The story's newest source reports `status` for player 1, at rev 2."""
+    jev = {"status:1": {"type": "status", "status": status}, "fresh:1": {"type": "noul", "noul": fresh}}
+    [i] = db.add_news_items([{"source_id": "pft", "ext_id": f"y{sid}", "url": "u", "published_at": AT.replace("T", "T") , "fetched_at": AT,
+                              "title": "Hurts update", "text": "", "club": "PHI", "hash": f"hy{sid}"}])
+    db.tag_item(i, [1], jev, sid, AT)
+    with db._write() as conn:
+        db._bump_story(conn, sid, db.SEASON)
+    db.put_story_words(sid, 2, "Hurts update", "Overview.", {1: ("Update.", False)})
+
+
+@pytest.mark.parametrize("status,pushes", [("out", True), ("ir", True), ("limited", False), ("dnp", False)])
+def test_a_story_update_pushes_again_only_for_a_drop_to_out_or_ir(stages, status, pushes):
     _, written = stages
     sid = make([(1, "down", "injury")])
     written[:] = [(sid, 1)]
     pipeline.run()
     flushed()
-    with db._write() as conn:  # tag.weigh: a material fact bumps the rev
-        db._bump_story(conn, sid, db.SEASON)
-    db.put_story_words(sid, 2, "Hurts out longer", "Overview.", {1: ("Out four weeks now.", False)})
+    _second_rev(sid, status)
+    written[:] = [(sid, 2)]
+    pipeline.run()
+    assert keys() == ([f"news:{sid}:2"] if pushes else [])
+
+
+def test_a_status_repeated_is_not_urgent(stages):
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+    pipeline.run()
+    flushed()
+    _second_rev(sid, "out", fresh=0.0)
+    written[:] = [(sid, 2)]
+    pipeline.run()
+    assert keys() == []
+
+
+def test_a_rev_waiting_in_quiet_hours_is_replaced_by_the_next(stages):
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+    pipeline.run()
+    _second_rev(sid, "limited")
     written[:] = [(sid, 2)]
     pipeline.run()
     assert keys() == [f"news:{sid}:2"]
-    # a rev-2 story whose rev 1 never pushed is not an update: the day's dedupe holds
-    other = make([(1, "down", "injury")])
-    with db._write() as conn:
-        db._bump_story(conn, other, db.SEASON)
-    db.put_story_words(other, 2, "Hurts again", "Overview.", {1: ("Again.", False)})
-    written[:] = [(other, 2)]
+
+
+def test_a_revision_the_check_holds_does_not_push(stages, monkeypatch):
+    _, written = stages
+    sid = make([(1, "down", "injury")])
+    written[:] = [(sid, 1)]
+    monkeypatch.setattr(pipeline.check, "run", lambda ids, index: {"checked_ids": [], "waiting": 1})
     pipeline.run()
-    assert keys() == [f"news:{sid}:2"]
+    assert keys() == []
+    monkeypatch.setattr(pipeline.check, "run", lambda ids, index: {"checked_ids": [(sid, 1)]})
+    written.clear()
+    pipeline.run()
+    assert keys() == [f"news:{sid}:1"]
+
+
+def test_one_of_mine_cleared_for_the_game_pushes_even_past_the_dedupe(stages):
+    _, written = stages
+    a = make([(1, "down", "injury")])
+    written[:] = [(a, 1)]
+    pipeline.run()
+    flushed()
+    b = make([(1, "up", "return")], headline="Hurts is active")
+    with db._write() as conn:
+        conn.execute(db.news_items_table.update().where(db.news_items_table.c.story_id == b).values(jev={"ready:1": {"type": "ready"}}))
+    written[:] = [(b, 1)]
+    pipeline.run()
+    assert keys() == [f"news:{b}:1"]
+
+
+def test_one_of_mine_up_without_being_cleared_stays_quiet(stages):
+    _, written = stages
+    sid = make([(1, "up", "return")])
+    written[:] = [(sid, 1)]
+    pipeline.run()
+    assert keys() == []
+
+
+def _free_agent_up(monkeypatch, owned, chart=None):
+    monkeypatch.setitem(INDEX.owned, 3, owned)
+    monkeypatch.setattr(pipeline.news, "fetch_depth", lambda: chart or {})
+    return make([(3, "up", "return")])
+
+
+@pytest.mark.parametrize("owned,order,pushes", [(4.9, 2, False), (5.0, 2, True), (0.1, 1, True)])
+def test_a_free_agent_up_pushes_only_if_he_matters(stages, monkeypatch, owned, order, pushes):
+    _, written = stages
+    info = INDEX.by_id[3]
+    chart = {info["team"]: [{"name": info["name"], "pos": info["pos"], "slot": info["pos"], "order": order, "injury": None}]}
+    sid = _free_agent_up(monkeypatch, owned, chart)
+    written[:] = [(sid, 1)]
+    pipeline.run()
+    assert keys() == ([f"news:{sid}:1"] if pushes else [])
 
 
 def outcomes():
@@ -329,7 +407,7 @@ def test_stale_headline_rewrites_without_push(stages):
 
     def haiku(prompt, **kw):
         return {"stories": [{"id": sid, "headline": f"New headline {sid}", "overview": "Now.",
-                             "players": [{"player_id": p, "reason": "Still.", "disagree": False} for p in (1, 3)]}
+                             "players": [{"player_id": p, "reason": "Still."} for p in (1, 3)]}
                             for sid in (sent, waiting)]}
 
     out = write_run(INDEX, run_cli=haiku)
@@ -418,7 +496,7 @@ def test_watch_signal_wants_news_still_new(stages):
     assert _signals() == [] and db.unsent_notices(ref=home_league()) == []
 
 
-def test_every_league_gets_its_own_news_pushes(stages, monkeypatch):
+def test_every_league_queues_a_revision(stages, monkeypatch):  # notify.flush then sends it once per user (#480)
     from ffl import leagues
     other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
     _, written = stages
@@ -426,9 +504,25 @@ def test_every_league_gets_its_own_news_pushes(stages, monkeypatch):
     written[:] = [(sid, 1)]
     owners = {HOME_KEY: ({1: {"team_id": ME}}, ME), "espn:999": ({1: {"team_id": 3}}, 3)}  # mine in both
     monkeypatch.setattr(pipeline, "owners", lambda *, ref: owners[ref.key])
-    out = pipeline.run()["notices"]
-    assert out["leagues"][HOME_KEY]["queued"] == 1 and out["leagues"]["espn:999"]["queued"] == 1
+    pipeline.run()
     assert keys() == [f"news:{sid}:1"] and [n["key"] for n in db.unsent_notices(ref=other)] == [f"news:{sid}:1"]
+
+
+def test_a_push_in_one_league_holds_back_the_next_story_in_another(stages, monkeypatch):
+    from ffl import leagues
+    other = leagues.register(leagues.LeagueRef("espn:999", "espn", "999", 2026, "other", 3, None, None), user_id=0)
+    _, written = stages
+    owners = {HOME_KEY: ({1: {"team_id": ME}}, ME), "espn:999": ({1: {"team_id": 3}}, 3)}  # mine in both
+    monkeypatch.setattr(pipeline, "owners", lambda *, ref: owners[ref.key])
+    a = make([(1, "down", "injury")])
+    written[:] = [(a, 1)]
+    pipeline.run()
+    db.mark_notices([f"news:{a}:1"], "sent", notify.now(), ref=home_league())
+    db.mark_notices([f"news:{a}:1"], "duplicate", notify.now(), ref=other)
+    b = make([(1, "down", "injury")], headline="Hurts still hurt")
+    written[:] = [(b, 1)]
+    pipeline.run()
+    assert keys() == [] and db.unsent_notices(ref=other) == []
 
 
 def test_another_leagues_owners_failing_never_holds_back_home(stages, monkeypatch):

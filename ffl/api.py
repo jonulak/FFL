@@ -53,7 +53,6 @@ from .journal import sync_results, sync_transactions
 from .newsdesk import feed as news_feed
 from .newsdesk import pipeline
 from .newsdesk import players as news_players
-from .newsdesk import usage as news_usage
 from .leagues import LeagueRef
 from .settings import load
 
@@ -2175,9 +2174,7 @@ def news_mute(player_id: int, body: MuteIn, user: dict = Depends(auth.current_us
 def news_status():
     cols = ("id", "name", "kind", "active", "ok_at", "error", "failing_since")
     return {"sources": [{k: s[k] for k in cols} for s in db.news_sources(active_only=False)],
-            "last_run": db.get_state("news_last_run"),
-            # {UTC date: {input, output, calls}}, the last 30 days (ffl/newsdesk/usage.py); the writer's is /llm/usage
-            "tag_usage": db.get_state(news_usage.TAG, {}) or {}}
+            "last_run": db.get_state("news_last_run")}  # the writer's cost is /llm/usage
 
 
 @app.get("/llm/usage")

@@ -24,10 +24,10 @@ def make(players=((1, "up"), (2, "none")), n_items=2, answers=None):
     return sid
 
 
-def answer(sid, disagree=False):
+def answer(sid):
     return {"stories": [{"id": sid, "headline": "Williams limited", "overview": "He is hurt.",
-                         "players": [{"player_id": 1, "reason": "Out with a knee.", "disagree": disagree},
-                                     {"player_id": 2, "reason": "Only named.", "disagree": False}]}]}
+                         "players": [{"player_id": 1, "reason": "Out with a knee."},
+                                     {"player_id": 2, "reason": "Only named."}]}]}
 
 
 def test_prompt_carries_the_tagged_effects():
@@ -171,13 +171,14 @@ def test_prompt_says_corrected():
     assert "status: corrected; note: PFT" in write.prompt(db.unwritten_stories(10), INDEX)
 
 
-def test_run_writes_and_flags():
+def test_run_writes_and_never_flags():  # newsdesk.check judges the arrow; a rewrite clears its old answer
     sid = make()
+    db.set_story_flag(sid, 1, True)
     calls = []
 
     def fake(prompt, **kw):
         calls.append(kw)
-        return answer(sid, disagree=True)
+        return answer(sid)
 
     out = write.run(INDEX, run_cli=fake)
     assert calls[0]["model"] == "haiku" and calls[0]["tools"] == "" and calls[0]["timeout"] == 180
@@ -186,7 +187,7 @@ def test_run_writes_and_flags():
     s = db.story(sid)
     assert (s["headline"], s["written_rev"]) == ("Williams limited", 1)
     rows = {p["player_id"]: p for p in s["players"]}
-    assert (rows[1]["reason"], rows[1]["flag"]) == ("Out with a knee.", True)
+    assert (rows[1]["reason"], rows[1]["flag"]) == ("Out with a knee.", False)
     assert rows[2]["flag"] is False
 
 
