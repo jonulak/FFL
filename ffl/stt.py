@@ -2,8 +2,8 @@
 
 The `stt` image (Dockerfile.stt) copies this file alone beside the model; the news desk reaches it over HTTP
 (`python -m ffl.stt`, POST /transcribe, FFL_STT_URL), one episode at a time, and only while Settings › App has
-transcription on. The container is always in the stack and cheap when unused: the model (about 2.5 GB resident)
-loads on the first request and is dropped after IDLE_S without one. The contract:
+transcription on. The container is always in the stack and cheap when unused: the model (up to 4 GB with an episode
+going through it) loads on the first request and is dropped after IDLE_S without one. The contract:
 
   in   {url}                                          (the episode's audio enclosure)
   out  {ok: true, segs: [{start, text}], seconds, took}  |  {ok: false, error}
@@ -28,6 +28,7 @@ PORT = 8320
 MAX_BYTES = 200 * 1024 * 1024  # an hour-long show is 60 MB
 DOWNLOAD_TIMEOUT_S = 120
 USER_AGENT = "ffl-stt/1 (+https://github.com/jonulak/FFL)"
+CHUNK_S = 300  # audio decoded at a time: a whole 64-minute episode passed 5 GiB; in chunks it fits in 4 GiB
 IDLE_S = 1800  # the model is dropped after this long without a request (Settings › App may have switched it off)
 LOCK = threading.Lock()  # one episode at a time: the model is the whole CPU
 _MODEL = None
@@ -72,23 +73,27 @@ def fetch(url: str, dest) -> int:
     return size
 
 
-def decode(path: str):
-    """(mono float32 samples, sample rate) of an audio file: libsndfile reads mp3; m4a it does not."""
+def chunks(path: str):
+    """(mono float32 samples, sample rate) of an audio file, CHUNK_S at a time: libsndfile reads mp3; m4a it does not."""
     import soundfile as sf
-    audio, rate = sf.read(path, dtype="float32", always_2d=True)
-    return audio.mean(axis=1), rate
+    with sf.SoundFile(path) as a:
+        while len(block := a.read(CHUNK_S * a.samplerate, dtype="float32", always_2d=True)):
+            yield block.mean(axis=1), a.samplerate
 
 
 def transcribe(url: str) -> dict:
     """{segs, seconds} of the audio at `url`; raises on a download, decode or model failure."""
+    segs, seconds = [], 0.0
     with tempfile.NamedTemporaryFile(suffix=".mp3") as f:
         fetch(url, f)
         f.flush()
-        audio, rate = decode(f.name)
-    with LOCK:
-        results = load().recognize(audio, sample_rate=rate)
-        segs = [{"start": round(float(r.start), 3), "text": " ".join(r.text.split())} for r in results]
-    return {"segs": [s for s in segs if s["text"]], "seconds": round(len(audio) / rate, 1)}
+        with LOCK:
+            model = load()
+            for audio, rate in chunks(f.name):
+                segs += [{"start": round(seconds + float(r.start), 3), "text": " ".join(r.text.split())}
+                         for r in model.recognize(audio, sample_rate=rate)]
+                seconds += len(audio) / rate
+    return {"segs": [s for s in segs if s["text"]], "seconds": round(seconds, 1)}
 
 
 def call(req: dict) -> dict:

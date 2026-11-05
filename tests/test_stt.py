@@ -3,8 +3,10 @@ import ast
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
+import numpy as np
 import pytest
 
 from ffl import stt
@@ -31,6 +33,46 @@ def test_call_answers_segs_and_never_raises(monkeypatch):
     assert stt.call({"url": "https://cdn.test/ep.mp3"}) == {"ok": False, "error": "OSError: 404"}
     assert "url must be http" in stt.call({"url": "file:///etc/passwd"})["error"]
     assert "KeyError" in stt.call({})["error"]
+
+
+def test_a_long_episode_reaches_the_model_in_pieces_and_keeps_its_times(monkeypatch):
+    """The whole file in memory was what got the container killed: 64 minutes of stereo mp3 is 1.9 GB decoded."""
+    rate, frames = 10, 700 * 10  # 700 s of stereo: two full chunks and a short one
+
+    class File:
+        samplerate = rate
+        left = frames
+
+        def __init__(self, path):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, n, dtype, always_2d):
+            n = min(n, self.left)
+            self.left -= n
+            return np.zeros((n, 2), dtype=dtype)
+
+    sizes = []
+
+    class Model:
+        def recognize(self, audio, sample_rate):
+            assert audio.ndim == 1 and sample_rate == rate
+            sizes.append(len(audio))
+            return iter([SimpleNamespace(start=1.5, text=" a  word "), SimpleNamespace(start=2.0, text="  ")])
+
+    monkeypatch.setitem(sys.modules, "soundfile", SimpleNamespace(SoundFile=File))
+    monkeypatch.setattr(stt, "fetch", lambda url, dest: 0)
+    monkeypatch.setattr(stt, "load", Model)
+    got = stt.transcribe("https://cdn.test/ep.mp3")
+    assert sizes == [stt.CHUNK_S * rate, stt.CHUNK_S * rate, 100 * rate]
+    assert got["seconds"] == 700.0
+    assert got["segs"] == [{"start": 1.5, "text": "a word"}, {"start": 301.5, "text": "a word"},
+                           {"start": 601.5, "text": "a word"}]
 
 
 def test_fetch_refuses_an_oversized_file(monkeypatch, tmp_path):

@@ -122,7 +122,7 @@ function TranscribeCard({ settings, onSaved }: { settings: AppSettings; onSaved:
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
           The shows the week&apos;s analysis is argued on (Locked On, one a day per club, and the national fantasy
-          shows) publish no transcript. On, this machine transcribes them itself, about a minute of CPU and 3 GB of
+          shows) publish no transcript. On, this machine transcribes them itself, about a minute of CPU and up to 4 GB of
           memory per half-hour episode, and nothing leaves it. Off, those shows are not read.
         </p>
         <Label className="flex min-h-12 items-center justify-between gap-4">

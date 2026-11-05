@@ -158,9 +158,9 @@ The news desk reads the clubs' official podcasts because their feeds carry trans
 is argued on (Locked On, one a day per club; Fantasy Footballers, Fantasy Football Today, Establish The Run, the
 Ringer, PFF and the rest) ship none, so the stack's `stt` container can transcribe them on your own machine with
 NVIDIA's Parakeet model: nothing leaves the machine, and no key is needed. Turn it on in **Settings › App › Podcast
-transcription**. While it is on the container holds the model, about 3 GB of memory, and spends a minute or two of CPU
-per half-hour episode (about 30 hours of audio a day across every show; measured 2026-11-04 on an M-series Mac in
-Docker: 84 s for a 32-minute show, 2.7 GB resident). Off, the container idles at a few dozen MB and those shows are
+transcription**. While it is on the container holds the model, up to 4 GB of memory, and spends a minute or two of CPU
+per half-hour episode (about 30 hours of audio a day across every show; measured on an M-series Mac in Docker: 84 s
+for a 32-minute show, and a 64-minute show fits in a 4 GiB limit). Off, the container idles at a few dozen MB and those shows are
 not read. `docker compose logs stt` shows the model loading and each episode as the news desk sends it (one per news
 run, newest first).
 
