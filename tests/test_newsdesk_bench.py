@@ -3,7 +3,7 @@ import os
 import sqlalchemy as sa
 
 from ffl import claude_cli, db
-from ffl.newsdesk import bench, bench_cases, classify
+from ffl.newsdesk import bench, bench_cases
 from ffl.newsdesk.players import Index
 
 GRUPE, HURTS, ADAMS, ROSCHON, SILLS = 4259619, 4040715, 16800, 4430500, 3120000
@@ -16,31 +16,6 @@ INDEX = Index(by_id={GRUPE: {"name": "Blake Grupe", "pos": "K", "team": "LAR"},
                        "roschon johnson": [ROSCHON], "david sills": [SILLS]})
 
 
-def test_tag_cache_hit_avoids_the_call_and_a_changed_question_misses(tmp_path):
-    calls = []
-
-    def ask(state, qs):
-        calls.append(qs)
-        got = classify.Answers({k: {"type": "noul", "noul": 0.9} for k in qs})
-        got.usage = {"input_tokens": 120, "output_tokens": 4}
-        return got
-
-    path = tmp_path / "cache.sqlite"
-    q = {"about:1": {"type": "noul", "instructions": "about him"}}
-    cache = bench.Cache(path, ask=ask)
-    first = cache.ask({"title": "t"}, q)
-    again = cache.ask({"title": "t"}, q)
-    assert len(calls) == 1 and again == first
-    assert first.usage == {"input_tokens": 120, "output_tokens": 4} and again.usage == {}  # a hit costs nothing
-    cache.ask({"title": "t"}, {"about:1": {"type": "noul", "instructions": "about him, reworded"}})
-    assert len(calls) == 2
-    assert cache.stats["tag"] == {"hits": 1, "misses": 2}
-    bench.Cache(path, ask=ask).ask({"title": "t"}, q)  # saved on disk, not in memory
-    assert len(calls) == 2
-    bench.Cache(path, refresh=True, ask=ask).ask({"title": "t"}, q)
-    assert len(calls) == 3
-
-
 def test_index_lives_in_the_frozen_db(empty_db):
     url = empty_db()
     assert bench.load_index(url) is None                           # no tables at all
@@ -49,13 +24,6 @@ def test_index_lives_in_the_frozen_db(empty_db):
     bench.save_index(idx, url)
     bench.save_index(idx, url)                                     # a second freeze replaces it
     assert bench.load_index(url) == idx
-
-
-class _Asks:
-    """A bench cache stand-in: the tagger answers "no" to every question."""
-
-    def ask(self, state, qs):
-        return classify.Answers({k: {"type": "noul", "noul": 0.0} for k in qs})
 
 
 def test_freeze_copies_untagged_items_and_replay_runs_on_a_copy(monkeypatch, pg_server):
@@ -74,7 +42,7 @@ def test_freeze_copies_untagged_items_and_replay_runs_on_a_copy(monkeypatch, pg_
         assert got["from"].startswith("2026-10-18") and got["to"].startswith("2026-10-19")
         assert bench.load_index() == INDEX
         assert len(db.all_stories()) == 3, "the source is untouched"
-        out = bench.replay(INDEX, _Asks(), None, False)
+        out = bench.replay(INDEX, None, None, False)
         assert out["items"] == 2 and out["error"] is None
         assert db.url() == bench._url_for(bench.RUN_DB) == os.environ["FFL_DB_URL"]
         assert len(db.untagged_items()) == 0, "tagged on the copy"

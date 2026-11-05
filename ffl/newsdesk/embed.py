@@ -91,4 +91,7 @@ def _items() -> dict:
 
 
 def run() -> dict:
-    return {**_stories(), **_items()}
+    try:
+        return {**_stories(), **_items()}
+    finally:
+        embed.unload()

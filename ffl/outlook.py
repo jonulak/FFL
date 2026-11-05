@@ -17,7 +17,7 @@ import shutil  # noqa: F401  (tests/test_outlook.py patches outlook.shutil / out
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from . import claude_cli, db, news
 
@@ -69,33 +69,17 @@ def last() -> dict:
     return LAST
 
 
-# Who gets an outlook: every rostered skill player, every watched player, and a free agent only when the news or the
-# scoreboard has made him interesting (snap share alone pulled in every backup: ~350 of ~550 free agents a league).
+# Who gets an outlook: every rostered skill player, every watched player, and a free agent rostered in at least
+# FA_MIN_OWNED % of ESPN's leagues (snap share alone pulled in every backup: ~350 of ~550 free agents a league).
 POSITIONS = ("QB", "RB", "WR", "TE")
-FA_NEWS_DAYS = 7  # an ▲ story this recent
-FA_LAST_PTS = 10  # scored this in his last game
-FA_L3_PTS = 8  # or averaged this over his last three
+FA_MIN_OWNED = 2.0
 
 
-def recent_up(player_ids: list[int], today: date) -> set[int]:
-    """Ids with an ▲ story in the last FA_NEWS_DAYS days."""
-    since = (today - timedelta(days=FA_NEWS_DAYS)).isoformat()
-    return {pid for pid, stories in db.player_stories(player_ids, since).items()
-            if any(r.get("player_id") == pid and r.get("effect") == "up" for s in stories for r in s.get("players", []))}
-
-
-def _hot(p: dict) -> bool:
-    form = p.get("form") or {}
-    rows = form.get("rows") or []
-    l3 = form.get("l3")
-    return bool(rows and (rows[-1].get("pts") or 0) >= FA_LAST_PTS) or (l3 is not None and l3 >= FA_L3_PTS)
-
-
-def wanted(pool: dict, up: set[int], watched: set[int]) -> list[dict]:
+def wanted(pool: dict, watched: set[int]) -> list[dict]:
     """The rows to write an outlook for: rostered first (pool order), then qualifying free agents; one per player."""
     rows = [p for p in pool["rostered"] if p["pos"] in POSITIONS]
     rows += [p for pos, ps in pool["frees"].items() if pos in POSITIONS for p in ps
-             if p["player_id"] in watched or p["player_id"] in up or _hot(p)]
+             if p["player_id"] in watched or pool["owned"].get(p["player_id"], -1) >= FA_MIN_OWNED]
     seen: set[int] = set()
     return [p for p in rows if not (p["player_id"] in seen or seen.add(p["player_id"]))]
 
@@ -128,7 +112,8 @@ def card_hash(card: dict) -> str:
 
 def fact_hash(card: dict, ctx: dict) -> str:
     """card_hash plus the news (his depth, the teammates' status and stories, his own stories) and the voice rule,
-    so a changed prompt reaches the cards written under the old one. No date: same facts, same outlook."""
+    so a changed prompt reaches the cards written under the old one. No date: same facts, same outlook. His lines are
+    left out: each passing mention would rewrite him, and his next story or game brings them in."""
     mates = [[m.get("name"), m.get("status"), m.get("note"), _story_keys(m)] for m in ctx.get("teammates") or []]
     return _sha([card_hash(card), ctx.get("depth"), mates, _story_keys(ctx), VOICE])
 
@@ -224,9 +209,11 @@ def fact_sheet(card: dict, week: int, ctx: dict, today: date) -> str:
         f"Teammates whose news matters to him, and every hurt teammate at his position with his news desk news "
         f"(source: ESPN injury report, {INJURY_REPORT}):",
         *([_mate_text(m) for m in ctx.get("teammates") or []] or ["  none in scope"]),
-        "News desk stories naming him, newest first (▲ helps him, ▼ hurts him, ● only names him; each cites its "
+        "News desk stories about him, newest first (▲ helps him, ▼ hurts him, ● moves neither way; each cites its "
         "own sources):",
         *([f"  {_story_text(s)}" for s in ctx.get("stories") or []] or ["  none"]),
+        *(["Other reports that mention him, newest first (only the sentences naming him):",
+           *[f"  {_story_text(s)}" for s in ctx["lines"]]] if ctx.get("lines") else []),
         "",
         VOICE,
     ]

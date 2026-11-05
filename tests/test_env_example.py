@@ -9,7 +9,7 @@ DEV_ONLY = {
     "FFL_PICK_ORDER", "FFL_QB_PACE", "FFL_RECORD_FAKE", "FFL_ROLLOUT", "FFL_ROLLOUT_SIMS",
     "FFL_SESSION_COOKIE", "FFL_USER", "FFL_WRITES", "FFL_BACKUP_DEST", "FFL_DATA_DIR",
     "FFL_DB_URL", "FFL_TEST_PG",
-    "FFL_RUNNER_URL", "FFL_RUNNER_PORT",  # set by docker-compose.yml, not .env
+    "FFL_RUNNER_URL", "FFL_RUNNER_PORT", "FFL_STT_URL", "FFL_STT_PORT",  # set by docker-compose.yml, not .env
     "FFL_SOURCES_OFF", "FFL_OUTLOOK_WORKERS",  # advanced knobs, in the README only: a fresh .env leaves them unset
 }
 

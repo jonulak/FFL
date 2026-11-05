@@ -69,6 +69,8 @@ main() {
     free_port FFL_PORT
   fi
   docker compose up -d
+  # The images this upgrade replaced, now untagged: only after a good start, and they are not worth failing it over.
+  docker image prune -f >/dev/null || echo "could not remove old images; try: docker image prune -f" >&2
 
   FFL_PORT=$(sed -n 's/^FFL_PORT=//p' .env)
   echo "Open http://localhost:${FFL_PORT:-3300}"

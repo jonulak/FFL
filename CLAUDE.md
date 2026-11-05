@@ -66,7 +66,10 @@ Draft pipeline: settings -> players -> adp -> browser + draft_watch. Every draft
 `db` (`pgvector/pgvector:pg16`: postgres:16 with pgvector for the news search; Mac: `brew install pgvector`, `scripts/pg-test-setup.sh`; not published on the host; a `docker-compose.override.yml` opens it for the draft tools), `api` (`ghcr.io/jonulak/ffl-api`, the root `Dockerfile`; `deploy/entrypoint.sh`
 migrates then starts uvicorn on :8300; no Node, no agent CLI), `runner` (`ghcr.io/jonulak/ffl-runner`, `Dockerfile.runner`:
 the standalone `claude` binary behind `ffl/harness.py`, stdlib only, :8310 on the internal network, no published port,
-`x-ffl-job` required), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
+`x-ffl-job` required), `stt` (`ghcr.io/jonulak/ffl-stt`, `Dockerfile.stt`: Parakeet speech to text behind `ffl/stt.py`,
+:8320, the model loaded on the first request and dropped when idle; used only while Settings › App › Podcast
+transcription is on (`appconf.TRANSCRIBE`): the news desk then polls the no-transcript shows (`seed.STT_ONLY`), queues
+their episodes and sends one a run to `FFL_STT_URL`, leaving them queued while it is unreachable), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
 and `jobs` (the api image under busybox crond, `deploy/crontab`: the tick every 15 min, news every 10, outlooks at :05,
 transactions at :35, calibration Wednesdays, a nightly backup). HTTPS is a reverse proxy in front of the web port, with
 the app's address (Settings › App) set to the https URL (push and the Secure cookie need it). Images are built by `.github/workflows/images.yml`
@@ -95,7 +98,7 @@ users and reset passwords under `/admin/users` (single-use set-password links). 
 header = `FFL_JOB_TOKEN`, sent by the jobs container. Two test servers on one host set distinct
 `FFL_SESSION_COOKIE=ffl_session_<web port>` on their API and web.
 
-**Claude token.** `claude -p` (outlooks, the news tagger and writer) runs on the token stored in Settings › App › Claude
+**Claude token.** `claude -p` (outlooks, the news writer) runs on the token stored in Settings › App › Claude
 (`ffl/claude_cli.py`; never the environment's). The API resolves the
 token and sends the call (prompt, schema, model, credential) to the runner at `FFL_RUNNER_URL`; with it unset (dev on
 the Mac, tests) `claude_cli` calls `harness.call` in process, so a local `claude` on PATH is all dev needs. The
@@ -170,9 +173,12 @@ refuses any other without `--live`. `data/` is gitignored caches.
 - **Outlooks.** One outlook per player per week, shared by every league and user (`outlooks` keyed
   `(season, week, player_id)`), written by `claude -p` from a fact sheet (no projections, no call). Only the hourly job
   (`POST /outlook/refresh`, job token only) writes; GETs never generate. Pending players go in batches; a fact hash
-  decides what is rewritten.
-- **News desk** (`ffl/newsdesk/`): collect -> tag (Haiku via `claude -p`, `TAG_BUDGET` items a run) -> write
-  (headline, overview, a line per player it moves) -> notices. Each stage runs alone; `POST /news/run` starts a run.
+  decides what is rewritten. A sheet reads the stories about him, not his newest (`newsdesk/sheet.py`): arrows, then
+  text, then excerpts cut for him; a story that only names him gives one line, which is outside the hash.
+- **News desk** (`ffl/newsdesk/`): collect -> tag (rules, no model: `rules.py`, a status ladder per player; Sleeper's
+  chart adds the next man up behind an out starter, under the push cutoff) -> write (Haiku via `claude -p`: headline,
+  overview, a line per player it moves) -> check (Haiku, not told the arrow, reads the report behind each arrow that could
+  push; a different answer flags it, a failed call holds the push) -> notices. Each stage runs alone; `POST /news/run` starts a run.
 - **Push.** Detectors write a `notices` outbox (deduped by key); the tick flushes it per user (quiet hours, switches)
   as Declarative Web Push, because iOS often never fires `notificationclick` for a Home Screen app (WebKit 268797).
 - **ESPN writes.** `POST /lineup`, `/roster/sit`, `/claims*` re-read ESPN's roster, take a per-league lock, validate,
