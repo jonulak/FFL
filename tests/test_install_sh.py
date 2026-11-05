@@ -42,7 +42,7 @@ def test_install_fills_env_and_starts(tmp_path, stub_path):
     assert (tmp_path / "ffl" / ".env").stat().st_mode & 0o777 == 0o600
     assert (tmp_path / "ffl" / "docker-compose.yml").read_bytes() == (REPO / "docker-compose.yml").read_bytes()
     log = (tmp_path / "docker.log").read_text().splitlines()
-    assert "compose pull" in log and log[-1] == "compose up -d"
+    assert "compose pull" in log and log[-2:] == ["compose up -d", "image prune -f"]
     assert _val(tmp_path, "FFL_PORT") == "3300"
     assert "Open http://localhost:3300" in r.stdout
 
@@ -134,6 +134,19 @@ def test_rerun_is_the_upgrade_it_replaces_a_stale_compose_file(tmp_path, stub_pa
     assert run(tmp_path, stub_path).returncode == 0
     assert compose.read_bytes() == (REPO / "docker-compose.yml").read_bytes()
     assert (tmp_path / "ffl" / ".env").read_text() == env
+
+
+def test_a_failed_prune_does_not_fail_the_upgrade(tmp_path, stub_path):
+    (tmp_path / "bin" / "docker").write_text(STUB + 'case "$*" in "image prune"*) exit 1;; esac\n')
+    r = run(tmp_path, stub_path)
+    assert r.returncode == 0, r.stderr
+    assert "Open http://localhost:" in r.stdout and "old images" in r.stderr
+
+
+def test_a_failed_start_keeps_the_old_images(tmp_path, stub_path):
+    (tmp_path / "bin" / "docker").write_text(STUB + 'case "$*" in "compose up"*) exit 1;; esac\n')
+    assert run(tmp_path, stub_path).returncode != 0
+    assert "image prune -f" not in (tmp_path / "docker.log").read_text().splitlines()
 
 
 CURL = """#!/bin/sh
