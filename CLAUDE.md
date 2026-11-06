@@ -176,7 +176,8 @@ refuses any other without `--live`. `data/` is gitignored caches.
   `(season, week, player_id)`), written by `claude -p` from a fact sheet (no projections, no call). Only the hourly job
   (`POST /outlook/refresh`, job token only) writes; GETs never generate. Pending players go in batches; a fact hash
   decides what is rewritten. A sheet reads the stories about him, not his newest (`newsdesk/sheet.py`): arrows, then
-  text, then excerpts cut for him; a story that only names him gives one line, which is outside the hash.
+  text, then excerpts cut for him; a story that only names him gives one line, which is outside the hash, and so is a
+  story with only podcast or video sources.
 - **News desk** (`ffl/newsdesk/`): collect -> tag (rules, no model: `rules.py`, a status ladder per player; Sleeper's
   chart adds the next man up behind an out starter, under the push cutoff) -> write (Haiku via `claude -p`: headline,
   overview, a line per player it moves) -> check (Haiku, not told the arrow, reads the report behind each arrow that could
