@@ -45,6 +45,32 @@ def test_a_claim_and_its_drop_are_one_item_read_together(two):
     assert notify.inbox(two.a_id)["unread"] == 0
 
 
+def test_a_defences_negative_player_id_still_groups_with_its_claim(two):
+    db.add_notices([_n("move:1700000000000-3-WAIVER ADDED-1", "move", "League move", "Bears +A", url="/transactions"),
+                    _n("move:1700000000000-3-DROPPED--16020", "move", "League move", "Bears −Giants D/ST", url="/transactions")], ref=two.a)
+    assert notify.inbox(two.a_id)["unread"] == 1
+
+
+def test_the_limit_counts_items_and_never_splits_one(two):
+    db.add_notices([_n("move:1700000000000-3-WAIVER ADDED-1", "move", "League move", "Bears +A", url="/transactions"),
+                    _n("move:1700000000000-3-DROPPED-2", "move", "League move", "Bears −B", url="/transactions"),
+                    _n("older", at="2026-10-08T10:00:00-04:00")], ref=two.a)
+    out = notify.inbox(two.a_id, limit=1)
+    assert out["unread"] == 2 and len(out["items"]) == 1 and len(out["items"][0]["rows"]) == 2
+
+
+def test_the_count_alone_reads_no_rows(two):
+    db.add_notices([_n("a"), _n("b")], ref=two.a)
+    unread, rows = db.inbox_notices([], [two.a.key], 0, notify.ONCE_PER_USER, user_id=two.a_id)
+    assert unread == 2 and rows == []
+
+
+def test_a_news_item_names_no_league_so_it_opens_in_the_one_on_screen(two):
+    db.add_notices([_n("news:1", "news", url="/news?story=1")], ref=two.b)
+    db.add_notices([_n("news:1", "news", url="/news?story=1")], ref=two.b_only)
+    assert notify.inbox(two.b_id)["items"][0]["url"] == "/news?story=1"
+
+
 def test_read_stays_listed_and_stops_a_queued_push(two):
     db.add_notices([_n("a")], ref=two.a)
     notify.read(_rows(notify.inbox(two.a_id)["items"][0]), user_id=two.a_id)

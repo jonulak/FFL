@@ -421,44 +421,42 @@ def flush(t: datetime | None = None, send=None) -> dict:
 
 # --- the in-app list: the notices table read for a person, not for a device ---
 
-def _inbox_group(row: dict) -> tuple:
-    """What the list shows as one item: a news or watch item is one whatever the league; a claim and its drop are one
-    move, as a push counts them; anything else is its own, in its own league."""
-    return ("", row["key"]) if row["key"].startswith(ONCE_PER_USER) else (row["league"], _move_of(row["key"]))
-
-
 def _inbox_item(rows: list[dict], refs: dict, labelled: bool) -> dict:
-    """One group as the list shows it; `rows[0]` is its newest row whose list switch is on."""
-    first = rows[0]
+    """One item as the list shows it, from its rows, newest first; the first one whose list switch is on leads. A news
+    or watch item is every league's, so its link names none and opens in the league on screen."""
+    shown = [r for r in rows if r["shown"]]
+    first = shown[0]
     title, body = first["title"], first["body"]
     if first["kind"] == "move":
-        title, body = "League move", _join(*_by_team([r["body"] for r in reversed(rows)]))
+        title, body = "League move", _join(*_by_team([r["body"] for r in reversed(shown)]))
     elif first["kind"] == "trade":
-        title, body = "Trade", _join([r["body"] for r in reversed(rows)])
+        title, body = "Trade", _join([r["body"] for r in reversed(shown)])
     ref = refs[first["league"]]
+    once = first["key"].startswith(ONCE_PER_USER)
     return {"title": title, "body": body, "kind": first["kind"], "created_at": first["created_at"],
-            "url": league_url(first["url"], ref),
-            "league": league_label(ref) if labelled and not first["key"].startswith(ONCE_PER_USER) else None}
+            "url": first["url"] if once else league_url(first["url"], ref),
+            "league": league_label(ref) if labelled and not once else None, "read": first["is_read"],
+            "rows": [{"league": r["league"], "key": r["key"]} for r in rows]}
+
+
+def _list_off(*, ref) -> list[tuple[str, str]]:
+    """The member's (league, kind) pairs switched off in the list. A trade follows the moves' switch."""
+    state = {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {})}
+    kinds = [k for k in PUSH_SWITCHES if not state[f"app_{k}"]]
+    return [(ref.key, k) for k in (*kinds, *(("trade",) if "move" in kinds else ()))]
 
 
 def inbox(user_id: int, limit: int = 50) -> dict:
     """The user's list across their leagues, newest first, and how many of its items are unread (past `limit` too):
-    also the Home Screen badge. One row of a group read or deleted reads or deletes the group, so news queued in another
-    league later does not bring back what was dealt with."""
+    also the Home Screen badge. db.inbox_notices does the grouping."""
     from . import leagues
     refs = {r.key: r for r in leagues.for_user(user_id)}
-    switches = {k: prefs(ref=r) for k, r in refs.items()}
-    groups: dict[tuple, list[dict]] = {}
-    for row in db.inbox_notices(user_id=user_id):
-        if row["league"] in refs:
-            groups.setdefault(_inbox_group(row), []).append(row)
-    items = []
-    for rows in groups.values():
-        shown = [r for r in rows if switches[r["league"]].get("app_move" if r["kind"] == "trade" else f"app_{r['kind']}", True)]
-        if shown and not any(r["deleted_at"] for r in rows):
-            items.append({**_inbox_item(shown, refs, len(refs) > 1), "read": any(r["read_at"] for r in rows),
-                          "rows": [{"league": r["league"], "key": r["key"]} for r in rows]})
-    return {"unread": sum(not i["read"] for i in items), "items": items[:limit]}
+    off = [pair for r in refs.values() for pair in _list_off(ref=r)]
+    unread, rows = db.inbox_notices(off, list(refs), limit, ONCE_PER_USER, user_id=user_id)
+    items: dict[str, list[dict]] = {}
+    for row in rows:
+        items.setdefault(row["grp"], []).append(row)
+    return {"unread": unread, "items": [_inbox_item(r, refs, len(refs) > 1) for r in items.values()]}
 
 
 def _pairs(rows: list[dict]) -> list[tuple[str, str]]:

@@ -1961,14 +1961,37 @@ def recent_notices(limit: int = 20, season: int = SEASON, *, ref) -> list[dict]:
         return [dict(r._mapping) for r in c.execute(q)]
 
 
-def inbox_notices(season: int = SEASON, *, user_id: int) -> list[dict]:
-    """Every notice of the user this season, in every league and deleted ones too, newest first: notify.inbox groups
-    them, and one deleted row takes its whole group with it."""
+# A transaction's key is move:{epoch ms}-{team}-{action}-{player} (ffl/journal.py); a D/ST's player id is negative.
+_MOVE_GROUP = r"^(?:move:)?(\d+-\d+)-[^-]*-[+-]?\d+$"
+
+
+def inbox_notices(off: list[tuple[str, str]], leagues: list[str], limit: int, once: tuple[str, ...],
+                  season: int = SEASON, *, user_id: int) -> tuple[int, list[dict]]:
+    """The in-app list, grouped here so a count reads no rows: (unread items, the rows of the newest `limit` items,
+    newest item first). An item is one notice in its league, a claim and its drop (one team at one instant), or, for
+    a key starting with `once`, one key across the leagues. One row of an item read or deleted reads or deletes the
+    item; one with its (league, kind) in `off` is hidden, and an item with only those is not listed."""
+    if not leagues:
+        return 0, []
     t = notices
-    q = (sa.select(t.c.league, t.c.read_at, t.c.deleted_at, *[t.c[k] for k in _NOTICE_COLS])
-         .where(t.c.user_id == user_id, t.c.season == season).order_by(t.c.created_at.desc(), t.c.key.desc()))
+    alone = sa.or_(*[t.c.key.startswith(p, autoescape=True) for p in once])
+    grp = sa.case((alone, t.c.key),
+                  else_=t.c.league + "|" + sa.func.coalesce(sa.func.substring(t.c.key, _MOVE_GROUP), t.c.key)).label("grp")
+    shown = (sa.not_(sa.tuple_(t.c.league, t.c.kind).in_(off)) if off else sa.true()).label("shown")
+    mine = (t.c.user_id == user_id, t.c.season == season, t.c.league.in_(leagues))
+    items = (sa.select(grp, sa.func.bool_or(t.c.read_at.is_not(None)).label("is_read"),
+                       sa.func.max(t.c.created_at).filter(shown).label("newest"))
+             .where(*mine).group_by(grp)
+             .having(sa.and_(sa.func.bool_or(shown), sa.not_(sa.func.bool_or(t.c.deleted_at.is_not(None))))).subquery())
     with _read() as c:
-        return [dict(r._mapping) for r in c.execute(q)]
+        unread = c.execute(sa.select(sa.func.count()).select_from(items).where(sa.not_(items.c.is_read))).scalar_one()
+        if limit <= 0:
+            return unread, []
+        page = sa.select(items).order_by(items.c.newest.desc(), items.c.grp.desc()).limit(limit).subquery()
+        q = (sa.select(grp, shown, page.c.is_read, t.c.league, *[t.c[k] for k in _NOTICE_COLS])
+             .join_from(t, page, grp == page.c.grp).where(*mine)
+             .order_by(page.c.newest.desc(), page.c.grp.desc(), t.c.created_at.desc(), t.c.key.desc()))
+        return unread, [dict(r._mapping) for r in c.execute(q)]
 
 
 def stamp_notices(rows: list[tuple[str, str]], column: str, at: str, season: int = SEASON, *, user_id: int) -> None:

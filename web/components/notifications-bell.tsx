@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import type { NotificationItem, Notifications } from "@/lib/api";
 import { generation } from "@/lib/generation";
+import { leagueHref } from "@/lib/league";
 import { countLabel, opensOtherLeague, withoutSeen } from "@/lib/notify";
 import { Hint } from "./hint";
 import { Ago } from "./local-time";
@@ -118,9 +119,10 @@ export function NotificationsBell({ unread: initial, openLeague }: { unread: num
   function go(item: NotificationItem) {
     setOpen(false);
     const done = read(item);
+    const url = leagueHref(item.url, openLeague); // a news item names no league: it stays in the one on screen
     // a full load would cancel the write, so it waits; a soft move does not
-    if (opensOtherLeague(item.url, openLeague)) done.finally(() => window.location.assign(item.url));
-    else router.push(item.url);
+    if (opensOtherLeague(url, openLeague)) done.finally(() => window.location.assign(url));
+    else router.push(url);
   }
 
   const count = unread ?? 0;

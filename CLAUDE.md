@@ -202,7 +202,7 @@ refuses any other without `--live`. `data/` is gitignored caches.
 - A migration's test upgrades to its own revision (never "head") and reads raw SQL, not the app's readers. Only the
   newest migration's test and the round-trip test (`tests/test_per_user_migration.py`) go to head.
 - UI: use a shadcn component from `web/components/ui` (add one with `pnpm dlx shadcn add <name>`, style base-nova on
-  `@base-ui/react`), else a well-tested library (Base UI, TanStack Table, Recharts, date-fns). Hand-roll only when
+  `@base-ui/react`), else a well-tested library (Base UI, TanStack Table). Hand-roll only when
   neither fits, and say why in the commit. Check every UI change at phone width. `web/AGENTS.md`: this Next.js version
   differs from training data; read `node_modules/next/dist/docs/` first.
 - Issues live in GitHub Issues. Specs, plans and design notes go in an issue's body or comments, not in .md files.
