@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { isHm, movesStep, openRequest, pushSupport, urlBase64ToUint8Array } from "./notify";
+import { countLabel, isHm, movesStep, openRequest, opensOtherLeague, pushSupport, urlBase64ToUint8Array, withoutSeen } from "./notify";
+
+describe("countLabel", () => {
+  it("shows the count up to nine, then 9+", () => {
+    expect(countLabel(1)).toBe("1");
+    expect(countLabel(9)).toBe("9");
+    expect(countLabel(10)).toBe("9+");
+  });
+});
+
+describe("opensOtherLeague", () => {
+  it("is a full load only when the notification names a league that is not open", () => {
+    expect(opensOtherLeague("/roster?league=espn:2", "espn:1")).toBe(true);
+    expect(opensOtherLeague("/roster?league=espn:1", "espn:1")).toBe(false);
+    expect(opensOtherLeague("/roster", "espn:1")).toBe(false);
+  });
+});
+
+describe("withoutSeen", () => {
+  it("drops the push's seen and keeps the rest of the address", () => {
+    expect(withoutSeen("/roster", "?league=espn:1&seen=injury%3A1&week=3", "#a")).toBe("/roster?league=espn%3A1&week=3#a");
+    expect(withoutSeen("/roster", "?seen=moves", "")).toBe("/roster");
+  });
+});
 
 describe("movesStep", () => {
   it("takes the first count it sees as the baseline", () => {

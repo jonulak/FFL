@@ -12,6 +12,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 from . import appconf, db
 from .season import parse_tx_id, slot_label
@@ -158,17 +159,16 @@ def check_sources() -> int:
     return app_notices(source_notices(on_only(db.get_state("source_status", {}) or {}), datetime.now().astimezone(), now()))
 
 
-DEFAULT_PREFS = {"move": True, "injury": True, "waivers": True, "news": True, "watch": True, "espn": True, "quiet": ["23:00", "07:00"]}
+PUSH_SWITCHES = ("move", "injury", "waivers", "news", "watch", "espn")
+SWITCHES = (*PUSH_SWITCHES, *(f"app_{k}" for k in PUSH_SWITCHES))  # app_*: the in-app list's own, apart from the push's
+DEFAULT_PREFS = {**dict.fromkeys(SWITCHES, True), "quiet": ["23:00", "07:00"]}
 MAX_AGE = timedelta(hours=24)
 BODY_MAX = 180
 _HM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-SWITCHES = ("move", "injury", "waivers", "news", "watch", "espn")
-
-
 def prefs(*, ref) -> dict:
-    """The member's push switches in a league (their `notify_prefs` state) and their quiet hours (`quiet`, every
+    """The member's push and in-app switches in a league (their `notify_prefs` state) and their quiet hours (`quiet`, every
     league's)."""
     return {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {}), "quiet": quiet(ref.user_id)}
 
@@ -288,8 +288,12 @@ def payload_for(push: dict, app_url: str | None = None) -> dict:
     that ignores `web_push` and hands the message to sw.js's push handler as before."""
     app_url = app_url or appconf.app_url()  # Declarative Web Push wants the absolute URL
     legacy = {k: push[k] for k in ("title", "body", "url", "tag")}  # never `ref`: the league rides in url
-    return {"web_push": 8030, "notification": {"title": push["title"], "body": push["body"], "tag": push["tag"],
-                                               "navigate": app_url.rstrip("/") + push["url"]}, **legacy}
+    payload = {"web_push": 8030, "notification": {"title": push["title"], "body": push["body"], "tag": push["tag"],
+                                                  "navigate": app_url.rstrip("/") + push["url"]}, **legacy}
+    if "badge" in push:  # Declarative Web Push's is a string in `notification`; sw.js reads the number beside the rest
+        payload["notification"]["app_badge"] = str(push["badge"])
+        payload["app_badge"] = push["badge"]
+    return payload
 
 
 def deliver(push: dict, subs: list[dict], send) -> tuple[bool, list[str]]:
@@ -355,14 +359,17 @@ def for_league(push: dict, ref, named: bool) -> dict:
     named = named and not push["keys"][0].startswith("news:")  # a news item is one push whatever the league (#480)
     title = f"{push['title']} · {league_label(ref)}" if named else push["title"]
     tag = f"{ref.key}:{push['tag']}"
-    return {**push, "title": title, "url": league_url(push["url"], ref), "tag": tag, "ref": ref}
+    # `seen`: which notices a tap on this push reads (read_pushed). Short however many it groups: a payload has 4 KB.
+    url = f"{league_url(push['url'], ref)}&seen={quote(push['tag'], safe='')}"
+    return {**push, "title": title, "url": url, "tag": tag, "ref": ref}
 
 
 def _send_all(pushes: list[dict], send, at: str, user_id: int) -> int:
     """The user's pushes to the user's devices."""
     subs, sent = db.subscriptions(user_id=user_id), 0
+    badge = inbox(user_id, limit=0)["unread"] if pushes else 0
     for push in pushes:
-        ok, dead = deliver(push, subs, send)
+        ok, dead = deliver({**push, "badge": badge}, subs, send)
         for ep in dead:
             db.drop_subscription(ep, user_id=None)
         subs = [s for s in subs if s["endpoint"] not in dead]
@@ -410,6 +417,69 @@ def flush(t: datetime | None = None, send=None) -> dict:
         out["sent"] += _send_all(pushes, send, at, uid)
         out["pushes"] += len(pushes)
     return out
+
+
+# --- the in-app list: the notices table read for a person, not for a device ---
+
+def _inbox_item(rows: list[dict], refs: dict, labelled: bool) -> dict:
+    """One item as the list shows it, from its rows, newest first; the first one whose list switch is on leads. A news
+    or watch item is every league's, so its link names none and opens in the league on screen."""
+    shown = [r for r in rows if r["shown"]]
+    first = shown[0]
+    title, body = first["title"], first["body"]
+    if first["kind"] == "move":
+        title, body = "League move", _join(*_by_team([r["body"] for r in reversed(shown)]))
+    elif first["kind"] == "trade":
+        title, body = "Trade", _join([r["body"] for r in reversed(shown)])
+    ref = refs[first["league"]]
+    once = first["key"].startswith(ONCE_PER_USER)
+    return {"title": title, "body": body, "kind": first["kind"], "created_at": first["created_at"],
+            "url": first["url"] if once else league_url(first["url"], ref),
+            "league": league_label(ref) if labelled and not once else None, "read": first["is_read"],
+            "rows": [{"league": r["league"], "key": r["key"]} for r in rows]}
+
+
+def _list_off(*, ref) -> list[tuple[str, str]]:
+    """The member's (league, kind) pairs switched off in the list. A trade follows the moves' switch."""
+    state = {**DEFAULT_PREFS, **(db.get_league_state("notify_prefs", {}, ref=ref) or {})}
+    kinds = [k for k in PUSH_SWITCHES if not state[f"app_{k}"]]
+    return [(ref.key, k) for k in (*kinds, *(("trade",) if "move" in kinds else ()))]
+
+
+def inbox(user_id: int, limit: int = 50) -> dict:
+    """The user's list across their leagues, newest first, and how many of its items are unread (past `limit` too):
+    also the Home Screen badge. db.inbox_notices does the grouping."""
+    from . import leagues
+    refs = {r.key: r for r in leagues.for_user(user_id)}
+    off = [pair for r in refs.values() for pair in _list_off(ref=r)]
+    unread, rows = db.inbox_notices(off, list(refs), limit, ONCE_PER_USER, user_id=user_id)
+    items: dict[str, list[dict]] = {}
+    for row in rows:
+        items.setdefault(row["grp"], []).append(row)
+    return {"unread": unread, "items": [_inbox_item(r, refs, len(refs) > 1) for r in items.values()]}
+
+
+def _pairs(rows: list[dict]) -> list[tuple[str, str]]:
+    return [(r["league"], r["key"]) for r in rows]
+
+
+def read(rows: list[dict], *, user_id: int) -> None:
+    db.stamp_notices(_pairs(rows), "read_at", now(), user_id=user_id)
+
+
+def delete(rows: list[dict], *, user_id: int) -> None:
+    db.stamp_notices(_pairs(rows), "deleted_at", now(), user_id=user_id)
+
+
+def read_all(*, user_id: int) -> None:
+    db.read_all_notices(now(), user_id=user_id)
+
+
+def read_pushed(tag: str, *, ref) -> None:
+    """A tap on a push (for_league's `seen`). A device shows one notification per tag, so the batched moves' tag stands
+    for every move already pushed in the league, the trades' for every trade, and any other tag is its notice's key."""
+    kinds = {"moves": ["move"], "trade": ["trade"]}.get(tag)
+    db.read_pushed_notices(kinds, None if kinds else tag, now(), ref=ref)
 
 
 def send_test(user_id: int, send=None) -> dict:

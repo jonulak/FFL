@@ -1,3 +1,5 @@
+import { leagueOf } from "./league";
+
 // The VAPID public key arrives base64url; PushManager.subscribe wants the raw bytes.
 export function urlBase64ToUint8Array(s: string): Uint8Array<ArrayBuffer> {
   const b64 = (s + "=".repeat((4 - (s.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
@@ -47,3 +49,21 @@ export function readPushEnv(): PushEnv {
 }
 
 export const isHm = (s: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+
+// The bell's count: anything past nine reads the same at a glance, and fits the icon.
+export const countLabel = (n: number) => (n > 9 ? "9+" : String(n));
+
+// A league is opened by a full page load (league-switcher.tsx): the root layout reads it from the request, so a soft
+// move into another league would leave the nav and every provider on the old one.
+export function opensOtherLeague(url: string, open: string | null): boolean {
+  const named = leagueOf(url.split("#", 1)[0].split("?", 2)[1] ?? "");
+  return named !== null && named !== open;
+}
+
+// The address once a tapped push's `seen` has been read, so a reload or a shared link does not read it again.
+export function withoutSeen(path: string, search: string, hash: string): string {
+  const p = new URLSearchParams(search);
+  p.delete("seen");
+  const q = p.toString();
+  return `${path}${q ? `?${q}` : ""}${hash}`;
+}

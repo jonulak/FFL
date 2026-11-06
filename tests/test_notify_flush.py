@@ -63,7 +63,7 @@ def test_flush_holds_in_quiet_hours_and_sends_after():
     held = notify.flush(T.replace(hour=2), send=lambda sub, payload: sent.append(payload))
     assert held["held"] == 1 and held["sent"] == 0 and sent == [] and len(db.unsent_notices(ref=home_league())) == 1
     out = notify.flush(T.replace(hour=7, minute=0), send=lambda sub, payload: sent.append(payload))
-    assert out["sent"] == 1 and sent[0]["url"] == f"/transactions?league={HOME_KEY}" and db.unsent_notices(ref=home_league()) == []
+    assert out["sent"] == 1 and sent[0]["url"] == f"/transactions?league={HOME_KEY}&seen=moves" and db.unsent_notices(ref=home_league()) == []
 
 
 def test_payload_is_declarative_with_the_legacy_fields_beside():
@@ -211,7 +211,7 @@ def test_one_league_pushes_open_and_tag_their_league():
     db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
     sent = []
     notify.flush(T, send=lambda sub, payload: sent.append(payload))
-    assert (sent[0]["title"], sent[0]["url"], sent[0]["tag"]) == ("1 league move", f"/transactions?league={HOME_KEY}", f"{HOME_KEY}:moves")
+    assert (sent[0]["title"], sent[0]["url"], sent[0]["tag"]) == ("1 league move", f"/transactions?league={HOME_KEY}&seen=moves", f"{HOME_KEY}:moves")
 
 
 def test_each_leagues_pushes_name_it_and_open_it():
@@ -223,13 +223,13 @@ def test_each_leagues_pushes_name_it_and_open_it():
     sent = []
     out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
     by_url = {p["url"]: p for p in sent}
-    home = by_url[f"/transactions?league={HOME_KEY}"]
+    home = by_url[f"/transactions?league={HOME_KEY}&seen=moves"]
     assert home["title"] == f"2 league moves · {home_league().name}", "with two leagues, home's pushes name it too"
     assert home["tag"] == f"{HOME_KEY}:moves", "every league's tap target and tag name it"
-    theirs = by_url["/transactions?league=espn:999"]
+    theirs = by_url["/transactions?league=espn:999&seen=moves"]
     assert theirs["title"] == "1 league move · Indianapolis Pro H2H…" and theirs["tag"] == "espn:999:moves"
-    assert theirs["notification"]["navigate"].endswith("/transactions?league=espn:999")
-    assert by_url["/roster?league=espn:999"]["title"] == "t · Indianapolis Pro H2H…"
+    assert theirs["notification"]["navigate"].endswith("/transactions?league=espn:999&seen=moves")
+    assert by_url["/roster?league=espn:999&seen=injury%3A8%3A9%3AOUT"]["title"] == "t · Indianapolis Pro H2H…"
     assert out["sent"] == 3 and db.unsent_notices(ref=home_league()) == [] and db.unsent_notices(ref=other) == []
     assert {n["outcome"] for n in db.recent_notices(ref=other)} == {"sent"}
 
@@ -252,7 +252,7 @@ def test_switches_are_per_league_quiet_hours_global():
     db.put_subscription("https://push/a", {"p256dh": "k", "auth": "a"}, user_id=0)
     sent = []
     out = notify.flush(T, send=lambda sub, payload: sent.append(payload))
-    assert [p["url"] for p in sent] == [f"/transactions?league={HOME_KEY}"] and out["off"] == 1
+    assert [p["url"] for p in sent] == [f"/transactions?league={HOME_KEY}&seen=moves"] and out["off"] == 1
     assert db.recent_notices(ref=other)[0]["outcome"] == "off"
 
 
