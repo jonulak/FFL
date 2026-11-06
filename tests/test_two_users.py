@@ -135,6 +135,8 @@ def test_no_personal_db_reader_shows_one_member_the_others_rows(two, client, mon
         assert not [d for d in db.decisions(ref=ref) if d["title"] == A_MARK]
         assert not [n for n in db.recent_notices(ref=ref) if n["title"] == A_MARK]
         assert not [n for n in db.unsent_notices(ref=ref) if n["title"] == A_MARK]
+    _, rows = db.inbox_notices([], [two.b.key, two.b_only.key], 50, notify.ONCE_PER_USER, user_id=two.b_id)
+    assert not [n for n in rows if n["title"] == A_MARK]
     assert leagues.caps(two.b).get("K") != 0
     # the co-manager is a user of their own: none of A's personal rows either
     assert A_PID not in db.watched_ids(ref=two.c) and A_PID not in db.sat_ids(WEEK, ref=two.c)

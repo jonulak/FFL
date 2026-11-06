@@ -38,7 +38,7 @@ from typing import Callable, Literal
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
 from . import calibrate, db, espn_season, espn_write, leagues, live, nfl, notify, outlook, player_card, player_views, season, sources
@@ -1979,6 +1979,58 @@ def trace(body: TraceIn):
 @app.get("/notify/recent")
 def notify_recent(ref: LeagueRef = Depends(open_league)):
     return {"notices": db.recent_notices(ref=ref)}
+
+
+class NoticeRow(BaseModel):
+    league: str
+    key: str
+
+
+class NoticeRowsIn(BaseModel):
+    rows: list[NoticeRow] = Field(max_length=1000)
+
+
+class NoticesReadIn(BaseModel):
+    rows: list[NoticeRow] | None = Field(default=None, max_length=1000)
+    all: bool = False
+
+
+class NoticeSeenIn(BaseModel):
+    tag: str
+
+
+def _unread(user_id: int) -> dict:
+    return {"unread": notify.inbox(user_id, limit=0)["unread"]}
+
+
+@app.get("/notifications")
+def notifications(limit: int = Query(50, ge=0, le=200), user: dict = Depends(auth.current_user)):
+    """The user's in-app list across their leagues, and the unread count (the bell and the Home Screen badge)."""
+    return notify.inbox(user["id"], limit=limit)
+
+
+@app.post("/notifications/read")
+def notifications_read(body: NoticesReadIn, user: dict = Depends(auth.current_user)):
+    if body.all:
+        notify.read_all(user_id=user["id"])
+    elif body.rows is not None:
+        notify.read([r.model_dump() for r in body.rows], user_id=user["id"])
+    else:
+        raise HTTPException(status_code=422, detail="name the rows, or all")
+    return _unread(user["id"])
+
+
+@app.post("/notifications/seen")
+def notifications_seen(body: NoticeSeenIn, ref: LeagueRef = Depends(open_league)):
+    """A push was tapped: its URL's `seen` tag, in the league the URL names."""
+    notify.read_pushed(body.tag, ref=ref)
+    return _unread(ref.user_id)
+
+
+@app.post("/notifications/delete")
+def notifications_delete(body: NoticeRowsIn, user: dict = Depends(auth.current_user)):
+    notify.delete([r.model_dump() for r in body.rows], user_id=user["id"])
+    return _unread(user["id"])
 
 
 @app.post("/notify/tick")

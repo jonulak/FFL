@@ -7,7 +7,6 @@ import { clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { NotifyConfig, NotifyPrefs } from "@/lib/api";
 import { isHm, pushSupport, readPushEnv, urlBase64ToUint8Array } from "@/lib/notify";
@@ -139,8 +138,8 @@ export function NotifySettings({ config }: { config: NotifyConfig }) {
   );
 }
 
-// One league's push switches (its League settings page): what of its own news reaches this device. The open league
-// rides in the page URL, which clientPost names.
+// One league's switches (its League settings page): what of its own news is pushed to the devices, and, apart from that,
+// what shows in the bell's list. The open league rides in the page URL, which clientPost names.
 export function NotifySwitches({ prefs: initial }: { prefs: NotifyPrefs }) {
   const [prefs, setPrefs] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -157,13 +156,19 @@ export function NotifySwitches({ prefs: initial }: { prefs: NotifyPrefs }) {
     <Card>
       <CardHeader><CardTitle>Notify me about</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {KINDS.map(([k, label, hint]) => (
-          <Label key={k} className="flex items-center justify-between gap-4">
-            <span><span className="font-medium">{label}</span><span className="block text-xs text-muted-foreground">{hint}</span></span>
-            <Switch checked={prefs[k]} onCheckedChange={(v) => save({ [k]: v })} disabled={busy} />
-          </Label>
-        ))}
-        {msg && <p key={msg} role="status" className="log-in text-sm">{msg}</p>}
+        <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-4 gap-y-3 text-sm">
+          <span />
+          <span aria-hidden className="text-center text-xs text-muted-foreground">Push</span>
+          <span aria-hidden className="text-center text-xs text-muted-foreground">In app</span>
+          {KINDS.map(([k, label, hint]) => (
+            <Fragment key={k}>
+              <span><span className="font-medium">{label}</span><span className="block text-xs text-muted-foreground">{hint}</span></span>
+              <Switch aria-label={`${label}: push`} checked={prefs[k]} onCheckedChange={(v) => save({ [k]: v })} disabled={busy} className="justify-self-center" />
+              <Switch aria-label={`${label}: in app`} checked={prefs[`app_${k}`]} onCheckedChange={(v) => save({ [`app_${k}`]: v })} disabled={busy} className="justify-self-center" />
+            </Fragment>
+          ))}
+        </div>
+        {msg &&<p key={msg} role="status" className="log-in text-sm">{msg}</p>}
       </CardContent>
     </Card>
   );

@@ -12,7 +12,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WatchProvider } from "@/components/watch-context";
 import { headers } from "next/headers";
-import { apiGet, type DecisionPrefs, type LeagueEntry, type WatchIds } from "@/lib/api";
+import { apiGet, type DecisionPrefs, type LeagueEntry, type Notifications, type WatchIds } from "@/lib/api";
 import { isSetupPath, PATH_HEADER, PRIVACY_PATH, SIGNIN_PATH } from "@/lib/auth";
 import { LEAGUE_ARRIVE, LEAGUE_HEADER, WELCOME_PATH } from "@/lib/league";
 import { DEFAULT_DECISION_PREFS } from "@/lib/decisions";
@@ -53,12 +53,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // the leagues for the switcher, and the one this document's URL names (web/proxy.ts: its header); every call here
   // reads that league, and a switch is a full load, so the layout never shows another league's stars or switches
   // and the ESPN logins' state, for the Reconnect banner (not on Settings, whose ESPN card says the same at length)
-  const [prefs, watched, all, open, espn] = await Promise.all([
+  // and the bell's unread count, so it is on the icon at the first paint (null: not known, the Home Screen's stays)
+  const [prefs, watched, all, open, espn, inbox] = await Promise.all([
     apiGet<DecisionPrefs>("/decisions/prefs").catch(() => DEFAULT_DECISION_PREFS),
     apiGet<WatchIds>("/watch/ids").catch((): WatchIds => ({ ids: [] })),
     apiGet<LeagueEntry[]>("/leagues").catch((): LeagueEntry[] => []),
     h.get(LEAGUE_HEADER),
     bare === "/settings" ? null : apiGet<EspnStatus>("/espn/status").catch(() => null),
+    apiGet<Notifications>("/notifications?limit=0").catch(() => null),
   ]);
   const league = all.find((l) => (open ? l.key === open : l.home)) ?? null;
   // The font variables belong on <html>: globals.css applies `font-sans` there, and
@@ -74,7 +76,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <WatchProvider ids={watched.ids}>
               <LeagueProvider league={league && !league.home ? league.key : null}>
               <PlayerDialogProvider>
-                <Nav leagues={all} league={league} />
+                <Nav leagues={all} league={league} unread={inbox?.unread ?? null} />
                 {/* one 64rem column on every page, the nav's width; the Players page's claims dock stands outside it */}
                 <main className="mx-auto max-w-5xl px-3 py-4"><ReconnectBanner status={espn} /><PageTransition>{children}</PageTransition></main>
               </PlayerDialogProvider>
