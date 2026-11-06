@@ -119,8 +119,10 @@ def fact_hash(card: dict, ctx: dict) -> str:
 
 
 def _story_keys(holder: dict) -> list:
-    """A news desk story moves the hash when it is new, gains a source or is rewritten (rev), or is corrected."""
-    return [[s.get("id"), s.get("rev"), s.get("status"), len(s.get("sources") or [])] for s in holder.get("stories") or []]
+    """A news desk story moves the hash when it is new, gains a source or is rewritten (rev), or is corrected. A spoken
+    one never does: an episode names dozens of players, and his next written story or game brings it in."""
+    return [[s.get("id"), s.get("rev"), s.get("status"), len(s.get("sources") or [])]
+            for s in holder.get("stories") or [] if not s.get("spoken")]
 
 
 def _md(published: str | None) -> str:

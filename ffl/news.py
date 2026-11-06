@@ -32,7 +32,7 @@ DEFAULT_POS = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K"}
 OFFENSE = {"QB", "RB", "WR", "TE", "K"}
 _DEPTH: list = []  # [expires_at, chart]
 _INDEX: list = []  # [expires_at, index]
-DESK_MATE_KEEP = 3  # a hurt teammate's newest stories on the sheet (where his return is written); his own: newsdesk.sheet
+DESK_MATE_KEEP = 3  # a hurt teammate's newest written stories on the sheet (where his return is written); his own: newsdesk.sheet
 DESK_SOURCES = 4  # a story's newest sources cited
 DESK_TEXT = 600  # characters of its first item when the desk has not written the story up yet
 
@@ -163,8 +163,11 @@ def _recent(published: str | None, today: date) -> bool:
 
 def shape_stories(stories: list[dict], pid: int, sources: dict[str, dict]) -> list[dict]:
     """db.player_stories' rows as the fact sheet reads them: the desk's headline and overview, his line and effect
-    (up, down, or none when the story only names him), the live sources (site, date, link), and, for a story not yet
-    written up, the start of its first item. A story whose every source was withdrawn is dropped."""
+    (up, down, or none when the story only names him), the live sources (site, date, link), whether they are all
+    spoken (podcast, video), and, for a story not yet written up, the start of its first item. A story whose every
+    source was withdrawn is dropped."""
+    from .newsdesk import rules  # it imports this module
+
     out = []
     for s in stories:
         items = [i for i in s["items"] if not i.get("withdrawn_at")]
@@ -177,6 +180,7 @@ def shape_stories(stories: list[dict], pid: int, sources: dict[str, dict]) -> li
                     "headline": s["headline"] or items[0]["title"], "overview": s["overview"],
                     "text": "" if s["overview"] else " ".join(items[0]["text"].split())[:DESK_TEXT],
                     "effect": row.get("effect"), "line": row.get("reason"),
+                    "spoken": all(i["source_id"].startswith(rules.MEDIA) for i in items),
                     "sources": [{"site": (sources.get(i["source_id"]) or {}).get("name") or i["source_id"],
                                  "published": i["published_at"], "url": i["url"]} for i in cited]})
     return out
@@ -231,5 +235,5 @@ def gather(cards: list[dict], week: int) -> dict[int, dict]:
         his = desk.get(pid, {})
         ctx["stories"], ctx["lines"] = his.get("stories", []), his.get("lines", [])
     for m in hurt:
-        m["stories"] = desk.get(m["player_id"], {}).get("stories", [])[:DESK_MATE_KEEP]
+        m["stories"] = [s for s in desk.get(m["player_id"], {}).get("stories", []) if not s.get("spoken")][:DESK_MATE_KEEP]
     return out
