@@ -184,6 +184,10 @@ refuses any other without `--live`. `data/` is gitignored caches.
   push; a different answer flags it, a failed call holds the push) -> notices. Each stage runs alone; `POST /news/run` starts a run.
 - **Push.** Detectors write a `notices` outbox (deduped by key); the tick flushes it per user (quiet hours, switches)
   as Declarative Web Push, because iOS often never fires `notificationclick` for a Home Screen app (WebKit 268797).
+- **In-app list.** The bell (`web/components/notifications-bell.tsx`) reads the same `notices` rows across the user's
+  leagues (`notify.inbox`), with its own switches (`app_*`, apart from the push's). Delete is soft: the row is what stops
+  a detector queueing the event again. Its unread count is the Home Screen badge (`app_badge` in a push, `setAppBadge` in
+  the page); a push's `?seen=<tag>` marks it read on a tap.
 - **ESPN writes.** `POST /lineup`, `/roster/sit`, `/claims*` re-read ESPN's roster, take a per-league lock, validate,
   write through `espn_write`, record a decision, then read the page back. Claims: a claim is one add plus at most one
   drop and cancels when either is gone (`ffl/claims.py`).

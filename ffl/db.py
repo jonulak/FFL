@@ -595,6 +595,8 @@ notices = sa.Table(
     sa.Column("sent_at", sa.String),
     sa.Column("outcome", sa.String),                     # sent / off / expired
     _user(),                                             # whose devices it goes to
+    sa.Column("read_at", sa.String),                     # read in the in-app list, or its push tapped
+    sa.Column("deleted_at", sa.String),                  # a soft delete: the row is what stops a detector re-queueing it
     sa.PrimaryKeyConstraint("user_id", "league", "season", "key"),
 )
 sa.Index("ix_notices_unsent", notices.c.user_id, notices.c.sent_at)
@@ -1936,7 +1938,8 @@ def _notices_of(ref, season: int):
 
 def unsent_notices(season: int = SEASON, *, ref) -> list[dict]:
     t = notices
-    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(_notices_of(ref, season), t.c.sent_at.is_(None))
+    q = (sa.select(*[t.c[k] for k in _NOTICE_COLS]).where(_notices_of(ref, season), t.c.sent_at.is_(None),
+                                                          t.c.read_at.is_(None), t.c.deleted_at.is_(None))
          .order_by(t.c.created_at, t.c.key))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
@@ -1956,6 +1959,41 @@ def recent_notices(limit: int = 20, season: int = SEASON, *, ref) -> list[dict]:
          .order_by(t.c.created_at.desc(), t.c.key.desc()).limit(limit))
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
+
+
+def inbox_notices(season: int = SEASON, *, user_id: int) -> list[dict]:
+    """Every notice of the user this season, in every league and deleted ones too, newest first: notify.inbox groups
+    them, and one deleted row takes its whole group with it."""
+    t = notices
+    q = (sa.select(t.c.league, t.c.read_at, t.c.deleted_at, *[t.c[k] for k in _NOTICE_COLS])
+         .where(t.c.user_id == user_id, t.c.season == season).order_by(t.c.created_at.desc(), t.c.key.desc()))
+    with _read() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
+
+
+def stamp_notices(rows: list[tuple[str, str]], column: str, at: str, season: int = SEASON, *, user_id: int) -> None:
+    """Set `read_at` or `deleted_at` on the user's (league, key) rows that have none."""
+    if not rows:
+        return
+    t = notices
+    with _write() as c:
+        c.execute(sa.update(t).where(t.c.user_id == user_id, t.c.season == season, t.c[column].is_(None),
+                                     sa.tuple_(t.c.league, t.c.key).in_(rows)).values({column: at}))
+
+
+def read_all_notices(at: str, season: int = SEASON, *, user_id: int) -> None:
+    t = notices
+    with _write() as c:
+        c.execute(sa.update(t).where(t.c.user_id == user_id, t.c.season == season, t.c.read_at.is_(None))
+                  .values(read_at=at))
+
+
+def read_pushed_notices(kinds: list[str] | None, key: str | None, at: str, season: int = SEASON, *, ref) -> None:
+    """Read what one push stood for in a league: its notice (`key`), or every notice of `kinds` already pushed."""
+    t = notices
+    which = t.c.key == key if key else sa.and_(t.c.kind.in_(kinds), t.c.outcome == "sent")
+    with _write() as c:
+        c.execute(sa.update(t).where(_notices_of(ref, season), t.c.read_at.is_(None), which).values(read_at=at))
 
 
 _STATE_HOMES = {"user": USER_STATE_KEYS, "member": MEMBER_STATE_KEYS, "team": TEAM_STATE_KEYS,
