@@ -261,6 +261,43 @@ def test_team_overlays_live_points(client, monkeypatch):
     assert body["side"]["lineup"][0]["actual"] == 14.5 and body["side"]["actual_total"] == 14.5
 
 
+@pytest.fixture
+def trade_env(client, monkeypatch):
+    def row(pid, name, ros, team="DET"):
+        return {"player_id": pid, "name": name, "pos": "QB", "team": team, "slot": "QB", "injury": "ACTIVE",
+                "return_week": None, "ros_proj": ros}
+    monkeypatch.setattr(api.espn_season, "league_pool", lambda **k: {
+        "ros_week": 16, "settings": {"starters": {"QB": 1}, "roster_size": 2, "team_count": 10}, "byes": {"GB": 17},
+        "teams": {7: [row(1, "Mine", 30), row(2, "My Spare", 3)], 4: [row(3, "Theirs", 45, "GB"), row(4, "Their Spare", 3)]}})
+    api.cache_for(home_league()).clear()
+    return client
+
+
+def test_trade_lists_both_rosters_with_no_price_until_a_player_is_picked(trade_env):
+    body = trade_env.get("/trade", params={"team": 4}).json()
+    assert body["price"] is None and body["ros_week"] == 16
+    assert [p["name"] for p in body["me"]] == ["Mine", "My Spare"]
+    assert body["them"][0] == {"player_id": 3, "name": "Theirs", "pos": "QB", "team": "GB", "injury": "ACTIVE",
+                               "return_week": None, "ros_adj": 45, "bye_week": 17}
+
+
+def test_trade_prices_the_picked_players_on_both_sides(trade_env):
+    body = trade_env.get("/trade", params={"team": 4, "give": [1], "get": [3]}).json()
+    # Theirs: 22.5 a game, off in 17, when a spare's 1 covers. Mine: 10 a game.
+    assert (body["price"]["me"]["before"], body["price"]["me"]["after"], body["price"]["me"]["delta"]) == (30.0, 46.0, 16.0)
+    assert (body["price"]["them"]["before"], body["price"]["them"]["after"], body["price"]["them"]["delta"]) == (46.0, 30.0, -16.0)
+
+
+@pytest.mark.parametrize("params", [{"team": 4, "give": [3]}, {"team": 4, "get": [1]}, {"team": 4, "give": [99]}])
+def test_trade_refuses_a_player_who_is_not_on_the_named_roster(trade_env, params):
+    assert trade_env.get("/trade", params=params).status_code == 400
+
+
+@pytest.mark.parametrize("team", [7, 99])
+def test_trade_needs_another_team_in_the_league(trade_env, team):
+    assert trade_env.get("/trade", params={"team": team}).status_code == 404
+
+
 def test_refresh_expires_the_injury_cache_but_keeps_the_last_good_data(client, monkeypatch):
     """_INJ is a last-good store: Refresh must bust its TTL, not throw the data away."""
     inj = api.espn_season

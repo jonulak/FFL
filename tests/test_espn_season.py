@@ -647,6 +647,7 @@ def test_league_pool_keeps_each_free_agents_rostered_percent(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     pool = espn_season.league_pool(week=1, sources={}, season={}, injuries={}, snaps={}, ref=home_league())
+    assert "byes" in pool, "a trade's weekly lineups read them"
     assert pool["owned"][got["QB"]] == 12.5
     assert pool["owned"][got["WR"]] == -1, "a row without a rostered % counts as none, under any cutoff"
 
