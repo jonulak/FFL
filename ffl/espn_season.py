@@ -1689,7 +1689,15 @@ def _build_league_pool(week, size, sources, season, injuries, snaps, *, ref: lea
             "teams": teams, "frees": frees, "status": status, "owners": _owners(lg, week, ref=ref),
             # ESPN-wide rostered % of each free agent (-1: ESPN sent none); outlook.wanted reads it
             "owned": {bp.playerId: getattr(bp, "percent_owned", -1) for pos in POSITIONS for bp in fetched[(pos, week)]},
-            "enrich": enrich, "ros_source": ros_source(seas)}
+            "enrich": enrich, "ros_source": ros_source(seas), "byes": byes}
+
+
+def trade_rosters(team_id: int, *, ref: leagues.LeagueRef) -> dict:
+    """What pricing a trade with `team_id` reads, off the league pool, whose rows carry the form ros_adj needs (team_state's
+    do not). `me` or `them` is None for a team with no roster this week."""
+    base = league_pool(ref=ref)
+    return {"ros_week": base["ros_week"], "byes": base["byes"], "me": base["teams"].get(my_team_id(None, ref)),
+            "them": base["teams"].get(team_id), "settings": {k: base["settings"][k] for k in ("starters", "roster_size")}}
 
 
 def dress_pool(base: dict, *, ref: leagues.LeagueRef) -> dict:

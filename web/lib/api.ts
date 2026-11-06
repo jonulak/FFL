@@ -313,6 +313,20 @@ export type TeamRoster = {
   side: Side<TeamPlayer>;
   stale_since: string | null;
 };
+// GET /trade: both rosters by rest-of-season points and, once a player is picked, what the trade does to each lineup
+// (season.trade_delta). `holes` are the slots the trade empties; `cut` who a side over its roster limit would drop.
+export type TradePlayer = {
+  player_id: number; name: string; pos: string; team: string; injury: string; return_week: number | null;
+  ros_adj: number; bye_week: number | null;
+};
+export type TradeHole = { week: number; slot: string };
+export type TradeSide = {
+  before: number; after: number; delta: number; holes: TradeHole[]; cut: { player_id: number; name: string }[];
+};
+export type Trade = {
+  ros_week: number; stale_since: string | null; me: TradePlayer[]; them: TradePlayer[];
+  price: { me: TradeSide; them: TradeSide } | null;
+};
 // GET /transactions: the league's log as moves, newest first (season.group_transactions). A
 // side's `added` is what it claimed or received, `dropped` what it cut; pos/team are null when
 // ESPN's lookup failed or he is out of the NFL. Week 0 is before the season's first week.

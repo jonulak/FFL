@@ -187,6 +187,7 @@ refuses any other without `--live`. `data/` is gitignored caches.
 - **ESPN writes.** `POST /lineup`, `/roster/sit`, `/claims*` re-read ESPN's roster, take a per-league lock, validate,
   write through `espn_write`, record a decision, then read the page back. Claims: a claim is one add plus at most one
   drop and cancels when either is gone (`ffl/claims.py`).
+- **Trade pricing.** `season.trade_delta` (`GET /trade`, the sheet on `/team/<id>`) spreads each player's `ros_adj` over the games he can play and sums each side's best lineup week by week to week 18, so a backup counts when a bye or a known absence starts him. It reads `league_pool`, whose rows carry form. Injuries not yet happened and matchups are not counted, and it never writes to ESPN.
 - **Web.** Server components fetch the API through a `/api/*` rewrite. The open league is the URL's `?league=`
   (`web/proxy.ts` -> `x-ffl-league`); `components/league-link.tsx` carries it onto every link; the switcher changes
   league by a full page load.

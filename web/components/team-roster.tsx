@@ -28,6 +28,7 @@ import { NAME_LINK } from "@/lib/player-log";
 import { LiveChip } from "./live-chip";
 import { Presence, Swap, Ticker, useReorder } from "./motion";
 import { Outlook, OutlookAge, outlookAgeLabel } from "./outlook";
+import { TradeSheet } from "./trade-sheet";
 
 // Any team's roster as a plain list (tap a team's name anywhere): no calls, just who they have and
 // what each is worth this week, and each player's outlook behind a chevron (the Roster row's disclosure). Starters in slot order with the slot down the left
@@ -188,6 +189,7 @@ export function TeamRosterView({ initial, path }: { initial: TeamRoster; path: s
             <LiveChip on={gameOn(data.side.lineup)} />
             <StaleBadge since={data.stale_since} />
           </p>
+          {!data.mine && <TradeSheet team={club.team_id} name={club.team} abbrev={club.abbrev} />}
         </div>
       </header>
       <Group title="Starters" players={side.lineup} slots week={week} now={now}
