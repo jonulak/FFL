@@ -3,9 +3,14 @@ import { SLOT_LABEL } from "./board";
 
 export const marketValue = (n: number) => n.toLocaleString("en-US");
 
-export function marketLine({ send, get, unpriced }: TradeMarket): string {
-  const line = `you send ${marketValue(send)} · you get ${marketValue(get)}`;
-  return unpriced ? `${line} · ${unpriced} unpriced` : line;
+export const marketDelta = (n: number) => `${n < 0 ? "−" : "+"}${marketValue(Math.abs(n))}`;
+
+// Only the players in the trade: each side goes from what it gives up to what it receives.
+export function marketSides({ send, get }: TradeMarket) {
+  return {
+    me: { delta: get - send, before: send, after: get },
+    them: { delta: send - get, before: get, after: send },
+  };
 }
 
 export function tradePath(team: number, give: number[], get: number[]): string {

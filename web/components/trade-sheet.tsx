@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Trade, TradePlayer, TradeSide } from "@/lib/api";
 import { HEALTHY, LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, shortName, signed } from "@/lib/format";
-import { holeLines, marketLine, marketValue, tradePath } from "@/lib/trade";
+import { holeLines, marketDelta, marketSides, marketValue, tradePath } from "@/lib/trade";
 import { PHONE_INSET } from "./claims-submit";
 import { Spinner, Ticker } from "./motion";
 import { TeamPanel } from "./player-media";
@@ -27,27 +27,36 @@ const delta = (n: number) => signed(n, 1);
 const flip = (ids: number[], id: number) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]);
 const ROSTER = "-mx-2 min-h-0 flex-1 overflow-y-auto overscroll-contain";
 
-function SidePrice({ label, s, end }: { label: string; s: TradeSide; end?: boolean }) {
+function Change({ n, format, unit, from, to, end }: { n: number; format: (n: number) => string; unit: string; from: string; to: string; end?: boolean }) {
+  return (
+    <>
+      <p className={`mt-1 flex items-baseline gap-1 font-display tabular-nums ${end ? "justify-end" : ""}`}>
+        {/* a loss steps back to 70% ink, as in the play feed: no verdict colour says who won */}
+        <span className={`text-[2rem] font-bold leading-none tracking-tight ${n < 0 ? "text-foreground/70" : ""}`}>
+          <Ticker value={n} format={format} />
+        </span>
+        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{unit}</span>
+      </p>
+      <p className="mt-1 whitespace-nowrap text-xs tabular-nums text-muted-foreground">{from} → {to}</p>
+    </>
+  );
+}
+
+function SidePrice({ label, s, market, end }: { label: string; s: TradeSide; market?: { delta: number; before: number; after: number }; end?: boolean }) {
   const notes = [...holeLines(s.holes), ...s.cut.map((c) => `Would cut ${c.name}`)];
   return (
     <div className={`min-w-0 ${end ? "text-right" : ""}`}>
       <p className={LABEL}>{label}</p>
-      <p className={`mt-1 flex items-baseline gap-1 font-display tabular-nums ${end ? "justify-end" : ""}`}>
-        {/* a loss steps back to 70% ink, as in the play feed: no verdict colour says who won */}
-        <span className={`text-[2rem] font-bold leading-none tracking-tight ${s.delta < 0 ? "text-foreground/70" : ""}`}>
-          <Ticker value={s.delta} format={delta} />
-        </span>
-        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">pts</span>
-      </p>
-      <p className="mt-1 whitespace-nowrap text-xs tabular-nums text-muted-foreground">{s.before.toFixed(1)} → {s.after.toFixed(1)}</p>
+      <Change n={s.delta} format={delta} unit="pts" from={s.before.toFixed(1)} to={s.after.toFixed(1)} end={end} />
+      {market && <div className="mt-2"><Change n={market.delta} format={marketDelta} unit="mkt" from={marketValue(market.before)} to={marketValue(market.after)} end={end} /></div>}
       {notes.map((n) => <p key={n} className="mt-1 text-xs text-pretty text-foreground/85">{n}</p>)}
     </div>
   );
 }
 
-function RowNumber({ value, unit, step }: { value: string; unit: string; step?: boolean }) {
+function RowNumber({ value, unit }: { value: string; unit: string }) {
   return (
-    <span className={`w-12 text-right font-display tabular-nums ${step ? "text-foreground/70" : ""}`}>
+    <span className="w-12 text-right font-display tabular-nums">
       <span className="block text-lg font-semibold leading-none">{value}</span>
       <span className="mt-1 block text-[0.6875rem] font-semibold uppercase leading-none tracking-[0.12em] text-muted-foreground">{unit}</span>
     </span>
@@ -76,7 +85,7 @@ function PlayerRow({ p, on, flip, week, market }: { p: TradePlayer; on: boolean;
         </span>
         <span className="flex gap-2">
           <RowNumber value={p.ros_adj.toFixed(1)} unit="ros" />
-          {market && <RowNumber value={p.market == null ? "–" : marketValue(p.market)} unit="mkt" step />}
+          {market && <RowNumber value={p.market == null ? "–" : marketValue(p.market)} unit="mkt" />}
         </span>
       </Item>
     </li>
@@ -114,6 +123,7 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
   const week = data?.ros_week ?? 0;
   // no values at all (an outage, or switched off): no column of dashes
   const market = !!data && [...data.me, ...data.them].some((p) => p.market != null);
+  const sides = data?.price?.market ? marketSides(data.price.market) : undefined;
   const body = (
     <>
       <div className="pr-10">
@@ -128,16 +138,14 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
       <div aria-live="polite" className="min-h-[6.5rem] border-y border-foreground/10 py-3">
         {data?.price ? (
           <div className="grid grid-cols-2 gap-4">
-            <SidePrice label="You" s={data.price.me} />
-            <SidePrice label={abbrev || "Them"} s={data.price.them} end />
+            <SidePrice label="You" s={data.price.me} market={sides?.me} />
+            <SidePrice label={abbrev || "Them"} s={data.price.them} market={sides?.them} end />
             {data.price.market && (
-              <div className="col-span-2 border-t border-foreground/10 pt-2 text-xs tabular-nums text-muted-foreground">
-                <p>
-                  <a href="https://fantasycalc.com" target="_blank" rel="noreferrer" className="font-medium text-foreground/85 underline underline-offset-2">FantasyCalc</a>
-                  {" market: "}{marketLine(data.price.market)}
-                </p>
-                {give.length !== get.length && give.length > 0 && get.length > 0 && <p className="mt-1 text-pretty">A plain sum, so the side sending more players looks richer.</p>}
-              </div>
+              <p className="col-span-2 text-xs text-pretty tabular-nums text-muted-foreground">
+                MKT is <a href="https://fantasycalc.com" target="_blank" rel="noreferrer" className="font-medium text-foreground/85 underline underline-offset-2">FantasyCalc</a> value, traded players only
+                {data.price.market.unpriced > 0 && ` · ${data.price.market.unpriced} unpriced`}
+                {give.length !== get.length && give.length > 0 && get.length > 0 && ". A plain sum, so the side sending more players looks richer."}
+              </p>
             )}
           </div>
         ) : failed ? null : (
@@ -192,7 +200,7 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
   return (
     <>
       <Button variant="outline" size="sm" className={`${LABEL} mt-3 text-foreground max-sm:h-10 max-sm:px-3`} onClick={() => onOpenChange(true)}>
-        <ArrowLeftRight aria-hidden />Price a trade
+        <ArrowLeftRight aria-hidden />Trade
       </Button>
       {desk ? (
         <Dialog open={open} onOpenChange={onOpenChange}>

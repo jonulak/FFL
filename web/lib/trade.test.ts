@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { holeLines, marketLine, tradePath } from "./trade";
+import { holeLines, marketDelta, marketSides, tradePath } from "./trade";
 
-describe("marketLine", () => {
-  it("says both totals with thousands marks", () => {
-    expect(marketLine({ send: 9172, get: 12400, unpriced: 0 })).toBe("you send 9,172 · you get 12,400");
+describe("marketSides", () => {
+  it("reads each side from what it gives up to what it receives", () => {
+    expect(marketSides({ send: 5067, get: 3842, unpriced: 0 })).toEqual({
+      me: { delta: -1225, before: 5067, after: 3842 },
+      them: { delta: 1225, before: 3842, after: 5067 },
+    });
   });
+});
 
-  it("adds who has no value", () => {
-    expect(marketLine({ send: 0, get: 5000, unpriced: 2 })).toBe("you send 0 · you get 5,000 · 2 unpriced");
+describe("marketDelta", () => {
+  it("signs the change with thousands marks and no decimals", () => {
+    expect(marketDelta(1225)).toBe("+1,225");
+    expect(marketDelta(-1225)).toBe("−1,225");
   });
 });
 
