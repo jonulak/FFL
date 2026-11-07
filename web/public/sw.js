@@ -63,6 +63,8 @@ self.addEventListener("push", (event) => {
     }
   }
   event.waitUntil(trace("push", { title: d.title, url: d.url, tag: d.tag }));
+  // The Home Screen icon's count, as Declarative Web Push sets it from notification.app_badge. A refusal costs nothing.
+  if (typeof d.app_badge === "number" && self.navigator.setAppBadge) event.waitUntil(self.navigator.setAppBadge(d.app_badge).catch(() => {}));
   event.waitUntil(
     self.registration.showNotification(d.title || "FFL", {
       body: d.body || "", tag: d.tag, renotify: Boolean(d.tag), icon: "/icon-192.png", badge: "/icon-192.png", data: { url: d.url || "/" },

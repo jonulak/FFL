@@ -115,6 +115,18 @@ def test_gather_reads_the_desk_for_him_and_his_hurt_teammates_only(monkeypatch):
     assert mates["Terrance Ferguson"]["stories"] == [{"id": 1}, {"id": 2}, {"id": 3}], "a hurt teammate's newest three"
     assert "stories" not in mates["Matthew Stafford"], "a healthy teammate's news is not read"
 
+def test_gather_keeps_a_hurt_teammates_written_stories_past_the_spoken_ones(monkeypatch):
+    import ffl.espn_season as es
+    rows = [chart_row("Tyler Higbee", "TE", 1), chart_row("Terrance Ferguson", "TE", 5, injury="IR")]
+    monkeypatch.setattr(news, "fetch_depth", lambda: {"LAR": rows})
+    monkeypatch.setattr(news, "fetch_news_index", lambda week: {
+        77: {"name": "Terrance Ferguson", "pos": "TE", "team": "LAR", "last_news": None}})
+    monkeypatch.setattr(es, "fetch_injuries", lambda: {})
+    newest_first = [{"id": i, "spoken": True} for i in (9, 8, 7, 6)] + [{"id": i, "spoken": False} for i in (5, 4, 3, 2)]
+    monkeypatch.setattr(news, "fetch_desk", lambda names, today: {77: {"stories": newest_first, "lines": []}})
+    mates = news.gather([c("Tyler Higbee", "TE", team="LAR", pid=1)], 7)[1]["teammates"]
+    assert [s["id"] for s in mates[0]["stories"]] == [5, 4, 3], "four new podcast chunks do not push out his report"
+
 def test_has_news():
     today = date(2026, 10, 2)
     quiet = {"teammates": [{"status": "Active"}], "stories": [{"published": "2026-09-15T10:00:00+00:00"}]}
@@ -147,6 +159,16 @@ def test_shape_stories_cites_live_sources_and_quotes_an_unwritten_story():
     assert w["sources"] == [{"site": "Beat Writer", "published": "2026-10-18T11:00:00", "url": "https://x/1"}], \
         "a withdrawn source is gone and one link is cited once, at its newest"
     assert r["headline"] == "title 3" and r["text"].startswith("a long x") and len(r["text"]) == news.DESK_TEXT
+
+def test_shape_stories_marks_a_story_with_only_spoken_live_sources():
+    pod, yt = {**desk_item(1, "2026-10-18T10:00:00"), "source_id": "pod:DET"}, {**desk_item(2, "2026-10-18T11:00:00"), "source_id": "yt:DET"}
+    text = desk_item(3, "2026-10-18T12:00:00")
+    spoken = [s["spoken"] for s in news.shape_stories([
+        desk_story(1, [pod, yt]),
+        desk_story(2, [pod, text]),
+        desk_story(3, [pod, {**text, "withdrawn_at": "gone"}]),
+        desk_story(4, [text])], 1, {})]
+    assert spoken == [True, False, True, False], "a withdrawn written source does not count"
 
 def test_fetch_desk_reads_the_window_and_degrades_to_empty(monkeypatch):
     asked = {}

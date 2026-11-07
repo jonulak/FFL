@@ -13,7 +13,13 @@ export type LeagueEntry = { key: string; name: string; provider: string; format:
 export const API_TIMEOUT_MS = 20_000;
 
 // ffl/notify.py: the Settings page's switches and quiet window, and the outbox rows it lists
-export type NotifyPrefs = { move: boolean; injury: boolean; waivers: boolean; news: boolean; watch: boolean; espn: boolean; quiet: [string, string] };
+export type NotifyKind = "move" | "injury" | "waivers" | "news" | "watch" | "espn";
+export type NotifyPrefs = Record<NotifyKind | `app_${NotifyKind}`, boolean> & { quiet: [string, string] };
+// GET /notifications (ffl/notify.py inbox): the in-app list across the user's leagues. `rows` is what a read or a delete
+// names; `league` is set only when the user has two leagues and the item is one league's.
+export type NotificationRow = { league: string; key: string };
+export type NotificationItem = { title: string; body: string; kind: string; created_at: string; url: string; league: string | null; read: boolean; rows: NotificationRow[] };
+export type Notifications = { unread: number; items: NotificationItem[] };
 // GET /llm/token (admins): whether the CLI has a login (the stored row); never the value.
 export type LlmToken = { set: boolean; source: "db" | null };
 // GET/POST /app/settings (admins): the install's own settings; the YouTube key's value never comes back.
