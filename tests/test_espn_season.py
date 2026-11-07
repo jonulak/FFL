@@ -912,7 +912,7 @@ def test_sources_off_takes_known_names_only_and_warns_once_about_the_rest(monkey
         assert config.source_off("sharks") and not config.source_off("sleeper"), "sleeper has no switch: never off"
         assert not config.source_off("youtube_captions")
     warned = [r.getMessage() for r in caplog.records if r.name == "ffl.config"]
-    assert warned == ["FFL_SOURCES_OFF: ignoring unknown cbs-typo, sleeper (known: sharks, youtube_captions)"]
+    assert warned == ["FFL_SOURCES_OFF: ignoring unknown cbs-typo, sleeper (known: fantasycalc, sharks, youtube_captions)"]
     monkeypatch.delenv("FFL_SOURCES_OFF")
     assert config.sources_off() == frozenset()
 

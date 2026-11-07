@@ -267,8 +267,11 @@ def trade_env(client, monkeypatch):
         return {"player_id": pid, "name": name, "pos": "QB", "team": team, "slot": "QB", "injury": "ACTIVE",
                 "return_week": None, "ros_proj": ros}
     monkeypatch.setattr(api.espn_season, "league_pool", lambda **k: {
-        "ros_week": 16, "settings": {"starters": {"QB": 1}, "roster_size": 2, "team_count": 10}, "byes": {"GB": 17},
+        "ros_week": 16, "byes": {"GB": 17},
+        "settings": {"starters": {"QB": 1}, "roster_size": 2, "team_count": 10,
+                     "scoring_tables": {p: {"rec": 1.0} for p in ("QB", "RB", "WR", "TE")}},
         "teams": {7: [row(1, "Mine", 30), row(2, "My Spare", 3)], 4: [row(3, "Theirs", 45, "GB"), row(4, "Their Spare", 3)]}})
+    monkeypatch.setattr(api.fantasycalc, "values", lambda fmt: {1: 7000, 3: 5000} if fmt == {"numQbs": 1, "numTeams": 10, "ppr": 1} else {})
     api.cache_for(home_league()).clear()
     return client
 
@@ -278,7 +281,20 @@ def test_trade_lists_both_rosters_with_no_price_until_a_player_is_picked(trade_e
     assert body["price"] is None and body["ros_week"] == 16
     assert [p["name"] for p in body["me"]] == ["Mine", "My Spare"]
     assert body["them"][0] == {"player_id": 3, "name": "Theirs", "pos": "QB", "team": "GB", "injury": "ACTIVE",
-                               "return_week": None, "ros_adj": 45, "bye_week": 17}
+                               "return_week": None, "ros_adj": 45, "bye_week": 17, "market": 5000}
+    assert body["them"][1]["market"] is None, "nobody at FantasyCalc lists him"
+
+
+def test_trade_totals_the_market_apart_from_the_lineup_points(trade_env):
+    price = trade_env.get("/trade", params={"team": 4, "give": [1, 2], "get": [3]}).json()["price"]
+    assert price["market"] == {"send": 7000, "get": 5000, "unpriced": 1}
+
+
+def test_trade_still_prices_with_no_market_values(trade_env, monkeypatch):
+    monkeypatch.setattr(api.fantasycalc, "values", lambda fmt: {})
+    body = trade_env.get("/trade", params={"team": 4, "give": [1], "get": [3]}).json()
+    assert body["price"]["market"] is None and body["me"][0]["market"] is None
+    assert body["price"]["me"]["delta"] == 16.0
 
 
 def test_trade_prices_the_picked_players_on_both_sides(trade_env):

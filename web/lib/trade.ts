@@ -1,5 +1,12 @@
-import type { TradeHole } from "./api";
+import type { TradeHole, TradeMarket } from "./api";
 import { SLOT_LABEL } from "./board";
+
+export const marketValue = (n: number) => n.toLocaleString("en-US");
+
+export function marketLine({ send, get, unpriced }: TradeMarket): string {
+  const line = `you send ${marketValue(send)} · you get ${marketValue(get)}`;
+  return unpriced ? `${line} · ${unpriced} unpriced` : line;
+}
 
 export function tradePath(team: number, give: number[], get: number[]): string {
   const q = new URLSearchParams({ team: String(team) });

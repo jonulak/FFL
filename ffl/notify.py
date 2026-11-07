@@ -98,11 +98,12 @@ def waiver_notices(run: str | None, prev_run: str | None, pending: list[dict], m
 
 def source_notices(status: dict, t: datetime, at: str, hours: int = 24) -> list[dict]:
     """One notice per failing spell of a projection source (keyed by when it began) once it passes
-    `hours`: the consensus has been running without it."""
+    `hours`: the consensus has been running without it. Not fantasycalc: no projection reads it, and it is asked only
+    when a trade sheet opens, so one blip would read as failing until the next sheet."""
     out = []
     for name, s in sorted(status.items()):
         since = s.get("failing_since")
-        if not since or t - datetime.fromisoformat(since) < timedelta(hours=hours):
+        if name == "fantasycalc" or not since or t - datetime.fromisoformat(since) < timedelta(hours=hours):
             continue
         out.append({"key": f"source:{name}:{since}", "kind": "source", "title": f"{name} projections failing",
                     "body": f"Since {since[:16].replace('T', ' ')}: {s.get('error')}. Projections run on the other sources.",

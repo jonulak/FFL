@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { holeLines, tradePath } from "./trade";
+import { holeLines, marketLine, tradePath } from "./trade";
+
+describe("marketLine", () => {
+  it("says both totals with thousands marks", () => {
+    expect(marketLine({ send: 9172, get: 12400, unpriced: 0 })).toBe("you send 9,172 · you get 12,400");
+  });
+
+  it("adds who has no value", () => {
+    expect(marketLine({ send: 0, get: 5000, unpriced: 2 })).toBe("you send 0 · you get 5,000 · 2 unpriced");
+  });
+});
 
 describe("tradePath", () => {
   it("names the team alone until a player is picked", () => {

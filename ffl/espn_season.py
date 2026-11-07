@@ -18,7 +18,7 @@ from datetime import date, datetime, timezone
 import requests
 
 from . import calibrate, consensus, db, espn_write, leagues, outlook
-from .sources import cbs, fleaflicker, scoring_key, sharks
+from .sources import cbs, fantasycalc, fleaflicker, scoring_key, sharks
 from . import season as S
 from .adp import norm_name
 from .flight import Flight
@@ -1697,7 +1697,8 @@ def trade_rosters(team_id: int, *, ref: leagues.LeagueRef) -> dict:
     do not). `me` or `them` is None for a team with no roster this week."""
     base = league_pool(ref=ref)
     return {"ros_week": base["ros_week"], "byes": base["byes"], "me": base["teams"].get(my_team_id(None, ref)),
-            "them": base["teams"].get(team_id), "settings": {k: base["settings"][k] for k in ("starters", "roster_size")}}
+            "them": base["teams"].get(team_id), "settings": {k: base["settings"][k] for k in ("starters", "roster_size")},
+            "market_format": fantasycalc.league_format(base["settings"])}
 
 
 def dress_pool(base: dict, *, ref: leagues.LeagueRef) -> dict:

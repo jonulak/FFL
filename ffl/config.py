@@ -41,7 +41,7 @@ def league_url(ref) -> str:
     return _espn_page(ref, "league")
 
 
-SOURCES_KNOWN = frozenset({"sharks", "youtube_captions"})  # the names FFL_SOURCES_OFF can switch off
+SOURCES_KNOWN = frozenset({"fantasycalc", "sharks", "youtube_captions"})  # the names FFL_SOURCES_OFF can switch off
 _WARNED: set[str] = set()
 
 

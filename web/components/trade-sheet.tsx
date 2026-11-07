@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Trade, TradePlayer, TradeSide } from "@/lib/api";
 import { HEALTHY, LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, shortName, signed } from "@/lib/format";
-import { holeLines, tradePath } from "@/lib/trade";
+import { holeLines, marketLine, marketValue, tradePath } from "@/lib/trade";
 import { PHONE_INSET } from "./claims-submit";
 import { Spinner, Ticker } from "./motion";
 import { TeamPanel } from "./player-media";
@@ -45,7 +45,16 @@ function SidePrice({ label, s, end }: { label: string; s: TradeSide; end?: boole
   );
 }
 
-function PlayerRow({ p, on, flip, week }: { p: TradePlayer; on: boolean; flip: () => void; week: number }) {
+function RowNumber({ value, unit, step }: { value: string; unit: string; step?: boolean }) {
+  return (
+    <span className={`w-12 text-right font-display tabular-nums ${step ? "text-foreground/70" : ""}`}>
+      <span className="block text-lg font-semibold leading-none">{value}</span>
+      <span className="mt-1 block text-[0.6875rem] font-semibold uppercase leading-none tracking-[0.12em] text-muted-foreground">{unit}</span>
+    </span>
+  );
+}
+
+function PlayerRow({ p, on, flip, week, market }: { p: TradePlayer; on: boolean; flip: () => void; week: number; market: boolean }) {
   const status = p.injury.replaceAll("_", " ");
   const hurt = !HEALTHY.has(p.injury);
   return (
@@ -65,9 +74,9 @@ function PlayerRow({ p, on, flip, week }: { p: TradePlayer; on: boolean; flip: (
             {hurt && p.return_week != null && p.return_week > week && <span className="whitespace-nowrap">back wk {p.return_week}</span>}
           </span>
         </span>
-        <span className="text-right font-display tabular-nums">
-          <span className="block text-lg font-semibold leading-none">{p.ros_adj.toFixed(1)}</span>
-          <span className="mt-1 block text-[0.6875rem] font-semibold uppercase leading-none tracking-[0.12em] text-muted-foreground">ros</span>
+        <span className="flex gap-2">
+          <RowNumber value={p.ros_adj.toFixed(1)} unit="ros" />
+          {market && <RowNumber value={p.market == null ? "–" : marketValue(p.market)} unit="mkt" step />}
         </span>
       </Item>
     </li>
@@ -103,6 +112,8 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
   const Title = desk ? DialogTitle : SheetTitle;
   const Description = desk ? DialogDescription : SheetDescription;
   const week = data?.ros_week ?? 0;
+  // no values at all (an outage, or switched off): no column of dashes
+  const market = !!data && [...data.me, ...data.them].some((p) => p.market != null);
   const body = (
     <>
       <div className="pr-10">
@@ -119,6 +130,15 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
           <div className="grid grid-cols-2 gap-4">
             <SidePrice label="You" s={data.price.me} />
             <SidePrice label={abbrev || "Them"} s={data.price.them} end />
+            {data.price.market && (
+              <div className="col-span-2 border-t border-foreground/10 pt-2 text-xs tabular-nums text-muted-foreground">
+                <p>
+                  <a href="https://fantasycalc.com" target="_blank" rel="noreferrer" className="font-medium text-foreground/85 underline underline-offset-2">FantasyCalc</a>
+                  {" market: "}{marketLine(data.price.market)}
+                </p>
+                {give.length !== get.length && give.length > 0 && get.length > 0 && <p className="mt-1 text-pretty">A plain sum, so the side sending more players looks richer.</p>}
+              </div>
+            )}
           </div>
         ) : failed ? null : (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -142,7 +162,7 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
           <TabsContent value="give" className={ROSTER}>
             <ul className="space-y-0.5">
               {data.me.map((p) => (
-                <PlayerRow key={p.player_id} p={p} on={give.includes(p.player_id)} week={week}
+                <PlayerRow key={p.player_id} p={p} on={give.includes(p.player_id)} week={week} market={market}
                   flip={() => { const n = flip(give, p.player_id); setGive(n); load(n, get); }} />
               ))}
             </ul>
@@ -150,7 +170,7 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
           <TabsContent value="get" className={ROSTER}>
             <ul className="space-y-0.5">
               {data.them.map((p) => (
-                <PlayerRow key={p.player_id} p={p} on={get.includes(p.player_id)} week={week}
+                <PlayerRow key={p.player_id} p={p} on={get.includes(p.player_id)} week={week} market={market}
                   flip={() => { const n = flip(get, p.player_id); setGet(n); load(give, n); }} />
               ))}
             </ul>
