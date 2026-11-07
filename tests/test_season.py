@@ -905,3 +905,49 @@ def test_settle_at_sunday_last_kickoff():
     from zoneinfo import ZoneInfo as ZI
     NY = ZI("America/New_York")
     assert season.settle_at(datetime(2027, 1, 3, 16, 25, tzinfo=NY)) == datetime(2027, 1, 8, 0, 0, tzinfo=NY)
+
+
+# Trades: priced week by week, weeks 16-18 here. ros_proj set means ros_adj is that number (no form on these rows).
+QB1 = {"starters": {"QB": 1}, "roster_size": 3}
+QB2 = {"starters": {"QB": 2}, "roster_size": 3}
+
+
+def T(pid, name, ros, pos="QB", team="T", **kw):
+    return {**P(pid, name, pos, 0, team=team, **kw), "ros_proj": ros}
+
+
+def test_weekly_points_spread_his_ros_over_the_games_he_can_play():
+    assert season.weekly_points(T(1, "A", 30, team="BYE"), {"BYE": 17}, 16) == {16: 15.0, 18: 15.0}
+    out = T(2, "B", 20, injury="OUT") | {"return_week": 17}
+    assert season.weekly_points(out, {}, 16) == {17: 10.0, 18: 10.0}, "the weeks he is known to miss score nothing"
+    assert season.weekly_points(T(4, "D", 5, injury="INJURY_RESERVE"), {}, 16) == {}, "out for all that is left"
+
+
+def test_a_backup_is_worth_what_he_scores_covering_a_starters_bye():
+    star, spare = T(1, "Star", 60, team="BYE"), T(2, "Spare", 30)  # 30 a game, and 10 a game
+    their_backup = T(3, "Backup", 45)  # 15 a game, so 5 better than Spare in the one week he starts
+    out = season.trade_delta([star, spare, T(4, "Junk", 0)], [T(5, "Other", 90), their_backup], [4], [3], QB1,
+                             {"BYE": 17}, 16)
+    assert out["me"]["before"] == 70.0 and out["me"]["after"] == 75.0 and out["me"]["delta"] == 5.0
+
+
+def test_a_one_for_one_at_a_starter_moves_each_side_by_the_ros_gap():
+    out = season.trade_delta([T(1, "A", 30), T(2, "A2", 3)], [T(3, "B", 45), T(4, "B2", 3)], [1], [3], QB1, {}, 16)
+    assert out["me"]["delta"] == 15.0 and out["them"]["delta"] == -15.0
+
+
+def test_a_hole_is_listed_only_when_the_trade_makes_it():
+    mine = [T(1, "A", 30), T(2, "B", 30, team="BYE")]  # two QBs, one on bye in 17: a hole there before any trade
+    theirs = [T(3, "C", 30), T(4, "D", 30), T(5, "RB", 30, pos="RB")]
+    out = season.trade_delta(mine, theirs, [1], [5], QB2, {"BYE": 17}, 16)
+    assert out["me"]["holes"] == [{"week": 16, "slot": "QB"}, {"week": 17, "slot": "QB"}, {"week": 18, "slot": "QB"}]
+    assert out["them"]["holes"] == []
+
+
+def test_a_side_pushed_over_the_roster_limit_cuts_who_costs_it_least():
+    mine = [T(1, "A", 30), T(2, "B", 30), T(3, "C", 30)]
+    theirs = [T(4, "Starter", 90), T(5, "Cheap", 3), T(6, "Sent", 3),
+              T(7, "Hurt", 900, slot="IR", injury="INJURY_RESERVE")]
+    out = season.trade_delta(mine, theirs, [1, 2], [6], QB1, {}, 16)
+    assert out["them"]["cut"] == [{"player_id": 5, "name": "Cheap"}], "the IR slot is outside the limit: one goes, not two"
+    assert out["me"]["cut"] == []
