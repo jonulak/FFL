@@ -1,0 +1,19 @@
+{
+ "bidAmount": 0,
+ "comment": "",
+ "executionType": "EXECUTE",
+ "id": "decline-1",
+ "isActingAsTeamOwner": false,
+ "isLeagueManager": false,
+ "isPending": false,
+ "memberId": "{SWID}",
+ "proposedDate": 1795044483459,
+ "rating": 0,
+ "relatedTransactionId": "trade-1",
+ "scoringPeriodId": 11,
+ "skipTransactionCounters": false,
+ "status": "EXECUTED",
+ "subOrder": 0,
+ "teamId": 7,
+ "type": "TRADE_DECLINE"
+}

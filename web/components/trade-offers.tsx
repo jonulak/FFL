@@ -10,8 +10,8 @@ import { TradeSheet } from "./trade-sheet";
 
 // My pending trade offers off ESPN, sent and received, above the roster. Read after the page paints: the read is ESPN's
 // pending document, a second or two, and the roster must not wait on it. Review opens the trade sheet on the offer's
-// players. Answering stays on ESPN for now.
-export function TradeOffers() {
+// players, and an offer to me is answered at the sheet's foot; an answered one leaves the list.
+export function TradeOffers({ writes }: { writes: boolean }) {
   const [offers, setOffers] = useState<TradeOffer[]>([]);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -30,8 +30,10 @@ export function TradeOffers() {
               {o.expires && <ItemDescription className="text-xs tabular-nums">{expiresLabel(o.expires)}</ItemDescription>}
             </ItemContent>
             <ItemActions>
-              <TradeSheet team={o.team.team_id} name={o.team.team} abbrev={o.team.abbrev} className=""
-                offer={{ give: o.give.map((p) => p.player_id), get: o.get.map((p) => p.player_id), label: "Review" }} />
+              <TradeSheet team={o.team.team_id} name={o.team.team} abbrev={o.team.abbrev} className="" writes={writes}
+                offer={{ id: o.incoming ? o.id : undefined, give: o.give.map((p) => p.player_id), get: o.get.map((p) => p.player_id),
+                  label: "Review" }}
+                onAnswered={() => setOffers((os) => os.filter((x) => x.id !== o.id))} />
             </ItemActions>
           </Item>
         </li>

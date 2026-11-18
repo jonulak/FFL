@@ -283,6 +283,33 @@ def test_add_free_agent_executed_is_landed(monkeypatch):
     W.add_free_agent(101, 1, 5, ref=home_league())
 
 
+def test_trade_answer_body_declines_as_espn_sent_it():
+    sent = fx("trade_decline_request.json")
+    assert W.trade_answer_body(sent["relatedTransactionId"], False, sent["scoringPeriodId"], sent["teamId"], "{SWID}") == sent
+
+
+def test_trade_answer_body_accepts_with_only_the_type_changed():
+    sent = fx("trade_decline_request.json")
+    assert W.trade_answer_body("trade-1", True, 11, 7, "{SWID}") == {**sent, "type": "TRADE_ACCEPT"}
+
+
+def test_answer_trade_returns_espns_status(monkeypatch):
+    _live_add(monkeypatch, fx("trade_decline_response.json"))
+    assert W.answer_trade("trade-1", False, 11, ref=home_league()) == "EXECUTED"
+
+
+def test_answer_trade_with_no_status_is_a_write_error(monkeypatch):
+    _live_add(monkeypatch, [])
+    with pytest.raises(W.WriteError):
+        W.answer_trade("trade-1", True, 11, ref=home_league())
+
+
+def test_answer_trade_writes_off_keeps_the_answer_in_the_fake(monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "0")
+    assert W.answer_trade("trade-1", True, 11, ref=home_league()) == "EXECUTED"
+    assert W._fake(home_league()).answers == [{"id": "trade-1", "accept": True}]
+
+
 def test_reorder_body_matches_what_espn_sent():
     sent = fx("reorder_request.json")
     assert W.reorder_body([r["id"] for r in sent]) == sent

@@ -323,6 +323,30 @@ def test_trades_says_espn_failed_rather_than_no_offers(client, monkeypatch):
     assert r.status_code == 502 and r.json()["detail"] == api.espn_write.UNREACHABLE
 
 
+def _offer(incoming=True):
+    return {"id": "trade-1", "team": {"team_id": 4, "team": "Bears", "abbrev": "BRS"}, "incoming": incoming,
+            "give": [{"player_id": 1, "name": "Mine"}], "get": [{"player_id": 3, "name": "Theirs"}],
+            "proposed": None, "expires": None}
+
+
+def test_answer_trade_declines_an_open_offer_and_records_it(client, monkeypatch):
+    monkeypatch.setenv("FFL_RECORD_FAKE", "1")
+    monkeypatch.setattr(api.espn_season, "trade_offers", lambda max_age=0, *, ref: [_offer()])
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "period", 11)
+    body = client.post("/trades/trade-1/answer", json={"accept": False}).json()
+    assert body["status"] == "EXECUTED" and body["decision"]["id"]
+    assert api.espn_write._fake(home_league()).answers == [{"id": "trade-1", "accept": False}]
+    (row,) = db.decisions(ref=home_league())
+    assert row["kind"] == "trade" and row["title"] == "[fake] Week 11 trade declined: Theirs for Mine"
+
+
+@pytest.mark.parametrize("offers", [[], [_offer(incoming=False)]])
+def test_answer_trade_refuses_an_offer_gone_or_my_own(client, monkeypatch, offers):
+    monkeypatch.setattr(api.espn_season, "trade_offers", lambda max_age=0, *, ref: offers)
+    r = client.post("/trades/trade-1/answer", json={"accept": True})
+    assert r.status_code == 409 and api.espn_write._fake(home_league()).answers == []
+
+
 def test_trade_offers_names_the_team_and_players(monkeypatch):
     from ffl import espn_season, espn_write
     monkeypatch.setattr(espn_write, "trade_offers", lambda max_age=0, *, ref: [

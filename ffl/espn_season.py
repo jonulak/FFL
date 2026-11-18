@@ -1704,10 +1704,10 @@ def trade_rosters(team_id: int, *, ref: leagues.LeagueRef) -> dict:
 OFFER_READ_S = 60  # the tick's waiver step has usually just read the same pending document
 
 
-def trade_offers(*, ref: leagues.LeagueRef) -> list[dict]:
+def trade_offers(max_age: float = OFFER_READ_S, *, ref: leagues.LeagueRef) -> list[dict]:
     """My pending trade offers, sent and received (espn_write.trade_offers), the other team as the League page shows
     it and each player by name. Raises WriteError when ESPN can't be read."""
-    offers = espn_write.trade_offers(OFFER_READ_S, ref=ref)
+    offers = espn_write.trade_offers(max_age, ref=ref)
     if not offers:
         return []
     lg = fresh_league(ref)

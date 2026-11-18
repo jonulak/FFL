@@ -47,6 +47,7 @@ class _Fake:
     period: int | None = None  # ESPN's scoring period; None means "the plan week"
     last_run: str | None = None  # the last waiver run, local ISO
     slots: dict[int, str] = field(default_factory=dict)  # player id -> the slot a fake move put him in
+    answers: list[dict] = field(default_factory=list)  # trade offers answered: {id, accept}
 
 _FAKES: dict[tuple[str, int | None], _Fake] = {}  # (league, team): a team's fake moves are its own
 _IDS = itertools.count(1)  # global, so a fake claim id is unique across leagues
@@ -172,6 +173,14 @@ def parse_pending(doc: dict, team_id: int) -> list[dict]:
         out.append({"id": str(t["id"]), "add": int(add), "drop": None if drop is None else int(drop),
                     "priority": t.get("subOrder")})
     return out
+
+
+def trade_answer_body(trade_id: str, accept: bool, week: int, team_id: int, member_id: str) -> dict:
+    # A decline as ESPN's site sent it (2026-11-18, tests/fixtures/espn_write/trade_decline_request.json).
+    # shortcut: the accept is that body with TRADE_ACCEPT, never captured; record a real accept and pin it
+    return {"isLeagueManager": False, "teamId": team_id, "type": "TRADE_ACCEPT" if accept else "TRADE_DECLINE",
+            "memberId": member_id, "scoringPeriodId": week, "executionType": "EXECUTE", "comment": "",
+            "relatedTransactionId": trade_id}
 
 
 def _local(ms: int | None) -> str | None:
@@ -359,6 +368,19 @@ def cancel_claim(claim_id: str, week: int, *, ref) -> None:
         return
     c = _own(ref)
     _post(cancel_body(claim_id, week, _team_id(ref=ref), c.swid), cookies=c, ref=ref)
+
+
+def answer_trade(trade_id: str, accept: bool, week: int, *, ref) -> str:
+    """Accept or decline an offer to my team; returns ESPN's status for the answer (a decline came back EXECUTED; an
+    accept in a league with a review period may not). Raises WriteError when ESPN refuses or answers with no status."""
+    if not _writes():
+        _fake(ref).answers.append({"id": trade_id, "accept": accept})
+        return "EXECUTED"
+    c = _own(ref)
+    res = _post(trade_answer_body(trade_id, accept, week, _team_id(ref=ref), c.swid), cookies=c, ref=ref)
+    if not isinstance(res, dict) or not res.get("status"):
+        raise WriteError(200, "trade answer sent but ESPN's reply carries no status")
+    return str(res["status"])
 
 
 def add_free_agent(add: int, drop: int | None, week: int, *, ref) -> None:

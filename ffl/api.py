@@ -1476,6 +1476,44 @@ def trades(ref: LeagueRef = Depends(open_league)):
         raise HTTPException(502, e.message) from e
 
 
+class TradeAnswerIn(BaseModel):
+    accept: bool
+
+
+@app.post("/trades/{trade_id}/answer")
+def answer_trade(trade_id: str, body: TradeAnswerIn, ref: LeagueRef = Depends(open_league)):
+    """Accept or decline an offer to my team on ESPN, after a fresh read says it is still open and not my own; the
+    answer is recorded as a decision. Answers ESPN's status for it."""
+    c = cache_for(ref)
+    lock = _lock("trade", ref)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, "a trade answer is already running")
+    try:
+        try:
+            offer = next((o for o in espn_season.trade_offers(0, ref=ref) if o["id"] == trade_id), None)
+            _, period = espn_write.pending_state(JUST_READ_S, ref=ref)  # the same read: ESPN's week, what its body wants
+        except espn_write.WriteError as e:
+            raise _espn_error(e)
+        if offer is None or not offer["incoming"]:
+            raise HTTPException(409, {"error": "That offer is no longer open on ESPN — reload"})
+        week = period or espn_season.fresh_league(ref).current_week
+        try:
+            status = espn_write.answer_trade(trade_id, body.accept, week, ref=ref)
+        except espn_write.WriteError as e:
+            raise _espn_error(e)
+        except requests.RequestException:  # ESPN may have taken it before the connection died: recorded all the same
+            status = "NO ANSWER"
+        entry = season.trade_entry(offer, body.accept, status, week)
+        dec = _record(_mark_fake(entry), ref=ref) if _records(ref=ref) else None
+        if body.accept or status == "NO ANSWER":  # both rosters may have changed (or will, after review)
+            c.drop_prefixes(("roster", "team:"))
+        if status == "NO ANSWER":
+            raise HTTPException(502, {"source": "espn", "error": "ESPN did not answer — the trade may have gone through; check ESPN"})
+        return {"status": status, "decision": dec}
+    finally:
+        lock.release()
+
+
 def _nfl_board(week: int, *, ref: LeagueRef) -> dict | None:
     """My Matchup board in the open league for `week`, live points laid on, for the NFL pages. The board failing
     (ESPN fantasy down) answers None: the pages go unmarked, never unserved."""

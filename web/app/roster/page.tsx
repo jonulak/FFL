@@ -27,7 +27,7 @@ export default async function Page() {
         <ShareButton kind="roster" week={data.week} className="ml-auto" />
         <PositionCaps caps={data.position_caps} className="basis-full" />
       </div>
-      <TradeOffers />
+      <TradeOffers writes={data.writes} />
       <RosterLive initial={data} />
     </div>
   );
