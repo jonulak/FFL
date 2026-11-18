@@ -1466,6 +1466,16 @@ def trade(team: int, give: list[int] = Query(default=[]), get: list[int] = Query
             "price": price}
 
 
+@app.get("/trades")
+def trades(ref: LeagueRef = Depends(open_league)):
+    """My pending trade offers, sent and received (the Roster page's cards). An unreadable ESPN is a 502, never "none"."""
+    try:
+        return {"offers": espn_season.trade_offers(ref=ref)}
+    except espn_write.WriteError as e:
+        log.warning("trade offers not read: %s", e)  # the page shows only e.message
+        raise HTTPException(502, e.message) from e
+
+
 def _nfl_board(week: int, *, ref: LeagueRef) -> dict | None:
     """My Matchup board in the open league for `week`, live points laid on, for the NFL pages. The board failing
     (ESPN fantasy down) answers None: the pages go unmarked, never unserved."""

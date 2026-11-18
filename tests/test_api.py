@@ -309,6 +309,32 @@ def test_trade_refuses_a_player_who_is_not_on_the_named_roster(trade_env, params
     assert trade_env.get("/trade", params=params).status_code == 400
 
 
+def test_trades_lists_my_offers_as_read(client, monkeypatch):
+    offer = {"id": "trade-1", "team": {"team_id": 4}, "give": [], "get": [], "incoming": True, "proposed": None, "expires": None}
+    monkeypatch.setattr(api.espn_season, "trade_offers", lambda **k: [offer])
+    assert client.get("/trades").json() == {"offers": [offer]}
+
+
+def test_trades_says_espn_failed_rather_than_no_offers(client, monkeypatch):
+    def down(**k):
+        raise api.espn_write.WriteError(0, "timeout")
+    monkeypatch.setattr(api.espn_season, "trade_offers", down)
+    r = client.get("/trades")
+    assert r.status_code == 502 and r.json()["detail"] == api.espn_write.UNREACHABLE
+
+
+def test_trade_offers_names_the_team_and_players(monkeypatch):
+    from ffl import espn_season, espn_write
+    monkeypatch.setattr(espn_write, "trade_offers", lambda max_age=0, *, ref: [
+        {"id": "t", "team": 4, "give": [1], "get": [9], "incoming": True, "proposed": None, "expires": None}])
+    lg = SimpleNamespace(teams=[SimpleNamespace(team_id=4, team_name="Bears", team_abbrev="BRS", wins=1, losses=2, ties=0,
+                                                owners=[], logo_url="")], player_map={1: "Mine"})
+    monkeypatch.setattr(espn_season, "fresh_league", lambda ref: lg)
+    (o,) = espn_season.trade_offers(ref=home_league())
+    assert (o["team"]["team"], o["team"]["abbrev"]) == ("Bears", "BRS")
+    assert (o["give"], o["get"]) == ([{"player_id": 1, "name": "Mine"}], [{"player_id": 9, "name": "Player 9"}])
+
+
 @pytest.mark.parametrize("team", [7, 99])
 def test_trade_needs_another_team_in_the_league(trade_env, team):
     assert trade_env.get("/trade", params={"team": team}).status_code == 404

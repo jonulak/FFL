@@ -36,6 +36,28 @@ def test_cancel_body_matches_what_espn_sent():
     assert body == sent
 
 
+def test_parse_trades_reads_an_incoming_offer_from_my_side():
+    local = lambda ms: datetime.fromtimestamp(ms / 1000).astimezone().isoformat(timespec="seconds")  # noqa: E731
+    assert W.parse_trades(fx("trade_pending.json"), team_id=7) == [
+        {"id": "trade-1", "team": 1, "give": [4880281], "get": [4366031, 4685702], "incoming": True,
+         "proposed": local(1795037473536), "expires": local(1795210273568)}]
+
+
+def test_parse_trades_reads_my_own_offer_as_outgoing_and_the_other_side_mirrored():
+    assert [(o["team"], o["give"], o["get"], o["incoming"]) for o in W.parse_trades(fx("trade_pending.json"), team_id=1)] == \
+        [(7, [4366031, 4685702], [4880281], False)]
+
+
+def test_parse_trades_skips_claims_answered_offers_and_trades_of_other_teams():
+    doc = fx("trade_pending.json")
+    offer = doc["pendingTransactions"][0]
+    doc["pendingTransactions"] += [{**offer, "id": "done", "status": "CANCELED"},
+                                   {**fx("pending_response.json")["pendingTransactions"][0], "teamId": 7}]
+    assert [o["id"] for o in W.parse_trades(doc, team_id=7)] == ["trade-1"]
+    assert W.parse_trades(doc, team_id=4) == [], "a trade between two other teams is none of mine"
+    assert W.parse_pending(doc, team_id=7) != [] and all(c["id"] != "trade-1" for c in W.parse_pending(doc, team_id=7))
+
+
 def test_parse_pending_reads_the_fixture_in_sub_order():
     doc = fx("pending_response.json")
     # the fixture's array order is the reverse of priority

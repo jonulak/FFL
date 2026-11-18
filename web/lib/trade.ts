@@ -1,4 +1,13 @@
-import type { TradeHole, TradeMarket } from "./api";
+import type { TradeHole, TradeMarket, TradeOffer } from "./api";
+
+const names = (ps: { name: string }[]) => ps.map((p) => p.name).join(", ");
+
+export const offerLine = (o: Pick<TradeOffer, "give" | "get">) => `You get ${names(o.get)} for ${names(o.give)}`;
+
+export function expiresLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  return `Expires ${new Date(iso).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}`;
+}
 import { SLOT_LABEL } from "./board";
 
 export const marketValue = (n: number) => n.toLocaleString("en-US");

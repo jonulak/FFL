@@ -48,7 +48,6 @@ class _Fake:
     last_run: str | None = None  # the last waiver run, local ISO
     slots: dict[int, str] = field(default_factory=dict)  # player id -> the slot a fake move put him in
 
-
 _FAKES: dict[tuple[str, int | None], _Fake] = {}  # (league, team): a team's fake moves are its own
 _IDS = itertools.count(1)  # global, so a fake claim id is unique across leagues
 _READ: dict[tuple[str, int | None], tuple[float, dict]] = {}  # (league, team) -> its last pending read and when (monotonic)
@@ -175,6 +174,29 @@ def parse_pending(doc: dict, team_id: int) -> list[dict]:
     return out
 
 
+def _local(ms: int | None) -> str | None:
+    return None if ms is None else datetime.fromtimestamp(ms / 1000).astimezone().isoformat(timespec="seconds")
+
+
+def parse_trades(doc: dict, team_id: int) -> list[dict]:
+    """My team's pending trade proposals, sent or received, from my side: the other team, who I give and get, and
+    when ESPN offered it and when it lapses (local ISO). Shape from a real incoming offer
+    (tests/fixtures/espn_write/trade_pending.json)."""
+    out = []
+    for t in doc.get("pendingTransactions", []):
+        if t.get("type") != "TRADE_PROPOSAL" or t.get("status") != "PENDING":
+            continue
+        items = [i for i in t.get("items", []) if i.get("type") == "TRADE"]
+        give = [i["playerId"] for i in items if i.get("fromTeamId") == team_id]
+        get = [i["playerId"] for i in items if i.get("toTeamId") == team_id]
+        others = {i.get(k) for i in items for k in ("fromTeamId", "toTeamId")} - {team_id}
+        if not (give or get) or len(others) != 1:  # ESPN trades are between two teams
+            continue
+        out.append({"id": t["id"], "team": others.pop(), "give": give, "get": get, "incoming": t.get("teamId") != team_id,
+                    "proposed": _local(t.get("proposedDate")), "expires": _local(t.get("expirationDate"))})
+    return out
+
+
 def reorder_body(ids: list[str]) -> list[dict]:
     """ESPN's reorder call: every pending claim's id with its new priority, 1 first."""
     return [{"id": i, "subOrder": n} for n, i in enumerate(ids, 1)]
@@ -280,6 +302,12 @@ def pending_state(max_age: float = 0, *, ref) -> tuple[list[dict], int | None]:
         return parse_pending(doc, team), None if period is None else int(period)
     except (AttributeError, KeyError, TypeError, ValueError) as e:  # an answer this code cannot read (a row with no id)
         raise WriteError(0, f"unreadable pending claims ({type(e).__name__}: {e})"[:300]) from e
+
+
+def trade_offers(max_age: float = 0, *, ref) -> list[dict]:
+    """My team's pending trade proposals (parse_trades) off the pending read. ESPN's even under FFL_WRITES=0: nothing
+    of ours makes or answers one, so there is no fake to show instead."""
+    return parse_trades(_pending_doc(max_age, ref=ref), ref.team_id)
 
 
 def last_waiver_run(max_age: float = 0, *, ref) -> str | None:

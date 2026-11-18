@@ -93,7 +93,10 @@ function PlayerRow({ p, on, flip, week, market }: { p: TradePlayer; on: boolean;
   );
 }
 
-export function TradeSheet({ team, name, abbrev }: { team: number; name: string; abbrev: string }) {
+// `offer`: the picks to open on (an offer from ESPN) and the button's words in place of TRADE.
+export function TradeSheet({ team, name, abbrev, offer, className = "mt-3" }: {
+  team: number; name: string; abbrev: string; offer?: { give: number[]; get: number[]; label: string }; className?: string;
+}) {
   const desk = useDesk();
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -191,17 +194,18 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
   const onOpenChange = (o: boolean) => {
     setOpen(o);
     if (o) {
-      setGive([]);
-      setGet([]);
-      load([], []);
+      const g = offer?.give ?? [], r = offer?.get ?? [];
+      setGive(g);
+      setGet(r);
+      load(g, r);
     } else {
       last.current++; // an answer still on its way is for a sheet that has closed
     }
   };
   return (
     <>
-      <Button variant="outline" size="sm" className={`${LABEL} mt-3 text-foreground max-sm:h-10 max-sm:px-3`} onClick={() => onOpenChange(true)}>
-        <ArrowLeftRight aria-hidden />Trade
+      <Button variant="outline" size="sm" className={`${LABEL} ${className} text-foreground max-sm:h-10 max-sm:px-3`} onClick={() => onOpenChange(true)}>
+        <ArrowLeftRight aria-hidden />{offer?.label ?? "Trade"}
       </Button>
       {desk ? (
         <Dialog open={open} onOpenChange={onOpenChange}>

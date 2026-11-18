@@ -3,6 +3,7 @@ import { PositionCaps } from "@/components/position-caps";
 import { RosterLive } from "@/components/roster-live";
 import { ShareButton } from "@/components/share-button";
 import { StaleBadge } from "@/components/stale-badge";
+import { TradeOffers } from "@/components/trade-offers";
 import { apiGet, type Roster } from "@/lib/api";
 import { errorFields } from "@/lib/errors";
 
@@ -26,6 +27,7 @@ export default async function Page() {
         <ShareButton kind="roster" week={data.week} className="ml-auto" />
         <PositionCaps caps={data.position_caps} className="basis-full" />
       </div>
+      <TradeOffers />
       <RosterLive initial={data} />
     </div>
   );
