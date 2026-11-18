@@ -33,7 +33,8 @@ function Change({ n, format, unit, from, to, end }: { n: number; format: (n: num
       <p className={`mt-1 flex items-baseline gap-1 font-display tabular-nums ${end ? "justify-end" : ""}`}>
         {/* a loss steps back to 70% ink, as in the play feed: no verdict colour says who won */}
         <span className={`text-[2rem] font-bold leading-none tracking-tight ${n < 0 ? "text-foreground/70" : ""}`}>
-          <Ticker value={n} format={format} />
+          {/* answers a tap, so it can't take the routine change's time: these jumps would all hit its 900ms cap */}
+          <Ticker value={n} format={format} duration={250} />
         </span>
         <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{unit}</span>
       </p>
