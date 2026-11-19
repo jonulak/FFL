@@ -42,7 +42,7 @@ uv run python -m ffl.journal sync      # transactions + weekly results into the 
 uv run python -m ffl.playbook backfill 1-6   # finished weeks' NFL plays from ESPN's drives
 uv run python -m ffl.newsdesk run      # one news-desk run; `seed`, `status`, `bench [freeze] [--player X] [--write] [--refresh]`
 uv run python -m ffl.decisions list --open   # decisions missing a rationale or outcome; add / outcome / rationale / show / export
-uv run python -m ffl.calibrate         # score the usage-adjusted ROS blend's K; `winprob`, `sources [--activate <fitted_at>]`, `wednesday`
+uv run python -m ffl.calibrate         # score the usage-adjusted ROS blend's K; `winprob`, `wednesday`
 uv run python -m ffl.pace              # who is beating his projection, every roster + the wire
 uv run python -m ffl.sources compare   # projection sources compared per rostered player; `status`
 uv run python -m ffl.props score       # the props experiment's scoring

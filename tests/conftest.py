@@ -213,12 +213,10 @@ def _fake_embedder(request, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _sources_reset():
-    from ffl import consensus, sources
+    from ffl import sources
     sources.reset()
-    consensus.forget()
     yield
     sources.reset()
-    consensus.forget()
 
 
 @pytest.fixture(autouse=True)
