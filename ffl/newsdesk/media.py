@@ -40,6 +40,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 import requests
+import urllib3  # requests' own transport: tells a dropped connection from a refused one
 from youtube_transcript_api import (NoTranscriptFound, RequestBlocked, TranscriptsDisabled, VideoUnplayable,
                                     YouTubeRequestFailed, YouTubeTranscriptApi)
 
@@ -243,7 +244,7 @@ def transcribe_pending(index: Index, now: datetime | None = None) -> dict:
     """The queued episodes without a transcript (run_all's `news_pending_audio`), newest first, STT_PER_RUN a run
     within STT_BUDGET_S, each through the stt service and stored like a transcript it shipped with. The service
     unreachable (the profile off, the container down) leaves the queue as it is: `off`. An episode the service
-    answers an error for is tried STT_TRIES times, then dropped; one older than three days is dropped unread."""
+    answers an error for, or drops the connection on (killed mid-episode), is tried STT_TRIES times, then dropped; one older than three days is dropped unread."""
     now = now or datetime.now(timezone.utc)
     at = now.astimezone(timezone.utc).isoformat(timespec="seconds")
     cutoff = collect._utc(now - collect.MAX_AGE)
@@ -262,8 +263,11 @@ def transcribe_pending(index: Index, now: datetime | None = None) -> dict:
             r = requests.post(url.rstrip("/") + "/transcribe", json={"url": ep["audio_url"]}, timeout=STT_TIMEOUT_S,
                               headers={"x-ffl-job": os.environ.get("FFL_JOB_TOKEN", "")})
             reply = r.json() if r.status_code == 200 else {"error": f"stt answered {r.status_code}"}
-        except requests.ConnectionError:  # the service is not there: nothing is wrong with the episode
-            out["off"] = True
+        except requests.ConnectionError as e:
+            if e.args and isinstance(e.args[0], urllib3.exceptions.ProtocolError):  # it took the episode and died
+                errors[ep["source_id"]] = _err(e)
+                continue
+            out["off"] = True  # the service is not there: nothing is wrong with the episode
             ep["tries"] -= 1
             break
         except (requests.RequestException, ValueError) as e:

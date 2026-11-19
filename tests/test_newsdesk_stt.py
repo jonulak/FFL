@@ -3,6 +3,9 @@ the pipeline's last stage (media.transcribe_pending) and stored like a transcrip
 import json as js
 import re
 from datetime import datetime, timedelta, timezone
+from http.client import RemoteDisconnected
+
+from urllib3.exceptions import ProtocolError
 
 from ffl import appconf, db
 from ffl.newsdesk import media, seed
@@ -86,6 +89,12 @@ def test_transcribe_pending_service_off_errors_and_expiry(monkeypatch):
     _post(monkeypatch, media.requests.ConnectionError("refused"))
     assert media.transcribe_pending(INDEX, now=NOW)["off"] is True
     assert db.get_state("news_pending_audio")["new"].get("tries", 0) == 0
+    # the service took the episode and dropped the connection (killed mid-episode): that is this episode's try
+    _post(monkeypatch, media.requests.ConnectionError(ProtocolError("Connection aborted.", RemoteDisconnected())))
+    got = media.transcribe_pending(INDEX, now=NOW)
+    assert got["failed"] == ["pod:LAR"] and got["off"] is False
+    assert db.get_state("news_pending_audio")["new"]["tries"] == 1
+    db.put_state("news_pending_audio", {"new": {**entry, "published_at": "2026-10-15T22:59:00+00:00"}})
     # an error from the service is this episode's: tried STT_TRIES times, then dropped
     for n in range(1, media.STT_TRIES + 1):
         _post(monkeypatch, {"ok": False, "error": "DecodeError: not audio"})

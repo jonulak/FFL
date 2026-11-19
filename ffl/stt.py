@@ -3,7 +3,7 @@
 The `stt` image (Dockerfile.stt) copies this file alone beside the model; the news desk reaches it over HTTP
 (`python -m ffl.stt`, POST /transcribe, FFL_STT_URL), one episode at a time, and only while Settings › App has
 transcription on. The container is always in the stack and cheap when unused: the model (up to 4 GB with an episode
-going through it) loads on the first request and is dropped after IDLE_S without one. The contract:
+going through it) loads for each episode and is dropped after it. The contract:
 
   in   {url}                                          (the episode's audio enclosure)
   out  {ok: true, segs: [{start, text}], seconds, took}  |  {ok: false, error}
@@ -17,6 +17,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -30,35 +31,24 @@ DOWNLOAD_TIMEOUT_S = 120
 USER_AGENT = "ffl-stt/1 (+https://github.com/jonulak/FFL)"
 CHUNK_S = 300  # audio decoded at a time: a whole 64-minute episode passed 5 GiB; in chunks it fits in 4 GiB
 OVERLAP_S = 30  # longer than a segment can be (onnx_asr's VAD stops one at 20 s), so one chunk always hears it whole
-IDLE_S = 1800  # the model is dropped after this long without a request (Settings › App may have switched it off)
 LOCK = threading.Lock()  # one episode at a time: the model is the whole CPU
-_MODEL = None
-_USED = [0.0]  # monotonic time of the last request
 
 
 def load():
-    """The model with silero VAD in front (an episode is minutes; the model takes seconds at a time), loaded on
-    the first call after a start or an unload."""
-    global _MODEL
-    _USED[0] = time.monotonic()
-    if _MODEL is None:
-        import onnx_asr
-        _MODEL = onnx_asr.load_model(MODEL, quantization="int8").with_vad(onnx_asr.load_vad("silero"))
-        print(f"ffl stt: {MODEL} loaded", flush=True)
-    return _MODEL
+    """The model with silero VAD in front (an episode is minutes; the model takes seconds at a time), fresh for each
+    episode: what it holds grows with every episode it hears (2.9 GiB after one show, 4.7 after seven, killed at a
+    5 GiB cap every few hours), and dropping it gives all of it back."""
+    import onnx_asr
+    return onnx_asr.load_model(MODEL, quantization="int8").with_vad(onnx_asr.load_vad("silero"))
 
 
-def unload_idle(now: float | None = None) -> bool:
-    """Drop the model after IDLE_S without a request; True when it did."""
-    global _MODEL
-    with LOCK:
-        if _MODEL is None or (now or time.monotonic()) - _USED[0] < IDLE_S:
-            return False
-        _MODEL = None
+def release() -> None:
+    """The dropped model's memory back to the system: Python's cycles, then glibc's free lists."""
     import gc
     gc.collect()
-    print("ffl stt: model dropped after idling", flush=True)
-    return True
+    if sys.platform == "linux":
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
 
 
 def fetch(url: str, dest) -> int:
@@ -118,6 +108,8 @@ def call(req: dict) -> dict:
         return {"ok": True, **transcribe(url), "took": round(time.monotonic() - started, 1)}
     except Exception as e:  # noqa: BLE001 — a bad URL, a 404, an unreadable file, a model error: this episode's answer
         return {"ok": False, "error": f"{type(e).__name__}: {e}"[:300]}
+    finally:  # after the except: its traceback no longer holds the model
+        release()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -137,7 +129,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path != "/health":
             return self._send(404, {"error": "not_found"})
-        self._send(200, {"ok": True, "model": MODEL, "loaded": _MODEL is not None})
+        self._send(200, {"ok": True, "model": MODEL, "loaded": LOCK.locked()})  # held only while an episode is in
 
     def do_POST(self):  # noqa: N802
         if self.path != "/transcribe":
@@ -166,13 +158,7 @@ def serve(token: str, port: int = PORT, host: str = "0.0.0.0") -> ThreadingHTTPS
 
 def main() -> None:
     srv = serve(os.environ.get("FFL_JOB_TOKEN", ""), int(os.environ.get("FFL_STT_PORT") or PORT))
-
-    def reaper():
-        while True:
-            time.sleep(60)
-            unload_idle()
-    threading.Thread(target=reaper, daemon=True).start()
-    print(f"ffl stt ({MODEL}, loaded on the first request) on :{srv.server_address[1]}", flush=True)
+    print(f"ffl stt ({MODEL}, loaded for each episode) on :{srv.server_address[1]}", flush=True)
     srv.serve_forever()
 
 
