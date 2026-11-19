@@ -68,7 +68,7 @@ Draft pipeline: settings -> players -> adp -> browser + draft_watch. Every draft
 migrates then starts uvicorn on :8300; no Node, no agent CLI), `runner` (`ghcr.io/jonulak/ffl-runner`, `Dockerfile.runner`:
 the standalone `claude` binary behind `ffl/harness.py`, stdlib only, :8310 on the internal network, no published port,
 `x-ffl-job` required), `stt` (`ghcr.io/jonulak/ffl-stt`, `Dockerfile.stt`: Parakeet speech to text behind `ffl/stt.py`,
-:8320, the model loaded on the first request and dropped when idle; used only while Settings › App › Podcast
+:8320, the model loaded for each episode and dropped after it; used only while Settings › App › Podcast
 transcription is on (`appconf.TRANSCRIBE`): the news desk then polls the no-transcript shows (`seed.STT_ONLY`), queues
 their episodes and sends one a run to `FFL_STT_URL`, leaving them queued while it is unreachable), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
 and `jobs` (the api image under busybox crond, `deploy/crontab`: the tick every 15 min, news every 10, outlooks at :05,
