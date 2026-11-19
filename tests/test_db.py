@@ -281,18 +281,6 @@ def test_upsert_dedupe_keeps_first_seen_order_and_serves_do_nothing_and_returnin
     assert [(r.player_id, r.points) for r in got] == [(1, 3.0), (2, 2.0)]
 
 
-def test_source_weights_are_inactive_until_activated():
-    a = db.put_source_weights({"week": {"QB": {"espn": 0.5, "cbs": 0.5}}}, fitted_at="2026-10-14T07:00:00")
-    b = db.put_source_weights({"week": {"QB": {"espn": 0.7, "cbs": 0.3}}}, fitted_at="2026-10-21T07:00:00")
-    assert db.active_source_weights() is None
-    assert [f["fitted_at"] for f in db.source_weight_fits()] == [b, a]
-    assert db.activate_source_weights(a) is True
-    assert db.active_source_weights()["week"]["QB"]["espn"] == 0.5
-    assert db.activate_source_weights(b) is True
-    assert db.active_source_weights()["week"]["QB"]["espn"] == 0.7, "one active row at a time"
-    assert db.activate_source_weights("nope") is False
-
-
 def test_put_box_doc_writes_doc_once_and_moves_fetched_at_every_read():
     assert db.box_doc(5, ref=home_league()) is None
     assert db.put_box_doc(5, {"a": 1}, "h1", 100.0, ref=home_league()) is True

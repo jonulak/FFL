@@ -30,7 +30,7 @@ def provider_limits(league: str, limits: dict) -> None:
 def test_home_strategy_is_seeded():
     home = home_league()
     s = strategy.for_league(home)
-    assert s.key == "2qb-10team" and s.version == 1
+    assert s.key == "2qb-10team" and s.version == 2
     assert s.prose.startswith('# Draft strategy — "2026 Fantasy Football" (ESPN league 100000001)\n')
     assert "## Waivers (in-season, 2026-09-08)" in s.prose and "## Lineup (in-season, 2026-09-08)" in s.prose
     assert s.constants == {"qb_pace": 0.0, "suggested_caps": HOME_CAPS}
@@ -43,8 +43,8 @@ def test_new_league_starts_from_suggested_caps_then_owns_them():
     provider_limits(ref.key, LIMITS)
     assert strategy.caps(ref) == HOME_CAPS
     assert leagues.main(["caps", ref.key, "TE=3"]) == 0
-    add_version("2qb-10team", 2, {"qb_pace": 2.0, "suggested_caps": {**HOME_CAPS, "TE": 1, "RB": 6}})
-    assert strategy.for_league(ref).version == 2
+    add_version("2qb-10team", 3, {"qb_pace": 2.0, "suggested_caps": {**HOME_CAPS, "TE": 1, "RB": 6}})
+    assert strategy.for_league(ref).version == 3
     assert strategy.caps(ref) == {**HOME_CAPS, "TE": 3}, "a new preset version moved a cap the league owns"
 
 
@@ -73,7 +73,7 @@ def test_a_league_without_a_preset_keeps_its_own_caps():
 def test_qb_pace_env_overrides_the_preset(monkeypatch):
     monkeypatch.delenv("FFL_QB_PACE", raising=False)
     assert strategy.qb_pace(ref=home_league()) == 0.0
-    add_version("2qb-10team", 2, {"qb_pace": 3.5, "suggested_caps": HOME_CAPS})
+    add_version("2qb-10team", 3, {"qb_pace": 3.5, "suggested_caps": HOME_CAPS})
     assert strategy.qb_pace(ref=home_league()) == 3.5
     monkeypatch.setenv("FFL_QB_PACE", "10")
     assert strategy.qb_pace(ref=home_league()) == 10.0
@@ -88,12 +88,12 @@ def test_cli_show_and_list(capsys):
     assert capsys.readouterr().out.startswith("# Draft strategy")
     assert strategy.main(["list"]) == 0
     out = capsys.readouterr().out
-    assert "2qb-10team  v1" in out and "espn:100000001" in out
+    assert "2qb-10team  v2" in out and "espn:100000001" in out
 
 
 def test_public_preset_seeded():
     s = db.strategy_row("1qb-10team")
-    assert s["version"] == 1 and s["name"] == "1QB, 10 teams"
+    assert s["version"] == 2 and s["name"] == "1QB, 10 teams"
     assert s["constants"] == {"qb_pace": 0.0, "suggested_caps": LIMITS}, "no caps tighter than the league's own"
     assert s["prose"].startswith("# Draft strategy — 1QB, 10 teams, ESPN standard (full PPR)\n")
     for h in ("## Draft rules (1QB)", "## Waivers (in-season, 2026-09-08)", "## Lineup (in-season, 2026-09-08)"):

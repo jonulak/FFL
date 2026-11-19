@@ -448,7 +448,7 @@ sigma_fits = sa.Table(
 )
 
 # Each projection source's number per player (the league's strategy, "Lineup" (`uv run python -m ffl.strategy show`) / "Waivers"): what the consensus read,
-# kept so `ffl.calibrate sources` can fit per-source weights. kind "week" (that week's game) or "ros" (the
+# kept for a finished week's board (espn_season.recorded_sources). kind "week" (that week's game) or "ros" (the
 # ROS week's rest of season); written until his kickoff, then left alone (espn_season.record_projections).
 projection_rows_table = sa.Table(  # not `projection_rows`: that name is the reader below
     "projection_rows", metadata, _league(), _season(),
@@ -459,16 +459,6 @@ projection_rows_table = sa.Table(  # not `projection_rows`: that name is the rea
     sa.Column("points", sa.Float, nullable=False),
     sa.Column("taken_at", sa.String, nullable=False),
     sa.PrimaryKeyConstraint("league", "season", "week", "kind", "player_id", "source"),
-)
-
-# Fitted per-source weights ({"week": {pos: {source: w}}, "ros": {...}, "report": {...}}); none applies
-# until one is activated by hand (`ffl.calibrate sources --activate <fitted_at>`).
-source_weights = sa.Table(
-    "source_weights", metadata, _season(),
-    sa.Column("fitted_at", sa.String, nullable=False),
-    sa.Column("fit", sa.JSON, nullable=False),
-    sa.Column("active", sa.Boolean, nullable=False, server_default=sa.false()),
-    sa.PrimaryKeyConstraint("season", "fitted_at"),
 )
 
 # A team's waiver claim plan per week: the team's, as ESPN keeps claims per team (co-managers share it).
@@ -1724,39 +1714,6 @@ def projection_rows(kind: str, season: int = SEASON, week: int | None = None, *,
         q = q.where(t.c.week == week)
     with _read() as c:
         return [dict(r._mapping) for r in c.execute(q)]
-
-
-def put_source_weights(fit: dict, season: int = SEASON, fitted_at: str | None = None) -> str:
-    """Store a fitted set of per-source weights, inactive. Returns its fitted_at key."""
-    from datetime import datetime
-    at = fitted_at or datetime.now().isoformat(timespec="seconds")
-    with _write() as c:
-        c.execute(source_weights.insert().values(season=season, fitted_at=at, fit=fit, active=False))
-    return at
-
-
-def source_weight_fits(season: int = SEASON) -> list[dict]:
-    q = (sa.select(source_weights.c.fitted_at, source_weights.c.fit, source_weights.c.active)
-         .where(source_weights.c.season == season).order_by(source_weights.c.fitted_at.desc()))
-    with _read() as c:
-        return [dict(r._mapping) for r in c.execute(q)]
-
-
-def activate_source_weights(fitted_at: str, season: int = SEASON) -> bool:
-    """Make one fit the only active one. False (and no change) when that fit is absent."""
-    t = source_weights
-    with _write() as c:
-        if c.execute(sa.select(t.c.fitted_at).where(t.c.season == season, t.c.fitted_at == fitted_at)).first() is None:
-            return False
-        c.execute(t.update().where(t.c.season == season).values(active=False))
-        c.execute(t.update().where(t.c.season == season, t.c.fitted_at == fitted_at).values(active=True))
-    return True
-
-
-def active_source_weights(season: int = SEASON) -> dict | None:
-    q = sa.select(source_weights.c.fit).where(source_weights.c.season == season, source_weights.c.active.is_(True))
-    with _read() as c:
-        return c.execute(q).scalar()
 
 
 def put_claim_plan(plan: dict, season: int = SEASON, *, ref) -> None:
