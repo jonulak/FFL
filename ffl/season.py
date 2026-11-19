@@ -488,6 +488,57 @@ def waiver_deltas(free_agents: list[dict], my_roster: list[dict], pool: list[dic
     return sorted(rows, key=lambda r: -r["add"])
 
 
+def weekly_points(p: dict, byes: dict[str, int], week: int) -> dict[int, float]:
+    """His `ros_adj` spread evenly over the weeks from `week` he can play: not his bye, and not the weeks he is known
+    to miss, counted as ros_adj counts them. The weeks add back up to his ros_adj, the number every page shows."""
+    missed = 0
+    if (p.get("injury") or "") in GAMES_OUT:
+        out = games_out(p.get("return_week"), week)
+        missed = out if out is not None else GAMES_OUT[p["injury"]]
+    weeks = [w for w in range(week + missed, NFL_WEEKS + 1) if w != byes.get(p["team"])]
+    return {w: ros_adj(p, week) / len(weeks) for w in weeks}
+
+
+def _rest_of_season(roster: list[dict], settings: dict, byes: dict[str, int], week: int) -> tuple[float, Counter]:
+    """The best lineup of each week left, added up, and the (week, slot) pairs it could not fill. Every week is picked
+    afresh, with no lock, sit or IR slot, so a backup counts in the weeks he would start."""
+    weekly = {p["player_id"]: weekly_points(p, byes, week) for p in roster}
+    total, holes = 0.0, Counter()
+    for w in range(week, NFL_WEEKS + 1):
+        lineup = optimal_lineup([{"player_id": p["player_id"], "name": p["name"], "pos": p["pos"],
+                                  "proj": weekly[p["player_id"]].get(w, 0.0)} for p in roster], settings)
+        total += lineup_total(lineup)
+        holes.update((w, e["slot"]) for e in lineup if e["player_id"] is None)
+    return total, holes
+
+
+def _trade_side(roster: list[dict], leaving: list[int], arriving: list[dict], settings: dict, byes: dict[str, int],
+                week: int) -> dict:
+    """One team's rest of season before and after. Pushed over the roster limit (IR slots outside it, as `roster_size`
+    counts), it cuts whoever costs it least, the smaller ROS on a tie, and is priced after the cut."""
+    before, had = _rest_of_season(roster, settings, byes, week)
+    kept = [p for p in roster if p["player_id"] not in leaving] + [{**p, "slot": "BE"} for p in arriving]
+    cut = []
+    while len(room := [p for p in kept if p.get("slot") != "IR"]) > settings["roster_size"]:
+        drop = max(room, key=lambda p: (_rest_of_season([q for q in kept if q is not p], settings, byes, week)[0],
+                                        -ros_adj(p, week)))
+        kept.remove(drop)
+        cut.append({"player_id": drop["player_id"], "name": drop["name"]})
+    after, has = _rest_of_season(kept, settings, byes, week)
+    return {"before": round(before, 1), "after": round(after, 1), "delta": round(after - before, 1) + 0.0,
+            "holes": [{"week": w, "slot": s} for w, s in sorted((has - had).elements())], "cut": cut}
+
+
+def trade_delta(my_roster: list[dict], their_roster: list[dict], give: list[int], get: list[int], settings: dict,
+                byes: dict[str, int], week: int) -> dict:
+    """What a trade does to both teams' starting lineups from `week` (the ROS week) on. It prices; it never opines.
+    Byes and known absences count, injuries not yet happened and matchups do not, and a team that sends more than it
+    gets is not credited with the free agent it could add."""
+    sent, got = [p for p in my_roster if p["player_id"] in give], [p for p in their_roster if p["player_id"] in get]
+    return {"me": _trade_side(my_roster, give, got, settings, byes, week),
+            "them": _trade_side(their_roster, get, sent, settings, byes, week)}
+
+
 # the league's strategy, "Recent form" (`uv run python -m ffl.strategy show`): the window is his last FORM_GAMES games played, looked for within the
 # last FORM_WEEKS weeks (which bounds the per-week ESPN calls the pool builder makes).
 FORM_GAMES = 3

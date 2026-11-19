@@ -55,6 +55,7 @@ from .newsdesk import pipeline
 from .newsdesk import players as news_players
 from .leagues import LeagueRef
 from .settings import load
+from .sources import fantasycalc
 
 log = logging.getLogger(__name__)
 TTL = 120.0
@@ -1436,6 +1437,33 @@ def team(team_id: int, ref: LeagueRef = Depends(open_league)):
     # attached on every request, outside the cached build, as /roster does
     entries = outlook.load(wk, [r["player_id"] for g in ("lineup", "bench", "ir") for r in side[g]])
     return {**data, "side": {**side, **{g: outlook.attach_plain(side[g], entries) for g in ("lineup", "bench", "ir")}}}
+
+
+@app.get("/trade")
+def trade(team: int, give: list[int] = Query(default=[]), get: list[int] = Query(default=[]),
+          ref: LeagueRef = Depends(open_league)):
+    """Both rosters of a trade with `team`, and with players picked, what it does to each side's lineups. Writes nothing."""
+    # under team:, so whatever drops the team page (a move, a refresh) drops this too
+    data = _serve(f"team:{team}:trade", lambda: espn_season.trade_rosters(team, ref=ref), ref=ref, page=True)
+    if team == espn_season.my_team_id(None, ref) or not data["me"] or not data["them"]:
+        raise HTTPException(404, "no such team to trade with")
+    if not {*give} <= {p["player_id"] for p in data["me"]} or not {*get} <= {p["player_id"] for p in data["them"]}:
+        raise HTTPException(400, "a picked player is not on that roster")
+    week, byes = data["ros_week"], data["byes"]
+    # read here, not in the cached build: a failed fetch must not stick for as long as the team page does
+    market = fantasycalc.values(data["market_format"])
+
+    def rows(side: list[dict]) -> list[dict]:
+        out = [{**{k: p.get(k) for k in ("player_id", "name", "pos", "team", "injury", "return_week")},
+                "ros_adj": season.ros_adj(p, week), "bye_week": byes.get(p["team"]), "market": market.get(p["player_id"])}
+               for p in side]
+        return sorted(out, key=lambda r: -r["ros_adj"])
+    price = None
+    if give or get:
+        price = {**season.trade_delta(data["me"], data["them"], give, get, data["settings"], byes, week),
+                 "market": fantasycalc.totals(give, get, market)}
+    return {"ros_week": week, "stale_since": data["stale_since"], "me": rows(data["me"]), "them": rows(data["them"]),
+            "price": price}
 
 
 def _nfl_board(week: int, *, ref: LeagueRef) -> dict | None:

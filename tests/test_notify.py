@@ -118,6 +118,14 @@ def test_source_notices_after_a_day_failing():
     assert out[0]["kind"] == "source" and "sharks" in out[0]["title"] and out[0]["url"] == "/players"
 
 
+def test_the_market_source_raises_no_notice_since_no_projection_reads_it():
+    """Asked only when a trade sheet opens: one blip would stay "failing" until the next sheet, and push a day later."""
+    from datetime import datetime, timedelta
+    t = datetime(2026, 10, 12, 9, 0).astimezone()
+    status = {"fantasycalc": {"error": "down", "failing_since": (t - timedelta(hours=25)).isoformat()}}
+    assert notify.source_notices(status, t, "now") == []
+
+
 def test_a_source_switched_off_here_raises_no_notice_and_shows_no_status(monkeypatch):
     """The box runs on the Mac's DB copy: a sharks failure recorded there must not notify from a host that never asks it."""
     from datetime import datetime, timedelta
