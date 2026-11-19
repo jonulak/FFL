@@ -2,7 +2,8 @@
 
 import { ArrowLeftRight } from "lucide-react";
 import { useRef, useState } from "react";
-import { clientGet } from "@/app/api-client";
+import { toast } from "sonner";
+import { clientGet, clientPost } from "@/app/api-client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -13,7 +14,7 @@ import type { Trade, TradePlayer, TradeSide } from "@/lib/api";
 import { HEALTHY, LABEL, STATUS_SHORT, TONE } from "@/lib/board";
 import { injuryTone, shortName, signed } from "@/lib/format";
 import { holeLines, marketDelta, marketSides, marketValue, tradePath } from "@/lib/trade";
-import { PHONE_INSET } from "./claims-submit";
+import { PHONE_ACTION, PHONE_INSET } from "./claims-submit";
 import { Spinner, Ticker } from "./motion";
 import { TeamPanel } from "./player-media";
 import { StaleBadge } from "./stale-badge";
@@ -93,7 +94,14 @@ function PlayerRow({ p, on, flip, week, market }: { p: TradePlayer; on: boolean;
   );
 }
 
-export function TradeSheet({ team, name, abbrev }: { team: number; name: string; abbrev: string }) {
+const same = (a: number[], b: number[]) => a.length === b.length && a.every((i) => b.includes(i));
+
+// `offer`: the picks to open on (an offer from ESPN) and the button's words in place of TRADE. With `id`, an offer
+// to me: the foot answers it on ESPN, as sent (`writes` false: a test server's fake takes the answer).
+export function TradeSheet({ team, name, abbrev, offer, writes = true, onAnswered, className = "mt-3" }: {
+  team: number; name: string; abbrev: string; offer?: { id?: string; give: number[]; get: number[]; label: string };
+  writes?: boolean; onAnswered?: () => void; className?: string;
+}) {
   const desk = useDesk();
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -102,7 +110,27 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
   const [get, setGet] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [confirm, setConfirm] = useState<boolean | null>(null); // the answer awaiting its second tap: true accepts
+  const [answering, setAnswering] = useState(false);
   const last = useRef(0);
+
+  async function answer(accept: boolean) {
+    if (!offer?.id) return;
+    setAnswering(true);
+    try {
+      const r = await clientPost<{ status: string }>(`/trades/${encodeURIComponent(offer.id)}/answer`, { accept });
+      const done = accept ? "Accepted" : "Declined";
+      toast.success(r.status === "EXECUTED" ? `${done} on ESPN` : `${done}: ESPN says ${r.status.toLowerCase()}`);
+      setOpen(false);
+      last.current++; // as a close does: a price still on its way is for a sheet that has gone
+      onAnswered?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAnswering(false);
+      setConfirm(null);
+    }
+  }
 
   // only the newest ask lands: ticks can outrun the answers
   async function load(g: number[], r: number[]) {
@@ -133,7 +161,8 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
           {data && <StaleBadge since={data.stale_since} />}
         </Title>
         <Description className="mt-0.5 text-xs text-pretty text-muted-foreground">
-          Best lineup each week through week 18. Counts byes and known absences, not future injuries or matchups. Nothing goes to ESPN.
+          Best lineup each week through week 18. Counts byes and known absences, not future injuries or matchups.
+          {offer?.id ? " Only an answer below goes to ESPN." : " Nothing goes to ESPN."}
         </Description>
       </div>
       <div aria-live="polite" className="min-h-[6.5rem] border-y border-foreground/10 py-3">
@@ -186,22 +215,50 @@ export function TradeSheet({ team, name, abbrev }: { team: number; name: string;
           </TabsContent>
         </Tabs>
       )}
+      {data && offer?.id && (
+        <div className="shrink-0 space-y-2 border-t border-foreground/10 pt-3">
+          {!same(give, offer.give) || !same(get, offer.get) ? (
+            // ESPN takes the offer as sent: a ticked change is only a what-if, so the answer waits for the offer's picks
+            <Button variant="outline" className={`w-full ${PHONE_ACTION}`}
+              onClick={() => { setGive(offer.give); setGet(offer.get); load(offer.give, offer.get); }}>
+              Back to the offer as sent
+            </Button>
+          ) : confirm === null ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" className={PHONE_ACTION} onClick={() => setConfirm(false)}>Decline</Button>
+              <Button className={PHONE_ACTION} onClick={() => setConfirm(true)}>Accept</Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-pretty">{confirm ? "Accept" : "Decline"} {name}&apos;s offer on ESPN? This can&apos;t be undone here.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" className={PHONE_ACTION} disabled={answering} onClick={() => setConfirm(null)}>Cancel</Button>
+                <Button className={PHONE_ACTION} disabled={answering} onClick={() => answer(confirm)}>
+                  <Spinner on={answering} />{confirm ? "Yes, accept" : "Yes, decline"}
+                </Button>
+              </div>
+            </div>
+          )}
+          {!writes && <p className="text-xs text-muted-foreground">Test mode: the answer goes to this server&apos;s fake, not ESPN.</p>}
+        </div>
+      )}
     </>
   );
   const onOpenChange = (o: boolean) => {
     setOpen(o);
     if (o) {
-      setGive([]);
-      setGet([]);
-      load([], []);
+      const g = offer?.give ?? [], r = offer?.get ?? [];
+      setGive(g);
+      setGet(r);
+      load(g, r);
     } else {
       last.current++; // an answer still on its way is for a sheet that has closed
     }
   };
   return (
     <>
-      <Button variant="outline" size="sm" className={`${LABEL} mt-3 text-foreground max-sm:h-10 max-sm:px-3`} onClick={() => onOpenChange(true)}>
-        <ArrowLeftRight aria-hidden />Trade
+      <Button variant="outline" size="sm" className={`${LABEL} ${className} text-foreground max-sm:h-10 max-sm:px-3`} onClick={() => onOpenChange(true)}>
+        <ArrowLeftRight aria-hidden />{offer?.label ?? "Trade"}
       </Button>
       {desk ? (
         <Dialog open={open} onOpenChange={onOpenChange}>

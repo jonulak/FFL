@@ -47,7 +47,7 @@ class _Fake:
     period: int | None = None  # ESPN's scoring period; None means "the plan week"
     last_run: str | None = None  # the last waiver run, local ISO
     slots: dict[int, str] = field(default_factory=dict)  # player id -> the slot a fake move put him in
-
+    answers: list[dict] = field(default_factory=list)  # trade offers answered: {id, accept}
 
 _FAKES: dict[tuple[str, int | None], _Fake] = {}  # (league, team): a team's fake moves are its own
 _IDS = itertools.count(1)  # global, so a fake claim id is unique across leagues
@@ -175,6 +175,37 @@ def parse_pending(doc: dict, team_id: int) -> list[dict]:
     return out
 
 
+def trade_answer_body(trade_id: str, accept: bool, week: int, team_id: int, member_id: str) -> dict:
+    # A decline as ESPN's site sent it (2026-11-18, tests/fixtures/espn_write/trade_decline_request.json).
+    # shortcut: the accept is that body with TRADE_ACCEPT, never captured; record a real accept and pin it
+    return {"isLeagueManager": False, "teamId": team_id, "type": "TRADE_ACCEPT" if accept else "TRADE_DECLINE",
+            "memberId": member_id, "scoringPeriodId": week, "executionType": "EXECUTE", "comment": "",
+            "relatedTransactionId": trade_id}
+
+
+def _local(ms: int | None) -> str | None:
+    return None if ms is None else datetime.fromtimestamp(ms / 1000).astimezone().isoformat(timespec="seconds")
+
+
+def parse_trades(doc: dict, team_id: int) -> list[dict]:
+    """My team's pending trade proposals, sent or received, from my side: the other team, who I give and get, and
+    when ESPN offered it and when it lapses (local ISO). Shape from a real incoming offer
+    (tests/fixtures/espn_write/trade_pending.json)."""
+    out = []
+    for t in doc.get("pendingTransactions", []):
+        if t.get("type") != "TRADE_PROPOSAL" or t.get("status") != "PENDING":
+            continue
+        items = [i for i in t.get("items", []) if i.get("type") == "TRADE"]
+        give = [i["playerId"] for i in items if i.get("fromTeamId") == team_id]
+        get = [i["playerId"] for i in items if i.get("toTeamId") == team_id]
+        others = {i.get(k) for i in items for k in ("fromTeamId", "toTeamId")} - {team_id}
+        if not (give or get) or len(others) != 1:  # ESPN trades are between two teams
+            continue
+        out.append({"id": t["id"], "team": others.pop(), "give": give, "get": get, "incoming": t.get("teamId") != team_id,
+                    "proposed": _local(t.get("proposedDate")), "expires": _local(t.get("expirationDate"))})
+    return out
+
+
 def reorder_body(ids: list[str]) -> list[dict]:
     """ESPN's reorder call: every pending claim's id with its new priority, 1 first."""
     return [{"id": i, "subOrder": n} for n, i in enumerate(ids, 1)]
@@ -282,6 +313,12 @@ def pending_state(max_age: float = 0, *, ref) -> tuple[list[dict], int | None]:
         raise WriteError(0, f"unreadable pending claims ({type(e).__name__}: {e})"[:300]) from e
 
 
+def trade_offers(max_age: float = 0, *, ref) -> list[dict]:
+    """My team's pending trade proposals (parse_trades) off the pending read. ESPN's even under FFL_WRITES=0: nothing
+    of ours makes or answers one, so there is no fake to show instead."""
+    return parse_trades(_pending_doc(max_age, ref=ref), ref.team_id)
+
+
 def last_waiver_run(max_age: float = 0, *, ref) -> str | None:
     """When ESPN last ran waivers (waiverLastExecutionDate, off the pending read), local ISO to the second; None
     when the read fails or carries no date, so a plan is never retired on a guess."""
@@ -331,6 +368,19 @@ def cancel_claim(claim_id: str, week: int, *, ref) -> None:
         return
     c = _own(ref)
     _post(cancel_body(claim_id, week, _team_id(ref=ref), c.swid), cookies=c, ref=ref)
+
+
+def answer_trade(trade_id: str, accept: bool, week: int, *, ref) -> str:
+    """Accept or decline an offer to my team; returns ESPN's status for the answer (a decline came back EXECUTED; an
+    accept in a league with a review period may not). Raises WriteError when ESPN refuses or answers with no status."""
+    if not _writes():
+        _fake(ref).answers.append({"id": trade_id, "accept": accept})
+        return "EXECUTED"
+    c = _own(ref)
+    res = _post(trade_answer_body(trade_id, accept, week, _team_id(ref=ref), c.swid), cookies=c, ref=ref)
+    if not isinstance(res, dict) or not res.get("status"):
+        raise WriteError(200, "trade answer sent but ESPN's reply carries no status")
+    return str(res["status"])
 
 
 def add_free_agent(add: int, drop: int | None, week: int, *, ref) -> None:

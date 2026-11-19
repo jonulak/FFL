@@ -334,6 +334,12 @@ export type Trade = {
   ros_week: number; stale_since: string | null; me: TradePlayer[]; them: TradePlayer[];
   price: { me: TradeSide; them: TradeSide; market: TradeMarket | null } | null;
 };
+// GET /trades: my pending trade offers off ESPN, sent and received, from my side. `expires` is when ESPN lets it lapse.
+export type TradeOffer = {
+  id: string; incoming: boolean; proposed: string | null; expires: string | null;
+  team: { team_id: number; team: string; abbrev: string };
+  give: { player_id: number; name: string }[]; get: { player_id: number; name: string }[];
+};
 // GET /transactions: the league's log as moves, newest first (season.group_transactions). A
 // side's `added` is what it claimed or received, `dropped` what it cut; pos/team are null when
 // ESPN's lookup failed or he is out of the NFL. Week 0 is before the season's first week.

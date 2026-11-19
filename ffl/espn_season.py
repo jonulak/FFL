@@ -1701,6 +1701,24 @@ def trade_rosters(team_id: int, *, ref: leagues.LeagueRef) -> dict:
             "market_format": fantasycalc.league_format(base["settings"])}
 
 
+OFFER_READ_S = 60  # the tick's waiver step has usually just read the same pending document
+
+
+def trade_offers(max_age: float = OFFER_READ_S, *, ref: leagues.LeagueRef) -> list[dict]:
+    """My pending trade offers, sent and received (espn_write.trade_offers), the other team as the League page shows
+    it and each player by name. Raises WriteError when ESPN can't be read."""
+    offers = espn_write.trade_offers(max_age, ref=ref)
+    if not offers:
+        return []
+    lg = fresh_league(ref)
+    clubs = {t.team_id: _club(t) for t in lg.teams}
+
+    def named(ids: list[int]) -> list[dict]:
+        return [{"player_id": p, "name": n if isinstance(n := lg.player_map.get(p), str) else f"Player {p}"} for p in ids]
+    return [{**o, "team": clubs.get(o["team"]) or {"team_id": o["team"], "team": f"Team {o['team']}", "abbrev": ""},
+             "give": named(o["give"]), "get": named(o["get"])} for o in offers]
+
+
 def dress_pool(base: dict, *, ref: leagues.LeagueRef) -> dict:
     """league_pool's answer as `ref`'s member sees it: the free agents and every rostered player priced against
     the member's roster (worth to me), their own rows (`roster`, with ESPN's flags off a fresh mRoster read), `mine`,

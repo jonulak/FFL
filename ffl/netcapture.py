@@ -16,6 +16,7 @@ import json
 import sys
 import time
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from .config import CDP_PORT
@@ -63,7 +64,10 @@ def main(out_path: str) -> None:
                 pages = [pg for pg in ctx.pages if not pg.is_closed()]
                 if not pages:
                     break
-                pages[0].wait_for_timeout(1000)  # pumps events; time.sleep would not
+                try:
+                    pages[0].wait_for_timeout(1000)  # pumps events; time.sleep would not
+                except PlaywrightError:  # that tab closed while we waited on it: listen on through the others
+                    continue
         except KeyboardInterrupt:
             pass
         print(f"stopped: {seen['reads']} reads, {seen['writes']} writes", flush=True)

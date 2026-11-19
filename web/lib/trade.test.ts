@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { holeLines, marketDelta, marketSides, tradePath } from "./trade";
+import { expiresLabel, holeLines, marketDelta, marketSides, offerLine, tradePath } from "./trade";
+
+describe("offerLine", () => {
+  it("says what I get for what I send, names joined", () => {
+    const offer = { get: [{ player_id: 1, name: "Tank Dell" }, { player_id: 2, name: "Quinshon Judkins" }], give: [{ player_id: 3, name: "Jordyn Tyson" }] };
+    expect(offerLine(offer)).toBe("You get Tank Dell, Quinshon Judkins for Jordyn Tyson");
+  });
+});
+
+describe("expiresLabel", () => {
+  it("names the day and the local time", () => {
+    expect(expiresLabel(new Date(2026, 10, 20, 16, 31).toISOString())).toBe("Expires Fri 4:31 PM");
+  });
+
+  it("says nothing without a date", () => {
+    expect(expiresLabel(null)).toBeNull();
+  });
+});
 
 describe("marketSides", () => {
   it("reads each side from what it gives up to what it receives", () => {

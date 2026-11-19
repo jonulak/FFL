@@ -899,6 +899,21 @@ def lineup_entry(items: list[tuple[int, str, str]], cards: list[dict], week: int
             "player_ids": [p for p, _, _ in items]}
 
 
+def trade_entry(offer: dict, accept: bool, status: str, week: int) -> dict:
+    """The decisions row for an offer answered from the app (espn_season.trade_offers' shape): who moved each way and
+    what ESPN said. No call to follow, so the rationale is left to write."""
+    names = lambda ps: ", ".join(p["name"] for p in ps)  # noqa: E731
+    verb = "accepted" if accept else "declined"
+    return {"at": decisions.now_iso(), "week": week, "kind": "trade", "source": "app",
+            "title": f"Week {week} trade {verb}: {names(offer['get'])} for {names(offer['give'])}",
+            "decision": f"{verb.capitalize()} {offer['team']['team']}'s offer: get {names(offer['get'])}, "
+                        f"send {names(offer['give'])}" + ("" if status == "EXECUTED" else f" (ESPN: {status})"),
+            "facts": {"offer": offer["id"], "team_id": offer["team"]["team_id"], "give": offer["give"], "get": offer["get"],
+                      "status": status},
+            "followed_call": None, "rationale": None,
+            "player_ids": [p["player_id"] for p in (*offer["give"], *offer["get"])]}
+
+
 def sit_entry(card: dict, sat: bool, week: int) -> dict:
     """The decisions row for a sit toggled on the Roster page: who, and the call he carried then."""
     kind = "sit" if sat else "unsit"
