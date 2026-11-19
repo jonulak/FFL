@@ -42,7 +42,7 @@ uv run python -m ffl.journal sync      # transactions + weekly results into the 
 uv run python -m ffl.playbook backfill 1-6   # finished weeks' NFL plays from ESPN's drives
 uv run python -m ffl.newsdesk run      # one news-desk run; `seed`, `status`, `bench [freeze] [--player X] [--write] [--refresh]`
 uv run python -m ffl.decisions list --open   # decisions missing a rationale or outcome; add / outcome / rationale / show / export
-uv run python -m ffl.calibrate         # score the usage-adjusted ROS blend's K; `winprob`, `sources [--activate <fitted_at>]`, `wednesday`
+uv run python -m ffl.calibrate         # score the usage-adjusted ROS blend's K; `winprob`, `wednesday`
 uv run python -m ffl.pace              # who is beating his projection, every roster + the wire
 uv run python -m ffl.sources compare   # projection sources compared per rostered player; `status`
 uv run python -m ffl.props score       # the props experiment's scoring
@@ -68,7 +68,7 @@ Draft pipeline: settings -> players -> adp -> browser + draft_watch. Every draft
 migrates then starts uvicorn on :8300; no Node, no agent CLI), `runner` (`ghcr.io/jonulak/ffl-runner`, `Dockerfile.runner`:
 the standalone `claude` binary behind `ffl/harness.py`, stdlib only, :8310 on the internal network, no published port,
 `x-ffl-job` required), `stt` (`ghcr.io/jonulak/ffl-stt`, `Dockerfile.stt`: Parakeet speech to text behind `ffl/stt.py`,
-:8320, the model loaded on the first request and dropped when idle; used only while Settings › App › Podcast
+:8320, the model loaded for each episode and dropped after it; used only while Settings › App › Podcast
 transcription is on (`appconf.TRANSCRIBE`): the news desk then polls the no-transcript shows (`seed.STT_ONLY`), queues
 their episodes and sends one a run to `FFL_STT_URL`, leaving them queued while it is unreachable), `web` (`ghcr.io/jonulak/ffl-web`, `web/Dockerfile`, host port `FFL_PORT`, 3300)
 and `jobs` (the api image under busybox crond, `deploy/crontab`: the tick every 15 min, news every 10, outlooks at :05,
@@ -191,6 +191,7 @@ refuses any other without `--live`. `data/` is gitignored caches.
 - **ESPN writes.** `POST /lineup`, `/roster/sit`, `/claims*` re-read ESPN's roster, take a per-league lock, validate,
   write through `espn_write`, record a decision, then read the page back. Claims: a claim is one add plus at most one
   drop and cancels when either is gone (`ffl/claims.py`).
+- **Trade pricing.** `season.trade_delta` (`GET /trade`, the sheet on `/team/<id>`) spreads each player's `ros_adj` over the games he can play and sums each side's best lineup week by week to week 18, so a backup counts when a bye or a known absence starts him. It reads `league_pool`, whose rows carry form. Injuries not yet happened and matchups are not counted, and it never writes to ESPN. FantasyCalc's redraft values (`sources/fantasycalc.py`, matched by ESPN id, asked only when a sheet is read) stand beside the points as plain sums, never blended in and with no 2-for-1 adjustment; an outage or `FFL_SOURCES_OFF=fantasycalc` leaves the points alone. Pending offers (`espn_write.parse_trades`, `GET /trades`, cards on `/roster`) come off the claims' pending read under the team's own cookies, ESPN's even under `FFL_WRITES=0`; the tick pushes each new incoming one once (`offer:<id>`). `POST /trades/{id}/answer` accepts or declines one to me after a fresh read finds it open, and records a `trade` decision. The decline body is captured; the accept is the same with `TRADE_ACCEPT`, a guess until one is recorded. Proposing is not built.
 - **Web.** Server components fetch the API through a `/api/*` rewrite. The open league is the URL's `?league=`
   (`web/proxy.ts` -> `x-ffl-league`); `components/league-link.tsx` carries it onto every link; the switcher changes
   league by a full page load.

@@ -2,6 +2,7 @@
 import ast
 import sys
 import threading
+import weakref
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -163,12 +164,29 @@ def test_server_will_not_start_without_a_secret():
         stt.serve("", port=0)
 
 
-def test_model_is_dropped_after_idling(monkeypatch):
-    """The container is always in the stack: the model loads on the first request and leaves after IDLE_S."""
-    monkeypatch.setattr(stt, "_MODEL", None)
-    monkeypatch.setattr(stt, "_USED", [0.0])
-    assert stt.unload_idle() is False  # nothing loaded
-    monkeypatch.setattr(stt, "_MODEL", object())
-    stt._USED[0] = stt.time.monotonic()
-    assert stt.unload_idle() is False and stt._MODEL is not None  # just used
-    assert stt.unload_idle(stt.time.monotonic() + stt.IDLE_S + 1) is True and stt._MODEL is None
+def test_each_episode_gets_a_fresh_model_and_lets_it_go(monkeypatch):
+    """What the model holds grows with every episode it hears: none outlives its episode, a failed one included."""
+    made = []
+
+    class Model:
+        def with_vad(self, vad):
+            return self
+
+    def load_model(name, quantization):
+        made.append(Model())
+        return made[-1]
+
+    def recognize(model, path):
+        assert model is made[-1]
+        if len(made) == 2:
+            raise RuntimeError("not audio")
+        return [{"start": 0.0, "text": "hi"}], 1.0
+
+    monkeypatch.setitem(sys.modules, "onnx_asr", SimpleNamespace(load_model=load_model, load_vad=lambda name: None))
+    monkeypatch.setattr(stt, "fetch", lambda url, dest: 0)
+    monkeypatch.setattr(stt, "recognize", recognize)
+    assert stt.call({"url": "https://cdn.test/a.mp3"})["ok"] is True
+    assert stt.call({"url": "https://cdn.test/b.mp3"})["ok"] is False
+    gone = [weakref.ref(m) for m in made]
+    made.clear()
+    assert [r() for r in gone] == [None, None]

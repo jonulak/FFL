@@ -22,7 +22,7 @@ export const whole = (n: number) => String(Math.round(n));
 // `gain` marks a fantasy-points figure: a rise there leaves the play feed's lime wash behind the
 // numeral (a gain is the one change with a verdict colour); every other change only counts.
 // Reduced motion lands on the value at once and keeps the wash.
-export function Ticker({ value, format, gain = false, className = "" }: { value: number; format: (n: number) => string; gain?: boolean; className?: string }) {
+export function Ticker({ value, format, gain = false, className = "", duration }: { value: number; format: (n: number) => string; gain?: boolean; className?: string; duration?: number }) {
   const [shown, setShown] = useState(value);
   const [wash, setWash] = useState(0);
   const at = useRef(value);
@@ -36,7 +36,7 @@ export function Ticker({ value, format, gain = false, className = "" }: { value:
     if (still()) { at.current = value; setShown(value); return; }
     const t0 = performance.now();
     // a bigger jump takes a little longer, within a routine change's range
-    const ms = Math.min(900, 420 + Math.abs(value - from) * 12);
+    const ms = duration ?? Math.min(900, 420 + Math.abs(value - from) * 12);
     let raf = requestAnimationFrame(function step(t) {
       const k = Math.min(1, (t - t0) / ms);
       at.current = from + (value - from) * arrive(k);
@@ -44,7 +44,7 @@ export function Ticker({ value, format, gain = false, className = "" }: { value:
       if (k < 1) raf = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(raf);
-  }, [value, gain]);
+  }, [value, gain, duration]);
   return (
     <span className={`ticker ${className}`}>
       {wash > 0 && <span key={wash} aria-hidden className="ticker-wash" />}

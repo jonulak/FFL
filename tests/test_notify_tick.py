@@ -209,13 +209,14 @@ def test_tick_does_each_leagues_work_once_and_the_global_work_once(monkeypatch, 
     monkeypatch.setattr(journal, "sync_transactions", rec("moves", []))
     monkeypatch.setattr(notify, "check_injuries", rec("injuries", 0))
     monkeypatch.setattr(notify, "check_waivers", rec("waivers", 0))
+    monkeypatch.setattr(notify, "check_offers", rec("offers", 0))
     monkeypatch.setattr(espn_season, "record_projections", rec("projections", {}))
     monkeypatch.setattr(notify, "check_sources", rec("sources", 0))
     monkeypatch.setattr(notify, "flush", rec("flush", {"sent": 0}))
     out = notify.tick()
-    for step in ("moves", "waivers", "projections"):
+    for step in ("moves", "waivers", "offers", "projections"):
         assert [r for n, r in calls if n == step] == [home_league(), other], step
     assert [n for n, _ in calls].count("sources") == 1 and [n for n, _ in calls].count("flush") == 1
     assert [n for n, _ in calls].count("injuries") == 1 and out["injuries"] == 0
-    each = {"moves": 0, "waivers": 0, "projections": {}}
+    each = {"moves": 0, "waivers": 0, "offers": 0, "projections": {}}
     assert out["leagues"] == {HOME_KEY: each, "espn:999": each}

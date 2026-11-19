@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ffl import db, journal, notify
+from ffl import db, espn_season, journal, notify
 from tests.home import home_league
 
 AT = "2026-10-09T10:00:00-04:00"
@@ -118,6 +118,14 @@ def test_source_notices_after_a_day_failing():
     assert out[0]["kind"] == "source" and "sharks" in out[0]["title"] and out[0]["url"] == "/players"
 
 
+def test_the_market_source_raises_no_notice_since_no_projection_reads_it():
+    """Asked only when a trade sheet opens: one blip would stay "failing" until the next sheet, and push a day later."""
+    from datetime import datetime, timedelta
+    t = datetime(2026, 10, 12, 9, 0).astimezone()
+    status = {"fantasycalc": {"error": "down", "failing_since": (t - timedelta(hours=25)).isoformat()}}
+    assert notify.source_notices(status, t, "now") == []
+
+
 def test_a_source_switched_off_here_raises_no_notice_and_shows_no_status(monkeypatch):
     """The box runs on the Mac's DB copy: a sharks failure recorded there must not notify from a host that never asks it."""
     from datetime import datetime, timedelta
@@ -145,6 +153,27 @@ def test_espn_notices_one_per_user_and_day_a_login_began_failing():
             {"user_id": 2, "id": 3, "failing_since": None}]
     (n,) = notify.espn_notices(rows, AT)
     assert (n["key"], n["kind"], n["user_id"], n["url"]) == ("espn:refused:1:2026-10-28", "espn", 1, "/settings")
+
+
+def _offer(i="trade-1", incoming=True):
+    return {"id": i, "team": {"team_id": 1, "team": "Tank Commanders", "abbrev": "TANK"}, "incoming": incoming,
+            "give": [{"player_id": 3, "name": "Jordyn Tyson"}],
+            "get": [{"player_id": 1, "name": "Tank Dell"}, {"player_id": 2, "name": "Quinshon Judkins"}],
+            "proposed": AT, "expires": AT}
+
+
+def test_offer_notices_one_per_offer_sent_to_me_not_by_me():
+    (n,) = notify.offer_notices([_offer(), _offer("mine", incoming=False)], AT)
+    assert (n["key"], n["kind"], n["url"]) == ("offer:trade-1", "offer", "/roster")
+    assert (n["title"], n["body"]) == ("Trade offer from Tank Commanders", "You get Tank Dell, Quinshon Judkins for Jordyn Tyson.")
+
+
+def test_check_offers_queues_an_offer_once_and_pushes_it_on_its_own(monkeypatch):
+    ref = home_league()
+    monkeypatch.setattr(espn_season, "trade_offers", lambda **k: [_offer()])
+    assert notify.check_offers(ref=ref) == 1 and notify.check_offers(ref=ref) == 0
+    (push,), _ = notify.plan(db.unsent_notices(ref=ref), notify.prefs(ref=ref), notify.datetime.fromisoformat(AT))
+    assert (push["title"], push["url"]) == ("Trade offer from Tank Commanders", "/roster")
 
 
 def test_check_espn_queues_under_the_users_default_league():

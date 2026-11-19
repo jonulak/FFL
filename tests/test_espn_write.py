@@ -36,6 +36,28 @@ def test_cancel_body_matches_what_espn_sent():
     assert body == sent
 
 
+def test_parse_trades_reads_an_incoming_offer_from_my_side():
+    local = lambda ms: datetime.fromtimestamp(ms / 1000).astimezone().isoformat(timespec="seconds")  # noqa: E731
+    assert W.parse_trades(fx("trade_pending.json"), team_id=7) == [
+        {"id": "trade-1", "team": 1, "give": [4880281], "get": [4366031, 4685702], "incoming": True,
+         "proposed": local(1795037473536), "expires": local(1795210273568)}]
+
+
+def test_parse_trades_reads_my_own_offer_as_outgoing_and_the_other_side_mirrored():
+    assert [(o["team"], o["give"], o["get"], o["incoming"]) for o in W.parse_trades(fx("trade_pending.json"), team_id=1)] == \
+        [(7, [4366031, 4685702], [4880281], False)]
+
+
+def test_parse_trades_skips_claims_answered_offers_and_trades_of_other_teams():
+    doc = fx("trade_pending.json")
+    offer = doc["pendingTransactions"][0]
+    doc["pendingTransactions"] += [{**offer, "id": "done", "status": "CANCELED"},
+                                   {**fx("pending_response.json")["pendingTransactions"][0], "teamId": 7}]
+    assert [o["id"] for o in W.parse_trades(doc, team_id=7)] == ["trade-1"]
+    assert W.parse_trades(doc, team_id=4) == [], "a trade between two other teams is none of mine"
+    assert W.parse_pending(doc, team_id=7) != [] and all(c["id"] != "trade-1" for c in W.parse_pending(doc, team_id=7))
+
+
 def test_parse_pending_reads_the_fixture_in_sub_order():
     doc = fx("pending_response.json")
     # the fixture's array order is the reverse of priority
@@ -259,6 +281,33 @@ def test_add_free_agent_200_but_pending_is_a_write_error(monkeypatch):
 def test_add_free_agent_executed_is_landed(monkeypatch):
     _live_add(monkeypatch, {"id": "x", "status": "EXECUTED"})
     W.add_free_agent(101, 1, 5, ref=home_league())
+
+
+def test_trade_answer_body_declines_as_espn_sent_it():
+    sent = fx("trade_decline_request.json")
+    assert W.trade_answer_body(sent["relatedTransactionId"], False, sent["scoringPeriodId"], sent["teamId"], "{SWID}") == sent
+
+
+def test_trade_answer_body_accepts_with_only_the_type_changed():
+    sent = fx("trade_decline_request.json")
+    assert W.trade_answer_body("trade-1", True, 11, 7, "{SWID}") == {**sent, "type": "TRADE_ACCEPT"}
+
+
+def test_answer_trade_returns_espns_status(monkeypatch):
+    _live_add(monkeypatch, fx("trade_decline_response.json"))
+    assert W.answer_trade("trade-1", False, 11, ref=home_league()) == "EXECUTED"
+
+
+def test_answer_trade_with_no_status_is_a_write_error(monkeypatch):
+    _live_add(monkeypatch, [])
+    with pytest.raises(W.WriteError):
+        W.answer_trade("trade-1", True, 11, ref=home_league())
+
+
+def test_answer_trade_writes_off_keeps_the_answer_in_the_fake(monkeypatch):
+    monkeypatch.setenv("FFL_WRITES", "0")
+    assert W.answer_trade("trade-1", True, 11, ref=home_league()) == "EXECUTED"
+    assert W._fake(home_league()).answers == [{"id": "trade-1", "accept": True}]
 
 
 def test_reorder_body_matches_what_espn_sent():

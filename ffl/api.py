@@ -55,6 +55,7 @@ from .newsdesk import pipeline
 from .newsdesk import players as news_players
 from .leagues import LeagueRef
 from .settings import load
+from .sources import fantasycalc
 
 log = logging.getLogger(__name__)
 TTL = 120.0
@@ -1436,6 +1437,81 @@ def team(team_id: int, ref: LeagueRef = Depends(open_league)):
     # attached on every request, outside the cached build, as /roster does
     entries = outlook.load(wk, [r["player_id"] for g in ("lineup", "bench", "ir") for r in side[g]])
     return {**data, "side": {**side, **{g: outlook.attach_plain(side[g], entries) for g in ("lineup", "bench", "ir")}}}
+
+
+@app.get("/trade")
+def trade(team: int, give: list[int] = Query(default=[]), get: list[int] = Query(default=[]),
+          ref: LeagueRef = Depends(open_league)):
+    """Both rosters of a trade with `team`, and with players picked, what it does to each side's lineups. Writes nothing."""
+    # under team:, so whatever drops the team page (a move, a refresh) drops this too
+    data = _serve(f"team:{team}:trade", lambda: espn_season.trade_rosters(team, ref=ref), ref=ref, page=True)
+    if team == espn_season.my_team_id(None, ref) or not data["me"] or not data["them"]:
+        raise HTTPException(404, "no such team to trade with")
+    if not {*give} <= {p["player_id"] for p in data["me"]} or not {*get} <= {p["player_id"] for p in data["them"]}:
+        raise HTTPException(400, "a picked player is not on that roster")
+    week, byes = data["ros_week"], data["byes"]
+    # read here, not in the cached build: a failed fetch must not stick for as long as the team page does
+    market = fantasycalc.values(data["market_format"])
+
+    def rows(side: list[dict]) -> list[dict]:
+        out = [{**{k: p.get(k) for k in ("player_id", "name", "pos", "team", "injury", "return_week")},
+                "ros_adj": season.ros_adj(p, week), "bye_week": byes.get(p["team"]), "market": market.get(p["player_id"])}
+               for p in side]
+        return sorted(out, key=lambda r: -r["ros_adj"])
+    price = None
+    if give or get:
+        price = {**season.trade_delta(data["me"], data["them"], give, get, data["settings"], byes, week),
+                 "market": fantasycalc.totals(give, get, market)}
+    return {"ros_week": week, "stale_since": data["stale_since"], "me": rows(data["me"]), "them": rows(data["them"]),
+            "price": price}
+
+
+@app.get("/trades")
+def trades(ref: LeagueRef = Depends(open_league)):
+    """My pending trade offers, sent and received (the Roster page's cards). An unreadable ESPN is a 502, never "none"."""
+    try:
+        return {"offers": espn_season.trade_offers(ref=ref)}
+    except espn_write.WriteError as e:
+        log.warning("trade offers not read: %s", e)  # the page shows only e.message
+        raise HTTPException(502, e.message) from e
+
+
+class TradeAnswerIn(BaseModel):
+    accept: bool
+
+
+@app.post("/trades/{trade_id}/answer")
+def answer_trade(trade_id: str, body: TradeAnswerIn, ref: LeagueRef = Depends(open_league)):
+    """Accept or decline an offer to my team on ESPN, after a fresh read says it is still open and not my own; the
+    answer is recorded as a decision. Answers ESPN's status for it."""
+    c = cache_for(ref)
+    lock = _lock("trade", ref)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, "a trade answer is already running")
+    try:
+        try:
+            offer = next((o for o in espn_season.trade_offers(0, ref=ref) if o["id"] == trade_id), None)
+            _, period = espn_write.pending_state(JUST_READ_S, ref=ref)  # the same read: ESPN's week, what its body wants
+        except espn_write.WriteError as e:
+            raise _espn_error(e)
+        if offer is None or not offer["incoming"]:
+            raise HTTPException(409, {"error": "That offer is no longer open on ESPN — reload"})
+        week = period or espn_season.fresh_league(ref).current_week
+        try:
+            status = espn_write.answer_trade(trade_id, body.accept, week, ref=ref)
+        except espn_write.WriteError as e:
+            raise _espn_error(e)
+        except requests.RequestException:  # ESPN may have taken it before the connection died: recorded all the same
+            status = "NO ANSWER"
+        entry = season.trade_entry(offer, body.accept, status, week)
+        dec = _record(_mark_fake(entry), ref=ref) if _records(ref=ref) else None
+        if body.accept or status == "NO ANSWER":  # both rosters may have changed (or will, after review)
+            c.drop_prefixes(("roster", "team:"))
+        if status == "NO ANSWER":
+            raise HTTPException(502, {"source": "espn", "error": "ESPN did not answer — the trade may have gone through; check ESPN"})
+        return {"status": status, "decision": dec}
+    finally:
+        lock.release()
 
 
 def _nfl_board(week: int, *, ref: LeagueRef) -> dict | None:

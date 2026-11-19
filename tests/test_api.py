@@ -261,6 +261,109 @@ def test_team_overlays_live_points(client, monkeypatch):
     assert body["side"]["lineup"][0]["actual"] == 14.5 and body["side"]["actual_total"] == 14.5
 
 
+@pytest.fixture
+def trade_env(client, monkeypatch):
+    def row(pid, name, ros, team="DET"):
+        return {"player_id": pid, "name": name, "pos": "QB", "team": team, "slot": "QB", "injury": "ACTIVE",
+                "return_week": None, "ros_proj": ros}
+    monkeypatch.setattr(api.espn_season, "league_pool", lambda **k: {
+        "ros_week": 16, "byes": {"GB": 17},
+        "settings": {"starters": {"QB": 1}, "roster_size": 2, "team_count": 10,
+                     "scoring_tables": {p: {"rec": 1.0} for p in ("QB", "RB", "WR", "TE")}},
+        "teams": {7: [row(1, "Mine", 30), row(2, "My Spare", 3)], 4: [row(3, "Theirs", 45, "GB"), row(4, "Their Spare", 3)]}})
+    monkeypatch.setattr(api.fantasycalc, "values", lambda fmt: {1: 7000, 3: 5000} if fmt == {"numQbs": 1, "numTeams": 10, "ppr": 1} else {})
+    api.cache_for(home_league()).clear()
+    return client
+
+
+def test_trade_lists_both_rosters_with_no_price_until_a_player_is_picked(trade_env):
+    body = trade_env.get("/trade", params={"team": 4}).json()
+    assert body["price"] is None and body["ros_week"] == 16
+    assert [p["name"] for p in body["me"]] == ["Mine", "My Spare"]
+    assert body["them"][0] == {"player_id": 3, "name": "Theirs", "pos": "QB", "team": "GB", "injury": "ACTIVE",
+                               "return_week": None, "ros_adj": 45, "bye_week": 17, "market": 5000}
+    assert body["them"][1]["market"] is None, "nobody at FantasyCalc lists him"
+
+
+def test_trade_totals_the_market_apart_from_the_lineup_points(trade_env):
+    price = trade_env.get("/trade", params={"team": 4, "give": [1, 2], "get": [3]}).json()["price"]
+    assert price["market"] == {"send": 7000, "get": 5000, "unpriced": 1}
+
+
+def test_trade_still_prices_with_no_market_values(trade_env, monkeypatch):
+    monkeypatch.setattr(api.fantasycalc, "values", lambda fmt: {})
+    body = trade_env.get("/trade", params={"team": 4, "give": [1], "get": [3]}).json()
+    assert body["price"]["market"] is None and body["me"][0]["market"] is None
+    assert body["price"]["me"]["delta"] == 16.0
+
+
+def test_trade_prices_the_picked_players_on_both_sides(trade_env):
+    body = trade_env.get("/trade", params={"team": 4, "give": [1], "get": [3]}).json()
+    # Theirs: 22.5 a game, off in 17, when a spare's 1 covers. Mine: 10 a game.
+    assert (body["price"]["me"]["before"], body["price"]["me"]["after"], body["price"]["me"]["delta"]) == (30.0, 46.0, 16.0)
+    assert (body["price"]["them"]["before"], body["price"]["them"]["after"], body["price"]["them"]["delta"]) == (46.0, 30.0, -16.0)
+
+
+@pytest.mark.parametrize("params", [{"team": 4, "give": [3]}, {"team": 4, "get": [1]}, {"team": 4, "give": [99]}])
+def test_trade_refuses_a_player_who_is_not_on_the_named_roster(trade_env, params):
+    assert trade_env.get("/trade", params=params).status_code == 400
+
+
+def test_trades_lists_my_offers_as_read(client, monkeypatch):
+    offer = {"id": "trade-1", "team": {"team_id": 4}, "give": [], "get": [], "incoming": True, "proposed": None, "expires": None}
+    monkeypatch.setattr(api.espn_season, "trade_offers", lambda **k: [offer])
+    assert client.get("/trades").json() == {"offers": [offer]}
+
+
+def test_trades_says_espn_failed_rather_than_no_offers(client, monkeypatch):
+    def down(**k):
+        raise api.espn_write.WriteError(0, "timeout")
+    monkeypatch.setattr(api.espn_season, "trade_offers", down)
+    r = client.get("/trades")
+    assert r.status_code == 502 and r.json()["detail"] == api.espn_write.UNREACHABLE
+
+
+def _offer(incoming=True):
+    return {"id": "trade-1", "team": {"team_id": 4, "team": "Bears", "abbrev": "BRS"}, "incoming": incoming,
+            "give": [{"player_id": 1, "name": "Mine"}], "get": [{"player_id": 3, "name": "Theirs"}],
+            "proposed": None, "expires": None}
+
+
+def test_answer_trade_declines_an_open_offer_and_records_it(client, monkeypatch):
+    monkeypatch.setenv("FFL_RECORD_FAKE", "1")
+    monkeypatch.setattr(api.espn_season, "trade_offers", lambda max_age=0, *, ref: [_offer()])
+    monkeypatch.setattr(api.espn_write._fake(home_league()), "period", 11)
+    body = client.post("/trades/trade-1/answer", json={"accept": False}).json()
+    assert body["status"] == "EXECUTED" and body["decision"]["id"]
+    assert api.espn_write._fake(home_league()).answers == [{"id": "trade-1", "accept": False}]
+    (row,) = db.decisions(ref=home_league())
+    assert row["kind"] == "trade" and row["title"] == "[fake] Week 11 trade declined: Theirs for Mine"
+
+
+@pytest.mark.parametrize("offers", [[], [_offer(incoming=False)]])
+def test_answer_trade_refuses_an_offer_gone_or_my_own(client, monkeypatch, offers):
+    monkeypatch.setattr(api.espn_season, "trade_offers", lambda max_age=0, *, ref: offers)
+    r = client.post("/trades/trade-1/answer", json={"accept": True})
+    assert r.status_code == 409 and api.espn_write._fake(home_league()).answers == []
+
+
+def test_trade_offers_names_the_team_and_players(monkeypatch):
+    from ffl import espn_season, espn_write
+    monkeypatch.setattr(espn_write, "trade_offers", lambda max_age=0, *, ref: [
+        {"id": "t", "team": 4, "give": [1], "get": [9], "incoming": True, "proposed": None, "expires": None}])
+    lg = SimpleNamespace(teams=[SimpleNamespace(team_id=4, team_name="Bears", team_abbrev="BRS", wins=1, losses=2, ties=0,
+                                                owners=[], logo_url="")], player_map={1: "Mine"})
+    monkeypatch.setattr(espn_season, "fresh_league", lambda ref: lg)
+    (o,) = espn_season.trade_offers(ref=home_league())
+    assert (o["team"]["team"], o["team"]["abbrev"]) == ("Bears", "BRS")
+    assert (o["give"], o["get"]) == ([{"player_id": 1, "name": "Mine"}], [{"player_id": 9, "name": "Player 9"}])
+
+
+@pytest.mark.parametrize("team", [7, 99])
+def test_trade_needs_another_team_in_the_league(trade_env, team):
+    assert trade_env.get("/trade", params={"team": team}).status_code == 404
+
+
 def test_refresh_expires_the_injury_cache_but_keeps_the_last_good_data(client, monkeypatch):
     """_INJ is a last-good store: Refresh must bust its TTL, not throw the data away."""
     inj = api.espn_season

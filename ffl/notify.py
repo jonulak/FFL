@@ -97,13 +97,23 @@ def waiver_notices(run: str | None, prev_run: str | None, pending: list[dict], m
              "body": " ".join(parts), "url": "/transactions", "created_at": at}]
 
 
+def offer_notices(offers: list[dict], at: str) -> list[dict]:
+    """One notice per trade offer another team sent me (espn_season.trade_offers), keyed by ESPN's id: an offer seen
+    again is the same notice."""
+    names = lambda ps: ", ".join(p["name"] for p in ps)  # noqa: E731
+    return [{"key": f"offer:{o['id']}", "kind": "offer", "title": f"Trade offer from {o['team']['team']}",
+             "body": f"You get {names(o['get'])} for {names(o['give'])}.", "url": "/roster", "created_at": at}
+            for o in offers if o["incoming"]]
+
+
 def source_notices(status: dict, t: datetime, at: str, hours: int = 24) -> list[dict]:
     """One notice per failing spell of a projection source (keyed by when it began) once it passes
-    `hours`: the consensus has been running without it."""
+    `hours`: the consensus has been running without it. Not fantasycalc: no projection reads it, and it is asked only
+    when a trade sheet opens, so one blip would read as failing until the next sheet."""
     out = []
     for name, s in sorted(status.items()):
         since = s.get("failing_since")
-        if not since or t - datetime.fromisoformat(since) < timedelta(hours=hours):
+        if name == "fantasycalc" or not since or t - datetime.fromisoformat(since) < timedelta(hours=hours):
             continue
         out.append({"key": f"source:{name}:{since}", "kind": "source", "title": f"{name} projections failing",
                     "body": f"Since {since[:16].replace('T', ' ')}: {s.get('error')}. Projections run on the other sources.",
@@ -615,6 +625,28 @@ def _team_waivers(run: str, synced: bool, members: list) -> int:
     return n
 
 
+def check_offers(*, ref) -> int:
+    """Queue each new trade offer to my team for every member on it. ESPN shows a team's offers to that team alone,
+    so each team is read under its own first member."""
+    from . import espn_season, leagues
+    teams: dict[int, list] = {}
+    for m in leagues.members(ref.key):
+        if m.team_id is not None:
+            teams.setdefault(m.team_id, []).append(m)
+    at, n, failed = now(), 0, None
+    for members in teams.values():
+        try:
+            rows = offer_notices(espn_season.trade_offers(ref=members[0]), at)
+        except Exception as e:  # noqa: BLE001 — one team's unreadable offers never hold back another's; re-raised after
+            log.warning("notify: offers of %s team %s: %s", ref.key, members[0].team_id, e)
+            failed = failed or e
+            continue
+        n += sum(db.add_notices(rows, ref=m) for m in members)
+    if failed is not None:
+        raise failed
+    return n
+
+
 def _steps(out: dict, steps) -> dict:
     """Run each (name, fn) into `out`; a step that fails is reported there and the rest still run."""
     for name, fn in steps:
@@ -633,6 +665,7 @@ def league_tick(ref) -> dict:
     out: dict = {}
     return _steps(out, (("moves", lambda: len(journal.sync_transactions(espn_season.fresh_league(ref), ref=ref))),
                         ("waivers", lambda: check_waivers(synced=not isinstance(out.get("moves"), dict), ref=ref)),
+                        ("offers", lambda: check_offers(ref=ref)),
                         ("projections", lambda: espn_season.record_projections(ref=ref))))
 
 

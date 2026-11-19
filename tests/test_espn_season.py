@@ -647,6 +647,7 @@ def test_league_pool_keeps_each_free_agents_rostered_percent(monkeypatch):
     monkeypatch.setattr(espn_season, "league", lambda *a, **k: lg)
     monkeypatch.setattr(espn_season, "load", lambda *a, **k: TWO_QB)
     pool = espn_season.league_pool(week=1, sources={}, season={}, injuries={}, snaps={}, ref=home_league())
+    assert "byes" in pool, "a trade's weekly lineups read them"
     assert pool["owned"][got["QB"]] == 12.5
     assert pool["owned"][got["WR"]] == -1, "a row without a rostered % counts as none, under any cutoff"
 
@@ -911,7 +912,7 @@ def test_sources_off_takes_known_names_only_and_warns_once_about_the_rest(monkey
         assert config.source_off("sharks") and not config.source_off("sleeper"), "sleeper has no switch: never off"
         assert not config.source_off("youtube_captions")
     warned = [r.getMessage() for r in caplog.records if r.name == "ffl.config"]
-    assert warned == ["FFL_SOURCES_OFF: ignoring unknown cbs-typo, sleeper (known: sharks, youtube_captions)"]
+    assert warned == ["FFL_SOURCES_OFF: ignoring unknown cbs-typo, sleeper (known: fantasycalc, sharks, youtube_captions)"]
     monkeypatch.delenv("FFL_SOURCES_OFF")
     assert config.sources_off() == frozenset()
 

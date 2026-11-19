@@ -18,7 +18,7 @@ from datetime import date, datetime, timezone
 import requests
 
 from . import calibrate, consensus, db, espn_write, leagues, outlook
-from .sources import cbs, fleaflicker, scoring_key, sharks
+from .sources import cbs, fantasycalc, fleaflicker, scoring_key, sharks
 from . import season as S
 from .adp import norm_name
 from .flight import Flight
@@ -568,7 +568,7 @@ def merge_weekly(players: list[dict], sources: dict[str, dict]) -> list[dict]:
         q = dict(p)
         espn = float(q.pop("proj_espn", 0) or 0)
         vals = source_values(p, sources)
-        proj, spread, n = consensus.combine(vals, consensus.weights_for("week", p["pos"]))
+        proj, spread, n = consensus.combine(vals)
         q["proj"] = proj if proj is not None else espn
         q["spread"], q["n_src"] = spread, n
         q["proj_src"] = {s: round(v, 1) for s, v in sorted(vals.items(), key=lambda kv: -kv[1])}
@@ -592,7 +592,7 @@ def projection_rows_for(players: list[dict], sources: dict, lookup: dict[int, di
 
 def record_projections(*, ref: leagues.LeagueRef) -> dict:
     """The notify tick's step (every 15 min): every rostered player's per-source numbers into
-    projection_rows, so `ffl.calibrate sources` can fit weights from what each source said.
+    projection_rows, so a finished week shows what each source said at kickoff (recorded_sources).
     `ref` is the league whose rosters and rows these are."""
     lg = fresh_league(ref)
     settings = load(ref)
@@ -673,7 +673,7 @@ def merge_season(espn_rows: list[dict], sleeper, ros: dict[str, dict] | None = N
         espn = row["proj"] if (row.get("proj") or 0) > 0 else None
         have = [float(x) for x in (espn, sl) if x is not None]
         vals = {name: float(d[key]) for name, d in (ros or {}).items() if d.get(key) is not None}
-        proj, spread, n = consensus.combine(vals, consensus.weights_for("ros", row["pos"]))
+        proj, spread, n = consensus.combine(vals)
         out[row["player_id"]] = {"season_proj": round(sum(have) / len(have), 1) if have else 0.0,
                                  "ros_proj": proj, "ros_spread": spread, "ros_n": n, "ros_src": vals}
     return out
@@ -1689,7 +1689,34 @@ def _build_league_pool(week, size, sources, season, injuries, snaps, *, ref: lea
             "teams": teams, "frees": frees, "status": status, "owners": _owners(lg, week, ref=ref),
             # ESPN-wide rostered % of each free agent (-1: ESPN sent none); outlook.wanted reads it
             "owned": {bp.playerId: getattr(bp, "percent_owned", -1) for pos in POSITIONS for bp in fetched[(pos, week)]},
-            "enrich": enrich, "ros_source": ros_source(seas)}
+            "enrich": enrich, "ros_source": ros_source(seas), "byes": byes}
+
+
+def trade_rosters(team_id: int, *, ref: leagues.LeagueRef) -> dict:
+    """What pricing a trade with `team_id` reads, off the league pool, whose rows carry the form ros_adj needs (team_state's
+    do not). `me` or `them` is None for a team with no roster this week."""
+    base = league_pool(ref=ref)
+    return {"ros_week": base["ros_week"], "byes": base["byes"], "me": base["teams"].get(my_team_id(None, ref)),
+            "them": base["teams"].get(team_id), "settings": {k: base["settings"][k] for k in ("starters", "roster_size")},
+            "market_format": fantasycalc.league_format(base["settings"])}
+
+
+OFFER_READ_S = 60  # the tick's waiver step has usually just read the same pending document
+
+
+def trade_offers(max_age: float = OFFER_READ_S, *, ref: leagues.LeagueRef) -> list[dict]:
+    """My pending trade offers, sent and received (espn_write.trade_offers), the other team as the League page shows
+    it and each player by name. Raises WriteError when ESPN can't be read."""
+    offers = espn_write.trade_offers(max_age, ref=ref)
+    if not offers:
+        return []
+    lg = fresh_league(ref)
+    clubs = {t.team_id: _club(t) for t in lg.teams}
+
+    def named(ids: list[int]) -> list[dict]:
+        return [{"player_id": p, "name": n if isinstance(n := lg.player_map.get(p), str) else f"Player {p}"} for p in ids]
+    return [{**o, "team": clubs.get(o["team"]) or {"team_id": o["team"], "team": f"Team {o['team']}", "abbrev": ""},
+             "give": named(o["give"]), "get": named(o["get"])} for o in offers]
 
 
 def dress_pool(base: dict, *, ref: leagues.LeagueRef) -> dict:

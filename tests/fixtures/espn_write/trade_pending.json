@@ -1,0 +1,33 @@
+{
+ "_note": "An incoming offer as ESPN's mPendingTransactions read carried it (home league, 2026-11-18); ids blanked.",
+ "scoringPeriodId": 11,
+ "pendingTransactions": [
+  {
+   "bidAmount": 0,
+   "executionType": "EXECUTE",
+   "expirationDate": 1795210273568,
+   "id": "trade-1",
+   "isActingAsTeamOwner": false,
+   "isLeagueManager": false,
+   "isPending": true,
+   "items": [
+    {"acquisitionBudget": 0, "fromLineupSlotId": 23, "fromTeamId": 1, "isKeeper": false, "overallPickNumber": 0,
+     "playerId": 4366031, "toLineupSlotId": -1, "toTeamId": 7, "type": "TRADE"},
+    {"acquisitionBudget": 0, "fromLineupSlotId": 20, "fromTeamId": 1, "isKeeper": false, "overallPickNumber": 0,
+     "playerId": 4685702, "toLineupSlotId": -1, "toTeamId": 7, "type": "TRADE"},
+    {"acquisitionBudget": 0, "fromLineupSlotId": 4, "fromTeamId": 7, "isKeeper": false, "overallPickNumber": 0,
+     "playerId": 4880281, "toLineupSlotId": -1, "toTeamId": 1, "type": "TRADE"}
+   ],
+   "memberId": "<member>",
+   "proposedDate": 1795037473536,
+   "rating": 0,
+   "scoringPeriodId": 11,
+   "skipTransactionCounters": false,
+   "status": "PENDING",
+   "subOrder": 0,
+   "teamActions": {"1": "ACCEPTED"},
+   "teamId": 1,
+   "type": "TRADE_PROPOSAL"
+  }
+ ]
+}

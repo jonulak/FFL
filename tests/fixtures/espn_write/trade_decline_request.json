@@ -1,0 +1,10 @@
+{
+ "isLeagueManager": false,
+ "teamId": 7,
+ "type": "TRADE_DECLINE",
+ "memberId": "{SWID}",
+ "scoringPeriodId": 11,
+ "executionType": "EXECUTE",
+ "comment": "",
+ "relatedTransactionId": "trade-1"
+}

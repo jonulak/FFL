@@ -44,7 +44,6 @@ def _source(tmp_path, revision="0024"):
     c.execute("INSERT INTO users (id, email, created_at) VALUES (1, 'me@example.com', '2026-10-27')")
     c.execute("INSERT INTO sits (user_id, league, season, week, player_id, at) "
               "VALUES (1, ?, 2026, 7, 42, '2026-10-18')", (HOME,))
-    c.execute("INSERT INTO source_weights (season, fitted_at, fit, active) VALUES (2026, 'a', '{}', 1), (2026, 'b', '{}', 0)")
     c.execute("INSERT INTO notify_state (season, key, value) VALUES (2026, 'source_status', ?)",
               (json.dumps({"news": True, "quiet": [22, 7]}),))
     c.commit()
@@ -65,7 +64,7 @@ def test_copy_counts_match(tmp_path):
     assert counts["strategies"] == (0, 0)
     body = _rows("SELECT body FROM plays WHERE id = 5")[0][0]
     assert body == {"delta": 5, "x": None}, "JSON parsed from the file's text, NaN written as null"
-    assert _rows("SELECT active FROM source_weights ORDER BY fitted_at") == [(True,), (False,)], "SQLite's 0/1 as booleans"
+    assert _rows("SELECT is_admin FROM users") == [(False,)], "SQLite's 0/1 as booleans"
     assert db.get_state("source_status") == {"news": True, "quiet": [22, 7]}
 
 
