@@ -26,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = "nemo-parakeet-tdt-0.6b-v2"  # English; Dockerfile.stt bakes it in by this name
 PORT = 8320
-MAX_BYTES = 200 * 1024 * 1024  # an hour-long show is 60 MB
+MAX_BYTES = 400 * 1024 * 1024  # bitrates vary: a 128-minute Ringer show is 295 MB, an hour elsewhere 42 MB
 DOWNLOAD_TIMEOUT_S = 120
 USER_AGENT = "ffl-stt/1 (+https://github.com/jonulak/FFL)"
 CHUNK_S = 300  # audio decoded at a time: a whole 64-minute episode passed 5 GiB; in chunks it fits in 4 GiB
