@@ -17,7 +17,7 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from . import calibrate, consensus, db, espn_write, leagues, outlook
+from . import calibrate, consensus, db, espn_write, leagues, nfl, outlook
 from .sources import cbs, fantasycalc, fleaflicker, scoring_key, sharks
 from . import season as S
 from .adp import norm_name
@@ -1463,7 +1463,7 @@ def week_state(week: int | None = None, sources: dict | None = None, season: dic
             sigma, source = calibrate.load_sigma()
             p = S.win_prob(built[0]["lineup"], built[1]["lineup"], sigma)
             odds = {"me": round(p, 3), "opp": round(1 - p, 3), "sigma_source": source}
-        return {"week": week, "live": S.is_live(), "mine": mine, "slots": S.starter_slots(settings), "me": built[0],
+        return {"week": week, "live": nfl.games_on(), "mine": mine, "slots": S.starter_slots(settings), "me": built[0],
                 "opp": built[1] if len(built) > 1 else None, "win_prob": odds}
     if team != me:
         raise LookupError(f"no matchup for team {team} in week {week}")
@@ -1514,7 +1514,7 @@ def team_state(team_id: int, week: int | None = None, sources: dict | None = Non
         slots = {rp.playerId: getattr(rp, "lineupSlot", "BE") for rp in t.roster}
         built = [{**p, "slot": slots.get(p["player_id"], "BE")} for p in built]
     rank = next((i for i, s in enumerate(lg.standings(), 1) if s.team_id == team_id), None)
-    return {"week": week, "live": S.is_live(), "mine": team_id == my_team_id(lg, ref),
+    return {"week": week, "live": nfl.games_on(), "mine": team_id == my_team_id(lg, ref),
             "club": {**_club(t), "rank": rank}, "side": build_side(t, built, settings)}
 
 
@@ -2010,7 +2010,7 @@ def roster_state(week: int | None = None, sources: dict | None = None, season: d
             logging.getLogger(__name__).warning("roster_flags read failed; every row shows unlocked: %s", e)
             flags = {}
     players = with_sits(with_espn_slots(players, flags, fake, db.seat_map(ref=ref)), db.sat_ids(week, ref=ref))
-    return {"week": week, "live": S.is_live(), "cards": S.roster_cards(players, settings, week),
+    return {"week": week, "live": nfl.games_on(), "cards": S.roster_cards(players, settings, week),
             "empty_slots": S.empty_slots(players, settings), "position_caps": S.position_caps(players, settings.get("position_limits", {})),
             "writes": espn_write.writes()}
 
@@ -2107,7 +2107,7 @@ def league_state(week: int | None = None, *, ref: leagues.LeagueRef) -> dict:
     playoffs = settings.get("playoff_weeks", [])
     return {"week": week, "current_week": current, "first_week": settings.get("first_week", 1),
             "weeks": max(playoffs, default=settings["reg_season_weeks"]),
-            "playoff_teams": settings["playoff_teams"], "playoff_weeks": playoffs, "live": S.is_live() and week == current,
+            "playoff_teams": settings["playoff_teams"], "playoff_weeks": playoffs, "live": nfl.games_on() and week == current,
             "standings": standings, "scoreboard": board}
 
 
