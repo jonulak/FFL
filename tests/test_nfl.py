@@ -294,6 +294,25 @@ def test_is_live_from_fifteen_minutes_before_kickoff():
     assert not nfl.is_live(pre(None), now)
 
 
+REAL_GAMES_ON = nfl.games_on  # conftest swaps it for the window alone
+
+
+def test_games_on_outside_the_window_reads_the_schedule(monkeypatch):
+    wed = datetime(2026, 11, 26, 1, 30, tzinfo=timezone.utc).timestamp()  # Wednesday 8:30 PM ET: outside the window
+    games = [{"status": "in", "kickoff": "2026-11-26T01:00Z"}]
+    monkeypatch.setattr(nfl, "scoreboard", lambda week: ({"games": games}, None))
+    assert REAL_GAMES_ON(wed)
+    games[0]["status"] = "post"
+    assert not REAL_GAMES_ON(wed)
+
+    def down(week):
+        raise RuntimeError("ESPN down")
+    monkeypatch.setattr(nfl, "scoreboard", down)
+    assert not REAL_GAMES_ON(wed)  # a cold outage keeps to the window
+    sun = datetime(2026, 11, 29, 18, 0, tzinfo=timezone.utc).timestamp()
+    assert REAL_GAMES_ON(sun)  # inside the window, no read at all
+
+
 def test_shown_week_rolls_once_every_game_is_four_hours_old():
     sb = nfl.parse_scoreboard(load("scoreboard-w5.json"))  # last kickoff Mon 2026-10-13 00:15Z
     assert sb["season_type"] == 2

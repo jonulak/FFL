@@ -302,6 +302,13 @@ def _acting_user(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _games_on_by_window(monkeypatch):
+    """Pages ask nfl.games_on, which reads ESPN's scoreboard outside the weekly window: a test sees the window only."""
+    from ffl import nfl, season
+    monkeypatch.setattr(nfl, "games_on", lambda now=None: season.is_live())
+
+
+@pytest.fixture(autouse=True)
 def _write_fakes_reset():
     """The per-league fake write stores and kept pending reads start empty in every test."""
     from ffl import espn_write
