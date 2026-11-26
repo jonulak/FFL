@@ -267,6 +267,20 @@ def is_live(g: dict, now: float | None = None) -> bool:
     return g["status"] == "pre" and t is not None and t - (time.time() if now is None else now) <= PREGAME_S
 
 
+def games_on(now: float | None = None) -> bool:
+    """Games are on: the weekly window (season.is_live), or a game on the current scoreboard is in progress or
+    about to kick off, which catches the games outside it (a Wednesday night, a Saturday in December). An
+    unreadable scoreboard leaves the window alone."""
+    if S.is_live(None if now is None else datetime.fromtimestamp(now, timezone.utc)):
+        return True
+    try:
+        games = scoreboard(None)[0]["games"]
+    except Exception as e:  # noqa: BLE001 — a cold outage must not fail every page that asks
+        log.warning("nfl scoreboard for games_on failed: %s", e)
+        return False
+    return any(is_live(g, now) for g in games)
+
+
 def drives_ttl(status: str, seen_final: bool = False) -> float:
     """15 s in play, 10 min before kickoff. A final game's first fetch also lives 10 min (ESPN's drives can lag
     the status flip by seconds); a refetch of an already-final game is settled and lives 24 h."""

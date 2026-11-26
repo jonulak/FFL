@@ -1414,7 +1414,7 @@ def plays_(team: int | None = None, week: int | None = None, limit: int | None =
     else:
         data = _board(week or (runner.week if runner and runner.week else None), team, ref=ref)
     club = lambda s: {k: s.get(k) for k in ("team_id", "team", "abbrev")} if s else None  # noqa: E731
-    return {"week": data["week"], "current": data["week"] == current["week"], "live": season.is_live(),
+    return {"week": data["week"], "current": data["week"] == current["week"], "live": nfl.games_on(),
             "mine": data.get("mine", True),
             "game_on": live.game_on([data.get("me"), data.get("opp")], _live_games(data["week"], ref)),
             "me": club(data.get("me")), "opp": club(data.get("opp")), "plays": _plays(data, limit, ref=ref),

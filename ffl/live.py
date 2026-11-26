@@ -4,7 +4,7 @@ league's stat table, laid over the cached page payloads at serve time.
 `Runner` is the background thread. FastCast is NFL-wide, so one socket serves every registered league: each
 document is rescored once per league (its own stat table) into that league's points, and each league's starters
 feed its own play store (a `Lane`); each league's points are `State.points_for(key)`. It only holds the socket while games are on: inside the
-Thursday-to-Monday window (season.is_live) it connects, and once the checkpoint says no game
+Thursday-to-Monday window, or with a game on outside it (nfl.games_on), it connects, and once the checkpoint says no game
 is in progress and the next kickoff is more than IDLE_BEFORE_KICKOFF away it drops the socket
 and sleeps until just before that kickoff. Every checkpoint or patch rescores the document;
 when any player's points change, `version` ticks and the /live stream wakes.
@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import db, formats
 from . import fastcast as fc
-from . import playbook
+from . import nfl, playbook
 from . import plays as P
 from . import season as S
 
@@ -594,7 +594,7 @@ class Runner(threading.Thread):
 
     def run(self) -> None:
         while not self.stop.is_set():
-            if not S.is_live():
+            if not nfl.games_on():
                 self.stop.wait(OFF_WINDOW_CHECK)
                 continue
             self.pause.clear()
